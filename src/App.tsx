@@ -1,50 +1,227 @@
-import { useState } from "react";
-import reactLogo from "./assets/react.svg";
-import { invoke } from "@tauri-apps/api/core";
-import "./App.css";
+import { useState, useCallback, useEffect } from 'react';
+import './App.css';
+import type { EventWithData, SnapshotRow } from './types';
+import {
+  getAccountsSnapshot,
+  listEvents,
+  createBalanceUpdate,
+  createAccount,
+  updateAccount,
+  deleteAccount,
+  updateEvent,
+  deleteEvent,
+} from './api';
+import { toEndOfDay, todayIso } from './utils/format';
+import Header from './components/Header';
+import AccountList from './components/AccountList';
+import Ledger from './components/Ledger';
+import CreateBalanceUpdateModal from './components/CreateBalanceUpdateModal';
+import EditBalanceUpdateModal from './components/EditBalanceUpdateModal';
+import CreateAccountModal from './components/CreateAccountModal';
+import RenameAccountModal from './components/RenameAccountModal';
+import ConfirmDialog from './components/ConfirmDialog';
+
+type ModalState =
+  | { type: 'none' }
+  | { type: 'createBalanceUpdate'; preselectedAccountId?: number }
+  | { type: 'editBalanceUpdate'; event: EventWithData }
+  | { type: 'createAccount' }
+  | { type: 'renameAccount'; accountId: number; currentName: string }
+  | { type: 'confirmDeleteAccount'; accountId: number; name: string }
+  | { type: 'confirmDeleteEvent'; eventId: number };
 
 function App() {
-  const [greetMsg, setGreetMsg] = useState("");
-  const [name, setName] = useState("");
+  const [selectedDate, setSelectedDate] = useState(todayIso());
+  const [snapshot, setSnapshot] = useState<SnapshotRow[]>([]);
+  const [events, setEvents] = useState<EventWithData[]>([]);
+  const [filterAccountId, setFilterAccountId] = useState<number | null>(null);
+  const [modalState, setModalState] = useState<ModalState>({ type: 'none' });
 
-  async function greet() {
-    // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-    setGreetMsg(await invoke("greet", { name }));
-  }
+  const closeModal = () => setModalState({ type: 'none' });
+
+  const refresh = useCallback(async () => {
+    try {
+      const [snap, evts] = await Promise.all([
+        getAccountsSnapshot(toEndOfDay(selectedDate)),
+        listEvents(),
+      ]);
+      setSnapshot(snap);
+      setEvents(evts);
+    } catch (err) {
+      window.alert(`Failed to load data: ${err}`);
+    }
+  }, [selectedDate]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const [snap, evts] = await Promise.all([
+          getAccountsSnapshot(toEndOfDay(selectedDate)),
+          listEvents(),
+        ]);
+        if (!cancelled) {
+          setSnapshot(snap);
+          setEvents(evts);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          window.alert(`Failed to load data: ${err}`);
+        }
+      }
+    };
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedDate]);
+
+  const handleCreateBalanceUpdate = async (
+    accountId: number,
+    amountMinor: number,
+    eventDate: string,
+    note: string,
+  ) => {
+    try {
+      await createBalanceUpdate(accountId, amountMinor, eventDate, note || undefined);
+      closeModal();
+      await refresh();
+    } catch (err) {
+      window.alert(`Failed to create balance update: ${err}`);
+    }
+  };
+
+  const handleEditBalanceUpdate = async (
+    eventId: number,
+    amountMinor: number,
+    eventDate: string,
+    note: string,
+  ) => {
+    try {
+      await updateEvent(eventId, amountMinor, eventDate, note || undefined);
+      closeModal();
+      await refresh();
+    } catch (err) {
+      window.alert(`Failed to update event: ${err}`);
+    }
+  };
+
+  const handleDeleteEvent = async (eventId: number) => {
+    try {
+      await deleteEvent(eventId);
+      closeModal();
+      await refresh();
+    } catch (err) {
+      window.alert(`Failed to delete event: ${err}`);
+    }
+  };
+
+  const handleCreateAccount = async (name: string, initialBalanceMinor?: number) => {
+    try {
+      // TODO: hardcoded EUR currency ID = 1 for MVP; support multiple currencies later
+      await createAccount(name, 1, initialBalanceMinor);
+      closeModal();
+      await refresh();
+    } catch (err) {
+      window.alert(`Failed to create account: ${err}`);
+    }
+  };
+
+  const handleRenameAccount = async (accountId: number, name: string) => {
+    try {
+      await updateAccount(accountId, name);
+      closeModal();
+      await refresh();
+    } catch (err) {
+      window.alert(`Failed to rename account: ${err}`);
+    }
+  };
+
+  const handleDeleteAccount = async (accountId: number) => {
+    try {
+      await deleteAccount(accountId);
+      closeModal();
+      await refresh();
+    } catch (err) {
+      window.alert(`Failed to delete account: ${err}`);
+    }
+  };
 
   return (
-    <main className="container">
-      <h1>Welcome to Tauri + React</h1>
+    <div className="app">
+      <Header selectedDate={selectedDate} onDateChange={setSelectedDate} snapshot={snapshot} />
 
-      <div className="row">
-        <a href="https://vite.dev" target="_blank">
-          <img src="/vite.svg" className="logo vite" alt="Vite logo" />
-        </a>
-        <a href="https://tauri.app" target="_blank">
-          <img src="/tauri.svg" className="logo tauri" alt="Tauri logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <p>Click on the Tauri, Vite, and React logos to learn more.</p>
-
-      <form
-        className="row"
-        onSubmit={(e) => {
-          e.preventDefault();
-          greet();
-        }}
-      >
-        <input
-          id="greet-input"
-          onChange={(e) => setName(e.currentTarget.value)}
-          placeholder="Enter a name..."
+      <main className="main-content">
+        <AccountList
+          snapshot={snapshot}
+          onUpdateBalance={(accountId) =>
+            setModalState({ type: 'createBalanceUpdate', preselectedAccountId: accountId })
+          }
+          onRenameAccount={(accountId, currentName) =>
+            setModalState({ type: 'renameAccount', accountId, currentName })
+          }
+          onDeleteAccount={(accountId, name) =>
+            setModalState({ type: 'confirmDeleteAccount', accountId, name })
+          }
+          onCreateAccount={() => setModalState({ type: 'createAccount' })}
         />
-        <button type="submit">Greet</button>
-      </form>
-      <p>{greetMsg}</p>
-    </main>
+
+        <Ledger
+          events={events}
+          accounts={snapshot}
+          filterAccountId={filterAccountId}
+          onFilterChange={setFilterAccountId}
+          onEditEvent={(event) => setModalState({ type: 'editBalanceUpdate', event })}
+          onDeleteEvent={(eventId) => setModalState({ type: 'confirmDeleteEvent', eventId })}
+        />
+      </main>
+
+      {modalState.type === 'createBalanceUpdate' && (
+        <CreateBalanceUpdateModal
+          accounts={snapshot}
+          preselectedAccountId={modalState.preselectedAccountId}
+          onSubmit={handleCreateBalanceUpdate}
+          onClose={closeModal}
+        />
+      )}
+
+      {modalState.type === 'editBalanceUpdate' && (
+        <EditBalanceUpdateModal
+          event={modalState.event}
+          onSubmit={handleEditBalanceUpdate}
+          onClose={closeModal}
+        />
+      )}
+
+      {modalState.type === 'createAccount' && (
+        <CreateAccountModal onSubmit={handleCreateAccount} onClose={closeModal} />
+      )}
+
+      {modalState.type === 'renameAccount' && (
+        <RenameAccountModal
+          accountId={modalState.accountId}
+          currentName={modalState.currentName}
+          onSubmit={handleRenameAccount}
+          onClose={closeModal}
+        />
+      )}
+
+      {modalState.type === 'confirmDeleteAccount' && (
+        <ConfirmDialog
+          message={`Are you sure you want to delete account "${modalState.name}"? This will also delete all its events.`}
+          onConfirm={() => handleDeleteAccount(modalState.accountId)}
+          onCancel={closeModal}
+        />
+      )}
+
+      {modalState.type === 'confirmDeleteEvent' && (
+        <ConfirmDialog
+          message="Are you sure you want to delete this event?"
+          onConfirm={() => handleDeleteEvent(modalState.eventId)}
+          onCancel={closeModal}
+        />
+      )}
+    </div>
   );
 }
 

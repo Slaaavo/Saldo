@@ -1,0 +1,63 @@
+-- Migration 001: initial schema
+BEGIN TRANSACTION;
+
+-- currency
+CREATE TABLE currency (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  code TEXT NOT NULL UNIQUE,
+  name TEXT NOT NULL,
+  minor_units INTEGER NOT NULL DEFAULT 2,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f','now'))
+);
+
+-- account
+CREATE TABLE account (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  currency_id INTEGER NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f','now')),
+  FOREIGN KEY (currency_id) REFERENCES currency (id) ON DELETE RESTRICT
+);
+
+-- event (lifecycle record). latest_data_id is nullable to allow simple insert flow:
+-- 1) insert event (no latest_data_id), 2) insert event_data, 3) update event.latest_data_id via trigger.
+CREATE TABLE event (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  account_id INTEGER NOT NULL,
+  event_type TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f','now')),
+  deleted_at TEXT NULL,
+  latest_data_id INTEGER NULL,
+  FOREIGN KEY (account_id) REFERENCES account (id) ON DELETE RESTRICT,
+  FOREIGN KEY (latest_data_id) REFERENCES event_data (id) DEFERRABLE INITIALLY DEFERRED
+);
+
+-- event_data (append-only payload). note is nullable.
+CREATE TABLE event_data (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  event_id INTEGER NOT NULL,
+  amount_minor INTEGER NOT NULL,
+  event_date TEXT NOT NULL,
+  note TEXT NULL,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f','now')),
+  FOREIGN KEY (event_id) REFERENCES event (id) ON DELETE CASCADE
+);
+
+-- Indexes
+CREATE INDEX idx_account_currency ON account (currency_id);
+CREATE INDEX idx_event_account ON event (account_id);
+CREATE INDEX idx_event_deleted_at ON event (deleted_at);
+CREATE INDEX idx_event_latest_data ON event (latest_data_id);
+
+CREATE INDEX idx_eventdata_event_id ON event_data (event_id);
+-- Composite index to optimize snapshot queries that filter by event_date then pick latest created_at:
+CREATE INDEX idx_eventdata_eventdate_eventid_createdat ON event_data (event_date, event_id, created_at DESC);
+
+-- Trigger: when a new event_data row is inserted, set event.latest_data_id to the new row's id.
+CREATE TRIGGER trg_eventdata_after_insert
+AFTER INSERT ON event_data
+BEGIN
+  UPDATE event SET latest_data_id = NEW.id WHERE id = NEW.event_id;
+END;
+
+COMMIT;
