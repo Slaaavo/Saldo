@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useEscapeKey } from '../hooks/useEscapeKey';
 
 interface Props {
   onSubmit: (name: string, initialBalanceMinor?: number) => void;
@@ -8,6 +9,8 @@ interface Props {
 export default function CreateAccountModal({ onSubmit, onClose }: Props) {
   const [name, setName] = useState('');
   const [balance, setBalance] = useState('');
+
+  useEscapeKey(onClose);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -29,8 +32,14 @@ export default function CreateAccountModal({ onSubmit, onClose }: Props) {
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal-card" onClick={(e) => e.stopPropagation()}>
-        <h3>Create Account</h3>
+      <div
+        className="modal-card"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="dialog-title-create-account"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 id="dialog-title-create-account">Create Account</h3>
         <form onSubmit={handleSubmit}>
           <div className="form-group">
             <label>Account Name</label>
@@ -40,6 +49,7 @@ export default function CreateAccountModal({ onSubmit, onClose }: Props) {
               onChange={(e) => setName(e.target.value)}
               placeholder="e.g. Checking Account"
               required
+              autoFocus
             />
           </div>
           <div className="form-group">

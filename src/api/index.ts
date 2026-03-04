@@ -21,9 +21,15 @@ export async function getAccountsSnapshot(dateIso: string): Promise<SnapshotRow[
   return invoke('get_accounts_snapshot', { dateIso });
 }
 
-export async function listEvents(accountId?: number): Promise<EventWithData[]> {
+export async function listEvents(
+  accountId?: number,
+  beforeDate?: string,
+): Promise<EventWithData[]> {
   return invoke('list_events', {
-    filter: { accountId: accountId ?? null },
+    filter: {
+      accountId: accountId ?? null,
+      beforeDate: beforeDate ?? null,
+    },
   });
 }
 

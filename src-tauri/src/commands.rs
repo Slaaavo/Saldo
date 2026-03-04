@@ -1,4 +1,5 @@
 use crate::{error::AppError, models::*, repository, AppState};
+use chrono::NaiveDate;
 use serde::Deserialize;
 use tauri::State;
 
@@ -39,6 +40,21 @@ pub struct UpdateEventInput {
 #[serde(rename_all = "camelCase")]
 pub struct ListEventsFilter {
     pub account_id: Option<i64>,
+    pub before_date: Option<String>,
+}
+
+fn validate_event_date(date_str: &str) -> Result<(), AppError> {
+    if date_str.is_empty() {
+        return Err(AppError {
+            code: "VALIDATION".into(),
+            message: "event_date is required".into(),
+        });
+    }
+    NaiveDate::parse_from_str(date_str, "%Y-%m-%d").map_err(|_| AppError {
+        code: "VALIDATION".into(),
+        message: "event_date must be a valid date in YYYY-MM-DD format".into(),
+    })?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -46,12 +62,7 @@ pub fn create_balance_update(
     state: State<'_, AppState>,
     input: CreateBalanceUpdateInput,
 ) -> Result<i64, AppError> {
-    if input.event_date.is_empty() {
-        return Err(AppError {
-            code: "VALIDATION".into(),
-            message: "event_date is required".into(),
-        });
-    }
+    validate_event_date(&input.event_date)?;
     let conn = state.db.lock().map_err(|e| AppError::from(e.to_string()))?;
     let event_id = repository::create_balance_update(
         &conn,
@@ -84,7 +95,7 @@ pub fn list_events(
     filter: ListEventsFilter,
 ) -> Result<Vec<EventWithData>, AppError> {
     let conn = state.db.lock().map_err(|e| AppError::from(e.to_string()))?;
-    let events = repository::list_events(&conn, filter.account_id)?;
+    let events = repository::list_events(&conn, filter.account_id, filter.before_date.as_deref())?;
     Ok(events)
 }
 
@@ -134,12 +145,7 @@ pub fn delete_account(state: State<'_, AppState>, account_id: i64) -> Result<(),
 
 #[tauri::command]
 pub fn update_event(state: State<'_, AppState>, input: UpdateEventInput) -> Result<(), AppError> {
-    if input.event_date.is_empty() {
-        return Err(AppError {
-            code: "VALIDATION".into(),
-            message: "event_date is required".into(),
-        });
-    }
+    validate_event_date(&input.event_date)?;
     let conn = state.db.lock().map_err(|e| AppError::from(e.to_string()))?;
     repository::update_event(
         &conn,

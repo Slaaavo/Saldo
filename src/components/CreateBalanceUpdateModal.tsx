@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { SnapshotRow } from '../types';
 import { todayIso } from '../utils/format';
+import { useEscapeKey } from '../hooks/useEscapeKey';
 
 interface Props {
   accounts: SnapshotRow[];
@@ -22,6 +23,8 @@ export default function CreateBalanceUpdateModal({
   const [date, setDate] = useState(todayIso());
   const [note, setNote] = useState('');
 
+  useEscapeKey(onClose);
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const parsed = parseFloat(amount);
@@ -35,12 +38,22 @@ export default function CreateBalanceUpdateModal({
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal-card" onClick={(e) => e.stopPropagation()}>
-        <h3>Create Balance Update</h3>
+      <div
+        className="modal-card"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="dialog-title-create-balance-update"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 id="dialog-title-create-balance-update">Create Balance Update</h3>
         <form onSubmit={handleSubmit}>
           <div className="form-group">
             <label>Account</label>
-            <select value={accountId} onChange={(e) => setAccountId(Number(e.target.value))}>
+            <select
+              value={accountId}
+              onChange={(e) => setAccountId(Number(e.target.value))}
+              autoFocus
+            >
               {accounts.map((a) => (
                 <option key={a.accountId} value={a.accountId}>
                   {a.accountName}

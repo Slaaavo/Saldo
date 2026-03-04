@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { EventWithData } from '../types';
 import { formatDate } from '../utils/format';
+import { useEscapeKey } from '../hooks/useEscapeKey';
 
 interface Props {
   event: EventWithData;
@@ -12,6 +13,8 @@ export default function EditBalanceUpdateModal({ event, onSubmit, onClose }: Pro
   const [amount, setAmount] = useState((event.amountMinor / 100).toFixed(2));
   const [date, setDate] = useState(formatDate(event.eventDate));
   const [note, setNote] = useState(event.note ?? '');
+
+  useEscapeKey(onClose);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -26,8 +29,14 @@ export default function EditBalanceUpdateModal({ event, onSubmit, onClose }: Pro
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal-card" onClick={(e) => e.stopPropagation()}>
-        <h3>Edit Balance Update</h3>
+      <div
+        className="modal-card"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="dialog-title-edit-balance-update"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 id="dialog-title-edit-balance-update">Edit Balance Update</h3>
         <form onSubmit={handleSubmit}>
           <div className="form-group">
             <label>Account</label>
@@ -41,6 +50,7 @@ export default function EditBalanceUpdateModal({ event, onSubmit, onClose }: Pro
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
               required
+              autoFocus
             />
           </div>
           <div className="form-group">

@@ -41,9 +41,10 @@ function App() {
 
   const refresh = useCallback(async () => {
     try {
+      const endOfDay = toEndOfDay(selectedDate);
       const [snap, evts] = await Promise.all([
-        getAccountsSnapshot(toEndOfDay(selectedDate)),
-        listEvents(),
+        getAccountsSnapshot(endOfDay),
+        listEvents(undefined, endOfDay),
       ]);
       setSnapshot(snap);
       setEvents(evts);
@@ -53,28 +54,11 @@ function App() {
   }, [selectedDate]);
 
   useEffect(() => {
-    let cancelled = false;
     const load = async () => {
-      try {
-        const [snap, evts] = await Promise.all([
-          getAccountsSnapshot(toEndOfDay(selectedDate)),
-          listEvents(),
-        ]);
-        if (!cancelled) {
-          setSnapshot(snap);
-          setEvents(evts);
-        }
-      } catch (err) {
-        if (!cancelled) {
-          window.alert(`Failed to load data: ${err}`);
-        }
-      }
+      await refresh();
     };
     load();
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedDate]);
+  }, [refresh]);
 
   const handleCreateBalanceUpdate = async (
     accountId: number,
@@ -169,7 +153,6 @@ function App() {
         <Ledger
           events={events}
           accounts={snapshot}
-          selectedDate={selectedDate}
           filterAccountId={filterAccountId}
           onFilterChange={setFilterAccountId}
           onEditEvent={(event) => setModalState({ type: 'editBalanceUpdate', event })}

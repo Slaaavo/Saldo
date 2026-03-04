@@ -1,25 +1,5 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
-#[allow(dead_code)]
-pub struct Currency {
-    pub id: i64,
-    pub code: String,
-    pub name: String,
-    pub minor_units: i64,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
-#[allow(dead_code)]
-pub struct Account {
-    pub id: i64,
-    pub name: String,
-    pub currency_id: i64,
-    pub created_at: String,
-}
-
 /// Flattened event with its current (latest) event_data.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
