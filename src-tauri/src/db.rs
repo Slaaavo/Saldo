@@ -14,7 +14,7 @@ pub fn set_pragmas(conn: &Connection) -> SqlResult<()> {
     conn.execute_batch(
         "PRAGMA foreign_keys = ON;
          PRAGMA journal_mode = WAL;
-         PRAGMA synchronous = NORMAL;"
+         PRAGMA synchronous = NORMAL;",
     )?;
     Ok(())
 }
@@ -56,12 +56,16 @@ mod tests {
         let conn = initialize_in_memory().expect("DB init failed");
 
         let currency_code: String = conn
-            .query_row("SELECT code FROM currency WHERE id = 1", [], |row| row.get(0))
+            .query_row("SELECT code FROM currency WHERE id = 1", [], |row| {
+                row.get(0)
+            })
             .expect("currency query failed");
         assert_eq!(currency_code, "EUR");
 
         let account_name: String = conn
-            .query_row("SELECT name FROM account WHERE id = 1", [], |row| row.get(0))
+            .query_row("SELECT name FROM account WHERE id = 1", [], |row| {
+                row.get(0)
+            })
             .expect("account query failed");
         assert_eq!(account_name, "Main Account");
     }

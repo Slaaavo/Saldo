@@ -1,6 +1,6 @@
+use crate::{error::AppError, models::*, repository, AppState};
 use serde::Deserialize;
 use tauri::State;
-use crate::{AppState, error::AppError, models::*, repository};
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -126,20 +126,14 @@ pub fn update_account(
 }
 
 #[tauri::command]
-pub fn delete_account(
-    state: State<'_, AppState>,
-    account_id: i64,
-) -> Result<(), AppError> {
+pub fn delete_account(state: State<'_, AppState>, account_id: i64) -> Result<(), AppError> {
     let conn = state.db.lock().map_err(|e| AppError::from(e.to_string()))?;
     repository::delete_account(&conn, account_id)?;
     Ok(())
 }
 
 #[tauri::command]
-pub fn update_event(
-    state: State<'_, AppState>,
-    input: UpdateEventInput,
-) -> Result<(), AppError> {
+pub fn update_event(state: State<'_, AppState>, input: UpdateEventInput) -> Result<(), AppError> {
     if input.event_date.is_empty() {
         return Err(AppError {
             code: "VALIDATION".into(),
@@ -158,10 +152,7 @@ pub fn update_event(
 }
 
 #[tauri::command]
-pub fn delete_event(
-    state: State<'_, AppState>,
-    event_id: i64,
-) -> Result<(), AppError> {
+pub fn delete_event(state: State<'_, AppState>, event_id: i64) -> Result<(), AppError> {
     let conn = state.db.lock().map_err(|e| AppError::from(e.to_string()))?;
     repository::delete_event(&conn, event_id)?;
     Ok(())

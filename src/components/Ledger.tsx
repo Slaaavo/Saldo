@@ -22,9 +22,7 @@ export default function Ledger({
 }: Props) {
   const endOfDay = toEndOfDay(selectedDate);
   const filtered = events.filter(
-    (e) =>
-      e.eventDate <= endOfDay &&
-      (filterAccountId === null || e.accountId === filterAccountId),
+    (e) => e.eventDate <= endOfDay && (filterAccountId === null || e.accountId === filterAccountId),
   );
 
   return (

@@ -1,5 +1,5 @@
-use rusqlite::{params, Connection};
 use crate::models::*;
+use rusqlite::{params, Connection};
 
 pub fn create_account(
     conn: &Connection,
@@ -186,9 +186,7 @@ pub fn list_events(
 }
 
 fn local_now() -> String {
-    chrono::Local::now()
-        .format("%Y-%m-%dT%H:%M:%S")
-        .to_string()
+    chrono::Local::now().format("%Y-%m-%dT%H:%M:%S").to_string()
 }
 
 #[cfg(test)]
@@ -233,8 +231,7 @@ mod tests {
     #[test]
     fn snapshot_ignores_soft_deleted_events() {
         let conn = initialize_in_memory().expect("DB init failed");
-        let event_id =
-            create_balance_update(&conn, 1, 5000, "2026-03-01T10:00:00", None).unwrap();
+        let event_id = create_balance_update(&conn, 1, 5000, "2026-03-01T10:00:00", None).unwrap();
         delete_event(&conn, event_id).unwrap();
         let snapshot = get_accounts_snapshot(&conn, "2026-03-01T23:59:59").unwrap();
         assert_eq!(snapshot[0].balance_minor, 0);
@@ -243,8 +240,7 @@ mod tests {
     #[test]
     fn update_event_creates_new_data_row() {
         let conn = initialize_in_memory().expect("DB init failed");
-        let event_id =
-            create_balance_update(&conn, 1, 5000, "2026-03-01T10:00:00", None).unwrap();
+        let event_id = create_balance_update(&conn, 1, 5000, "2026-03-01T10:00:00", None).unwrap();
         update_event(&conn, event_id, 9999, "2026-03-01T10:00:00", None).unwrap();
         let snapshot = get_accounts_snapshot(&conn, "2026-03-01T23:59:59").unwrap();
         assert_eq!(snapshot[0].balance_minor, 9999);
@@ -272,7 +268,10 @@ mod tests {
         let conn = initialize_in_memory().expect("DB init failed");
         let account_id = create_account(&conn, "Savings", 1, Some(10000)).unwrap();
         let snapshot = get_accounts_snapshot(&conn, "2099-12-31T23:59:59").unwrap();
-        let row = snapshot.iter().find(|r| r.account_id == account_id).unwrap();
+        let row = snapshot
+            .iter()
+            .find(|r| r.account_id == account_id)
+            .unwrap();
         assert_eq!(row.balance_minor, 10000);
     }
 

@@ -17,14 +17,18 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
-            let app_dir = app.path().app_data_dir().expect("failed to get app data dir");
+            let app_dir = app
+                .path()
+                .app_data_dir()
+                .expect("failed to get app data dir");
             std::fs::create_dir_all(&app_dir).expect("failed to create app data dir");
             let db_path = app_dir.join("our-finances.db");
 
-            let conn = db::initialize_db(&db_path)
-                .expect("failed to initialize database");
+            let conn = db::initialize_db(&db_path).expect("failed to initialize database");
 
-            app.manage(AppState { db: Mutex::new(conn) });
+            app.manage(AppState {
+                db: Mutex::new(conn),
+            });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

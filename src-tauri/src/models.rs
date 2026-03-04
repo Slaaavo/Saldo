@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
 pub struct Currency {
     pub id: i64,
     pub code: String,
@@ -11,6 +12,7 @@ pub struct Currency {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
 pub struct Account {
     pub id: i64,
     pub name: String,
