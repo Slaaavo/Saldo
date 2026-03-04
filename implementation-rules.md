@@ -24,11 +24,11 @@ Purpose: capture concrete implementation choices, conventions, and minimal techn
 ## 3. Data Model (core tables)
 - `currency`   (id INTEGER PK, code TEXT UNIQUE, name TEXT, minor_units INTEGER)
 - `account`    (id INTEGER PK, name TEXT, created_at TEXT, currency_id INTEGER REFERENCES currency(id))
-- `event`      (id INTEGER PK, account_id INTEGER REFERENCES account(id), event_type TEXT, created_at TEXT, deleted_at TEXT)
+- `event`      (id INTEGER PK, account_id INTEGER REFERENCES account(id), event_type TEXT, created_at TEXT, deleted_at TEXT, latest_data_id INTEGER REFERENCES event_data(id))
 - `event_data` (id INTEGER PK, event_id INTEGER REFERENCES event(id), amount_minor INTEGER, event_date TEXT, note TEXT, created_at TEXT)
 
 Notes:
-- **`event` vs `event_data` split:** `event` is the identity/lifecycle record (who, what type, when created, soft-delete). `event_data` holds the mutable payload (amount, date, note). Every edit inserts a new `event_data` row; the **latest** `event_data` row (by `created_at DESC`) is the current version. This gives a built-in edit-history log at no extra cost.
+- **`event` vs `event_data` split:** `event` is the identity/lifecycle record (who, what type, when created, soft-delete). `event_data` holds the mutable payload (amount, date, note). Every edit inserts a new `event_data` row; the **latest** `event_data` row (by `created_at DESC`) is the current version. The reference is also kept in `latest_data_id`. This gives a built-in edit-history log at no extra cost.
 - `amount_minor` is integer minor units (cents). Use 64-bit integers in Rust and JS where necessary.
 - MVP: single currency (EUR) only. `currency` exists for future extensibility but all seeded accounts and events should use EUR; no exchange rates in MVP.
 - `event_date` stores an ISO 8601 datetime string (`YYYY-MM-DDTHH:MM:SS`), not just a date. In the UI, only the date portion is shown by default; the schema stores full datetime to allow a future setting to show time.
