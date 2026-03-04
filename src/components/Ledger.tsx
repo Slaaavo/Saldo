@@ -1,9 +1,10 @@
 import type { EventWithData, SnapshotRow } from '../types';
-import { formatDate, formatEur } from '../utils/format';
+import { formatDate, formatEur, toEndOfDay } from '../utils/format';
 
 interface Props {
   events: EventWithData[];
   accounts: SnapshotRow[];
+  selectedDate: string;
   filterAccountId: number | null;
   onFilterChange: (accountId: number | null) => void;
   onEditEvent: (event: EventWithData) => void;
@@ -13,15 +14,18 @@ interface Props {
 export default function Ledger({
   events,
   accounts,
+  selectedDate,
   filterAccountId,
   onFilterChange,
   onEditEvent,
   onDeleteEvent,
 }: Props) {
-  const filtered =
-    filterAccountId === null
-      ? events
-      : events.filter((e) => e.accountId === filterAccountId);
+  const endOfDay = toEndOfDay(selectedDate);
+  const filtered = events.filter(
+    (e) =>
+      e.eventDate <= endOfDay &&
+      (filterAccountId === null || e.accountId === filterAccountId),
+  );
 
   return (
     <section className="ledger">

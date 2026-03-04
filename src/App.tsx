@@ -169,6 +169,7 @@ function App() {
         <Ledger
           events={events}
           accounts={snapshot}
+          selectedDate={selectedDate}
           filterAccountId={filterAccountId}
           onFilterChange={setFilterAccountId}
           onEditEvent={(event) => setModalState({ type: 'editBalanceUpdate', event })}

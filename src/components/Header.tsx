@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import type { SnapshotRow } from '../types';
 import { formatEur } from '../utils/format';
 
@@ -8,7 +9,19 @@ interface Props {
 }
 
 export default function Header({ selectedDate, onDateChange, snapshot }: Props) {
+  const [localDate, setLocalDate] = useState(selectedDate);
   const totalMinor = snapshot.reduce((sum, r) => sum + r.balanceMinor, 0);
+
+  // Sync local state if parent changes selectedDate externally
+  useEffect(() => {
+    setLocalDate(selectedDate);
+  }, [selectedDate]);
+
+  const commitDate = () => {
+    if (localDate && localDate !== selectedDate) {
+      onDateChange(localDate);
+    }
+  };
 
   return (
     <header className="app-header">
@@ -18,8 +31,12 @@ export default function Header({ selectedDate, onDateChange, snapshot }: Props) 
           Date:{' '}
           <input
             type="date"
-            value={selectedDate}
-            onChange={(e) => onDateChange(e.target.value)}
+            value={localDate}
+            onChange={(e) => setLocalDate(e.target.value)}
+            onBlur={commitDate}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') commitDate();
+            }}
           />
         </label>
         <span className={`total-balance ${totalMinor < 0 ? 'negative' : ''}`}>
