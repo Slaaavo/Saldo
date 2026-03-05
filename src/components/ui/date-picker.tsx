@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { CalendarIcon } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
-import { formatDisplayDate } from '@/utils/format';
+import { formatDisplayDate, todayIso } from '@/utils/format';
 import { Button } from '@/components/ui/button';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -66,6 +66,19 @@ export function DatePicker({
             }
           }}
         />
+        <div className="border-t border-border px-3 py-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="w-full text-sm"
+            onClick={() => {
+              onChange(todayIso());
+              setOpen(false);
+            }}
+          >
+            Today
+          </Button>
+        </div>
       </PopoverContent>
     </Popover>
   );
