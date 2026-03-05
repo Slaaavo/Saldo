@@ -1,3 +1,4 @@
+import { useRef, useState, useCallback, useEffect } from 'react';
 import type { SnapshotRow } from '../types';
 import { formatEur } from '../utils/format';
 import { cn } from '@/lib/utils';
@@ -9,7 +10,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
-import { MoreVertical, Plus, Pencil, Trash2 } from 'lucide-react';
+import { MoreVertical, Plus, Pencil, Trash2, ChevronLeft, ChevronRight } from 'lucide-react';
 
 interface Props {
   snapshot: SnapshotRow[];
@@ -26,6 +27,37 @@ export default function AccountCards({
   onDeleteAccount,
   onCreateAccount,
 }: Props) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
+
+  const updateScrollButtons = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    setCanScrollLeft(el.scrollLeft > 0);
+    setCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 1);
+  }, []);
+
+  useEffect(() => {
+    updateScrollButtons();
+    const el = scrollRef.current;
+    if (!el) return;
+    el.addEventListener('scroll', updateScrollButtons, { passive: true });
+    const ro = new ResizeObserver(updateScrollButtons);
+    ro.observe(el);
+    return () => {
+      el.removeEventListener('scroll', updateScrollButtons);
+      ro.disconnect();
+    };
+  }, [updateScrollButtons, snapshot]);
+
+  const scroll = useCallback((direction: 'left' | 'right') => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const amount = direction === 'left' ? -220 : 220;
+    el.scrollBy({ left: amount, behavior: 'smooth' });
+  }, []);
+
   return (
     <section>
       <div className="flex items-center justify-between mb-4">
@@ -39,50 +71,81 @@ export default function AccountCards({
       {snapshot.length === 0 ? (
         <p className="text-sm text-muted-foreground">No accounts yet. Create one to get started.</p>
       ) : (
-        <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-4">
-          {snapshot.map((row) => (
-            <Card key={row.accountId} className="relative">
-              <CardContent className="flex flex-col gap-1 p-4">
-                <div className="flex items-start justify-between">
-                  <span className="text-sm text-muted-foreground">{row.accountName}</span>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="icon" className="h-7 w-7 -mr-2 -mt-1">
-                        <MoreVertical className="h-4 w-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem
-                        onClick={() => onRenameAccount(row.accountId, row.accountName)}
-                      >
-                        <Pencil className="h-4 w-4" />
-                        Rename
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        className="text-destructive focus:text-destructive"
-                        onClick={() => onDeleteAccount(row.accountId, row.accountName)}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                        Delete
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
-                <span
-                  className={cn('text-2xl font-bold', row.balanceMinor < 0 && 'text-destructive')}
-                >
-                  {formatEur(row.balanceMinor)}
-                </span>
-                <button
-                  onClick={() => onUpdateBalance(row.accountId)}
-                  className="mt-2 text-xs font-bold uppercase tracking-wider text-muted-foreground hover:text-primary transition-colors flex items-center gap-1"
-                >
-                  <Pencil className="h-3 w-3" />
-                  Update Balance
-                </button>
-              </CardContent>
-            </Card>
-          ))}
+        <div className="group/scroll relative">
+          {canScrollLeft && (
+            <button
+              onClick={() => scroll('left')}
+              className="absolute left-0 top-1/2 -translate-y-1/2 z-10 hidden group-hover/scroll:flex h-8 w-8 items-center justify-center rounded-full bg-background border border-border shadow-md hover:bg-accent transition-colors"
+              aria-label="Scroll left"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+          )}
+
+          <div
+            ref={scrollRef}
+            className="flex gap-4 overflow-x-auto no-scrollbar"
+            style={{ scrollbarWidth: 'none' }}
+          >
+            {snapshot.map((row) => (
+              <Card key={row.accountId} className="relative w-[200px] min-w-[200px] shrink-0">
+                <CardContent className="flex flex-col gap-1 p-4">
+                  <div className="flex items-start justify-between min-w-0">
+                    <span
+                      className="text-sm text-muted-foreground truncate"
+                      title={row.accountName}
+                    >
+                      {row.accountName}
+                    </span>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon" className="h-7 w-7 -mr-2 -mt-1">
+                          <MoreVertical className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem
+                          onClick={() => onRenameAccount(row.accountId, row.accountName)}
+                        >
+                          <Pencil className="h-4 w-4" />
+                          Rename
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          className="text-destructive focus:text-destructive"
+                          onClick={() => onDeleteAccount(row.accountId, row.accountName)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                          Delete
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
+                  <span
+                    className={cn('text-2xl font-bold', row.balanceMinor < 0 && 'text-destructive')}
+                  >
+                    {formatEur(row.balanceMinor)}
+                  </span>
+                  <button
+                    onClick={() => onUpdateBalance(row.accountId)}
+                    className="mt-2 text-xs font-bold uppercase tracking-wider text-muted-foreground hover:text-primary transition-colors flex items-center gap-1"
+                  >
+                    <Pencil className="h-3 w-3" />
+                    Update Balance
+                  </button>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+
+          {canScrollRight && (
+            <button
+              onClick={() => scroll('right')}
+              className="absolute right-0 top-1/2 -translate-y-1/2 z-10 hidden group-hover/scroll:flex h-8 w-8 items-center justify-center rounded-full bg-background border border-border shadow-md hover:bg-accent transition-colors"
+              aria-label="Scroll right"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          )}
         </div>
       )}
     </section>

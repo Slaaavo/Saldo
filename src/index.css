@@ -33,6 +33,10 @@
 }
 
 @layer base {
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
   * {
     @apply border-border;
     box-sizing: border-box;
