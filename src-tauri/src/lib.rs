@@ -40,6 +40,7 @@ pub fn run() {
             commands::delete_account,
             commands::update_event,
             commands::delete_event,
+            commands::bulk_create_balance_updates,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -76,3 +76,13 @@ export async function updateEvent(
 export async function deleteEvent(eventId: number): Promise<void> {
   return invoke('delete_event', { eventId });
 }
+
+export async function bulkCreateBalanceUpdates(
+  entries: { accountId: number; amountMinor: number }[],
+  eventDate: string,
+  note?: string,
+): Promise<number[]> {
+  return invoke('bulk_create_balance_updates', {
+    input: { entries, eventDate, note: note ?? null },
+  });
+}

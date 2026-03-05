@@ -3,16 +3,23 @@ import { formatEur, formatDisplayDate } from '../utils/format';
 import { cn } from '@/lib/utils';
 import { Button } from './ui/button';
 import { Card, CardContent } from './ui/card';
-import { Pencil, Trash2 } from 'lucide-react';
+import { Pencil, RefreshCw, Trash2 } from 'lucide-react';
 
 interface Props {
   events: EventWithData[];
   accounts: SnapshotRow[];
   onEditEvent: (event: EventWithData) => void;
   onDeleteEvent: (eventId: number) => void;
+  onUpdateBalances: () => void;
 }
 
-export default function Ledger({ events, accounts, onEditEvent, onDeleteEvent }: Props) {
+export default function Ledger({
+  events,
+  accounts,
+  onEditEvent,
+  onDeleteEvent,
+  onUpdateBalances,
+}: Props) {
   // Build account position map from snapshot order
   const accountPosition = new Map<number, number>();
   accounts.forEach((a, i) => accountPosition.set(a.accountId, i));
@@ -41,6 +48,10 @@ export default function Ledger({ events, accounts, onEditEvent, onDeleteEvent }:
     <section>
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-xl font-semibold">Ledger</h2>
+        <Button onClick={onUpdateBalances} size="sm">
+          <RefreshCw className="h-4 w-4" />
+          Update Balances
+        </Button>
       </div>
 
       {events.length === 0 ? (

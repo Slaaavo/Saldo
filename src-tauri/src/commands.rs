@@ -43,6 +43,21 @@ pub struct ListEventsFilter {
     pub before_date: Option<String>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BulkBalanceEntry {
+    pub account_id: i64,
+    pub amount_minor: i64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BulkCreateBalanceUpdatesInput {
+    pub entries: Vec<BulkBalanceEntry>,
+    pub event_date: String,
+    pub note: Option<String>,
+}
+
 fn validate_event_date(date_str: &str) -> Result<(), AppError> {
     if date_str.is_empty() {
         return Err(AppError {
@@ -162,4 +177,31 @@ pub fn delete_event(state: State<'_, AppState>, event_id: i64) -> Result<(), App
     let conn = state.db.lock().map_err(|e| AppError::from(e.to_string()))?;
     repository::delete_event(&conn, event_id)?;
     Ok(())
+}
+
+#[tauri::command]
+pub fn bulk_create_balance_updates(
+    state: State<'_, AppState>,
+    input: BulkCreateBalanceUpdatesInput,
+) -> Result<Vec<i64>, AppError> {
+    validate_event_date(&input.event_date)?;
+    if input.entries.is_empty() {
+        return Err(AppError {
+            code: "VALIDATION".into(),
+            message: "At least one balance entry is required".into(),
+        });
+    }
+    let conn = state.db.lock().map_err(|e| AppError::from(e.to_string()))?;
+    let entries: Vec<(i64, i64)> = input
+        .entries
+        .iter()
+        .map(|e| (e.account_id, e.amount_minor))
+        .collect();
+    let ids = repository::bulk_create_balance_updates(
+        &conn,
+        &entries,
+        &input.event_date,
+        input.note.as_deref(),
+    )?;
+    Ok(ids)
 }

@@ -30,7 +30,7 @@ export default function AccountCards({
     <section>
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-xl font-semibold">Accounts</h2>
-        <Button onClick={onCreateAccount} size="sm">
+        <Button onClick={onCreateAccount} size="sm" variant="outline">
           <Plus className="h-4 w-4" />
           Add Account
         </Button>

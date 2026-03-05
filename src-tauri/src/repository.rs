@@ -105,6 +105,23 @@ pub fn create_balance_update(
     })
 }
 
+pub fn bulk_create_balance_updates(
+    conn: &Connection,
+    entries: &[(i64, i64)],
+    event_date: &str,
+    note: Option<&str>,
+) -> rusqlite::Result<Vec<i64>> {
+    with_savepoint(conn, || {
+        let mut ids = Vec::with_capacity(entries.len());
+        for &(account_id, amount_minor) in entries {
+            let event_id =
+                create_balance_update_inner(conn, account_id, amount_minor, event_date, note)?;
+            ids.push(event_id);
+        }
+        Ok(ids)
+    })
+}
+
 pub fn update_event(
     conn: &Connection,
     event_id: i64,

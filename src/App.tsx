@@ -9,6 +9,7 @@ import {
   deleteAccount,
   updateEvent,
   deleteEvent,
+  bulkCreateBalanceUpdates,
 } from './api';
 import { toEndOfDay, todayIso, formatEur } from './utils/format';
 import { cn } from '@/lib/utils';
@@ -20,6 +21,7 @@ import EditBalanceUpdateModal from './components/EditBalanceUpdateModal';
 import CreateAccountModal from './components/CreateAccountModal';
 import RenameAccountModal from './components/RenameAccountModal';
 import ConfirmDialog from './components/ConfirmDialog';
+import BulkUpdateBalanceModal from './components/BulkUpdateBalanceModal';
 
 type ModalState =
   | { type: 'none' }
@@ -28,7 +30,8 @@ type ModalState =
   | { type: 'createAccount' }
   | { type: 'renameAccount'; accountId: number; currentName: string }
   | { type: 'confirmDeleteAccount'; accountId: number; name: string }
-  | { type: 'confirmDeleteEvent'; eventId: number };
+  | { type: 'confirmDeleteEvent'; eventId: number }
+  | { type: 'bulkUpdateBalance' };
 
 function App() {
   const [selectedDate, setSelectedDate] = useState(todayIso());
@@ -130,6 +133,16 @@ function App() {
     }
   };
 
+  const handleBulkUpdateSubmit = async (
+    updates: { accountId: number; amountMinor: number }[],
+    eventDate: string,
+    note: string,
+  ) => {
+    await bulkCreateBalanceUpdates(updates, eventDate, note || undefined);
+    closeModal();
+    await refresh();
+  };
+
   const totalMinor = snapshot.reduce((sum, r) => sum + r.balanceMinor, 0);
 
   return (
@@ -172,6 +185,7 @@ function App() {
               accounts={snapshot}
               onEditEvent={(event) => setModalState({ type: 'editBalanceUpdate', event })}
               onDeleteEvent={(eventId) => setModalState({ type: 'confirmDeleteEvent', eventId })}
+              onUpdateBalances={() => setModalState({ type: 'bulkUpdateBalance' })}
             />
           </div>
         </div>
@@ -220,6 +234,15 @@ function App() {
           message="Are you sure you want to delete this event?"
           onConfirm={() => handleDeleteEvent(modalState.eventId)}
           onCancel={closeModal}
+        />
+      )}
+
+      {modalState.type === 'bulkUpdateBalance' && (
+        <BulkUpdateBalanceModal
+          accounts={snapshot}
+          selectedDate={selectedDate}
+          onSubmit={handleBulkUpdateSubmit}
+          onClose={closeModal}
         />
       )}
     </div>
