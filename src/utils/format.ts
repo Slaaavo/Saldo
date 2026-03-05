@@ -68,12 +68,12 @@ export function todayIso(): string {
 
 /**
  * Format a YYYY-MM-DD date string as a human-readable date.
- * Example: "2026-03-05" → "March 5, 2026"
+ * Example: "2026-03-05" → "5 March 2026"
  */
 export function formatDisplayDate(dateStr: string): string {
   const [y, m, d] = dateStr.split('-').map(Number);
   const date = new Date(y, m - 1, d);
-  return date.toLocaleDateString('en-US', {
+  return date.toLocaleDateString('en-GB', {
     year: 'numeric',
     month: 'long',
     day: 'numeric',

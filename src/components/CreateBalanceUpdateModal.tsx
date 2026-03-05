@@ -6,6 +6,7 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
+import { DatePicker } from './ui/date-picker';
 
 interface Props {
   accounts: SnapshotRow[];
@@ -78,13 +79,7 @@ export default function CreateBalanceUpdateModal({
           </div>
           <div className="flex flex-col gap-2">
             <Label htmlFor="cbu-date">Date</Label>
-            <Input
-              id="cbu-date"
-              type="date"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-              required
-            />
+            <DatePicker id="cbu-date" value={date} onChange={setDate} />
           </div>
           <div className="flex flex-col gap-2">
             <Label htmlFor="cbu-note">Note</Label>

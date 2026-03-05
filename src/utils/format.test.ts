@@ -74,14 +74,14 @@ describe('todayIso', () => {
 
 describe('formatDisplayDate', () => {
   it('formats a date string as a readable date', () => {
-    expect(formatDisplayDate('2026-03-05')).toBe('March 5, 2026');
+    expect(formatDisplayDate('2026-03-05')).toBe('5 March 2026');
   });
 
   it('handles single-digit months and days', () => {
-    expect(formatDisplayDate('2026-01-01')).toBe('January 1, 2026');
+    expect(formatDisplayDate('2026-01-01')).toBe('1 January 2026');
   });
 
   it('formats December correctly', () => {
-    expect(formatDisplayDate('2025-12-25')).toBe('December 25, 2025');
+    expect(formatDisplayDate('2025-12-25')).toBe('25 December 2025');
   });
 });

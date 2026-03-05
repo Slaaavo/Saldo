@@ -5,6 +5,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
+import { DatePicker } from './ui/date-picker';
 
 interface Props {
   event: EventWithData;
@@ -58,13 +59,7 @@ export default function EditBalanceUpdateModal({ event, onSubmit, onClose }: Pro
           </div>
           <div className="flex flex-col gap-2">
             <Label htmlFor="ebu-date">Date</Label>
-            <Input
-              id="ebu-date"
-              type="date"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-              required
-            />
+            <DatePicker id="ebu-date" value={date} onChange={setDate} />
           </div>
           <div className="flex flex-col gap-2">
             <Label htmlFor="ebu-note">Note</Label>
