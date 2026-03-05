@@ -196,8 +196,10 @@ function App() {
             )}
           </div>
 
+          <hr className="border-border" />
+
           {/* Accounts */}
-          <div className="px-4 md:px-10 pb-8">
+          <div className="px-4 md:px-10 py-8">
             <AccountCards
               snapshot={accounts}
               sectionTitle="Accounts"
@@ -222,8 +224,10 @@ function App() {
             />
           </div>
 
+          <hr className="border-border" />
+
           {/* Buckets */}
-          <div className="px-4 md:px-10 pb-8">
+          <div className="px-4 md:px-10 py-8">
             <AccountCards
               snapshot={buckets}
               sectionTitle="Buckets"
