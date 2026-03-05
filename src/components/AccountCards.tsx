@@ -1,4 +1,5 @@
 import { useRef, useState, useCallback, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { SnapshotRow } from '../types';
 import NumberValue from './NumberValue';
 import { cn } from '@/lib/utils';
@@ -33,6 +34,7 @@ export default function AccountCards({
   onDeleteAccount,
   onCreateAccount,
 }: Props) {
+  const { t } = useTranslation();
   const scrollRef = useRef<HTMLDivElement>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
@@ -67,24 +69,22 @@ export default function AccountCards({
   return (
     <section>
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-xl font-semibold">{sectionTitle ?? 'Accounts'}</h2>
+        <h2 className="text-xl font-semibold">{sectionTitle ?? t('accounts.sectionTitle')}</h2>
         <Button onClick={onCreateAccount} size="sm" variant="outline">
           <Plus className="h-4 w-4" />
-          {addButtonLabel ?? 'Add Account'}
+          {addButtonLabel ?? t('accounts.addAccount')}
         </Button>
       </div>
 
       {snapshot.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
-          {emptyMessage ?? 'No accounts yet. Create one to get started.'}
-        </p>
+        <p className="text-sm text-muted-foreground">{emptyMessage ?? t('accounts.empty')}</p>
       ) : (
         <div className="group/scroll relative">
           {canScrollLeft && (
             <button
               onClick={() => scroll('left')}
               className="absolute left-0 top-1/2 -translate-y-1/2 z-10 hidden group-hover/scroll:flex h-8 w-8 items-center justify-center rounded-full bg-background border border-border shadow-md hover:bg-accent transition-colors"
-              aria-label="Scroll left"
+              aria-label={t('accounts.scrollLeft')}
             >
               <ChevronLeft className="h-4 w-4" />
             </button>
@@ -116,14 +116,14 @@ export default function AccountCards({
                           onClick={() => onRenameAccount(row.accountId, row.accountName)}
                         >
                           <Pencil className="h-4 w-4" />
-                          Rename
+                          {t('accounts.rename')}
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           className="text-destructive focus:text-destructive"
                           onClick={() => onDeleteAccount(row.accountId, row.accountName)}
                         >
                           <Trash2 className="h-4 w-4" />
-                          Delete
+                          {t('accounts.delete')}
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
@@ -137,7 +137,7 @@ export default function AccountCards({
                     className="mt-2 text-xs font-bold uppercase tracking-wider text-muted-foreground hover:text-primary transition-colors flex items-center gap-1"
                   >
                     <Pencil className="h-3 w-3" />
-                    Update Balance
+                    {t('accounts.updateBalance')}
                   </button>
                 </CardContent>
               </Card>
@@ -148,7 +148,7 @@ export default function AccountCards({
             <button
               onClick={() => scroll('right')}
               className="absolute right-0 top-1/2 -translate-y-1/2 z-10 hidden group-hover/scroll:flex h-8 w-8 items-center justify-center rounded-full bg-background border border-border shadow-md hover:bg-accent transition-colors"
-              aria-label="Scroll right"
+              aria-label={t('accounts.scrollRight')}
             >
               <ChevronRight className="h-4 w-4" />
             </button>

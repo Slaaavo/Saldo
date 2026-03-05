@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import {
   Dialog,
   DialogContent,
@@ -15,6 +16,8 @@ interface Props {
 }
 
 export default function ConfirmDialog({ message, onConfirm, onCancel }: Props) {
+  const { t } = useTranslation();
+
   return (
     <Dialog
       open={true}
@@ -24,15 +27,15 @@ export default function ConfirmDialog({ message, onConfirm, onCancel }: Props) {
     >
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Confirm</DialogTitle>
+          <DialogTitle>{t('modals.confirm.title')}</DialogTitle>
           <DialogDescription>{message}</DialogDescription>
         </DialogHeader>
         <DialogFooter>
           <Button variant="outline" onClick={onCancel}>
-            Cancel
+            {t('modals.confirm.cancel')}
           </Button>
           <Button variant="destructive" onClick={onConfirm}>
-            Confirm
+            {t('modals.confirm.submit')}
           </Button>
         </DialogFooter>
       </DialogContent>

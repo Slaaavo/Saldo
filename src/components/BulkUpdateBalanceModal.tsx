@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { SnapshotRow } from '../types';
 import NumberValue from './NumberValue';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
@@ -24,6 +25,7 @@ export default function BulkUpdateBalanceModal({
   onSubmit,
   onClose,
 }: Props) {
+  const { t } = useTranslation();
   const [date, setDate] = useState(selectedDate);
   const [note, setNote] = useState('');
   const [amounts, setAmounts] = useState<Record<number, string>>({});
@@ -41,7 +43,7 @@ export default function BulkUpdateBalanceModal({
       <Input
         type="number"
         step="0.01"
-        placeholder="€"
+        placeholder={t('modals.bulkUpdate.amountPlaceholder')}
         value={amounts[row.accountId] ?? ''}
         onChange={(e) => handleAmountChange(row.accountId, e.target.value)}
       />
@@ -75,7 +77,7 @@ export default function BulkUpdateBalanceModal({
     try {
       await onSubmit(updates, date, note);
     } catch (err) {
-      window.alert(`Failed to update balances: ${err}`);
+      window.alert(t('errors.updateBalances', { error: String(err) }));
       setSubmitting(false);
     }
   };
@@ -89,11 +91,11 @@ export default function BulkUpdateBalanceModal({
     >
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Update All Balances</DialogTitle>
+          <DialogTitle>{t('modals.bulkUpdate.title')}</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           <div className="flex flex-col gap-2">
-            <Label htmlFor="bulk-date">Date</Label>
+            <Label htmlFor="bulk-date">{t('modals.bulkUpdate.date')}</Label>
             <DatePicker id="bulk-date" value={date} onChange={setDate} />
           </div>
 
@@ -102,14 +104,14 @@ export default function BulkUpdateBalanceModal({
           <div className="grid grid-cols-[auto_1fr] items-center gap-x-8 gap-y-3">
             {realAccounts.length > 0 && (
               <div className="col-span-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground pt-2">
-                Accounts
+                {t('modals.bulkUpdate.accountsSection')}
               </div>
             )}
             {realAccounts.map(renderRow)}
 
             {bucketAccounts.length > 0 && (
               <div className="col-span-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground pt-4">
-                Buckets
+                {t('modals.bulkUpdate.bucketsSection')}
               </div>
             )}
             {bucketAccounts.map(renderRow)}
@@ -118,22 +120,22 @@ export default function BulkUpdateBalanceModal({
           <hr className="border-border" />
 
           <div className="flex flex-col gap-2">
-            <Label htmlFor="bulk-note">Note</Label>
+            <Label htmlFor="bulk-note">{t('modals.bulkUpdate.note')}</Label>
             <Input
               id="bulk-note"
               type="text"
               value={note}
               onChange={(e) => setNote(e.target.value)}
-              placeholder="Note (optional)"
+              placeholder={t('modals.bulkUpdate.notePlaceholder')}
             />
           </div>
 
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose}>
-              Cancel
+              {t('modals.bulkUpdate.cancel')}
             </Button>
             <Button type="submit" disabled={submitting}>
-              Update
+              {t('modals.bulkUpdate.submit')}
             </Button>
           </DialogFooter>
         </form>

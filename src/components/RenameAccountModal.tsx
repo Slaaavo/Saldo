@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -12,12 +13,13 @@ interface Props {
 }
 
 export default function RenameAccountModal({ accountId, currentName, onSubmit, onClose }: Props) {
+  const { t } = useTranslation();
   const [name, setName] = useState(currentName);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) {
-      window.alert('Account name is required.');
+      window.alert(t('validation.nameRequired', { entity: t('common.account') }));
       return;
     }
     onSubmit(accountId, name.trim());
@@ -32,11 +34,11 @@ export default function RenameAccountModal({ accountId, currentName, onSubmit, o
     >
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Rename Account</DialogTitle>
+          <DialogTitle>{t('modals.renameAccount.title')}</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           <div className="flex flex-col gap-2">
-            <Label htmlFor="rename-name">New Name</Label>
+            <Label htmlFor="rename-name">{t('modals.renameAccount.nameLabel')}</Label>
             <Input
               id="rename-name"
               type="text"
@@ -48,9 +50,9 @@ export default function RenameAccountModal({ accountId, currentName, onSubmit, o
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose}>
-              Cancel
+              {t('modals.renameAccount.cancel')}
             </Button>
-            <Button type="submit">Rename</Button>
+            <Button type="submit">{t('modals.renameAccount.submit')}</Button>
           </DialogFooter>
         </form>
       </DialogContent>

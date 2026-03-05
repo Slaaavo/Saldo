@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -11,23 +12,25 @@ interface Props {
 }
 
 export default function CreateAccountModal({ accountType, onSubmit, onClose }: Props) {
+  const { t } = useTranslation();
   const [name, setName] = useState('');
   const [balance, setBalance] = useState('');
 
   const isBucket = accountType === 'bucket';
-  const entityLabel = isBucket ? 'Bucket' : 'Account';
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) {
-      window.alert(`${entityLabel} name is required.`);
+      window.alert(
+        t('validation.nameRequired', { entity: t(isBucket ? 'common.bucket' : 'common.account') }),
+      );
       return;
     }
     let initialBalanceMinor: number | undefined;
     if (balance.trim()) {
       const parsed = parseFloat(balance);
       if (isNaN(parsed)) {
-        window.alert('Please enter a valid balance amount.');
+        window.alert(t('validation.invalidBalance'));
         return;
       }
       initialBalanceMinor = Math.round(parsed * 100);
@@ -44,23 +47,33 @@ export default function CreateAccountModal({ accountType, onSubmit, onClose }: P
     >
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Create {entityLabel}</DialogTitle>
+          <DialogTitle>
+            {t(isBucket ? 'modals.createBucket.title' : 'modals.createAccount.title')}
+          </DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           <div className="flex flex-col gap-2">
-            <Label htmlFor="create-account-name">{entityLabel} Name</Label>
+            <Label htmlFor="create-account-name">
+              {t(isBucket ? 'modals.createBucket.nameLabel' : 'modals.createAccount.nameLabel')}
+            </Label>
             <Input
               id="create-account-name"
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder={isBucket ? 'e.g. Emergency Fund' : 'e.g. Checking Account'}
+              placeholder={t(
+                isBucket
+                  ? 'modals.createBucket.namePlaceholder'
+                  : 'modals.createAccount.namePlaceholder',
+              )}
               required
               autoFocus
             />
           </div>
           <div className="flex flex-col gap-2">
-            <Label htmlFor="create-account-balance">Initial Balance (€, optional)</Label>
+            <Label htmlFor="create-account-balance">
+              {t('modals.createAccount.initialBalance')}
+            </Label>
             <Input
               id="create-account-balance"
               type="number"
@@ -72,9 +85,9 @@ export default function CreateAccountModal({ accountType, onSubmit, onClose }: P
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose}>
-              Cancel
+              {t('modals.createAccount.cancel')}
             </Button>
-            <Button type="submit">Create</Button>
+            <Button type="submit">{t('modals.createAccount.submit')}</Button>
           </DialogFooter>
         </form>
       </DialogContent>

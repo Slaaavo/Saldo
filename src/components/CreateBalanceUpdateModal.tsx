@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { SnapshotRow } from '../types';
 import { todayIso } from '../utils/format';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
@@ -21,6 +22,7 @@ export default function CreateBalanceUpdateModal({
   onSubmit,
   onClose,
 }: Props) {
+  const { t } = useTranslation();
   const [accountId, setAccountId] = useState<number>(
     preselectedAccountId ?? accounts[0]?.accountId ?? 0,
   );
@@ -32,7 +34,7 @@ export default function CreateBalanceUpdateModal({
     e.preventDefault();
     const parsed = parseFloat(amount);
     if (isNaN(parsed)) {
-      window.alert('Please enter a valid amount.');
+      window.alert(t('validation.invalidAmount'));
       return;
     }
     const amountMinor = Math.round(parsed * 100);
@@ -48,14 +50,14 @@ export default function CreateBalanceUpdateModal({
     >
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Update Balance</DialogTitle>
+          <DialogTitle>{t('modals.createBalanceUpdate.title')}</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           <div className="flex flex-col gap-2">
-            <Label>Account</Label>
+            <Label>{t('modals.createBalanceUpdate.account')}</Label>
             <Select value={String(accountId)} onValueChange={(val) => setAccountId(Number(val))}>
               <SelectTrigger>
-                <SelectValue placeholder="Select account" />
+                <SelectValue placeholder={t('modals.createBalanceUpdate.selectAccount')} />
               </SelectTrigger>
               <SelectContent>
                 {accounts.map((a) => (
@@ -67,7 +69,7 @@ export default function CreateBalanceUpdateModal({
             </Select>
           </div>
           <div className="flex flex-col gap-2">
-            <Label htmlFor="cbu-amount">Amount (€)</Label>
+            <Label htmlFor="cbu-amount">{t('modals.createBalanceUpdate.amount')}</Label>
             <Input
               id="cbu-amount"
               type="number"
@@ -78,24 +80,24 @@ export default function CreateBalanceUpdateModal({
             />
           </div>
           <div className="flex flex-col gap-2">
-            <Label htmlFor="cbu-date">Date</Label>
+            <Label htmlFor="cbu-date">{t('modals.createBalanceUpdate.date')}</Label>
             <DatePicker id="cbu-date" value={date} onChange={setDate} />
           </div>
           <div className="flex flex-col gap-2">
-            <Label htmlFor="cbu-note">Note</Label>
+            <Label htmlFor="cbu-note">{t('modals.createBalanceUpdate.note')}</Label>
             <Input
               id="cbu-note"
               type="text"
               value={note}
               onChange={(e) => setNote(e.target.value)}
-              placeholder="Optional note"
+              placeholder={t('modals.createBalanceUpdate.notePlaceholder')}
             />
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose}>
-              Cancel
+              {t('modals.createBalanceUpdate.cancel')}
             </Button>
-            <Button type="submit">Create</Button>
+            <Button type="submit">{t('modals.createBalanceUpdate.submit')}</Button>
           </DialogFooter>
         </form>
       </DialogContent>

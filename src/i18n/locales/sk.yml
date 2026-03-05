@@ -1,0 +1,119 @@
+# ──── Hlavička ────
+header:
+  title: Naše financie
+  date: Dátum
+
+# ──── Metriky ────
+metrics:
+  totalBalance: Celkový zostatok
+  leftToSpend: Zostáva na míňanie
+
+# ──── Účty ────
+accounts:
+  sectionTitle: Účty
+  addAccount: Pridať účet
+  empty: Zatiaľ žiadne účty. Vytvorte si prvý.
+  rename: Premenovať
+  delete: Vymazať
+  updateBalance: Aktualizovať zostatok
+  scrollLeft: Posunúť doľava
+  scrollRight: Posunúť doprava
+
+# ──── Obálky ────
+buckets:
+  sectionTitle: Obálky
+  addBucket: Pridať obálku
+  empty: Zatiaľ žiadne obálky. Vytvorte si prvú na rozdelenie kapitálu.
+
+# ──── Účtovná kniha ────
+ledger:
+  title: Účtovná kniha
+  updateBalances: Aktualizovať zostatky
+  empty: Žiadne udalosti na zobrazenie.
+
+# ──── Modálne okná ────
+modals:
+  createBalanceUpdate:
+    title: Aktualizovať zostatok
+    account: Účet
+    selectAccount: Vyberte účet
+    amount: "Suma (€)"
+    date: Dátum
+    note: Poznámka
+    notePlaceholder: Voliteľná poznámka
+    cancel: Zrušiť
+    submit: Vytvoriť
+
+  editBalanceUpdate:
+    title: Upraviť aktualizáciu zostatku
+    account: Účet
+    amount: "Suma (€)"
+    date: Dátum
+    note: Poznámka
+    notePlaceholder: Voliteľná poznámka
+    cancel: Zrušiť
+    submit: Uložiť
+
+  createAccount:
+    title: Vytvoriť účet
+    nameLabel: Názov účtu
+    namePlaceholder: napr. Bežný účet
+    initialBalance: "Počiatočný zostatok (€, voliteľný)"
+    cancel: Zrušiť
+    submit: Vytvoriť
+
+  createBucket:
+    title: Vytvoriť obálku
+    nameLabel: Názov obálky
+    namePlaceholder: napr. Núdzový fond
+
+  renameAccount:
+    title: Premenovať účet
+    nameLabel: Nový názov
+    cancel: Zrušiť
+    submit: Premenovať
+
+  confirm:
+    title: Potvrdiť
+    cancel: Zrušiť
+    submit: Potvrdiť
+    deleteAccount: 'Naozaj chcete vymazať {{entityType}} "{{name}}"? Tým sa vymažú aj všetky jeho udalosti.'
+    deleteEvent: Naozaj chcete vymazať túto udalosť?
+
+  bulkUpdate:
+    title: Aktualizovať všetky zostatky
+    date: Dátum
+    accountsSection: Účty
+    bucketsSection: Obálky
+    note: Poznámka
+    notePlaceholder: "Poznámka (voliteľná)"
+    amountPlaceholder: "€"
+    cancel: Zrušiť
+    submit: Aktualizovať
+
+# ──── Spoločné ────
+common:
+  account: účet
+  bucket: obálku
+
+# ──── Validácia ────
+validation:
+  nameRequired: Názov je povinný.
+  invalidAmount: Zadajte platnú sumu.
+  invalidBalance: Zadajte platný zostatok.
+
+# ──── Chybové hlášky ────
+errors:
+  loadData: "Nepodarilo sa načítať údaje: {{error}}"
+  createBalanceUpdate: "Nepodarilo sa vytvoriť aktualizáciu zostatku: {{error}}"
+  updateEvent: "Nepodarilo sa aktualizovať udalosť: {{error}}"
+  deleteEvent: "Nepodarilo sa vymazať udalosť: {{error}}"
+  createAccount: "Nepodarilo sa vytvoriť účet: {{error}}"
+  renameAccount: "Nepodarilo sa premenovať účet: {{error}}"
+  deleteAccount: "Nepodarilo sa vymazať účet: {{error}}"
+  updateBalances: "Nepodarilo sa aktualizovať zostatky: {{error}}"
+
+# ──── Výber jazyka ────
+language:
+  en: English
+  sk: Slovenčina

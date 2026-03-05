@@ -1,4 +1,5 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { EventWithData, SnapshotRow } from './types';
 import {
   getAccountsSnapshot,
@@ -40,6 +41,11 @@ type ModalState =
   | { type: 'bulkUpdateBalance' };
 
 function App() {
+  const { t } = useTranslation();
+  const tRef = useRef(t);
+  useEffect(() => {
+    tRef.current = t;
+  }, [t]);
   const [selectedDate, setSelectedDate] = useState(todayIso());
   const [snapshot, setSnapshot] = useState<SnapshotRow[]>([]);
   const [events, setEvents] = useState<EventWithData[]>([]);
@@ -57,7 +63,7 @@ function App() {
       setSnapshot(snap);
       setEvents(evts);
     } catch (err) {
-      window.alert(`Failed to load data: ${err}`);
+      window.alert(tRef.current('errors.loadData', { error: String(err) }));
     }
   }, [selectedDate]);
 
@@ -79,7 +85,7 @@ function App() {
       closeModal();
       await refresh();
     } catch (err) {
-      window.alert(`Failed to create balance update: ${err}`);
+      window.alert(t('errors.createBalanceUpdate', { error: String(err) }));
     }
   };
 
@@ -94,7 +100,7 @@ function App() {
       closeModal();
       await refresh();
     } catch (err) {
-      window.alert(`Failed to update event: ${err}`);
+      window.alert(t('errors.updateEvent', { error: String(err) }));
     }
   };
 
@@ -104,7 +110,7 @@ function App() {
       closeModal();
       await refresh();
     } catch (err) {
-      window.alert(`Failed to delete event: ${err}`);
+      window.alert(t('errors.deleteEvent', { error: String(err) }));
     }
   };
 
@@ -119,7 +125,7 @@ function App() {
       closeModal();
       await refresh();
     } catch (err) {
-      window.alert(`Failed to create account: ${err}`);
+      window.alert(t('errors.createAccount', { error: String(err) }));
     }
   };
 
@@ -129,7 +135,7 @@ function App() {
       closeModal();
       await refresh();
     } catch (err) {
-      window.alert(`Failed to rename account: ${err}`);
+      window.alert(t('errors.renameAccount', { error: String(err) }));
     }
   };
 
@@ -139,7 +145,7 @@ function App() {
       closeModal();
       await refresh();
     } catch (err) {
-      window.alert(`Failed to delete account: ${err}`);
+      window.alert(t('errors.deleteAccount', { error: String(err) }));
     }
   };
 
@@ -174,7 +180,7 @@ function App() {
           >
             <div className="flex flex-col items-center">
               <p className="text-sm font-medium uppercase tracking-widest text-muted-foreground mb-1">
-                Total Balance
+                {t('metrics.totalBalance')}
               </p>
               <p className={cn('text-5xl font-extrabold', totalMinor < 0 && 'text-destructive')}>
                 <NumberValue value={totalMinor} />
@@ -183,7 +189,7 @@ function App() {
             {buckets.length > 0 && (
               <div className="flex flex-col items-center">
                 <p className="text-sm font-medium uppercase tracking-widest text-muted-foreground mb-1">
-                  Left to Spend
+                  {t('metrics.leftToSpend')}
                 </p>
                 <p
                   className={cn(
@@ -203,8 +209,8 @@ function App() {
           <div className="px-4 md:px-10 py-8">
             <AccountCards
               snapshot={accounts}
-              sectionTitle="Accounts"
-              addButtonLabel="Add Account"
+              sectionTitle={t('accounts.sectionTitle')}
+              addButtonLabel={t('accounts.addAccount')}
               onUpdateBalance={(accountId) =>
                 setModalState({ type: 'createBalanceUpdate', preselectedAccountId: accountId })
               }
@@ -231,9 +237,9 @@ function App() {
           <div className="px-4 md:px-10 py-8">
             <AccountCards
               snapshot={buckets}
-              sectionTitle="Buckets"
-              addButtonLabel="Add Bucket"
-              emptyMessage="No buckets yet. Create one to allocate your capital."
+              sectionTitle={t('buckets.sectionTitle')}
+              addButtonLabel={t('buckets.addBucket')}
+              emptyMessage={t('buckets.empty')}
               onUpdateBalance={(accountId) =>
                 setModalState({ type: 'createBalanceUpdate', preselectedAccountId: accountId })
               }
@@ -303,7 +309,10 @@ function App() {
 
       {modalState.type === 'confirmDeleteAccount' && (
         <ConfirmDialog
-          message={`Are you sure you want to delete ${modalState.accountType === 'bucket' ? 'bucket' : 'account'} "${modalState.name}"? This will also delete all its events.`}
+          message={t('modals.confirm.deleteAccount', {
+            entityType: t(modalState.accountType === 'bucket' ? 'common.bucket' : 'common.account'),
+            name: modalState.name,
+          })}
           onConfirm={() => handleDeleteAccount(modalState.accountId)}
           onCancel={closeModal}
         />
@@ -311,7 +320,7 @@ function App() {
 
       {modalState.type === 'confirmDeleteEvent' && (
         <ConfirmDialog
-          message="Are you sure you want to delete this event?"
+          message={t('modals.confirm.deleteEvent')}
           onConfirm={() => handleDeleteEvent(modalState.eventId)}
           onCancel={closeModal}
         />

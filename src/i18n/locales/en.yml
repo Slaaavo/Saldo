@@ -1,0 +1,119 @@
+# ──── Header ────
+header:
+  title: Our Finances
+  date: Date
+
+# ──── Hero metrics ────
+metrics:
+  totalBalance: Total Balance
+  leftToSpend: Left to Spend
+
+# ──── Account cards ────
+accounts:
+  sectionTitle: Accounts
+  addAccount: Add Account
+  empty: No accounts yet. Create one to get started.
+  rename: Rename
+  delete: Delete
+  updateBalance: Update Balance
+  scrollLeft: Scroll left
+  scrollRight: Scroll right
+
+# ──── Bucket cards ────
+buckets:
+  sectionTitle: Buckets
+  addBucket: Add Bucket
+  empty: No buckets yet. Create one to allocate your capital.
+
+# ──── Ledger ────
+ledger:
+  title: Ledger
+  updateBalances: Update Balances
+  empty: No events to display.
+
+# ──── Modals ────
+modals:
+  createBalanceUpdate:
+    title: Update Balance
+    account: Account
+    selectAccount: Select account
+    amount: "Amount (€)"
+    date: Date
+    note: Note
+    notePlaceholder: Optional note
+    cancel: Cancel
+    submit: Create
+
+  editBalanceUpdate:
+    title: Edit Balance Update
+    account: Account
+    amount: "Amount (€)"
+    date: Date
+    note: Note
+    notePlaceholder: Optional note
+    cancel: Cancel
+    submit: Save
+
+  createAccount:
+    title: Create Account
+    nameLabel: Account Name
+    namePlaceholder: e.g. Checking Account
+    initialBalance: "Initial Balance (€, optional)"
+    cancel: Cancel
+    submit: Create
+
+  createBucket:
+    title: Create Bucket
+    nameLabel: Bucket Name
+    namePlaceholder: e.g. Emergency Fund
+
+  renameAccount:
+    title: Rename Account
+    nameLabel: New Name
+    cancel: Cancel
+    submit: Rename
+
+  confirm:
+    title: Confirm
+    cancel: Cancel
+    submit: Confirm
+    deleteAccount: 'Are you sure you want to delete {{entityType}} "{{name}}"? This will also delete all its events.'
+    deleteEvent: Are you sure you want to delete this event?
+
+  bulkUpdate:
+    title: Update All Balances
+    date: Date
+    accountsSection: Accounts
+    bucketsSection: Buckets
+    note: Note
+    notePlaceholder: "Note (optional)"
+    amountPlaceholder: "€"
+    cancel: Cancel
+    submit: Update
+
+# ──── Shared ────
+common:
+  account: account
+  bucket: bucket
+
+# ──── Validation ────
+validation:
+  nameRequired: "{{entity}} name is required."
+  invalidAmount: Please enter a valid amount.
+  invalidBalance: Please enter a valid balance amount.
+
+# ──── Error messages ────
+errors:
+  loadData: "Failed to load data: {{error}}"
+  createBalanceUpdate: "Failed to create balance update: {{error}}"
+  updateEvent: "Failed to update event: {{error}}"
+  deleteEvent: "Failed to delete event: {{error}}"
+  createAccount: "Failed to create account: {{error}}"
+  renameAccount: "Failed to rename account: {{error}}"
+  deleteAccount: "Failed to delete account: {{error}}"
+  updateBalances: "Failed to update balances: {{error}}"
+
+# ──── Language selector ────
+language:
+  en: English
+  sk: Slovenčina

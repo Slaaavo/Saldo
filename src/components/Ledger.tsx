@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import type { EventWithData, SnapshotRow } from '../types';
 import { formatDisplayDate } from '../utils/format';
 import { cn } from '@/lib/utils';
@@ -21,6 +22,8 @@ export default function Ledger({
   onDeleteEvent,
   onUpdateBalances,
 }: Props) {
+  const { t } = useTranslation();
+
   // Build account position map from snapshot order
   const accountPosition = new Map<number, number>();
   accounts.forEach((a, i) => accountPosition.set(a.accountId, i));
@@ -48,15 +51,15 @@ export default function Ledger({
   return (
     <section>
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-xl font-semibold">Ledger</h2>
+        <h2 className="text-xl font-semibold">{t('ledger.title')}</h2>
         <Button onClick={onUpdateBalances} size="sm">
           <RefreshCw className="h-4 w-4" />
-          Update Balances
+          {t('ledger.updateBalances')}
         </Button>
       </div>
 
       {events.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No events to display.</p>
+        <p className="text-sm text-muted-foreground">{t('ledger.empty')}</p>
       ) : (
         <div className="flex flex-col gap-6">
           {sortedGroups.map(([dateKey, groupEvents]) => (
