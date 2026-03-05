@@ -1,5 +1,8 @@
 import { useState } from 'react';
-import { useEscapeKey } from '../hooks/useEscapeKey';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
+import { Button } from './ui/button';
+import { Input } from './ui/input';
+import { Label } from './ui/label';
 
 interface Props {
   accountId: number;
@@ -11,8 +14,6 @@ interface Props {
 export default function RenameAccountModal({ accountId, currentName, onSubmit, onClose }: Props) {
   const [name, setName] = useState(currentName);
 
-  useEscapeKey(onClose);
-
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) {
@@ -23,19 +24,21 @@ export default function RenameAccountModal({ accountId, currentName, onSubmit, o
   };
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div
-        className="modal-card"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="dialog-title-rename-account"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h3 id="dialog-title-rename-account">Rename Account</h3>
-        <form onSubmit={handleSubmit}>
-          <div className="form-group">
-            <label>New Name</label>
-            <input
+    <Dialog
+      open={true}
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+    >
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Rename Account</DialogTitle>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="rename-name">New Name</Label>
+            <Input
+              id="rename-name"
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -43,16 +46,14 @@ export default function RenameAccountModal({ accountId, currentName, onSubmit, o
               autoFocus
             />
           </div>
-          <div className="modal-actions">
-            <button type="submit" className="btn btn-primary">
-              Rename
-            </button>
-            <button type="button" className="btn" onClick={onClose}>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={onClose}>
               Cancel
-            </button>
-          </div>
+            </Button>
+            <Button type="submit">Rename</Button>
+          </DialogFooter>
         </form>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

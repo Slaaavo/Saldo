@@ -1,16 +1,14 @@
 import { useState, useEffect } from 'react';
-import type { SnapshotRow } from '../types';
-import { formatEur } from '../utils/format';
+import { Input } from './ui/input';
+import { Label } from './ui/label';
 
 interface Props {
   selectedDate: string;
   onDateChange: (date: string) => void;
-  snapshot: SnapshotRow[];
 }
 
-export default function Header({ selectedDate, onDateChange, snapshot }: Props) {
+export default function Header({ selectedDate, onDateChange }: Props) {
   const [localDate, setLocalDate] = useState(selectedDate);
-  const totalMinor = snapshot.reduce((sum, r) => sum + r.balanceMinor, 0);
 
   // Sync local state if parent changes selectedDate externally
   useEffect(() => {
@@ -24,24 +22,23 @@ export default function Header({ selectedDate, onDateChange, snapshot }: Props) 
   };
 
   return (
-    <header className="app-header">
-      <h1 className="app-title">Our Finances</h1>
-      <div className="header-controls">
-        <label>
-          Date:{' '}
-          <input
-            type="date"
-            value={localDate}
-            onChange={(e) => setLocalDate(e.target.value)}
-            onBlur={commitDate}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') commitDate();
-            }}
-          />
-        </label>
-        <span className={`total-balance ${totalMinor < 0 ? 'negative' : ''}`}>
-          Total: {formatEur(totalMinor)}
-        </span>
+    <header className="flex items-center justify-between rounded-t-xl border-b bg-card px-6 py-3">
+      <h1 className="text-xl font-bold tracking-tight">Our Finances</h1>
+      <div className="flex items-center gap-2">
+        <Label htmlFor="date-picker" className="text-sm font-medium text-muted-foreground">
+          Date
+        </Label>
+        <Input
+          id="date-picker"
+          type="date"
+          value={localDate}
+          onChange={(e) => setLocalDate(e.target.value)}
+          onBlur={commitDate}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') commitDate();
+          }}
+          className="w-40"
+        />
       </div>
     </header>
   );

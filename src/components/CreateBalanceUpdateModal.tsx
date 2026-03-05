@@ -1,7 +1,11 @@
 import { useState } from 'react';
 import type { SnapshotRow } from '../types';
 import { todayIso } from '../utils/format';
-import { useEscapeKey } from '../hooks/useEscapeKey';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
+import { Button } from './ui/button';
+import { Input } from './ui/input';
+import { Label } from './ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 
 interface Props {
   accounts: SnapshotRow[];
@@ -23,8 +27,6 @@ export default function CreateBalanceUpdateModal({
   const [date, setDate] = useState(todayIso());
   const [note, setNote] = useState('');
 
-  useEscapeKey(onClose);
-
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const parsed = parseFloat(amount);
@@ -37,33 +39,36 @@ export default function CreateBalanceUpdateModal({
   };
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div
-        className="modal-card"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="dialog-title-create-balance-update"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h3 id="dialog-title-create-balance-update">Create Balance Update</h3>
-        <form onSubmit={handleSubmit}>
-          <div className="form-group">
-            <label>Account</label>
-            <select
-              value={accountId}
-              onChange={(e) => setAccountId(Number(e.target.value))}
-              autoFocus
-            >
-              {accounts.map((a) => (
-                <option key={a.accountId} value={a.accountId}>
-                  {a.accountName}
-                </option>
-              ))}
-            </select>
+    <Dialog
+      open={true}
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+    >
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Update Balance</DialogTitle>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+          <div className="flex flex-col gap-2">
+            <Label>Account</Label>
+            <Select value={String(accountId)} onValueChange={(val) => setAccountId(Number(val))}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select account" />
+              </SelectTrigger>
+              <SelectContent>
+                {accounts.map((a) => (
+                  <SelectItem key={a.accountId} value={String(a.accountId)}>
+                    {a.accountName}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
-          <div className="form-group">
-            <label>Amount (€)</label>
-            <input
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="cbu-amount">Amount (€)</Label>
+            <Input
+              id="cbu-amount"
               type="number"
               step="0.01"
               value={amount}
@@ -71,29 +76,34 @@ export default function CreateBalanceUpdateModal({
               required
             />
           </div>
-          <div className="form-group">
-            <label>Date</label>
-            <input type="date" value={date} onChange={(e) => setDate(e.target.value)} required />
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="cbu-date">Date</Label>
+            <Input
+              id="cbu-date"
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              required
+            />
           </div>
-          <div className="form-group">
-            <label>Note</label>
-            <input
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="cbu-note">Note</Label>
+            <Input
+              id="cbu-note"
               type="text"
               value={note}
               onChange={(e) => setNote(e.target.value)}
               placeholder="Optional note"
             />
           </div>
-          <div className="modal-actions">
-            <button type="submit" className="btn btn-primary">
-              Create
-            </button>
-            <button type="button" className="btn" onClick={onClose}>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={onClose}>
               Cancel
-            </button>
-          </div>
+            </Button>
+            <Button type="submit">Create</Button>
+          </DialogFooter>
         </form>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

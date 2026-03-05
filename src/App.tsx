@@ -1,5 +1,4 @@
 import { useState, useCallback, useEffect } from 'react';
-import './App.css';
 import type { EventWithData, SnapshotRow } from './types';
 import {
   getAccountsSnapshot,
@@ -11,9 +10,10 @@ import {
   updateEvent,
   deleteEvent,
 } from './api';
-import { toEndOfDay, todayIso } from './utils/format';
+import { toEndOfDay, todayIso, formatEur } from './utils/format';
+import { cn } from '@/lib/utils';
 import Header from './components/Header';
-import AccountList from './components/AccountList';
+import AccountCards from './components/AccountCards';
 import Ledger from './components/Ledger';
 import CreateBalanceUpdateModal from './components/CreateBalanceUpdateModal';
 import EditBalanceUpdateModal from './components/EditBalanceUpdateModal';
@@ -34,7 +34,6 @@ function App() {
   const [selectedDate, setSelectedDate] = useState(todayIso());
   const [snapshot, setSnapshot] = useState<SnapshotRow[]>([]);
   const [events, setEvents] = useState<EventWithData[]>([]);
-  const [filterAccountId, setFilterAccountId] = useState<number | null>(null);
   const [modalState, setModalState] = useState<ModalState>({ type: 'none' });
 
   const closeModal = () => setModalState({ type: 'none' });
@@ -131,34 +130,52 @@ function App() {
     }
   };
 
+  const totalMinor = snapshot.reduce((sum, r) => sum + r.balanceMinor, 0);
+
   return (
-    <div className="app">
-      <Header selectedDate={selectedDate} onDateChange={setSelectedDate} snapshot={snapshot} />
+    <div className="min-h-screen bg-background">
+      <div className="mx-auto max-w-4xl px-4 md:px-6 py-6">
+        <div className="bg-card rounded-xl shadow-sm overflow-hidden">
+          <Header selectedDate={selectedDate} onDateChange={setSelectedDate} />
 
-      <main className="main-content">
-        <AccountList
-          snapshot={snapshot}
-          onUpdateBalance={(accountId) =>
-            setModalState({ type: 'createBalanceUpdate', preselectedAccountId: accountId })
-          }
-          onRenameAccount={(accountId, currentName) =>
-            setModalState({ type: 'renameAccount', accountId, currentName })
-          }
-          onDeleteAccount={(accountId, name) =>
-            setModalState({ type: 'confirmDeleteAccount', accountId, name })
-          }
-          onCreateAccount={() => setModalState({ type: 'createAccount' })}
-        />
+          {/* Total Balance hero */}
+          <div className="px-4 md:px-10 py-10 text-center">
+            <p className="text-sm font-medium uppercase tracking-widest text-muted-foreground mb-1">
+              Total Balance
+            </p>
+            <p className={cn('text-5xl font-extrabold', totalMinor < 0 && 'text-destructive')}>
+              {formatEur(totalMinor)}
+            </p>
+          </div>
 
-        <Ledger
-          events={events}
-          accounts={snapshot}
-          filterAccountId={filterAccountId}
-          onFilterChange={setFilterAccountId}
-          onEditEvent={(event) => setModalState({ type: 'editBalanceUpdate', event })}
-          onDeleteEvent={(eventId) => setModalState({ type: 'confirmDeleteEvent', eventId })}
-        />
-      </main>
+          {/* Accounts */}
+          <div className="px-4 md:px-10 pb-8">
+            <AccountCards
+              snapshot={snapshot}
+              onUpdateBalance={(accountId) =>
+                setModalState({ type: 'createBalanceUpdate', preselectedAccountId: accountId })
+              }
+              onRenameAccount={(accountId, currentName) =>
+                setModalState({ type: 'renameAccount', accountId, currentName })
+              }
+              onDeleteAccount={(accountId, name) =>
+                setModalState({ type: 'confirmDeleteAccount', accountId, name })
+              }
+              onCreateAccount={() => setModalState({ type: 'createAccount' })}
+            />
+          </div>
+
+          {/* Ledger */}
+          <div className="px-4 md:px-10 py-8 border-t border-border">
+            <Ledger
+              events={events}
+              accounts={snapshot}
+              onEditEvent={(event) => setModalState({ type: 'editBalanceUpdate', event })}
+              onDeleteEvent={(eventId) => setModalState({ type: 'confirmDeleteEvent', eventId })}
+            />
+          </div>
+        </div>
+      </div>
 
       {modalState.type === 'createBalanceUpdate' && (
         <CreateBalanceUpdateModal

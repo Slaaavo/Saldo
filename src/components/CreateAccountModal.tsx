@@ -1,5 +1,8 @@
 import { useState } from 'react';
-import { useEscapeKey } from '../hooks/useEscapeKey';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
+import { Button } from './ui/button';
+import { Input } from './ui/input';
+import { Label } from './ui/label';
 
 interface Props {
   onSubmit: (name: string, initialBalanceMinor?: number) => void;
@@ -9,8 +12,6 @@ interface Props {
 export default function CreateAccountModal({ onSubmit, onClose }: Props) {
   const [name, setName] = useState('');
   const [balance, setBalance] = useState('');
-
-  useEscapeKey(onClose);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -31,19 +32,21 @@ export default function CreateAccountModal({ onSubmit, onClose }: Props) {
   };
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div
-        className="modal-card"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="dialog-title-create-account"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h3 id="dialog-title-create-account">Create Account</h3>
-        <form onSubmit={handleSubmit}>
-          <div className="form-group">
-            <label>Account Name</label>
-            <input
+    <Dialog
+      open={true}
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+    >
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Create Account</DialogTitle>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="create-account-name">Account Name</Label>
+            <Input
+              id="create-account-name"
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -52,9 +55,10 @@ export default function CreateAccountModal({ onSubmit, onClose }: Props) {
               autoFocus
             />
           </div>
-          <div className="form-group">
-            <label>Initial Balance (€, optional)</label>
-            <input
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="create-account-balance">Initial Balance (€, optional)</Label>
+            <Input
+              id="create-account-balance"
               type="number"
               step="0.01"
               value={balance}
@@ -62,16 +66,14 @@ export default function CreateAccountModal({ onSubmit, onClose }: Props) {
               placeholder="0.00"
             />
           </div>
-          <div className="modal-actions">
-            <button type="submit" className="btn btn-primary">
-              Create
-            </button>
-            <button type="button" className="btn" onClick={onClose}>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={onClose}>
               Cancel
-            </button>
-          </div>
+            </Button>
+            <Button type="submit">Create</Button>
+          </DialogFooter>
         </form>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

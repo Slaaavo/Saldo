@@ -1,0 +1,47 @@
+@import 'tailwindcss';
+@import './styles/fonts.css';
+
+/*
+ * Design System Tokens
+ * Based on shadcn/ui convention: HSL values without the hsl() wrapper
+ * Primary: #4e44e4 ≈ HSL(244, 76%, 58%)
+ */
+@theme inline {
+  --color-background: hsl(0 0% 98%);
+  --color-foreground: hsl(240 10% 10%);
+  --color-card: hsl(0 0% 100%);
+  --color-card-foreground: hsl(240 10% 10%);
+  --color-popover: hsl(0 0% 100%);
+  --color-popover-foreground: hsl(240 10% 10%);
+  --color-primary: hsl(244 76% 58%);
+  --color-primary-foreground: hsl(0 0% 100%);
+  --color-secondary: hsl(240 20% 96%);
+  --color-secondary-foreground: hsl(240 10% 20%);
+  --color-muted: hsl(240 10% 96%);
+  --color-muted-foreground: hsl(240 5% 46%);
+  --color-accent: hsl(244 76% 96%);
+  --color-accent-foreground: hsl(244 76% 30%);
+  --color-destructive: hsl(0 72% 51%);
+  --color-destructive-foreground: hsl(0 0% 100%);
+  --color-success: hsl(142 72% 40%);
+  --color-success-foreground: hsl(0 0% 100%);
+  --color-border: hsl(240 6% 90%);
+  --color-input: hsl(240 6% 90%);
+  --color-ring: hsl(244 76% 58%);
+  --radius: 0.5rem;
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+    box-sizing: border-box;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: var(--font-sans);
+    margin: 0;
+    padding: 0;
+  }
+}

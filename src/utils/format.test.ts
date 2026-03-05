@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatEur, formatDate, toEndOfDay, todayIso } from './format';
+import { formatEur, formatDate, toEndOfDay, todayIso, formatDisplayDate } from './format';
 
 describe('formatEur', () => {
   it('formats zero', () => {
@@ -39,5 +39,19 @@ describe('todayIso', () => {
   it('returns a YYYY-MM-DD string', () => {
     const result = todayIso();
     expect(result).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+});
+
+describe('formatDisplayDate', () => {
+  it('formats a date string as a readable date', () => {
+    expect(formatDisplayDate('2026-03-05')).toBe('March 5, 2026');
+  });
+
+  it('handles single-digit months and days', () => {
+    expect(formatDisplayDate('2026-01-01')).toBe('January 1, 2026');
+  });
+
+  it('formats December correctly', () => {
+    expect(formatDisplayDate('2025-12-25')).toBe('December 25, 2025');
   });
 });

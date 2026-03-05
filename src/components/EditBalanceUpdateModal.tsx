@@ -1,7 +1,10 @@
 import { useState } from 'react';
 import type { EventWithData } from '../types';
 import { formatDate } from '../utils/format';
-import { useEscapeKey } from '../hooks/useEscapeKey';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
+import { Button } from './ui/button';
+import { Input } from './ui/input';
+import { Label } from './ui/label';
 
 interface Props {
   event: EventWithData;
@@ -13,8 +16,6 @@ export default function EditBalanceUpdateModal({ event, onSubmit, onClose }: Pro
   const [amount, setAmount] = useState((event.amountMinor / 100).toFixed(2));
   const [date, setDate] = useState(formatDate(event.eventDate));
   const [note, setNote] = useState(event.note ?? '');
-
-  useEscapeKey(onClose);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -28,23 +29,25 @@ export default function EditBalanceUpdateModal({ event, onSubmit, onClose }: Pro
   };
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div
-        className="modal-card"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="dialog-title-edit-balance-update"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h3 id="dialog-title-edit-balance-update">Edit Balance Update</h3>
-        <form onSubmit={handleSubmit}>
-          <div className="form-group">
-            <label>Account</label>
-            <input type="text" value={event.accountName} disabled />
+    <Dialog
+      open={true}
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+    >
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Edit Balance Update</DialogTitle>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+          <div className="flex flex-col gap-2">
+            <Label>Account</Label>
+            <Input type="text" value={event.accountName} disabled className="bg-muted" />
           </div>
-          <div className="form-group">
-            <label>Amount (€)</label>
-            <input
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="ebu-amount">Amount (€)</Label>
+            <Input
+              id="ebu-amount"
               type="number"
               step="0.01"
               value={amount}
@@ -53,29 +56,34 @@ export default function EditBalanceUpdateModal({ event, onSubmit, onClose }: Pro
               autoFocus
             />
           </div>
-          <div className="form-group">
-            <label>Date</label>
-            <input type="date" value={date} onChange={(e) => setDate(e.target.value)} required />
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="ebu-date">Date</Label>
+            <Input
+              id="ebu-date"
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              required
+            />
           </div>
-          <div className="form-group">
-            <label>Note</label>
-            <input
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="ebu-note">Note</Label>
+            <Input
+              id="ebu-note"
               type="text"
               value={note}
               onChange={(e) => setNote(e.target.value)}
               placeholder="Optional note"
             />
           </div>
-          <div className="modal-actions">
-            <button type="submit" className="btn btn-primary">
-              Save
-            </button>
-            <button type="button" className="btn" onClick={onClose}>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={onClose}>
               Cancel
-            </button>
-          </div>
+            </Button>
+            <Button type="submit">Save</Button>
+          </DialogFooter>
         </form>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

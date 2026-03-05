@@ -1,81 +1,102 @@
 import type { EventWithData, SnapshotRow } from '../types';
-import { formatDate, formatEur } from '../utils/format';
+import { formatEur, formatDisplayDate } from '../utils/format';
+import { cn } from '@/lib/utils';
+import { Button } from './ui/button';
+import { Card, CardContent } from './ui/card';
+import { Pencil, Trash2 } from 'lucide-react';
 
 interface Props {
   events: EventWithData[];
   accounts: SnapshotRow[];
-  filterAccountId: number | null;
-  onFilterChange: (accountId: number | null) => void;
   onEditEvent: (event: EventWithData) => void;
   onDeleteEvent: (eventId: number) => void;
 }
 
-export default function Ledger({
-  events,
-  accounts,
-  filterAccountId,
-  onFilterChange,
-  onEditEvent,
-  onDeleteEvent,
-}: Props) {
-  const filtered = events.filter(
-    (e) => filterAccountId === null || e.accountId === filterAccountId,
-  );
+export default function Ledger({ events, accounts, onEditEvent, onDeleteEvent }: Props) {
+  // Build account position map from snapshot order
+  const accountPosition = new Map<number, number>();
+  accounts.forEach((a, i) => accountPosition.set(a.accountId, i));
+
+  // Group events by date
+  const groupMap = new Map<string, EventWithData[]>();
+  for (const ev of events) {
+    const dateKey = ev.eventDate.substring(0, 10);
+    if (!groupMap.has(dateKey)) {
+      groupMap.set(dateKey, []);
+    }
+    groupMap.get(dateKey)!.push(ev);
+  }
+
+  // Sort date groups: most recent first
+  const sortedGroups = [...groupMap.entries()].sort(([a], [b]) => b.localeCompare(a));
+
+  // Sort events within each group by account position
+  for (const [, groupEvents] of sortedGroups) {
+    groupEvents.sort(
+      (a, b) => (accountPosition.get(a.accountId) ?? 0) - (accountPosition.get(b.accountId) ?? 0),
+    );
+  }
 
   return (
-    <section className="ledger">
-      <div className="section-header">
-        <h2>Ledger</h2>
-        <label>
-          Filter:{' '}
-          <select
-            value={filterAccountId ?? ''}
-            onChange={(e) => onFilterChange(e.target.value ? Number(e.target.value) : null)}
-          >
-            <option value="">All Accounts</option>
-            {accounts.map((a) => (
-              <option key={a.accountId} value={a.accountId}>
-                {a.accountName}
-              </option>
-            ))}
-          </select>
-        </label>
+    <section>
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-xl font-semibold">Ledger</h2>
       </div>
 
-      {filtered.length === 0 ? (
-        <p className="empty-message">No events to display.</p>
+      {events.length === 0 ? (
+        <p className="text-sm text-muted-foreground">No events to display.</p>
       ) : (
-        <table>
-          <thead>
-            <tr>
-              <th>Date</th>
-              <th>Account</th>
-              <th className="text-right">Amount</th>
-              <th>Note</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map((ev) => (
-              <tr key={ev.id}>
-                <td>{formatDate(ev.eventDate)}</td>
-                <td>{ev.accountName}</td>
-                <td className={`text-right ${ev.amountMinor < 0 ? 'negative' : ''}`}>
-                  {formatEur(ev.amountMinor)}
-                </td>
-                <td>{ev.note ?? ''}</td>
-                <td className="actions">
-                  <button className="btn btn-sm" onClick={() => onEditEvent(ev)}>
-                    Edit
-                  </button>
-                  <button className="btn btn-sm btn-danger" onClick={() => onDeleteEvent(ev.id)}>
-                    Delete
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <div className="flex flex-col gap-6">
+          {sortedGroups.map(([dateKey, groupEvents]) => (
+            <div key={dateKey}>
+              <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
+                {formatDisplayDate(dateKey)}
+              </h3>
+              <div className="flex flex-col gap-2">
+                {groupEvents.map((ev) => (
+                  <Card key={ev.id}>
+                    <CardContent className="flex items-center justify-between p-4">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold truncate">{ev.accountName}</p>
+                        {ev.note && (
+                          <p className="text-xs text-muted-foreground italic truncate">{ev.note}</p>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-6">
+                        <span
+                          className={cn(
+                            'text-sm font-bold tabular-nums',
+                            ev.amountMinor < 0 && 'text-destructive',
+                          )}
+                        >
+                          {formatEur(ev.amountMinor)}
+                        </span>
+                        <div className="flex items-center gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            onClick={() => onEditEvent(ev)}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            onClick={() => onDeleteEvent(ev.id)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
       )}
     </section>
   );
