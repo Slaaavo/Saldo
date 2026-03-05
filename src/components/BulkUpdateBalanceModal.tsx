@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import type { SnapshotRow } from '../types';
-import { formatEur } from '../utils/format';
+import NumberValue from './NumberValue';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -35,7 +35,7 @@ export default function BulkUpdateBalanceModal({
     <React.Fragment key={row.accountId}>
       <div>
         <div className="text-sm font-medium">{row.accountName}</div>
-        <div className="text-xs text-muted-foreground">{formatEur(row.balanceMinor)}</div>
+        <NumberValue value={row.balanceMinor} className="text-xs text-muted-foreground" />
       </div>
       <Input
         type="number"

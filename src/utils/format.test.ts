@@ -1,21 +1,51 @@
 import { describe, it, expect } from 'vitest';
-import { formatEur, formatDate, toEndOfDay, todayIso, formatDisplayDate } from './format';
+import { formatAmount, formatDate, toEndOfDay, todayIso, formatDisplayDate } from './format';
 
-describe('formatEur', () => {
+describe('formatAmount', () => {
   it('formats zero', () => {
-    expect(formatEur(0)).toBe('€0.00');
+    expect(formatAmount(0)).toBe('0.00 €');
+  });
+
+  it('formats small amounts', () => {
+    expect(formatAmount(1)).toBe('0.01 €');
+    expect(formatAmount(100)).toBe('1.00 €');
   });
 
   it('formats positive amounts', () => {
-    expect(formatEur(5000)).toBe('€50.00');
-    expect(formatEur(1)).toBe('€0.01');
-    expect(formatEur(100)).toBe('€1.00');
-    expect(formatEur(123456)).toBe('€1234.56');
+    expect(formatAmount(5000)).toBe('50.00 €');
+  });
+
+  it('formats with thousands separators', () => {
+    expect(formatAmount(123456)).toBe('1 234.56 €');
+    expect(formatAmount(100000000)).toBe('1 000 000.00 €');
   });
 
   it('formats negative amounts', () => {
-    expect(formatEur(-5000)).toBe('-€50.00');
-    expect(formatEur(-1)).toBe('-€0.01');
+    expect(formatAmount(-5000)).toBe('-50.00 €');
+    expect(formatAmount(-1)).toBe('-0.01 €');
+    expect(formatAmount(-123456)).toBe('-1 234.56 €');
+  });
+
+  it('supports custom config override', () => {
+    const config = {
+      currencySymbol: '$',
+      currencyPosition: 'left' as const,
+      thousandsSeparator: ',',
+      decimalSeparator: '.',
+    };
+    expect(formatAmount(123456, 2, config)).toBe('$ 1,234.56');
+    expect(formatAmount(-5000, 2, config)).toBe('-$ 50.00');
+  });
+
+  it('supports minorUnits=0 (no decimals)', () => {
+    expect(formatAmount(1234, 0)).toBe('1 234 €');
+    expect(formatAmount(0, 0)).toBe('0 €');
+  });
+
+  it('supports minorUnits=3 (3 decimal places)', () => {
+    expect(formatAmount(123456, 3)).toBe('123.456 €');
+    expect(formatAmount(1000, 3)).toBe('1.000 €');
+    expect(formatAmount(1, 3)).toBe('0.001 €');
   });
 });
 

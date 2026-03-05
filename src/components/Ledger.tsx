@@ -1,6 +1,7 @@
 import type { EventWithData, SnapshotRow } from '../types';
-import { formatEur, formatDisplayDate } from '../utils/format';
+import { formatDisplayDate } from '../utils/format';
 import { cn } from '@/lib/utils';
+import NumberValue from './NumberValue';
 import { Button } from './ui/button';
 import { Card, CardContent } from './ui/card';
 import { Pencil, RefreshCw, Trash2 } from 'lucide-react';
@@ -74,14 +75,13 @@ export default function Ledger({
                         )}
                       </div>
                       <div className="flex items-center gap-6">
-                        <span
+                        <NumberValue
+                          value={ev.amountMinor}
                           className={cn(
                             'text-sm font-bold tabular-nums',
                             ev.amountMinor < 0 && 'text-destructive',
                           )}
-                        >
-                          {formatEur(ev.amountMinor)}
-                        </span>
+                        />
                         <div className="flex items-center gap-1">
                           <Button
                             variant="ghost"

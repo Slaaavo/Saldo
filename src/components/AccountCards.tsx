@@ -1,6 +1,6 @@
 import { useRef, useState, useCallback, useEffect } from 'react';
 import type { SnapshotRow } from '../types';
-import { formatEur } from '../utils/format';
+import NumberValue from './NumberValue';
 import { cn } from '@/lib/utils';
 import { Button } from './ui/button';
 import { Card, CardContent } from './ui/card';
@@ -128,11 +128,10 @@ export default function AccountCards({
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </div>
-                  <span
+                  <NumberValue
+                    value={row.balanceMinor}
                     className={cn('text-2xl font-bold', row.balanceMinor < 0 && 'text-destructive')}
-                  >
-                    {formatEur(row.balanceMinor)}
-                  </span>
+                  />
                   <button
                     onClick={() => onUpdateBalance(row.accountId)}
                     className="mt-2 text-xs font-bold uppercase tracking-wider text-muted-foreground hover:text-primary transition-colors flex items-center gap-1"

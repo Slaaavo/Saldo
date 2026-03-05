@@ -11,9 +11,10 @@ import {
   deleteEvent,
   bulkCreateBalanceUpdates,
 } from './api';
-import { toEndOfDay, todayIso, formatEur } from './utils/format';
+import { toEndOfDay, todayIso } from './utils/format';
 import { cn } from '@/lib/utils';
 import Header from './components/Header';
+import NumberValue from './components/NumberValue';
 import AccountCards from './components/AccountCards';
 import Ledger from './components/Ledger';
 import CreateBalanceUpdateModal from './components/CreateBalanceUpdateModal';
@@ -176,7 +177,7 @@ function App() {
                 Total Balance
               </p>
               <p className={cn('text-5xl font-extrabold', totalMinor < 0 && 'text-destructive')}>
-                {formatEur(totalMinor)}
+                <NumberValue value={totalMinor} />
               </p>
             </div>
             {buckets.length > 0 && (
@@ -190,7 +191,7 @@ function App() {
                     leftToSpendMinor < 0 && 'text-destructive',
                   )}
                 >
-                  {formatEur(leftToSpendMinor)}
+                  <NumberValue value={leftToSpendMinor} />
                 </p>
               </div>
             )}

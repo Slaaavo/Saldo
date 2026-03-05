@@ -38,6 +38,8 @@ Notes:
 ## 4. Monetary arithmetic rules
 - Store and compute in integer minor units. Use 64-bit integers (`i64` / `BigInt` if required in JS).
 - Display formatting divides by the currency's minor unit factor and always shows the appropriate number of decimal places.
+- **Displaying amounts in the UI:** Always use the `<NumberValue>` component (`src/components/NumberValue.tsx`). Never format amounts manually or call `formatAmount` directly in JSX. The component accepts `value` (minor units), an optional `minorUnits` prop (defaults to 2, derived from the currency model), and an optional `config` override for display preferences.
+- Display preferences (currency symbol, position, thousands/decimal separators) are defined in `src/config/numberFormat.ts` as a `NumberFormatConfig` object. The default config uses `€` on the right, space as thousands separator, and dot as decimal separator. This config is designed to be swappable from a future settings UI.
 
 ## 5. Snapshot algorithm (per selected date)
 1. For each account, find the current data of the last non-deleted event: join `event` (with `deleted_at IS NULL`) to its latest `event_data` row (by `event_data.created_at DESC`), filter `event_data.event_date <= selected_datetime`, order by `event_data.event_date DESC, event.created_at DESC`, take the first. When the UI passes just a date, interpret it as end-of-day (`YYYY-MM-DDT23:59:59`) for snapshot purposes.
