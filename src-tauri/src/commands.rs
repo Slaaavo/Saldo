@@ -17,6 +17,7 @@ pub struct CreateBalanceUpdateInput {
 pub struct CreateAccountInput {
     pub name: String,
     pub currency_id: i64,
+    pub account_type: Option<String>,
     pub initial_balance_minor: Option<i64>,
 }
 
@@ -125,11 +126,19 @@ pub fn create_account(
             message: "Account name is required".into(),
         });
     }
+    let account_type = input.account_type.as_deref().unwrap_or("account");
+    if account_type != "account" && account_type != "bucket" {
+        return Err(AppError {
+            code: "VALIDATION".into(),
+            message: "account_type must be 'account' or 'bucket'".into(),
+        });
+    }
     let conn = state.db.lock().map_err(|e| AppError::from(e.to_string()))?;
     let id = repository::create_account(
         &conn,
         input.name.trim(),
         input.currency_id,
+        account_type,
         input.initial_balance_minor,
     )?;
     Ok(id)

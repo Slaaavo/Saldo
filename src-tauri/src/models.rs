@@ -7,6 +7,7 @@ pub struct EventWithData {
     pub id: i64,
     pub account_id: i64,
     pub account_name: String,
+    pub account_type: String,
     pub event_type: String,
     pub event_date: String,
     pub amount_minor: i64,
@@ -19,5 +20,6 @@ pub struct EventWithData {
 pub struct SnapshotRow {
     pub account_id: i64,
     pub account_name: String,
+    pub account_type: String,
     pub balance_minor: i64,
 }

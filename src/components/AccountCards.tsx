@@ -14,6 +14,9 @@ import { MoreVertical, Plus, Pencil, Trash2, ChevronLeft, ChevronRight } from 'l
 
 interface Props {
   snapshot: SnapshotRow[];
+  sectionTitle?: string;
+  addButtonLabel?: string;
+  emptyMessage?: string;
   onUpdateBalance: (accountId: number) => void;
   onRenameAccount: (accountId: number, currentName: string) => void;
   onDeleteAccount: (accountId: number, name: string) => void;
@@ -22,6 +25,9 @@ interface Props {
 
 export default function AccountCards({
   snapshot,
+  sectionTitle,
+  addButtonLabel,
+  emptyMessage,
   onUpdateBalance,
   onRenameAccount,
   onDeleteAccount,
@@ -61,15 +67,17 @@ export default function AccountCards({
   return (
     <section>
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-xl font-semibold">Accounts</h2>
+        <h2 className="text-xl font-semibold">{sectionTitle ?? 'Accounts'}</h2>
         <Button onClick={onCreateAccount} size="sm" variant="outline">
           <Plus className="h-4 w-4" />
-          Add Account
+          {addButtonLabel ?? 'Add Account'}
         </Button>
       </div>
 
       {snapshot.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No accounts yet. Create one to get started.</p>
+        <p className="text-sm text-muted-foreground">
+          {emptyMessage ?? 'No accounts yet. Create one to get started.'}
+        </p>
       ) : (
         <div className="group/scroll relative">
           {canScrollLeft && (

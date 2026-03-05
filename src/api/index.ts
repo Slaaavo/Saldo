@@ -37,12 +37,14 @@ export async function createAccount(
   name: string,
   currencyId: number,
   initialBalanceMinor?: number,
+  accountType?: string,
 ): Promise<number> {
   return invoke('create_account', {
     input: {
       name,
       currencyId,
       initialBalanceMinor: initialBalanceMinor ?? null,
+      accountType: accountType ?? null,
     },
   });
 }

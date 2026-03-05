@@ -16,6 +16,7 @@ export interface EventWithData {
   id: number;
   accountId: number;
   accountName: string;
+  accountType: string;
   eventType: string;
   eventDate: string;
   amountMinor: number;
@@ -26,6 +27,7 @@ export interface EventWithData {
 export interface SnapshotRow {
   accountId: number;
   accountName: string;
+  accountType: string;
   balanceMinor: number;
 }
 

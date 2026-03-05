@@ -27,9 +27,14 @@ type ModalState =
   | { type: 'none' }
   | { type: 'createBalanceUpdate'; preselectedAccountId?: number }
   | { type: 'editBalanceUpdate'; event: EventWithData }
-  | { type: 'createAccount' }
+  | { type: 'createAccount'; accountType?: 'account' | 'bucket' }
   | { type: 'renameAccount'; accountId: number; currentName: string }
-  | { type: 'confirmDeleteAccount'; accountId: number; name: string }
+  | {
+      type: 'confirmDeleteAccount';
+      accountId: number;
+      name: string;
+      accountType?: 'account' | 'bucket';
+    }
   | { type: 'confirmDeleteEvent'; eventId: number }
   | { type: 'bulkUpdateBalance' };
 
@@ -102,10 +107,14 @@ function App() {
     }
   };
 
-  const handleCreateAccount = async (name: string, initialBalanceMinor?: number) => {
+  const handleCreateAccount = async (
+    name: string,
+    initialBalanceMinor?: number,
+    accountType?: string,
+  ) => {
     try {
       // TODO: hardcoded EUR currency ID = 1 for MVP; support multiple currencies later
-      await createAccount(name, 1, initialBalanceMinor);
+      await createAccount(name, 1, initialBalanceMinor, accountType);
       closeModal();
       await refresh();
     } catch (err) {
@@ -143,7 +152,11 @@ function App() {
     await refresh();
   };
 
-  const totalMinor = snapshot.reduce((sum, r) => sum + r.balanceMinor, 0);
+  const accounts = snapshot.filter((r) => r.accountType === 'account');
+  const buckets = snapshot.filter((r) => r.accountType === 'bucket');
+  const totalMinor = accounts.reduce((sum, r) => sum + r.balanceMinor, 0);
+  const bucketsMinor = buckets.reduce((sum, r) => sum + r.balanceMinor, 0);
+  const leftToSpendMinor = totalMinor - bucketsMinor;
 
   return (
     <div className="min-h-screen bg-background">
@@ -151,20 +164,44 @@ function App() {
         <div className="bg-card rounded-xl shadow-sm overflow-hidden">
           <Header selectedDate={selectedDate} onDateChange={setSelectedDate} />
 
-          {/* Total Balance hero */}
-          <div className="px-4 md:px-10 py-10 text-center">
-            <p className="text-sm font-medium uppercase tracking-widest text-muted-foreground mb-1">
-              Total Balance
-            </p>
-            <p className={cn('text-5xl font-extrabold', totalMinor < 0 && 'text-destructive')}>
-              {formatEur(totalMinor)}
-            </p>
+          {/* Hero metrics */}
+          <div
+            className={cn(
+              'px-4 md:px-10 py-10',
+              buckets.length > 0 ? 'grid grid-cols-2' : 'flex justify-center',
+            )}
+          >
+            <div className="flex flex-col items-center">
+              <p className="text-sm font-medium uppercase tracking-widest text-muted-foreground mb-1">
+                Total Balance
+              </p>
+              <p className={cn('text-5xl font-extrabold', totalMinor < 0 && 'text-destructive')}>
+                {formatEur(totalMinor)}
+              </p>
+            </div>
+            {buckets.length > 0 && (
+              <div className="flex flex-col items-center">
+                <p className="text-sm font-medium uppercase tracking-widest text-muted-foreground mb-1">
+                  Left to Spend
+                </p>
+                <p
+                  className={cn(
+                    'text-5xl font-extrabold',
+                    leftToSpendMinor < 0 && 'text-destructive',
+                  )}
+                >
+                  {formatEur(leftToSpendMinor)}
+                </p>
+              </div>
+            )}
           </div>
 
           {/* Accounts */}
           <div className="px-4 md:px-10 pb-8">
             <AccountCards
-              snapshot={snapshot}
+              snapshot={accounts}
+              sectionTitle="Accounts"
+              addButtonLabel="Add Account"
               onUpdateBalance={(accountId) =>
                 setModalState({ type: 'createBalanceUpdate', preselectedAccountId: accountId })
               }
@@ -172,9 +209,43 @@ function App() {
                 setModalState({ type: 'renameAccount', accountId, currentName })
               }
               onDeleteAccount={(accountId, name) =>
-                setModalState({ type: 'confirmDeleteAccount', accountId, name })
+                setModalState({
+                  type: 'confirmDeleteAccount',
+                  accountId,
+                  name,
+                  accountType: 'account',
+                })
               }
-              onCreateAccount={() => setModalState({ type: 'createAccount' })}
+              onCreateAccount={() =>
+                setModalState({ type: 'createAccount', accountType: 'account' })
+              }
+            />
+          </div>
+
+          {/* Buckets */}
+          <div className="px-4 md:px-10 pb-8">
+            <AccountCards
+              snapshot={buckets}
+              sectionTitle="Buckets"
+              addButtonLabel="Add Bucket"
+              emptyMessage="No buckets yet. Create one to allocate your capital."
+              onUpdateBalance={(accountId) =>
+                setModalState({ type: 'createBalanceUpdate', preselectedAccountId: accountId })
+              }
+              onRenameAccount={(accountId, currentName) =>
+                setModalState({ type: 'renameAccount', accountId, currentName })
+              }
+              onDeleteAccount={(accountId, name) =>
+                setModalState({
+                  type: 'confirmDeleteAccount',
+                  accountId,
+                  name,
+                  accountType: 'bucket',
+                })
+              }
+              onCreateAccount={() =>
+                setModalState({ type: 'createAccount', accountType: 'bucket' })
+              }
             />
           </div>
 
@@ -209,7 +280,11 @@ function App() {
       )}
 
       {modalState.type === 'createAccount' && (
-        <CreateAccountModal onSubmit={handleCreateAccount} onClose={closeModal} />
+        <CreateAccountModal
+          accountType={modalState.accountType}
+          onSubmit={handleCreateAccount}
+          onClose={closeModal}
+        />
       )}
 
       {modalState.type === 'renameAccount' && (
@@ -223,7 +298,7 @@ function App() {
 
       {modalState.type === 'confirmDeleteAccount' && (
         <ConfirmDialog
-          message={`Are you sure you want to delete account "${modalState.name}"? This will also delete all its events.`}
+          message={`Are you sure you want to delete ${modalState.accountType === 'bucket' ? 'bucket' : 'account'} "${modalState.name}"? This will also delete all its events.`}
           onConfirm={() => handleDeleteAccount(modalState.accountId)}
           onCancel={closeModal}
         />

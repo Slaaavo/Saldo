@@ -28,6 +28,25 @@ export default function BulkUpdateBalanceModal({
   const [amounts, setAmounts] = useState<Record<number, string>>({});
   const [submitting, setSubmitting] = useState(false);
 
+  const realAccounts = accounts.filter((r) => r.accountType === 'account');
+  const bucketAccounts = accounts.filter((r) => r.accountType === 'bucket');
+
+  const renderRow = (row: SnapshotRow) => (
+    <React.Fragment key={row.accountId}>
+      <div>
+        <div className="text-sm font-medium">{row.accountName}</div>
+        <div className="text-xs text-muted-foreground">{formatEur(row.balanceMinor)}</div>
+      </div>
+      <Input
+        type="number"
+        step="0.01"
+        placeholder="€"
+        value={amounts[row.accountId] ?? ''}
+        onChange={(e) => handleAmountChange(row.accountId, e.target.value)}
+      />
+    </React.Fragment>
+  );
+
   const handleAmountChange = (accountId: number, value: string) => {
     setAmounts((prev) => ({ ...prev, [accountId]: value }));
   };
@@ -83,23 +102,25 @@ export default function BulkUpdateBalanceModal({
             />
           </div>
 
+          <hr className="border-border" />
+
           <div className="grid grid-cols-[auto_1fr] items-center gap-x-8 gap-y-3">
-            {accounts.map((row) => (
-              <React.Fragment key={row.accountId}>
-                <div>
-                  <div className="text-sm font-medium">{row.accountName}</div>
-                  <div className="text-xs text-muted-foreground">{formatEur(row.balanceMinor)}</div>
-                </div>
-                <Input
-                  type="number"
-                  step="0.01"
-                  placeholder="€"
-                  value={amounts[row.accountId] ?? ''}
-                  onChange={(e) => handleAmountChange(row.accountId, e.target.value)}
-                />
-              </React.Fragment>
-            ))}
+            {realAccounts.length > 0 && (
+              <div className="col-span-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground pt-2">
+                Accounts
+              </div>
+            )}
+            {realAccounts.map(renderRow)}
+
+            {bucketAccounts.length > 0 && (
+              <div className="col-span-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground pt-4">
+                Buckets
+              </div>
+            )}
+            {bucketAccounts.map(renderRow)}
           </div>
+
+          <hr className="border-border" />
 
           <div className="flex flex-col gap-2">
             <Label htmlFor="bulk-note">Note</Label>

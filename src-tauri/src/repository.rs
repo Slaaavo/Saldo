@@ -25,12 +25,13 @@ pub fn create_account(
     conn: &Connection,
     name: &str,
     currency_id: i64,
+    account_type: &str,
     initial_balance_minor: Option<i64>,
 ) -> rusqlite::Result<i64> {
     with_savepoint(conn, || {
         conn.execute(
-            "INSERT INTO account (name, currency_id) VALUES (?1, ?2)",
-            params![name, currency_id],
+            "INSERT INTO account (name, currency_id, account_type) VALUES (?1, ?2, ?3)",
+            params![name, currency_id, account_type],
         )?;
         let account_id = conn.last_insert_rowid();
 
@@ -173,6 +174,7 @@ pub fn get_accounts_snapshot(
         "SELECT
            a.id AS account_id,
            a.name AS account_name,
+           a.account_type,
            COALESCE((
              SELECT ed.amount_minor
              FROM event e
@@ -184,14 +186,15 @@ pub fn get_accounts_snapshot(
              LIMIT 1
            ), 0) AS balance_minor
          FROM account a
-         ORDER BY a.name",
+         ORDER BY a.account_type, a.name",
     )?;
 
     let rows = stmt.query_map(params![selected_datetime], |row| {
         Ok(SnapshotRow {
             account_id: row.get(0)?,
             account_name: row.get(1)?,
-            balance_minor: row.get(2)?,
+            account_type: row.get(2)?,
+            balance_minor: row.get(3)?,
         })
     })?;
 
@@ -208,6 +211,7 @@ pub fn list_events(
           e.id,
           e.account_id,
           a.name AS account_name,
+          a.account_type,
           e.event_type,
           ed.event_date,
           ed.amount_minor,
@@ -228,11 +232,12 @@ pub fn list_events(
             id: row.get(0)?,
             account_id: row.get(1)?,
             account_name: row.get(2)?,
-            event_type: row.get(3)?,
-            event_date: row.get(4)?,
-            amount_minor: row.get(5)?,
-            note: row.get(6)?,
-            created_at: row.get(7)?,
+            account_type: row.get(3)?,
+            event_type: row.get(4)?,
+            event_date: row.get(5)?,
+            amount_minor: row.get(6)?,
+            note: row.get(7)?,
+            created_at: row.get(8)?,
         })
     })?;
 
@@ -341,7 +346,7 @@ mod tests {
     #[test]
     fn create_account_with_initial_balance() {
         let conn = initialize_in_memory().expect("DB init failed");
-        let account_id = create_account(&conn, "Savings", 1, Some(10000)).unwrap();
+        let account_id = create_account(&conn, "Savings", 1, "account", Some(10000)).unwrap();
         let snapshot = get_accounts_snapshot(&conn, "2099-12-31T23:59:59").unwrap();
         let row = snapshot
             .iter()
@@ -362,7 +367,7 @@ mod tests {
     #[test]
     fn list_events_filters_by_account() {
         let conn = initialize_in_memory().expect("DB init failed");
-        let acc2 = create_account(&conn, "Second", 1, None).unwrap();
+        let acc2 = create_account(&conn, "Second", 1, "account", None).unwrap();
         create_balance_update(&conn, 1, 1000, "2026-01-01", None).unwrap();
         create_balance_update(&conn, acc2, 2000, "2026-02-01", None).unwrap();
 
@@ -383,5 +388,62 @@ mod tests {
         let events = list_events(&conn, None, Some("2026-02-01T23:59:59")).unwrap();
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].amount_minor, 1000);
+    }
+
+    #[test]
+    fn create_bucket_appears_in_snapshot() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let bucket_id = create_account(&conn, "Emergency Fund", 1, "bucket", Some(20000)).unwrap();
+        let snapshot = get_accounts_snapshot(&conn, "2099-12-31T23:59:59").unwrap();
+        let bucket = snapshot.iter().find(|r| r.account_id == bucket_id).unwrap();
+        assert_eq!(bucket.account_type, "bucket");
+        assert_eq!(bucket.balance_minor, 20000);
+    }
+
+    #[test]
+    fn snapshot_returns_account_type() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let snapshot = get_accounts_snapshot(&conn, "2099-12-31T23:59:59").unwrap();
+        assert_eq!(snapshot.len(), 1);
+        assert_eq!(snapshot[0].account_type, "account");
+    }
+
+    #[test]
+    fn bucket_balance_update_works() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let bucket_id = create_account(&conn, "Savings Bucket", 1, "bucket", None).unwrap();
+        create_balance_update(&conn, bucket_id, 15000, "2026-03-01", None).unwrap();
+        let snapshot = get_accounts_snapshot(&conn, "2026-03-01T23:59:59").unwrap();
+        let bucket = snapshot.iter().find(|r| r.account_id == bucket_id).unwrap();
+        assert_eq!(bucket.balance_minor, 15000);
+    }
+
+    #[test]
+    fn list_events_includes_account_type() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let bucket_id = create_account(&conn, "Test Bucket", 1, "bucket", None).unwrap();
+        create_balance_update(&conn, bucket_id, 5000, "2026-03-01", None).unwrap();
+        let events = list_events(&conn, Some(bucket_id), None).unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].account_type, "bucket");
+
+        let events_main = list_events(&conn, Some(1), None).unwrap();
+        // Main account has no events in this test
+        assert_eq!(events_main.len(), 0);
+    }
+
+    #[test]
+    fn snapshot_orders_accounts_before_buckets() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        create_account(&conn, "Zebra Bucket", 1, "bucket", None).unwrap();
+        create_account(&conn, "Alpha Account", 1, "account", None).unwrap();
+        let snapshot = get_accounts_snapshot(&conn, "2099-12-31T23:59:59").unwrap();
+        // accounts come first (alphabetically 'account' < 'bucket'), then buckets
+        let types: Vec<&str> = snapshot.iter().map(|r| r.account_type.as_str()).collect();
+        let first_bucket_idx = types.iter().position(|t| *t == "bucket");
+        let last_account_idx = types.iter().rposition(|t| *t == "account");
+        if let (Some(fb), Some(la)) = (first_bucket_idx, last_account_idx) {
+            assert!(la < fb, "All accounts should come before all buckets");
+        }
     }
 }

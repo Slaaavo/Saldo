@@ -5,18 +5,22 @@ import { Input } from './ui/input';
 import { Label } from './ui/label';
 
 interface Props {
-  onSubmit: (name: string, initialBalanceMinor?: number) => void;
+  accountType?: 'account' | 'bucket';
+  onSubmit: (name: string, initialBalanceMinor?: number, accountType?: string) => void;
   onClose: () => void;
 }
 
-export default function CreateAccountModal({ onSubmit, onClose }: Props) {
+export default function CreateAccountModal({ accountType, onSubmit, onClose }: Props) {
   const [name, setName] = useState('');
   const [balance, setBalance] = useState('');
+
+  const isBucket = accountType === 'bucket';
+  const entityLabel = isBucket ? 'Bucket' : 'Account';
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) {
-      window.alert('Account name is required.');
+      window.alert(`${entityLabel} name is required.`);
       return;
     }
     let initialBalanceMinor: number | undefined;
@@ -28,7 +32,7 @@ export default function CreateAccountModal({ onSubmit, onClose }: Props) {
       }
       initialBalanceMinor = Math.round(parsed * 100);
     }
-    onSubmit(name.trim(), initialBalanceMinor);
+    onSubmit(name.trim(), initialBalanceMinor, accountType);
   };
 
   return (
@@ -40,17 +44,17 @@ export default function CreateAccountModal({ onSubmit, onClose }: Props) {
     >
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Create Account</DialogTitle>
+          <DialogTitle>Create {entityLabel}</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           <div className="flex flex-col gap-2">
-            <Label htmlFor="create-account-name">Account Name</Label>
+            <Label htmlFor="create-account-name">{entityLabel} Name</Label>
             <Input
               id="create-account-name"
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Checking Account"
+              placeholder={isBucket ? 'e.g. Emergency Fund' : 'e.g. Checking Account'}
               required
               autoFocus
             />

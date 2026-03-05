@@ -27,8 +27,10 @@ CREATE TABLE account (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL,
   currency_id INTEGER NOT NULL,
+  account_type TEXT NOT NULL DEFAULT 'account',
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f','now')),
-  FOREIGN KEY (currency_id) REFERENCES currency (id) ON DELETE RESTRICT
+  FOREIGN KEY (currency_id) REFERENCES currency (id) ON DELETE RESTRICT,
+  CHECK (account_type IN ('account', 'bucket'))
 );
 
 -- event (lifecycle record). latest_data_id is nullable to allow simple insert flow:

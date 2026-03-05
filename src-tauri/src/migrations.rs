@@ -7,6 +7,10 @@ const MIGRATIONS: &[(&str, &str)] = &[
         "002_seed.sql",
         include_str!("../../migrations/002_seed.sql"),
     ),
+    (
+        "003_add_account_type.sql",
+        include_str!("../../migrations/003_add_account_type.sql"),
+    ),
 ];
 
 pub fn run_pending(conn: &rusqlite::Connection) -> rusqlite::Result<()> {
