@@ -42,6 +42,17 @@
     box-sizing: border-box;
   }
 
+  button,
+  [role='button'],
+  a,
+  select,
+  [type='checkbox'],
+  [type='radio'],
+  summary,
+  [tabindex]:not([tabindex='-1']) {
+    cursor: pointer;
+  }
+
   body {
     @apply bg-background text-foreground;
     font-family: var(--font-sans);
