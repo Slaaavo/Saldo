@@ -1,7 +1,9 @@
 import { useRef, useState, useCallback, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { SnapshotRow } from '../types';
+import type { SnapshotRow, Currency } from '../types';
 import NumberValue from './NumberValue';
+import { formatAmount } from '../utils/format';
+import { defaultNumberFormat } from '../config/numberFormat';
 import { cn } from '@/lib/utils';
 import { Button } from './ui/button';
 import { Card, CardContent } from './ui/card';
@@ -15,6 +17,7 @@ import { MoreVertical, Plus, Pencil, Trash2, ChevronLeft, ChevronRight } from 'l
 
 interface Props {
   snapshot: SnapshotRow[];
+  consolidationCurrency?: Currency | null;
   sectionTitle?: string;
   addButtonLabel?: string;
   emptyMessage?: string;
@@ -26,6 +29,7 @@ interface Props {
 
 export default function AccountCards({
   snapshot,
+  consolidationCurrency,
   sectionTitle,
   addButtonLabel,
   emptyMessage,
@@ -62,7 +66,7 @@ export default function AccountCards({
   const scroll = useCallback((direction: 'left' | 'right') => {
     const el = scrollRef.current;
     if (!el) return;
-    const amount = direction === 'left' ? -220 : 220;
+    const amount = direction === 'left' ? -270 : 270;
     el.scrollBy({ left: amount, behavior: 'smooth' });
   }, []);
 
@@ -96,7 +100,7 @@ export default function AccountCards({
             style={{ scrollbarWidth: 'none' }}
           >
             {snapshot.map((row) => (
-              <Card key={row.accountId} className="relative w-[200px] min-w-[200px] shrink-0">
+              <Card key={row.accountId} className="relative w-[250px] min-w-[250px] shrink-0">
                 <CardContent className="flex flex-col gap-1 p-4">
                   <div className="flex items-start justify-between min-w-0">
                     <span
@@ -128,10 +132,36 @@ export default function AccountCards({
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </div>
-                  <NumberValue
-                    value={row.balanceMinor}
-                    className={cn('text-2xl font-bold', row.balanceMinor < 0 && 'text-destructive')}
-                  />
+                  {consolidationCurrency && row.currencyCode !== consolidationCurrency.code ? (
+                    <span
+                      title={[
+                        `≈ ${formatAmount(row.convertedBalanceMinor, consolidationCurrency.minorUnits, defaultNumberFormat, consolidationCurrency.code)}`,
+                        row.fxRateMissing ? t('accounts.fxRateMissingTooltip') : undefined,
+                      ]
+                        .filter(Boolean)
+                        .join(' · ')}
+                    >
+                      <NumberValue
+                        value={row.balanceMinor}
+                        currencyCode={row.currencyCode}
+                        minorUnits={row.currencyMinorUnits}
+                        className={cn(
+                          'text-2xl font-bold',
+                          row.balanceMinor < 0 && 'text-destructive',
+                        )}
+                      />
+                    </span>
+                  ) : (
+                    <NumberValue
+                      value={row.balanceMinor}
+                      currencyCode={row.currencyCode}
+                      minorUnits={row.currencyMinorUnits}
+                      className={cn(
+                        'text-2xl font-bold',
+                        row.balanceMinor < 0 && 'text-destructive',
+                      )}
+                    />
+                  )}
                   <button
                     onClick={() => onUpdateBalance(row.accountId)}
                     className="mt-2 text-xs font-bold uppercase tracking-wider text-muted-foreground hover:text-primary transition-colors flex items-center gap-1"

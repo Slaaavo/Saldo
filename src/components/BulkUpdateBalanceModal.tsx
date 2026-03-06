@@ -36,17 +36,29 @@ export default function BulkUpdateBalanceModal({
 
   const renderRow = (row: SnapshotRow) => (
     <React.Fragment key={row.accountId}>
-      <div>
+      <div className="flex-col flex">
         <div className="text-sm font-medium">{row.accountName}</div>
-        <NumberValue value={row.balanceMinor} className="text-xs text-muted-foreground" />
+        <NumberValue
+          value={row.balanceMinor}
+          currencyCode={row.currencyCode}
+          minorUnits={row.currencyMinorUnits}
+          className="text-xs text-muted-foreground"
+        />
       </div>
-      <Input
-        type="number"
-        step="0.01"
-        placeholder={t('modals.bulkUpdate.amountPlaceholder')}
-        value={amounts[row.accountId] ?? ''}
-        onChange={(e) => handleAmountChange(row.accountId, e.target.value)}
-      />
+      <div className="relative">
+        <Input
+          type="number"
+          step={
+            row.currencyMinorUnits === 0 ? '1' : '0.' + '0'.repeat(row.currencyMinorUnits - 1) + '1'
+          }
+          value={amounts[row.accountId] ?? ''}
+          onChange={(e) => handleAmountChange(row.accountId, e.target.value)}
+          className="pr-14"
+        />
+        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground pointer-events-none">
+          {row.currencyCode}
+        </span>
+      </div>
     </React.Fragment>
   );
 
@@ -64,7 +76,10 @@ export default function BulkUpdateBalanceModal({
       if (raw !== undefined && raw !== '') {
         const parsed = parseFloat(raw);
         if (isFinite(parsed)) {
-          updates.push({ accountId: account.accountId, amountMinor: Math.round(parsed * 100) });
+          updates.push({
+            accountId: account.accountId,
+            amountMinor: Math.round(parsed * Math.pow(10, account.currencyMinorUnits)),
+          });
         }
       }
     }

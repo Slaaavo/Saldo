@@ -47,6 +47,22 @@ describe('formatAmount', () => {
     expect(formatAmount(1000, 3)).toBe('1.000 €');
     expect(formatAmount(1, 3)).toBe('0.001 €');
   });
+
+  it('overrides symbol with currencyCode (USD, minorUnits=2)', () => {
+    expect(formatAmount(100000, 2, undefined, 'USD')).toBe('1 000.00 USD');
+  });
+
+  it('overrides symbol with currencyCode for zero-decimal currency (JPY)', () => {
+    expect(formatAmount(15723, 0, undefined, 'JPY')).toBe('15 723 JPY');
+  });
+
+  it('overrides symbol with currencyCode for 8-decimal currency (BTC)', () => {
+    expect(formatAmount(50000000, 8, undefined, 'BTC')).toBe('0.50000000 BTC');
+  });
+
+  it('overrides symbol with currencyCode for negative amounts', () => {
+    expect(formatAmount(-5000, 2, undefined, 'EUR')).toBe('-50.00 EUR');
+  });
 });
 
 describe('formatDate', () => {

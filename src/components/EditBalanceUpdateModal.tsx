@@ -16,7 +16,10 @@ interface Props {
 
 export default function EditBalanceUpdateModal({ event, onSubmit, onClose }: Props) {
   const { t } = useTranslation();
-  const [amount, setAmount] = useState((event.amountMinor / 100).toFixed(2));
+  const minorUnits = event.currencyMinorUnits;
+  const [amount, setAmount] = useState(
+    (event.amountMinor / Math.pow(10, minorUnits)).toFixed(minorUnits),
+  );
   const [date, setDate] = useState(formatDate(event.eventDate));
   const [note, setNote] = useState(event.note ?? '');
 
@@ -27,7 +30,7 @@ export default function EditBalanceUpdateModal({ event, onSubmit, onClose }: Pro
       window.alert(t('validation.invalidAmount'));
       return;
     }
-    const amountMinor = Math.round(parsed * 100);
+    const amountMinor = Math.round(parsed * Math.pow(10, minorUnits));
     onSubmit(event.id, amountMinor, date, note);
   };
 
@@ -49,15 +52,21 @@ export default function EditBalanceUpdateModal({ event, onSubmit, onClose }: Pro
           </div>
           <div className="flex flex-col gap-2">
             <Label htmlFor="ebu-amount">{t('modals.editBalanceUpdate.amount')}</Label>
-            <Input
-              id="ebu-amount"
-              type="number"
-              step="0.01"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              required
-              autoFocus
-            />
+            <div className="relative">
+              <Input
+                id="ebu-amount"
+                type="number"
+                step={minorUnits === 0 ? '1' : '0.' + '0'.repeat(minorUnits - 1) + '1'}
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                className="pr-14"
+                required
+                autoFocus
+              />
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground pointer-events-none">
+                {event.currencyCode}
+              </span>
+            </div>
           </div>
           <div className="flex flex-col gap-2">
             <Label htmlFor="ebu-date">{t('modals.editBalanceUpdate.date')}</Label>

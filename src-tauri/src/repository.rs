@@ -170,11 +170,18 @@ pub fn get_accounts_snapshot(
     conn: &Connection,
     selected_datetime: &str,
 ) -> rusqlite::Result<Vec<SnapshotRow>> {
+    let consolidation = get_consolidation_currency(conn)?;
+    // Extract YYYY-MM-DD from datetime string for fx_rate date comparison.
+    let snapshot_date = &selected_datetime[..10.min(selected_datetime.len())];
+
     let mut stmt = conn.prepare(
         "SELECT
            a.id AS account_id,
            a.name AS account_name,
            a.account_type,
+           c.id AS currency_id,
+           c.code AS currency_code,
+           c.minor_units AS currency_minor_units,
            COALESCE((
              SELECT ed.amount_minor
              FROM event e
@@ -186,19 +193,76 @@ pub fn get_accounts_snapshot(
              LIMIT 1
            ), 0) AS balance_minor
          FROM account a
+         JOIN currency c ON c.id = a.currency_id
          ORDER BY a.account_type, a.name",
     )?;
 
-    let rows = stmt.query_map(params![selected_datetime], |row| {
-        Ok(SnapshotRow {
-            account_id: row.get(0)?,
-            account_name: row.get(1)?,
-            account_type: row.get(2)?,
-            balance_minor: row.get(3)?,
-        })
-    })?;
+    let row_data: Vec<(i64, String, String, i64, String, i64, i64)> = stmt
+        .query_map(params![selected_datetime], |row| {
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+                row.get(5)?,
+                row.get(6)?,
+            ))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
 
-    rows.collect()
+    let mut result = Vec::with_capacity(row_data.len());
+    for (
+        account_id,
+        account_name,
+        account_type,
+        currency_id,
+        currency_code,
+        currency_minor_units,
+        balance_minor,
+    ) in row_data
+    {
+        let (converted_balance_minor, fx_rate_missing) = if currency_id == consolidation.id {
+            (balance_minor, false)
+        } else {
+            match get_fx_rate_for_conversion(conn, consolidation.id, currency_id, snapshot_date)? {
+                Some((mantissa, exponent)) => {
+                    let converted = convert_balance(
+                        balance_minor,
+                        mantissa,
+                        exponent,
+                        currency_minor_units,
+                        consolidation.minor_units,
+                    );
+                    (converted, false)
+                }
+                None => {
+                    // 1:1 fallback: mantissa=1, exponent=0
+                    let converted = convert_balance(
+                        balance_minor,
+                        1,
+                        0,
+                        currency_minor_units,
+                        consolidation.minor_units,
+                    );
+                    (converted, true)
+                }
+            }
+        };
+
+        result.push(SnapshotRow {
+            account_id,
+            account_name,
+            account_type,
+            balance_minor,
+            currency_code,
+            currency_minor_units,
+            converted_balance_minor,
+            fx_rate_missing,
+        });
+    }
+
+    Ok(result)
 }
 
 pub fn list_events(
@@ -216,9 +280,12 @@ pub fn list_events(
           ed.event_date,
           ed.amount_minor,
           ed.note,
-          e.created_at
+          e.created_at,
+          c.code AS currency_code,
+          c.minor_units AS currency_minor_units
         FROM event e
         JOIN account a ON a.id = e.account_id
+        JOIN currency c ON c.id = a.currency_id
         JOIN event_data ed ON ed.id = e.latest_data_id
         WHERE e.deleted_at IS NULL
           AND (?1 IS NULL OR e.account_id = ?1)
@@ -238,6 +305,8 @@ pub fn list_events(
             amount_minor: row.get(6)?,
             note: row.get(7)?,
             created_at: row.get(8)?,
+            currency_code: row.get(9)?,
+            currency_minor_units: row.get(10)?,
         })
     })?;
 
@@ -246,6 +315,261 @@ pub fn list_events(
 
 fn local_now() -> String {
     chrono::Local::now().format("%Y-%m-%d").to_string()
+}
+
+pub fn list_currencies(conn: &Connection) -> rusqlite::Result<Vec<Currency>> {
+    let mut stmt =
+        conn.prepare("SELECT id, code, name, minor_units FROM currency ORDER BY code")?;
+    let rows = stmt.query_map([], |row| {
+        Ok(Currency {
+            id: row.get(0)?,
+            code: row.get(1)?,
+            name: row.get(2)?,
+            minor_units: row.get(3)?,
+        })
+    })?;
+    rows.collect()
+}
+
+pub fn get_consolidation_currency(conn: &Connection) -> rusqlite::Result<Currency> {
+    conn.query_row(
+        "SELECT c.id, c.code, c.name, c.minor_units
+         FROM currency c
+         JOIN app_setting s ON s.value = c.code
+         WHERE s.key = 'consolidation_currency_code'",
+        [],
+        |row| {
+            Ok(Currency {
+                id: row.get(0)?,
+                code: row.get(1)?,
+                name: row.get(2)?,
+                minor_units: row.get(3)?,
+            })
+        },
+    )
+}
+
+pub fn set_consolidation_currency(conn: &Connection, currency_id: i64) -> rusqlite::Result<()> {
+    with_savepoint(conn, || {
+        conn.execute(
+            "UPDATE app_setting
+             SET value = (SELECT code FROM currency WHERE id = ?1)
+             WHERE key = 'consolidation_currency_code'",
+            params![currency_id],
+        )?;
+        // Invalidate all auto-fetched rates — they were computed from the old consolidation.
+        conn.execute("DELETE FROM fx_rate WHERE is_manual = 0", [])?;
+        Ok(())
+    })
+}
+
+pub fn set_fx_rate_manual(
+    conn: &Connection,
+    from_currency_id: i64,
+    to_currency_id: i64,
+    date: &str,
+    rate_mantissa: i64,
+    rate_exponent: i64,
+) -> rusqlite::Result<()> {
+    conn.execute(
+        "INSERT INTO fx_rate (date, from_currency_id, to_currency_id, rate_mantissa, rate_exponent, is_manual)
+         VALUES (?1, ?2, ?3, ?4, ?5, 1)
+         ON CONFLICT (date, from_currency_id, to_currency_id)
+         DO UPDATE SET
+           rate_mantissa = excluded.rate_mantissa,
+           rate_exponent = excluded.rate_exponent,
+           is_manual = 1,
+           fetched_at = strftime('%Y-%m-%dT%H:%M:%f','now')",
+        params![date, from_currency_id, to_currency_id, rate_mantissa, rate_exponent],
+    )?;
+    Ok(())
+}
+
+pub fn list_fx_rates(
+    conn: &Connection,
+    date_filter: Option<&str>,
+) -> rusqlite::Result<Vec<FxRateRow>> {
+    let mut stmt = conn.prepare(
+        "SELECT
+           fx.id,
+           fx.date,
+           cf.code AS from_currency_code,
+           ct.code AS to_currency_code,
+           fx.rate_mantissa,
+           fx.rate_exponent,
+           fx.is_manual,
+           fx.fetched_at
+         FROM fx_rate fx
+         JOIN currency cf ON cf.id = fx.from_currency_id
+         JOIN currency ct ON ct.id = fx.to_currency_id
+         WHERE (?1 IS NULL OR fx.date = ?1)
+         ORDER BY fx.date DESC, cf.code, ct.code",
+    )?;
+    let rows = stmt.query_map(params![date_filter], |row| {
+        Ok(FxRateRow {
+            id: row.get(0)?,
+            date: row.get(1)?,
+            from_currency_code: row.get(2)?,
+            to_currency_code: row.get(3)?,
+            rate_mantissa: row.get(4)?,
+            rate_exponent: row.get(5)?,
+            is_manual: row.get::<_, i64>(6)? != 0,
+            fetched_at: row.get(7)?,
+        })
+    })?;
+    rows.collect()
+}
+
+pub fn get_fx_rate_for_conversion(
+    conn: &Connection,
+    from_currency_id: i64,
+    to_currency_id: i64,
+    date: &str,
+) -> rusqlite::Result<Option<(i64, i64)>> {
+    conn.query_row(
+        "SELECT rate_mantissa, rate_exponent
+         FROM fx_rate
+         WHERE from_currency_id = ?1
+           AND to_currency_id = ?2
+           AND date <= ?3
+         ORDER BY date DESC
+         LIMIT 1",
+        params![from_currency_id, to_currency_id, date],
+        |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
+    )
+    .optional()
+}
+
+/// Batch-upsert auto-fetched FX rates.
+/// Skips rows where `is_manual = 1` (manual rates are preserved and not overwritten).
+pub fn upsert_fx_rates(
+    conn: &Connection,
+    rates: &[(String, i64, i64, i64, i64)], // (date, from_currency_id, to_currency_id, mantissa, exponent)
+) -> rusqlite::Result<()> {
+    with_savepoint(conn, || {
+        for (date, from_id, to_id, mantissa, exponent) in rates {
+            conn.execute(
+                "INSERT INTO fx_rate
+                   (date, from_currency_id, to_currency_id, rate_mantissa, rate_exponent, is_manual)
+                 VALUES (?1, ?2, ?3, ?4, ?5, 0)
+                 ON CONFLICT (date, from_currency_id, to_currency_id) DO UPDATE SET
+                   rate_mantissa = excluded.rate_mantissa,
+                   rate_exponent = excluded.rate_exponent,
+                   fetched_at    = strftime('%Y-%m-%dT%H:%M:%f','now')
+                 WHERE is_manual = 0",
+                params![date, from_id, to_id, mantissa, exponent],
+            )?;
+        }
+        Ok(())
+    })
+}
+
+/// Read a single app_setting value by key. Returns None if the key does not exist.
+pub fn get_app_setting(conn: &Connection, key: &str) -> rusqlite::Result<Option<String>> {
+    conn.query_row(
+        "SELECT value FROM app_setting WHERE key = ?1",
+        params![key],
+        |row| row.get(0),
+    )
+    .optional()
+}
+
+/// Upsert an app_setting key-value pair (insert or replace existing value).
+pub fn set_app_setting(conn: &Connection, key: &str, value: &str) -> rusqlite::Result<()> {
+    conn.execute(
+        "INSERT INTO app_setting (key, value) VALUES (?1, ?2)
+         ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+        params![key, value],
+    )?;
+    Ok(())
+}
+
+/// Return (code, id) for each distinct currency used by accounts, excluding the
+/// consolidation currency. These are the currencies for which cross rates are needed.
+pub fn get_active_foreign_currencies(
+    conn: &Connection,
+    consolidation_id: i64,
+) -> rusqlite::Result<Vec<(String, i64)>> {
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT c.code, c.id
+         FROM account a
+         JOIN currency c ON c.id = a.currency_id
+         WHERE a.currency_id != ?1",
+    )?;
+    let rows = stmt.query_map(params![consolidation_id], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+    })?;
+    rows.collect()
+}
+
+/// Return the most recently stored fx_rate date for a given (from, to) currency pair.
+/// Returns None if no rates have been stored for that pair.
+pub fn get_latest_fx_rate_date(
+    conn: &Connection,
+    from_currency_id: i64,
+    to_currency_id: i64,
+) -> rusqlite::Result<Option<String>> {
+    // MAX() on an empty set returns NULL — query_row always gets one row.
+    conn.query_row(
+        "SELECT MAX(date) FROM fx_rate WHERE from_currency_id = ?1 AND to_currency_id = ?2",
+        params![from_currency_id, to_currency_id],
+        |row| row.get::<_, Option<String>>(0),
+    )
+}
+
+/// Return dates that have balance-update events for non-consolidation-currency accounts
+/// but lack a corresponding fx_rate row.  Used for ledger-driven backfill.
+pub fn get_dates_needing_fx_rates(
+    conn: &Connection,
+    consolidation_id: i64,
+) -> rusqlite::Result<Vec<String>> {
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT substr(ed.event_date, 1, 10) AS d
+         FROM event e
+         JOIN event_data ed ON ed.id = e.latest_data_id
+         JOIN account a     ON a.id  = e.account_id
+         WHERE a.currency_id != ?1
+           AND e.deleted_at IS NULL
+           AND e.latest_data_id IS NOT NULL
+           AND NOT EXISTS (
+             SELECT 1 FROM fx_rate fx
+             WHERE fx.date             = substr(ed.event_date, 1, 10)
+               AND fx.from_currency_id = ?1
+               AND fx.to_currency_id   = a.currency_id
+           )
+         ORDER BY d",
+    )?;
+    let rows = stmt.query_map(params![consolidation_id], |row| row.get(0))?;
+    rows.collect()
+}
+
+/// Convert `balance_minor` (in source currency) to destination currency minor units.
+///
+/// `rate` is stored as: 1 destination unit = `rate_mantissa × 10^rate_exponent` source units.
+/// Formula (corrected for minor-unit mismatch):
+///   `exp_adj = -rate_exponent + dest_minor_units - source_minor_units`
+///   if exp_adj >= 0: `converted = (balance × 10^exp_adj + mantissa/2) / mantissa`
+///   if exp_adj < 0: `converted = (balance + mantissa×10^|exp_adj|/2) / (mantissa×10^|exp_adj|)`
+/// All intermediates use i128 to prevent overflow.
+pub fn convert_balance(
+    balance_minor: i64,
+    rate_mantissa: i64,
+    rate_exponent: i64,
+    source_minor_units: i64,
+    dest_minor_units: i64,
+) -> i64 {
+    let exp_adj = -rate_exponent + dest_minor_units - source_minor_units;
+    let balance = balance_minor as i128;
+    let mantissa = rate_mantissa as i128;
+
+    if exp_adj >= 0 {
+        let factor = 10_i128.pow(exp_adj as u32);
+        (((balance * factor) + mantissa / 2) / mantissa) as i64
+    } else {
+        let factor = 10_i128.pow((-exp_adj) as u32);
+        let denominator = mantissa * factor;
+        ((balance + denominator / 2) / denominator) as i64
+    }
 }
 
 #[cfg(test)]
@@ -445,5 +769,315 @@ mod tests {
         if let (Some(fb), Some(la)) = (first_bucket_idx, last_account_idx) {
             assert!(la < fb, "All accounts should come before all buckets");
         }
+    }
+
+    #[test]
+    fn snapshot_includes_currency_fields() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let snapshot = get_accounts_snapshot(&conn, "2099-12-31T23:59:59").unwrap();
+        assert_eq!(snapshot[0].currency_code, "EUR");
+        assert_eq!(snapshot[0].currency_minor_units, 2);
+        // EUR is the consolidation currency so converted == balance and no rate missing
+        assert_eq!(
+            snapshot[0].converted_balance_minor,
+            snapshot[0].balance_minor
+        );
+        assert!(!snapshot[0].fx_rate_missing);
+    }
+
+    #[test]
+    fn snapshot_foreign_currency_no_rate_uses_1_to_1_fallback() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        // USD is seeded in migration 004
+        let usd = conn
+            .query_row("SELECT id FROM currency WHERE code = 'USD'", [], |r| {
+                r.get::<_, i64>(0)
+            })
+            .unwrap();
+        let acc = create_account(&conn, "USD Account", usd, "account", None).unwrap();
+        create_balance_update(&conn, acc, 108420, "2026-03-01", None).unwrap();
+        let snapshot = get_accounts_snapshot(&conn, "2026-03-01T23:59:59").unwrap();
+        let row = snapshot.iter().find(|r| r.account_id == acc).unwrap();
+        assert_eq!(row.balance_minor, 108420);
+        // No FX rate → 1:1 fallback → converted = same value (minor_units both 2)
+        assert_eq!(row.converted_balance_minor, 108420);
+        assert!(row.fx_rate_missing);
+    }
+
+    #[test]
+    fn snapshot_foreign_currency_with_rate_converts_correctly() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let usd = conn
+            .query_row("SELECT id FROM currency WHERE code = 'USD'", [], |r| {
+                r.get::<_, i64>(0)
+            })
+            .unwrap();
+        let eur = conn
+            .query_row("SELECT id FROM currency WHERE code = 'EUR'", [], |r| {
+                r.get::<_, i64>(0)
+            })
+            .unwrap();
+        let acc = create_account(&conn, "USD Account", usd, "account", None).unwrap();
+        create_balance_update(&conn, acc, 108420, "2026-03-01", None).unwrap();
+        // Store rate: 1 EUR = 1.0842 USD (mantissa=10842, exponent=-4)
+        set_fx_rate_manual(&conn, eur, usd, "2026-03-01", 10842, -4).unwrap();
+        let snapshot = get_accounts_snapshot(&conn, "2026-03-01T23:59:59").unwrap();
+        let row = snapshot.iter().find(|r| r.account_id == acc).unwrap();
+        assert_eq!(row.balance_minor, 108420);
+        assert_eq!(row.converted_balance_minor, 100000); // 1084.20 USD → 1000.00 EUR
+        assert!(!row.fx_rate_missing);
+    }
+
+    #[test]
+    fn list_events_includes_currency_fields() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        create_balance_update(&conn, 1, 5000, "2026-03-01", None).unwrap();
+        let events = list_events(&conn, Some(1), None).unwrap();
+        assert_eq!(events[0].currency_code, "EUR");
+        assert_eq!(events[0].currency_minor_units, 2);
+    }
+
+    #[test]
+    fn get_consolidation_currency_returns_eur() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let c = get_consolidation_currency(&conn).unwrap();
+        assert_eq!(c.code, "EUR");
+        assert_eq!(c.minor_units, 2);
+    }
+
+    #[test]
+    fn set_consolidation_currency_updates_and_clears_auto_rates() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let eur = conn
+            .query_row("SELECT id FROM currency WHERE code = 'EUR'", [], |r| {
+                r.get::<_, i64>(0)
+            })
+            .unwrap();
+        let usd = conn
+            .query_row("SELECT id FROM currency WHERE code = 'USD'", [], |r| {
+                r.get::<_, i64>(0)
+            })
+            .unwrap();
+
+        // Insert an auto-fetched rate and a manual rate
+        conn.execute(
+            "INSERT INTO fx_rate (date, from_currency_id, to_currency_id, rate_mantissa, rate_exponent, is_manual) VALUES ('2026-03-01', ?1, ?2, 10842, -4, 0)",
+            params![eur, usd],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO fx_rate (date, from_currency_id, to_currency_id, rate_mantissa, rate_exponent, is_manual) VALUES ('2026-03-01', ?1, ?2, 10842, -4, 1)",
+            params![usd, eur],
+        ).unwrap();
+
+        set_consolidation_currency(&conn, usd).unwrap();
+
+        let c = get_consolidation_currency(&conn).unwrap();
+        assert_eq!(c.code, "USD");
+
+        // Auto-fetched rate deleted, manual rate preserved
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM fx_rate WHERE is_manual = 0",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 0);
+
+        let manual_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM fx_rate WHERE is_manual = 1",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(manual_count, 1);
+    }
+
+    #[test]
+    fn get_fx_rate_for_conversion_returns_most_recent_on_or_before_date() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let eur = conn
+            .query_row("SELECT id FROM currency WHERE code = 'EUR'", [], |r| {
+                r.get::<_, i64>(0)
+            })
+            .unwrap();
+        let usd = conn
+            .query_row("SELECT id FROM currency WHERE code = 'USD'", [], |r| {
+                r.get::<_, i64>(0)
+            })
+            .unwrap();
+
+        set_fx_rate_manual(&conn, eur, usd, "2026-01-01", 10800, -4).unwrap();
+        set_fx_rate_manual(&conn, eur, usd, "2026-02-01", 10842, -4).unwrap();
+        set_fx_rate_manual(&conn, eur, usd, "2026-03-15", 10900, -4).unwrap();
+
+        // On 2026-03-01, most recent on-or-before is 2026-02-01
+        let rate = get_fx_rate_for_conversion(&conn, eur, usd, "2026-03-01").unwrap();
+        assert_eq!(rate, Some((10842, -4)));
+
+        // Before any rates → None
+        let none = get_fx_rate_for_conversion(&conn, eur, usd, "2025-12-31").unwrap();
+        assert!(none.is_none());
+    }
+
+    #[test]
+    fn upsert_fx_rates_creates_new_rows() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let eur = conn
+            .query_row("SELECT id FROM currency WHERE code = 'EUR'", [], |r| {
+                r.get::<_, i64>(0)
+            })
+            .unwrap();
+        let usd = conn
+            .query_row("SELECT id FROM currency WHERE code = 'USD'", [], |r| {
+                r.get::<_, i64>(0)
+            })
+            .unwrap();
+
+        let rates = vec![("2026-03-01".to_string(), eur, usd, 10842_i64, -4_i64)];
+        upsert_fx_rates(&conn, &rates).unwrap();
+
+        let rate = get_fx_rate_for_conversion(&conn, eur, usd, "2026-03-01").unwrap();
+        assert_eq!(rate, Some((10842, -4)));
+    }
+
+    #[test]
+    fn upsert_fx_rates_overwrites_existing_auto_rows() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let eur = conn
+            .query_row("SELECT id FROM currency WHERE code = 'EUR'", [], |r| {
+                r.get::<_, i64>(0)
+            })
+            .unwrap();
+        let usd = conn
+            .query_row("SELECT id FROM currency WHERE code = 'USD'", [], |r| {
+                r.get::<_, i64>(0)
+            })
+            .unwrap();
+
+        let initial = vec![("2026-03-01".to_string(), eur, usd, 10842_i64, -4_i64)];
+        upsert_fx_rates(&conn, &initial).unwrap();
+
+        let updated = vec![("2026-03-01".to_string(), eur, usd, 10900_i64, -4_i64)];
+        upsert_fx_rates(&conn, &updated).unwrap();
+
+        let rate = get_fx_rate_for_conversion(&conn, eur, usd, "2026-03-01").unwrap();
+        assert_eq!(rate, Some((10900, -4)));
+    }
+
+    #[test]
+    fn upsert_fx_rates_preserves_manual_rows() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let eur = conn
+            .query_row("SELECT id FROM currency WHERE code = 'EUR'", [], |r| {
+                r.get::<_, i64>(0)
+            })
+            .unwrap();
+        let usd = conn
+            .query_row("SELECT id FROM currency WHERE code = 'USD'", [], |r| {
+                r.get::<_, i64>(0)
+            })
+            .unwrap();
+
+        // Insert a manual rate
+        set_fx_rate_manual(&conn, eur, usd, "2026-03-01", 10842, -4).unwrap();
+
+        // Attempt to overwrite with an auto-fetched rate
+        let rates = vec![("2026-03-01".to_string(), eur, usd, 99999_i64, -4_i64)];
+        upsert_fx_rates(&conn, &rates).unwrap();
+
+        // Manual rate should be unchanged
+        let rate = get_fx_rate_for_conversion(&conn, eur, usd, "2026-03-01").unwrap();
+        assert_eq!(rate, Some((10842, -4)));
+
+        let is_manual: i64 = conn
+            .query_row(
+                "SELECT is_manual FROM fx_rate WHERE from_currency_id = ?1 AND to_currency_id = ?2 AND date = '2026-03-01'",
+                params![eur, usd],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(is_manual, 1);
+    }
+}
+
+#[cfg(test)]
+mod convert_balance_tests {
+    use super::convert_balance;
+
+    // Test 1: 1:1 identity — mantissa=1, exponent=0, same minor_units
+    #[test]
+    fn identity_same_minor_units() {
+        assert_eq!(convert_balance(100_000, 1, 0, 2, 2), 100_000);
+    }
+
+    // Test 2: EUR→USD standard (same minor_units=2)
+    // Rate: 1 EUR = 1.0842 USD (mantissa=10842, exponent=-4)
+    // Balance: 108420 USD cents (1084.20 USD) → 100000 EUR cents (1000.00 EUR)
+    #[test]
+    fn eur_to_usd_same_minor_units() {
+        assert_eq!(convert_balance(108420, 10842, -4, 2, 2), 100_000);
+    }
+
+    // Test 3: EUR→JPY (source has minor_units=0, dest minor_units=2)
+    // Rate: 1 EUR = 157.23 JPY (mantissa=15723, exponent=-2)
+    // Balance: 15723 JPY (no minor units) → 10000 EUR cents (100.00 EUR)
+    #[test]
+    fn eur_to_jpy_different_minor_units() {
+        // exp_adj = 2 + 2 - 0 = 4; converted = 15723 * 10000 / 15723 = 10000
+        assert_eq!(convert_balance(15723, 15723, -2, 0, 2), 10_000);
+    }
+
+    // Test 4: EUR→BTC (source has minor_units=8)
+    // Rate: 1 EUR = 0.0000161 BTC (mantissa=161, exponent=-7)
+    // Balance: 50_000_000 satoshi (0.5 BTC) → ~3_105_590 EUR cents (~31 055.90 EUR)
+    #[test]
+    fn eur_to_btc_different_minor_units() {
+        // exp_adj = 7 + 2 - 8 = 1; converted = 50_000_000 * 10 / 161 ≈ 3_105_590
+        assert_eq!(convert_balance(50_000_000, 161, -7, 8, 2), 3_105_590);
+    }
+
+    // Test 5: zero balance always yields zero
+    #[test]
+    fn zero_balance() {
+        assert_eq!(convert_balance(0, 10842, -4, 2, 2), 0);
+    }
+
+    // Test 6: negative balance (exact case to avoid rounding ambiguity)
+    // mantissa=1 means 1:1 rate → negative passthrough
+    #[test]
+    fn negative_balance_identity_rate() {
+        assert_eq!(convert_balance(-50_000, 1, 0, 2, 2), -50_000);
+    }
+
+    // Test 7: large amount — verify i128 intermediates don't overflow
+    // Balance: 1_000_000_000_000 USD cents (10 billion USD), rate 1 EUR = 1.0842 USD
+    #[test]
+    fn large_amount_no_overflow() {
+        let result = convert_balance(1_000_000_000_000, 10842, -4, 2, 2);
+        // 10^12 * 10^4 / 10842 ≈ 922_528_128_581
+        assert!(result > 900_000_000_000);
+        assert!(result < 1_000_000_000_000);
+    }
+
+    // Test 8: exp_adj < 0 (hyperinflation — 1 EUR = 36 500 VES, minor_units=2 both)
+    // mantissa=365, exponent=2 → rate = 36500
+    // Balance: 3_650_000 VES minor (36 500.00 VES) → 100 EUR cents (1.00 EUR)
+    #[test]
+    fn exp_adj_negative_hyperinflation() {
+        // exp_adj = -2 + 2 - 2 = -2; denom = 365*100 = 36500
+        // (3_650_000 + 18250) / 36500 = 100
+        assert_eq!(convert_balance(3_650_000, 365, 2, 2, 2), 100);
+    }
+
+    // Test 9: rounding — half-up for positive remainder
+    // 3 units to convert when rate is 2:1 → 1 (floor) or 2 (round)?
+    // 3 USD minor * factor / 2 → 3/2 = 1.5 → rounds to 2 (half-up)
+    #[test]
+    fn rounding_half_up() {
+        // 3 USD minor (minor_units=2), rate 1 EUR = 2 USD (mantissa=2, exponent=0)
+        // exp_adj = 0; (3 * 1 + 1) / 2 = 4/2 = 2
+        assert_eq!(convert_balance(3, 2, 0, 2, 2), 2);
     }
 }

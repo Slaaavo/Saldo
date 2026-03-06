@@ -22,6 +22,8 @@ export interface EventWithData {
   amountMinor: number;
   note: string | null;
   createdAt: string;
+  currencyCode: string;
+  currencyMinorUnits: number;
 }
 
 export interface SnapshotRow {
@@ -29,6 +31,21 @@ export interface SnapshotRow {
   accountName: string;
   accountType: string;
   balanceMinor: number;
+  currencyCode: string;
+  currencyMinorUnits: number;
+  convertedBalanceMinor: number;
+  fxRateMissing: boolean;
+}
+
+export interface FxRateRow {
+  id: number;
+  date: string;
+  fromCurrencyCode: string;
+  toCurrencyCode: string;
+  rateMantissa: number;
+  rateExponent: number;
+  isManual: boolean;
+  fetchedAt: string;
 }
 
 export interface AppError {

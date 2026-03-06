@@ -1,4 +1,5 @@
 import { useTranslation } from 'react-i18next';
+import { Loader2 } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -13,16 +14,24 @@ interface Props {
   message: string;
   onConfirm: () => void;
   onCancel: () => void;
+  confirmVariant?: 'default' | 'destructive' | 'outline' | 'secondary' | 'ghost' | 'link';
+  loading?: boolean;
 }
 
-export default function ConfirmDialog({ message, onConfirm, onCancel }: Props) {
+export default function ConfirmDialog({
+  message,
+  onConfirm,
+  onCancel,
+  confirmVariant = 'destructive',
+  loading = false,
+}: Props) {
   const { t } = useTranslation();
 
   return (
     <Dialog
       open={true}
       onOpenChange={(open) => {
-        if (!open) onCancel();
+        if (!open && !loading) onCancel();
       }}
     >
       <DialogContent>
@@ -31,10 +40,11 @@ export default function ConfirmDialog({ message, onConfirm, onCancel }: Props) {
           <DialogDescription>{message}</DialogDescription>
         </DialogHeader>
         <DialogFooter>
-          <Button variant="outline" onClick={onCancel}>
+          <Button variant="outline" onClick={onCancel} disabled={loading}>
             {t('modals.confirm.cancel')}
           </Button>
-          <Button variant="destructive" onClick={onConfirm}>
+          <Button variant={confirmVariant} onClick={onConfirm} disabled={loading}>
+            {loading && <Loader2 className="h-4 w-4 animate-spin" />}
             {t('modals.confirm.submit')}
           </Button>
         </DialogFooter>

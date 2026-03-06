@@ -80,6 +80,8 @@ export default function Ledger({
                       <div className="flex items-center gap-6">
                         <NumberValue
                           value={ev.amountMinor}
+                          currencyCode={ev.currencyCode}
+                          minorUnits={ev.currencyMinorUnits}
                           className={cn(
                             'text-sm font-bold tabular-nums',
                             ev.amountMinor < 0 && 'text-destructive',

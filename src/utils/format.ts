@@ -3,11 +3,13 @@ import { defaultNumberFormat, type NumberFormatConfig } from '../config/numberFo
 /**
  * Format a minor-unit integer amount as a display string.
  * Example: 123456 (minorUnits=2) → "1 234.56 €"
+ * When currencyCode is provided, it overrides the symbol from config.
  */
 export function formatAmount(
   amountMinor: number,
   minorUnits: number = 2,
   config: NumberFormatConfig = defaultNumberFormat,
+  currencyCode?: string,
 ): string {
   const isNegative = amountMinor < 0;
   const abs = Math.abs(amountMinor);
@@ -31,10 +33,11 @@ export function formatAmount(
   }
 
   let result: string;
+  const symbol = currencyCode ?? config.currencySymbol;
   if (config.currencyPosition === 'left') {
-    result = `${config.currencySymbol} ${numberStr}`;
+    result = `${symbol} ${numberStr}`;
   } else {
-    result = `${numberStr} ${config.currencySymbol}`;
+    result = `${numberStr} ${symbol}`;
   }
 
   return isNegative ? `-${result}` : result;

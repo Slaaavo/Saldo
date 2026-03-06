@@ -59,6 +59,22 @@ pub struct BulkCreateBalanceUpdatesInput {
     pub note: Option<String>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetConsolidationCurrencyInput {
+    pub currency_id: i64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetFxRateManualInput {
+    pub from_currency_id: i64,
+    pub to_currency_id: i64,
+    pub date: String,
+    pub rate_mantissa: i64,
+    pub rate_exponent: i64,
+}
+
 fn validate_event_date(date_str: &str) -> Result<(), AppError> {
     if date_str.is_empty() {
         return Err(AppError {
@@ -213,4 +229,168 @@ pub fn bulk_create_balance_updates(
         input.note.as_deref(),
     )?;
     Ok(ids)
+}
+
+#[tauri::command]
+pub fn list_currencies(state: State<'_, AppState>) -> Result<Vec<Currency>, AppError> {
+    let conn = state.db.lock().map_err(|e| AppError::from(e.to_string()))?;
+    let currencies = repository::list_currencies(&conn)?;
+    Ok(currencies)
+}
+
+#[tauri::command]
+pub fn get_consolidation_currency(state: State<'_, AppState>) -> Result<Currency, AppError> {
+    let conn = state.db.lock().map_err(|e| AppError::from(e.to_string()))?;
+    let currency = repository::get_consolidation_currency(&conn)?;
+    Ok(currency)
+}
+
+#[tauri::command]
+pub fn set_consolidation_currency(
+    state: State<'_, AppState>,
+    input: SetConsolidationCurrencyInput,
+) -> Result<(), AppError> {
+    let conn = state.db.lock().map_err(|e| AppError::from(e.to_string()))?;
+    repository::set_consolidation_currency(&conn, input.currency_id)?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn set_fx_rate_manual(
+    state: State<'_, AppState>,
+    input: SetFxRateManualInput,
+) -> Result<(), AppError> {
+    if input.rate_mantissa == 0 {
+        return Err(AppError {
+            code: "VALIDATION".into(),
+            message: "rate_mantissa must not be zero".into(),
+        });
+    }
+    validate_event_date(&input.date)?;
+    let conn = state.db.lock().map_err(|e| AppError::from(e.to_string()))?;
+    repository::set_fx_rate_manual(
+        &conn,
+        input.from_currency_id,
+        input.to_currency_id,
+        &input.date,
+        input.rate_mantissa,
+        input.rate_exponent,
+    )?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn list_fx_rates(
+    state: State<'_, AppState>,
+    date: Option<String>,
+) -> Result<Vec<FxRateRow>, AppError> {
+    let conn = state.db.lock().map_err(|e| AppError::from(e.to_string()))?;
+    let rates = repository::list_fx_rates(&conn, date.as_deref())?;
+    Ok(rates)
+}
+
+const SETTING_ALLOWLIST: &[&str] = &["consolidation_currency_code", "oxr_app_id"];
+
+fn validate_setting_key(key: &str) -> Result<(), AppError> {
+    if SETTING_ALLOWLIST.contains(&key) {
+        Ok(())
+    } else {
+        Err(AppError {
+            code: "VALIDATION".into(),
+            message: format!(
+                "Unknown setting key '{}'. Allowed: {:?}",
+                key, SETTING_ALLOWLIST
+            ),
+        })
+    }
+}
+
+#[tauri::command]
+pub fn get_app_setting(
+    state: State<'_, AppState>,
+    key: String,
+) -> Result<Option<String>, AppError> {
+    validate_setting_key(&key)?;
+    let conn = state.db.lock().map_err(|e| AppError::from(e.to_string()))?;
+    let value = repository::get_app_setting(&conn, &key)?;
+    Ok(value)
+}
+
+#[tauri::command]
+pub fn set_app_setting(
+    state: State<'_, AppState>,
+    key: String,
+    value: String,
+) -> Result<(), AppError> {
+    validate_setting_key(&key)?;
+    let conn = state.db.lock().map_err(|e| AppError::from(e.to_string()))?;
+    repository::set_app_setting(&conn, &key, &value)?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn get_missing_rate_dates(state: State<'_, AppState>) -> Result<Vec<String>, AppError> {
+    let conn = state.db.lock().map_err(|e| AppError::from(e.to_string()))?;
+    let consolidation = repository::get_consolidation_currency(&conn)?;
+    let dates = repository::get_dates_needing_fx_rates(&conn, consolidation.id)?;
+    Ok(dates)
+}
+
+#[tauri::command]
+pub async fn fetch_fx_rates(
+    state: tauri::State<'_, crate::AppState>,
+    date_iso: Option<String>,
+) -> Result<Vec<FxRateRow>, AppError> {
+    // 1. Read API key (lock → read → drop guard).
+    let api_key = {
+        let conn = state.db.lock().map_err(|e| AppError::from(e.to_string()))?;
+        repository::get_app_setting(&conn, "oxr_app_id")?
+            .filter(|k| !k.is_empty())
+            .ok_or_else(|| AppError {
+                code: "CONFIG_ERROR".into(),
+                message: "API key not configured. Set oxr_app_id in settings.".into(),
+            })?
+    };
+
+    // 2. Read consolidation currency and active non-consolidation currencies.
+    let (consolidation, active_currencies) = {
+        let conn = state.db.lock().map_err(|e| AppError::from(e.to_string()))?;
+        let consolidation = repository::get_consolidation_currency(&conn)?;
+        let active = repository::get_active_foreign_currencies(&conn, consolidation.id)?;
+        (consolidation, active)
+    };
+
+    // 3. HTTP call — no DB lock held across the await.
+    let oxr_response = crate::oxr::fetch_rates(&api_key, date_iso.as_deref()).await?;
+
+    // 4. Determine the calendar date to store in the fx_rate table.
+    let store_date = date_iso
+        .clone()
+        .unwrap_or_else(|| chrono::Local::now().format("%Y-%m-%d").to_string());
+
+    // 5. Compute cross rate for each active currency.
+    let mut rates: Vec<(String, i64, i64, i64, i64)> = Vec::new();
+    for (code, id) in &active_currencies {
+        match crate::oxr::compute_cross_rate(&oxr_response.rates, &consolidation.code, code) {
+            Ok((m, e)) => rates.push((store_date.clone(), consolidation.id, *id, m, e)),
+            Err(err) => eprintln!(
+                "[fetch_fx_rates] cross rate error for {}: {}",
+                code, err.message
+            ),
+        }
+    }
+
+    // 6. Upsert rates.
+    {
+        let conn = state.db.lock().map_err(|e| AppError::from(e.to_string()))?;
+        repository::upsert_fx_rates(&conn, &rates)?;
+    }
+
+    // 7. Return the stored rates for this date.
+    let stored = {
+        let conn = state.db.lock().map_err(|e| AppError::from(e.to_string()))?;
+        repository::list_fx_rates(&conn, Some(&store_date))?
+    };
+
+    Ok(stored)
 }

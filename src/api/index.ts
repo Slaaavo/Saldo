@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { SnapshotRow, EventWithData } from '../types';
+import type { SnapshotRow, EventWithData, Currency, FxRateRow } from '../types';
 
 export async function createBalanceUpdate(
   accountId: number,
@@ -87,4 +87,48 @@ export async function bulkCreateBalanceUpdates(
   return invoke('bulk_create_balance_updates', {
     input: { entries, eventDate, note: note ?? null },
   });
+}
+
+export async function listCurrencies(): Promise<Currency[]> {
+  return invoke('list_currencies');
+}
+
+export async function getConsolidationCurrency(): Promise<Currency> {
+  return invoke('get_consolidation_currency');
+}
+
+export async function setConsolidationCurrency(currencyId: number): Promise<void> {
+  return invoke('set_consolidation_currency', { input: { currencyId } });
+}
+
+export async function setFxRateManual(
+  fromCurrencyId: number,
+  toCurrencyId: number,
+  date: string,
+  rateMantissa: number,
+  rateExponent: number,
+): Promise<void> {
+  return invoke('set_fx_rate_manual', {
+    input: { fromCurrencyId, toCurrencyId, date, rateMantissa, rateExponent },
+  });
+}
+
+export async function listFxRates(date?: string): Promise<FxRateRow[]> {
+  return invoke('list_fx_rates', { date: date ?? null });
+}
+
+export async function fetchFxRates(date?: string): Promise<FxRateRow[]> {
+  return invoke('fetch_fx_rates', { dateIso: date ?? null });
+}
+
+export async function getMissingRateDates(): Promise<string[]> {
+  return invoke('get_missing_rate_dates');
+}
+
+export async function getAppSetting(key: string): Promise<string | null> {
+  return invoke('get_app_setting', { key });
+}
+
+export async function setAppSetting(key: string, value: string): Promise<void> {
+  return invoke('set_app_setting', { key, value });
 }

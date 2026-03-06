@@ -11,6 +11,14 @@ const MIGRATIONS: &[(&str, &str)] = &[
         "003_add_account_type.sql",
         include_str!("../../migrations/003_add_account_type.sql"),
     ),
+    (
+        "004_seed_currencies.sql",
+        include_str!("../../migrations/004_seed_currencies.sql"),
+    ),
+    (
+        "005_fx_rate_and_settings.sql",
+        include_str!("../../migrations/005_fx_rate_and_settings.sql"),
+    ),
 ];
 
 pub fn run_pending(conn: &rusqlite::Connection) -> rusqlite::Result<()> {

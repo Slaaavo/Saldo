@@ -2,11 +2,14 @@
 header:
   title: Our Finances
   date: Date
+  settings: Settings
+  fxRates: FX Rates
 
 # ──── Hero metrics ────
 metrics:
   totalBalance: Total Balance
   leftToSpend: Left to Spend
+  fxRateMissing: "Missing FX rate for {{currencies}}. Using 1:1 rate."
 
 # ──── Account cards ────
 accounts:
@@ -18,6 +21,7 @@ accounts:
   updateBalance: Update Balance
   scrollLeft: Scroll left
   scrollRight: Scroll right
+  fxRateMissingTooltip: "Missing FX rate — using 1:1"
 
 # ──── Bucket cards ────
 buckets:
@@ -37,7 +41,7 @@ modals:
     title: Update Balance
     account: Account
     selectAccount: Select account
-    amount: "Amount (€)"
+    amount: Amount
     date: Date
     note: Note
     notePlaceholder: Optional note
@@ -47,7 +51,7 @@ modals:
   editBalanceUpdate:
     title: Edit Balance Update
     account: Account
-    amount: "Amount (€)"
+    amount: Amount
     date: Date
     note: Note
     notePlaceholder: Optional note
@@ -58,7 +62,7 @@ modals:
     title: Create Account
     nameLabel: Account Name
     namePlaceholder: e.g. Checking Account
-    initialBalance: "Initial Balance (€, optional)"
+    initialBalance: "Initial Balance (optional)"
     cancel: Cancel
     submit: Create
 
@@ -80,6 +84,9 @@ modals:
     deleteAccount: 'Are you sure you want to delete {{entityType}} "{{name}}"? This will also delete all its events.'
     deleteEvent: Are you sure you want to delete this event?
 
+  fetchFxRatePrompt:
+    message: "No FX rate for {{date}}. Fetch rates for this date?"
+
   bulkUpdate:
     title: Update All Balances
     date: Date
@@ -87,7 +94,7 @@ modals:
     bucketsSection: Buckets
     note: Note
     notePlaceholder: "Note (optional)"
-    amountPlaceholder: "€"
+    amountPlaceholder: "New balance"
     cancel: Cancel
     submit: Update
 
@@ -96,11 +103,45 @@ common:
   account: account
   bucket: bucket
 
+# ──── Settings panel ────
+settings:
+  title: Settings
+  consolidationCurrency: Consolidation Currency
+  oxrApiKey: Open Exchange Rates API Key
+  oxrApiKeyPlaceholder: Enter your API key
+  saveApiKey: Save API Key
+  saved: Saved!
+
+# ──── FX Rates screen ────
+fxRates:
+  title: FX Rates
+  refreshRates: Refresh Rates
+  fetchHistorical: Fetch for date
+  date: Date
+  noRates: No FX rates stored yet.
+  isManual: manual
+  backfill: "Backfill {{count}} missing date(s)"
+  backfilling: "Backfilling\u2026"
+  invalidRate: Please enter a valid positive rate.
+  currencyNotFound: Currency not found. Please refresh and try again.
+
+# ──── Offline banner ────
+banner:
+  fxRatesUnavailable: Could not fetch FX rates. Showing last known rates.
+  dismiss: Dismiss
+
+# ──── Currency ────
+currency:
+  label: Currency
+  searchPlaceholder: Search currencies...
+  noResults: No currencies found.
+
 # ──── Validation ────
 validation:
   nameRequired: "{{entity}} name is required."
   invalidAmount: Please enter a valid amount.
   invalidBalance: Please enter a valid balance amount.
+  currencyRequired: Please select a currency.
 
 # ──── Error messages ────
 errors:

@@ -30,6 +30,10 @@ export default function CreateBalanceUpdateModal({
   const [date, setDate] = useState(todayIso());
   const [note, setNote] = useState('');
 
+  const selectedAccount = accounts.find((a) => a.accountId === accountId);
+  const minorUnits = selectedAccount?.currencyMinorUnits ?? 2;
+  const currencyCode = selectedAccount?.currencyCode;
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const parsed = parseFloat(amount);
@@ -37,7 +41,7 @@ export default function CreateBalanceUpdateModal({
       window.alert(t('validation.invalidAmount'));
       return;
     }
-    const amountMinor = Math.round(parsed * 100);
+    const amountMinor = Math.round(parsed * Math.pow(10, minorUnits));
     onSubmit(accountId, amountMinor, date, note);
   };
 
@@ -70,14 +74,22 @@ export default function CreateBalanceUpdateModal({
           </div>
           <div className="flex flex-col gap-2">
             <Label htmlFor="cbu-amount">{t('modals.createBalanceUpdate.amount')}</Label>
-            <Input
-              id="cbu-amount"
-              type="number"
-              step="0.01"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              required
-            />
+            <div className="relative">
+              <Input
+                id="cbu-amount"
+                type="number"
+                step={minorUnits === 0 ? '1' : '0.' + '0'.repeat(minorUnits - 1) + '1'}
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                className={currencyCode ? 'pr-14' : undefined}
+                required
+              />
+              {currencyCode && (
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground pointer-events-none">
+                  {currencyCode}
+                </span>
+              )}
+            </div>
           </div>
           <div className="flex flex-col gap-2">
             <Label htmlFor="cbu-date">{t('modals.createBalanceUpdate.date')}</Label>

@@ -2,11 +2,14 @@
 header:
   title: Naše financie
   date: Dátum
+  settings: Nastavenia
+  fxRates: Kurzy mien
 
 # ──── Metriky ────
 metrics:
   totalBalance: Celkový zostatok
   leftToSpend: Zostáva na míňanie
+  fxRateMissing: "Chýba kurz pre {{currencies}}. Používa sa kurz 1:1."
 
 # ──── Účty ────
 accounts:
@@ -18,7 +21,7 @@ accounts:
   updateBalance: Aktualizovať zostatok
   scrollLeft: Posunúť doľava
   scrollRight: Posunúť doprava
-
+  fxRateMissingTooltip: "Chýba kurz — používa sa 1:1"
 # ──── Obálky ────
 buckets:
   sectionTitle: Obálky
@@ -37,7 +40,7 @@ modals:
     title: Aktualizovať zostatok
     account: Účet
     selectAccount: Vyberte účet
-    amount: "Suma (€)"
+    amount: "Suma"
     date: Dátum
     note: Poznámka
     notePlaceholder: Voliteľná poznámka
@@ -47,7 +50,7 @@ modals:
   editBalanceUpdate:
     title: Upraviť aktualizáciu zostatku
     account: Účet
-    amount: "Suma (€)"
+    amount: "Suma"
     date: Dátum
     note: Poznámka
     notePlaceholder: Voliteľná poznámka
@@ -58,7 +61,7 @@ modals:
     title: Vytvoriť účet
     nameLabel: Názov účtu
     namePlaceholder: napr. Bežný účet
-    initialBalance: "Počiatočný zostatok (€, voliteľný)"
+    initialBalance: "Počiatočný zostatok (voliteľný)"
     cancel: Zrušiť
     submit: Vytvoriť
 
@@ -80,6 +83,9 @@ modals:
     deleteAccount: 'Naozaj chcete vymazať {{entityType}} "{{name}}"? Tým sa vymažú aj všetky jeho udalosti.'
     deleteEvent: Naozaj chcete vymazať túto udalosť?
 
+  fetchFxRatePrompt:
+    message: "Pre {{date}} chýba kurz meny. Načítať kurzy pre tento dátum?"
+
   bulkUpdate:
     title: Aktualizovať všetky zostatky
     date: Dátum
@@ -87,7 +93,7 @@ modals:
     bucketsSection: Obálky
     note: Poznámka
     notePlaceholder: "Poznámka (voliteľná)"
-    amountPlaceholder: "€"
+    amountPlaceholder: "Nový zostatok"
     cancel: Zrušiť
     submit: Aktualizovať
 
@@ -95,12 +101,44 @@ modals:
 common:
   account: účet
   bucket: obálku
+# ──── Mena ────
+currency:
+  label: Mena
+  searchPlaceholder: Hľadať meny...
+  noResults: Žiadne meny neboli nájdené.
 
+# ──── Nastavenia ────
+settings:
+  title: Nastavenia
+  consolidationCurrency: Konsolidačná mena
+  oxrApiKey: API kľúč Open Exchange Rates
+  oxrApiKeyPlaceholder: Zadajte API kľúč
+  saveApiKey: Uložiť API kľúč
+  saved: Uložené!
+
+# ──── Kurzy mien ────
+fxRates:
+  title: Kurzy mien
+  refreshRates: Obnoviť kurzy
+  fetchHistorical: Načítať pre dátum
+  date: Dátum
+  noRates: Zatiaľ žiadne kurzy mien.
+  isManual: ručne
+  backfill: "Doplniť {{count}} chýbajúci(-ce) dátum(-y)"
+  backfilling: "Dopĺňa sa\u2026"
+  invalidRate: Zadajte platný kladný kurz.
+  currencyNotFound: Mena nebola nájdená. Obnovte stránku a skúste znova.
+
+# ──── Offline banner ────
+banner:
+  fxRatesUnavailable: Nepodarilo sa načítať kurzy mien. Zobrazujú sa posledné dostupné kurzy.
+  dismiss: Zavrieť
 # ──── Validácia ────
 validation:
   nameRequired: Názov je povinný.
   invalidAmount: Zadajte platnú sumu.
   invalidBalance: Zadajte platný zostatok.
+  currencyRequired: Vyberte menu.
 
 # ──── Chybové hlášky ────
 errors:
