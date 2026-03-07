@@ -51,9 +51,14 @@ pub fn create_account(
     initial_balance_minor: Option<i64>,
 ) -> rusqlite::Result<i64> {
     with_savepoint(conn, || {
+        let next_sort_order: i64 = conn.query_row(
+            "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM account WHERE account_type = ?1",
+            params![account_type],
+            |row| row.get(0),
+        )?;
         conn.execute(
-            "INSERT INTO account (name, currency_id, account_type) VALUES (?1, ?2, ?3)",
-            params![name, currency_id, account_type],
+            "INSERT INTO account (name, currency_id, account_type, sort_order) VALUES (?1, ?2, ?3, ?4)",
+            params![name, currency_id, account_type, next_sort_order],
         )?;
         let account_id = conn.last_insert_rowid();
 
@@ -63,6 +68,21 @@ pub fn create_account(
         }
 
         Ok(account_id)
+    })
+}
+
+pub fn update_sort_order(conn: &Connection, updates: &[(i64, i64)]) -> rusqlite::Result<()> {
+    with_savepoint(conn, || {
+        for &(account_id, sort_order) in updates {
+            let rows = conn.execute(
+                "UPDATE account SET sort_order = ?1 WHERE id = ?2",
+                params![sort_order, account_id],
+            )?;
+            if rows == 0 {
+                return Err(rusqlite::Error::QueryReturnedNoRows);
+            }
+        }
+        Ok(())
     })
 }
 
@@ -252,7 +272,7 @@ pub fn get_accounts_snapshot(
            ), 0) AS balance_minor
          FROM account a
          JOIN currency c ON c.id = a.currency_id
-         ORDER BY a.account_type, a.name",
+         ORDER BY a.account_type, a.sort_order, a.id",
     )?;
 
     let row_data: Vec<(i64, String, String, i64, String, i64, i64)> = stmt
@@ -1487,6 +1507,59 @@ mod tests {
             count, 0,
             "bucket_allocation rows should be removed by CASCADE"
         );
+    }
+
+    #[test]
+    fn create_account_assigns_sequential_sort_order() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        // Use bucket type: seed DB has no buckets, so first gets sort_order=0.
+        let id1 = create_account(&conn, "First Bucket", 1, "bucket", None).unwrap();
+        let id2 = create_account(&conn, "Second Bucket", 1, "bucket", None).unwrap();
+        let so1: i64 = conn
+            .query_row(
+                "SELECT sort_order FROM account WHERE id = ?1",
+                params![id1],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let so2: i64 = conn
+            .query_row(
+                "SELECT sort_order FROM account WHERE id = ?1",
+                params![id2],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(so1, 0);
+        assert_eq!(so2, 1);
+    }
+
+    #[test]
+    fn update_sort_order_changes_snapshot_order() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let alpha_id = create_account(&conn, "Alpha", 1, "bucket", None).unwrap();
+        let beta_id = create_account(&conn, "Beta", 1, "bucket", None).unwrap();
+        // Alpha gets sort_order=0, Beta gets sort_order=1 — swap them.
+        update_sort_order(&conn, &[(beta_id, 0), (alpha_id, 1)]).unwrap();
+        let snapshot = get_accounts_snapshot(&conn, "2099-12-31T23:59:59").unwrap();
+        let beta_pos = snapshot
+            .iter()
+            .position(|r| r.account_id == beta_id)
+            .unwrap();
+        let alpha_pos = snapshot
+            .iter()
+            .position(|r| r.account_id == alpha_id)
+            .unwrap();
+        assert!(
+            beta_pos < alpha_pos,
+            "Beta should come before Alpha after swap"
+        );
+    }
+
+    #[test]
+    fn update_sort_order_rejects_invalid_id() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let result = update_sort_order(&conn, &[(9999, 0)]);
+        assert!(result.is_err());
     }
 }
 

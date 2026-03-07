@@ -149,6 +149,14 @@ currency:
   searchPlaceholder: Search currencies...
   noResults: No currencies found.
 
+# ──── Reorder modal ────
+reorder:
+  titleAccounts: Reorder Accounts
+  titleBuckets: Reorder Buckets
+  save: Save Order
+  cancel: Cancel
+  dragHint: Drag to reorder
+
 # ──── Validation ────
 validation:
   nameRequired: "{{entity}} name is required."

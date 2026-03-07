@@ -28,6 +28,7 @@ CREATE TABLE account (
   name TEXT NOT NULL,
   currency_id INTEGER NOT NULL,
   account_type TEXT NOT NULL DEFAULT 'account',
+  sort_order INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f','now')),
   FOREIGN KEY (currency_id) REFERENCES currency (id) ON DELETE RESTRICT,
   CHECK (account_type IN ('account', 'bucket'))

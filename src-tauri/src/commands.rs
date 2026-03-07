@@ -562,3 +562,37 @@ pub fn check_over_allocation(
         .map_err(AppError::from)?;
     Ok(warning)
 }
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SortOrderEntry {
+    pub account_id: i64,
+    pub sort_order: i64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateSortOrderInput {
+    pub entries: Vec<SortOrderEntry>,
+}
+
+#[tauri::command]
+pub fn update_sort_order(
+    state: State<'_, AppState>,
+    input: UpdateSortOrderInput,
+) -> Result<(), AppError> {
+    if input.entries.is_empty() {
+        return Err(AppError {
+            code: "VALIDATION".into(),
+            message: "entries must not be empty".into(),
+        });
+    }
+    let conn = state.db.lock().map_err(|e| AppError::from(e.to_string()))?;
+    let pairs: Vec<(i64, i64)> = input
+        .entries
+        .iter()
+        .map(|e| (e.account_id, e.sort_order))
+        .collect();
+    repository::update_sort_order(&conn, &pairs)?;
+    Ok(())
+}

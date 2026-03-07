@@ -23,6 +23,10 @@ const MIGRATIONS: &[(&str, &str)] = &[
         "006_bucket_allocation.sql",
         include_str!("../../migrations/006_bucket_allocation.sql"),
     ),
+    (
+        "007_add_sort_order.sql",
+        include_str!("../../migrations/007_add_sort_order.sql"),
+    ),
 ];
 
 pub fn run_pending(conn: &rusqlite::Connection) -> rusqlite::Result<()> {

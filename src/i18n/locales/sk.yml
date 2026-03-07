@@ -120,6 +120,14 @@ currency:
   searchPlaceholder: Hľadať meny...
   noResults: Žiadne meny neboli nájdené.
 
+# ──── Modálne okno zoradenia ────
+reorder:
+  titleAccounts: Zoradiť účty
+  titleBuckets: Zoradiť obálky
+  save: Uložiť poradie
+  cancel: Zrušiť
+  dragHint: Presuňte na zoradenie
+
 # ──── Nastavenia ────
 settings:
   title: Nastavenia

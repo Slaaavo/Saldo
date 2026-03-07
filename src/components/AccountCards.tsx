@@ -22,6 +22,7 @@ import {
   ChevronLeft,
   ChevronRight,
   AlertTriangle,
+  ArrowUpDown,
 } from 'lucide-react';
 
 interface Props {
@@ -34,6 +35,7 @@ interface Props {
   onRenameAccount: (accountId: number, currentName: string) => void;
   onDeleteAccount: (accountId: number, name: string) => void;
   onCreateAccount: () => void;
+  onReorder?: () => void;
 }
 
 export default function AccountCards({
@@ -46,6 +48,7 @@ export default function AccountCards({
   onRenameAccount,
   onDeleteAccount,
   onCreateAccount,
+  onReorder,
 }: Props) {
   const { t } = useTranslation();
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -87,10 +90,17 @@ export default function AccountCards({
     <section>
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-xl font-semibold">{sectionTitle ?? t('accounts.sectionTitle')}</h2>
-        <Button onClick={onCreateAccount} size="sm" variant="outline">
-          <Plus className="h-4 w-4" />
-          {addButtonLabel ?? t('accounts.addAccount')}
-        </Button>
+        <div className="flex items-center gap-2">
+          {onReorder && snapshot.length > 1 && (
+            <Button onClick={onReorder} size="sm" variant="ghost">
+              <ArrowUpDown className="h-4 w-4" />
+            </Button>
+          )}
+          <Button onClick={onCreateAccount} size="sm" variant="outline">
+            <Plus className="h-4 w-4" />
+            {addButtonLabel ?? t('accounts.addAccount')}
+          </Button>
+        </div>
       </div>
 
       {snapshot.length === 0 ? (

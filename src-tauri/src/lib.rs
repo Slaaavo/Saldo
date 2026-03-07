@@ -62,6 +62,7 @@ pub fn run() {
             commands::list_bucket_allocations,
             commands::get_account_allocated_total,
             commands::check_over_allocation,
+            commands::update_sort_order,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -171,3 +171,9 @@ export async function checkOverAllocation(
 export async function setAppSetting(key: string, value: string): Promise<void> {
   return invoke('set_app_setting', { key, value });
 }
+
+export async function updateSortOrder(
+  entries: { accountId: number; sortOrder: number }[],
+): Promise<void> {
+  return invoke('update_sort_order', { input: { entries } });
+}

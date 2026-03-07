@@ -14,6 +14,7 @@ import {
   getConsolidationCurrency,
   fetchFxRates,
   listFxRates,
+  updateSortOrder,
 } from './api';
 import { toEndOfDay, todayIso } from './utils/format';
 import { cn } from '@/lib/utils';
@@ -29,6 +30,7 @@ import ConfirmDialog from './components/ConfirmDialog';
 import BulkUpdateBalanceModal from './components/BulkUpdateBalanceModal';
 import SettingsPanel from './components/SettingsPanel';
 import FxRatesPage from './components/FxRatesPage';
+import ReorderModal from './components/ReorderModal';
 
 type ModalState =
   | { type: 'none' }
@@ -44,7 +46,9 @@ type ModalState =
     }
   | { type: 'confirmDeleteEvent'; eventId: number }
   | { type: 'bulkUpdateBalance' }
-  | { type: 'fetchFxRatePrompt'; date: string };
+  | { type: 'fetchFxRatePrompt'; date: string }
+  | { type: 'reorderAccounts' }
+  | { type: 'reorderBuckets' };
 
 function App() {
   const { t } = useTranslation();
@@ -194,6 +198,17 @@ function App() {
     await refresh();
   };
 
+  const handleSaveOrder = async (orderedIds: number[]) => {
+    try {
+      const entries = orderedIds.map((accountId, index) => ({ accountId, sortOrder: index }));
+      await updateSortOrder(entries);
+      closeModal();
+      await refresh();
+    } catch (err) {
+      window.alert(String(err));
+    }
+  };
+
   const handleConsolidationCurrencyChange = useCallback(async () => {
     try {
       const currency = await getConsolidationCurrency();
@@ -318,6 +333,7 @@ function App() {
                   onCreateAccount={() =>
                     setModalState({ type: 'createAccount', accountType: 'account' })
                   }
+                  onReorder={() => setModalState({ type: 'reorderAccounts' })}
                 />
               </div>
 
@@ -348,6 +364,7 @@ function App() {
                   onCreateAccount={() =>
                     setModalState({ type: 'createAccount', accountType: 'bucket' })
                   }
+                  onReorder={() => setModalState({ type: 'reorderBuckets' })}
                 />
               </div>
 
@@ -457,6 +474,24 @@ function App() {
             }
           }}
           onCancel={closeModal}
+        />
+      )}
+
+      {modalState.type === 'reorderAccounts' && (
+        <ReorderModal
+          items={accounts.map((r) => ({ id: r.accountId, name: r.accountName }))}
+          title={t('reorder.titleAccounts')}
+          onSave={handleSaveOrder}
+          onClose={closeModal}
+        />
+      )}
+
+      {modalState.type === 'reorderBuckets' && (
+        <ReorderModal
+          items={buckets.map((r) => ({ id: r.accountId, name: r.accountName }))}
+          title={t('reorder.titleBuckets')}
+          onSave={handleSaveOrder}
+          onClose={closeModal}
         />
       )}
     </div>
