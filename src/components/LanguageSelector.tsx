@@ -11,7 +11,7 @@ export default function LanguageSelector() {
 
   return (
     <Select value={i18n.language} onValueChange={(lng) => i18n.changeLanguage(lng)}>
-      <SelectTrigger className="w-32 h-8 text-xs">
+      <SelectTrigger className="w-64 h-10 text-sm">
         <SelectValue />
       </SelectTrigger>
       <SelectContent>

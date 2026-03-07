@@ -1,3 +1,12 @@
+# ──── Panel (sidebar) ────
+sidebar:
+  appName: "Naše financie"
+  dashboard: "Prehľad"
+  settings: "Nastavenia"
+  fxRates: "Výmenné kurzy"
+  collapse: "Zbaliť panel"
+  expand: "Rozbaliť panel"
+
 # ──── Hlavička ────
 header:
   title: Naše financie
@@ -136,6 +145,11 @@ settings:
   oxrApiKeyPlaceholder: Zadajte API kľúč
   saveApiKey: Uložiť API kľúč
   saved: Uložené!
+  sectionDisplay: "Zobrazenie"
+  sectionDisplayDesc: "Nastavenia jazyka a meny"
+  sectionIntegrations: "Integrácie"
+  sectionIntegrationsDesc: "Pripojenia externých služieb"
+  language: "Jazyk"
 
 # ──── Kurzy mien ────
 fxRates:
@@ -149,6 +163,8 @@ fxRates:
   backfilling: "Dopĺňa sa\u2026"
   invalidRate: Zadajte platný kladný kurz.
   currencyNotFound: Mena nebola nájdená. Obnovte stránku a skúste znova.
+  subtitle: "Kurzy voči {{currency}}"
+  baseCurrencyPrefix: "1 {{currency}} →"
 
 # ──── Offline banner ────
 banner:

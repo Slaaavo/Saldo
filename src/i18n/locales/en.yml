@@ -1,3 +1,12 @@
+# ──── Sidebar ────
+sidebar:
+  appName: "Our Finances"
+  dashboard: "Dashboard"
+  settings: "Settings"
+  fxRates: "FX Rates"
+  collapse: "Collapse sidebar"
+  expand: "Expand sidebar"
+
 # ──── Header ────
 header:
   title: Our Finances
@@ -124,6 +133,11 @@ settings:
   oxrApiKeyPlaceholder: Enter your API key
   saveApiKey: Save API Key
   saved: Saved!
+  sectionDisplay: "Display"
+  sectionDisplayDesc: "Language and currency preferences"
+  sectionIntegrations: "Integrations"
+  sectionIntegrationsDesc: "External service connections"
+  language: "Language"
 
 # ──── FX Rates screen ────
 fxRates:
@@ -137,6 +151,8 @@ fxRates:
   backfilling: "Backfilling\u2026"
   invalidRate: Please enter a valid positive rate.
   currencyNotFound: Currency not found. Please refresh and try again.
+  subtitle: "Rates relative to {{currency}}"
+  baseCurrencyPrefix: "1 {{currency}} →"
 
 # ──── Offline banner ────
 banner:

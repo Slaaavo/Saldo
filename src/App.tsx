@@ -28,9 +28,10 @@ import CreateAccountModal from './components/CreateAccountModal';
 import RenameAccountModal from './components/RenameAccountModal';
 import ConfirmDialog from './components/ConfirmDialog';
 import BulkUpdateBalanceModal from './components/BulkUpdateBalanceModal';
-import SettingsPanel from './components/SettingsPanel';
+import SettingsPage from './components/SettingsPage';
 import FxRatesPage from './components/FxRatesPage';
 import ReorderModal from './components/ReorderModal';
+import Sidebar from './components/Sidebar';
 
 type ModalState =
   | { type: 'none' }
@@ -61,8 +62,10 @@ function App() {
   const [events, setEvents] = useState<EventWithData[]>([]);
   const [modalState, setModalState] = useState<ModalState>({ type: 'none' });
   const [consolidationCurrency, setConsolidationCurrency] = useState<Currency | null>(null);
-  const [currentView, setCurrentView] = useState<'dashboard' | 'fx-rates'>('dashboard');
-  const [showSettings, setShowSettings] = useState(false);
+  const [currentView, setCurrentView] = useState<'dashboard' | 'fx-rates' | 'settings'>(
+    'dashboard',
+  );
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [showFxRateBanner, setShowFxRateBanner] = useState(false);
   const [fetchLoading, setFetchLoading] = useState(false);
 
@@ -228,170 +231,192 @@ function App() {
     ...new Set(snapshot.filter((r) => r.fxRateMissing).map((r) => r.currencyCode)),
   ];
 
+  const pageTitle =
+    currentView === 'settings'
+      ? t('sidebar.settings')
+      : currentView === 'fx-rates'
+        ? t('sidebar.fxRates')
+        : t('sidebar.dashboard');
+
   return (
-    <div className="min-h-screen bg-background">
-      <div className="mx-auto max-w-4xl px-4 md:px-6 py-6">
-        <div className="bg-card rounded-xl shadow-sm overflow-hidden">
-          <Header
-            selectedDate={selectedDate}
-            onDateChange={setSelectedDate}
-            currentView={currentView}
-            onNavigate={setCurrentView}
-            onOpenSettings={() => setShowSettings(true)}
-          />
+    <div className="flex h-screen bg-background overflow-hidden">
+      <Sidebar
+        currentView={currentView}
+        onNavigate={setCurrentView}
+        collapsed={sidebarCollapsed}
+        onToggleCollapse={() => setSidebarCollapsed((c) => !c)}
+      />
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        <div className="flex-1 overflow-y-auto [scrollbar-gutter:stable]">
+          <div className="mx-auto max-w-4xl py-6 px-4">
+            <div className="bg-card rounded-xl shadow-sm overflow-hidden">
+              <Header
+                pageTitle={pageTitle}
+                selectedDate={selectedDate}
+                onDateChange={setSelectedDate}
+                showDatePicker={currentView === 'dashboard'}
+              />
 
-          {/* Offline FX rate banner */}
-          {showFxRateBanner && (
-            <div className="mx-4 md:mx-10 mt-4 flex items-center justify-between rounded-md border border-orange-400 bg-orange-50 px-4 py-2 text-sm text-orange-800">
-              <span>{t('banner.fxRatesUnavailable')}</span>
-              <button
-                onClick={() => setShowFxRateBanner(false)}
-                className="ml-4 font-medium hover:opacity-70"
-                aria-label={t('banner.dismiss')}
-              >
-                ✕
-              </button>
-            </div>
-          )}
-
-          {currentView === 'fx-rates' ? (
-            <FxRatesPage />
-          ) : (
-            <>
-              {/* FX rate missing warning */}
-              {missingFxCurrencies.length > 0 && (
-                <div className="mx-4 md:mx-10 mb-4 rounded-md border border-yellow-400 bg-yellow-50 px-4 py-2 text-sm text-yellow-800">
-                  {t('metrics.fxRateMissing', { currencies: missingFxCurrencies.join(', ') })}
+              {/* Offline FX rate banner */}
+              {showFxRateBanner && (
+                <div className="mx-4 md:mx-10 mt-4 flex items-center justify-between rounded-md border border-orange-400 bg-orange-50 px-4 py-2 text-sm text-orange-800">
+                  <span>{t('banner.fxRatesUnavailable')}</span>
+                  <button
+                    onClick={() => setShowFxRateBanner(false)}
+                    className="ml-4 font-medium hover:opacity-70"
+                    aria-label={t('banner.dismiss')}
+                  >
+                    ✕
+                  </button>
                 </div>
               )}
 
-              {/* Hero metrics */}
-              <div
-                className={cn(
-                  'px-4 md:px-10 py-10',
-                  buckets.length > 0 ? 'grid grid-cols-2' : 'flex justify-center',
-                )}
-              >
-                <div className="flex flex-col items-center">
-                  <p className="text-sm font-medium uppercase tracking-widest text-muted-foreground mb-1">
-                    {t('metrics.totalBalance')}
-                  </p>
-                  <p
-                    className={cn('text-5xl font-extrabold', totalMinor < 0 && 'text-destructive')}
+              {currentView === 'fx-rates' && <FxRatesPage />}
+
+              {currentView === 'settings' && (
+                <SettingsPage onConsolidationCurrencyChange={handleConsolidationCurrencyChange} />
+              )}
+
+              {currentView === 'dashboard' && (
+                <>
+                  {/* FX rate missing warning */}
+                  {missingFxCurrencies.length > 0 && (
+                    <div className="mx-4 md:mx-10 mb-4 rounded-md border border-yellow-400 bg-yellow-50 px-4 py-2 text-sm text-yellow-800">
+                      {t('metrics.fxRateMissing', { currencies: missingFxCurrencies.join(', ') })}
+                    </div>
+                  )}
+
+                  {/* Hero metrics */}
+                  <div
+                    className={cn(
+                      'px-4 md:px-10 py-10',
+                      buckets.length > 0 ? 'grid grid-cols-2' : 'flex justify-center',
+                    )}
                   >
-                    <NumberValue
-                      value={totalMinor}
-                      currencyCode={consolidationCurrency?.code}
-                      minorUnits={consolidationCurrency?.minorUnits ?? 2}
-                    />
-                  </p>
-                </div>
-                {buckets.length > 0 && (
-                  <div className="flex flex-col items-center">
-                    <p className="text-sm font-medium uppercase tracking-widest text-muted-foreground mb-1">
-                      {t('metrics.leftToSpend')}
-                    </p>
-                    <p
-                      className={cn(
-                        'text-5xl font-extrabold',
-                        leftToSpendMinor < 0 && 'text-destructive',
-                      )}
-                    >
-                      <NumberValue
-                        value={leftToSpendMinor}
-                        currencyCode={consolidationCurrency?.code}
-                        minorUnits={consolidationCurrency?.minorUnits ?? 2}
-                      />
-                    </p>
+                    <div className="flex flex-col items-center">
+                      <p className="text-sm font-medium uppercase tracking-widest text-muted-foreground mb-1">
+                        {t('metrics.totalBalance')}
+                      </p>
+                      <p
+                        className={cn(
+                          'text-5xl font-extrabold',
+                          totalMinor < 0 && 'text-destructive',
+                        )}
+                      >
+                        <NumberValue
+                          value={totalMinor}
+                          currencyCode={consolidationCurrency?.code}
+                          minorUnits={consolidationCurrency?.minorUnits ?? 2}
+                        />
+                      </p>
+                    </div>
+                    {buckets.length > 0 && (
+                      <div className="flex flex-col items-center">
+                        <p className="text-sm font-medium uppercase tracking-widest text-muted-foreground mb-1">
+                          {t('metrics.leftToSpend')}
+                        </p>
+                        <p
+                          className={cn(
+                            'text-5xl font-extrabold',
+                            leftToSpendMinor < 0 && 'text-destructive',
+                          )}
+                        >
+                          <NumberValue
+                            value={leftToSpendMinor}
+                            currencyCode={consolidationCurrency?.code}
+                            minorUnits={consolidationCurrency?.minorUnits ?? 2}
+                          />
+                        </p>
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
 
-              <hr className="border-border" />
+                  <hr className="border-border" />
 
-              {/* Accounts */}
-              <div className="px-4 md:px-10 py-8">
-                <AccountCards
-                  snapshot={accounts}
-                  consolidationCurrency={consolidationCurrency}
-                  sectionTitle={t('accounts.sectionTitle')}
-                  addButtonLabel={t('accounts.addAccount')}
-                  onUpdateBalance={(accountId) =>
-                    setModalState({ type: 'createBalanceUpdate', preselectedAccountId: accountId })
-                  }
-                  onRenameAccount={(accountId, currentName) =>
-                    setModalState({ type: 'renameAccount', accountId, currentName })
-                  }
-                  onDeleteAccount={(accountId, name) =>
-                    setModalState({
-                      type: 'confirmDeleteAccount',
-                      accountId,
-                      name,
-                      accountType: 'account',
-                    })
-                  }
-                  onCreateAccount={() =>
-                    setModalState({ type: 'createAccount', accountType: 'account' })
-                  }
-                  onReorder={() => setModalState({ type: 'reorderAccounts' })}
-                />
-              </div>
+                  {/* Accounts */}
+                  <div className="px-4 md:px-10 py-8">
+                    <AccountCards
+                      snapshot={accounts}
+                      consolidationCurrency={consolidationCurrency}
+                      sectionTitle={t('accounts.sectionTitle')}
+                      addButtonLabel={t('accounts.addAccount')}
+                      onUpdateBalance={(accountId) =>
+                        setModalState({
+                          type: 'createBalanceUpdate',
+                          preselectedAccountId: accountId,
+                        })
+                      }
+                      onRenameAccount={(accountId, currentName) =>
+                        setModalState({ type: 'renameAccount', accountId, currentName })
+                      }
+                      onDeleteAccount={(accountId, name) =>
+                        setModalState({
+                          type: 'confirmDeleteAccount',
+                          accountId,
+                          name,
+                          accountType: 'account',
+                        })
+                      }
+                      onCreateAccount={() =>
+                        setModalState({ type: 'createAccount', accountType: 'account' })
+                      }
+                      onReorder={() => setModalState({ type: 'reorderAccounts' })}
+                    />
+                  </div>
 
-              <hr className="border-border" />
+                  <hr className="border-border" />
 
-              {/* Buckets */}
-              <div className="px-4 md:px-10 py-8">
-                <AccountCards
-                  snapshot={buckets}
-                  consolidationCurrency={consolidationCurrency}
-                  sectionTitle={t('buckets.sectionTitle')}
-                  addButtonLabel={t('buckets.addBucket')}
-                  emptyMessage={t('buckets.empty')}
-                  onUpdateBalance={(accountId) =>
-                    setModalState({ type: 'createBalanceUpdate', preselectedAccountId: accountId })
-                  }
-                  onRenameAccount={(accountId, currentName) =>
-                    setModalState({ type: 'renameAccount', accountId, currentName })
-                  }
-                  onDeleteAccount={(accountId, name) =>
-                    setModalState({
-                      type: 'confirmDeleteAccount',
-                      accountId,
-                      name,
-                      accountType: 'bucket',
-                    })
-                  }
-                  onCreateAccount={() =>
-                    setModalState({ type: 'createAccount', accountType: 'bucket' })
-                  }
-                  onReorder={() => setModalState({ type: 'reorderBuckets' })}
-                />
-              </div>
+                  {/* Buckets */}
+                  <div className="px-4 md:px-10 py-8">
+                    <AccountCards
+                      snapshot={buckets}
+                      consolidationCurrency={consolidationCurrency}
+                      sectionTitle={t('buckets.sectionTitle')}
+                      addButtonLabel={t('buckets.addBucket')}
+                      emptyMessage={t('buckets.empty')}
+                      onUpdateBalance={(accountId) =>
+                        setModalState({
+                          type: 'createBalanceUpdate',
+                          preselectedAccountId: accountId,
+                        })
+                      }
+                      onRenameAccount={(accountId, currentName) =>
+                        setModalState({ type: 'renameAccount', accountId, currentName })
+                      }
+                      onDeleteAccount={(accountId, name) =>
+                        setModalState({
+                          type: 'confirmDeleteAccount',
+                          accountId,
+                          name,
+                          accountType: 'bucket',
+                        })
+                      }
+                      onCreateAccount={() =>
+                        setModalState({ type: 'createAccount', accountType: 'bucket' })
+                      }
+                      onReorder={() => setModalState({ type: 'reorderBuckets' })}
+                    />
+                  </div>
 
-              {/* Ledger */}
-              <div className="px-4 md:px-10 py-8 border-t border-border">
-                <Ledger
-                  events={events}
-                  accounts={snapshot}
-                  consolidationCurrency={consolidationCurrency}
-                  onEditEvent={(event) => setModalState({ type: 'editBalanceUpdate', event })}
-                  onDeleteEvent={(eventId) =>
-                    setModalState({ type: 'confirmDeleteEvent', eventId })
-                  }
-                  onUpdateBalances={() => setModalState({ type: 'bulkUpdateBalance' })}
-                />
-              </div>
-            </>
-          )}
+                  {/* Ledger */}
+                  <div className="px-4 md:px-10 py-8 border-t border-border">
+                    <Ledger
+                      events={events}
+                      accounts={snapshot}
+                      consolidationCurrency={consolidationCurrency}
+                      onEditEvent={(event) => setModalState({ type: 'editBalanceUpdate', event })}
+                      onDeleteEvent={(eventId) =>
+                        setModalState({ type: 'confirmDeleteEvent', eventId })
+                      }
+                      onUpdateBalances={() => setModalState({ type: 'bulkUpdateBalance' })}
+                    />
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
         </div>
       </div>
-
-      {showSettings && (
-        <SettingsPanel
-          onClose={() => setShowSettings(false)}
-          onConsolidationCurrencyChange={handleConsolidationCurrencyChange}
-        />
-      )}
 
       {modalState.type === 'createBalanceUpdate' && (
         <CreateBalanceUpdateModal
