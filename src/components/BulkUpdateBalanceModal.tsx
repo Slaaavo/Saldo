@@ -1,8 +1,16 @@
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { ChevronDown, ChevronRight } from 'lucide-react';
 import type { SnapshotRow } from '../types';
 import NumberValue from './NumberValue';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogBody,
+  DialogFooter,
+} from './ui/dialog';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
@@ -30,6 +38,8 @@ export default function BulkUpdateBalanceModal({
   const [note, setNote] = useState('');
   const [amounts, setAmounts] = useState<Record<number, string>>({});
   const [submitting, setSubmitting] = useState(false);
+  const [accountsExpanded, setAccountsExpanded] = useState(true);
+  const [bucketsExpanded, setBucketsExpanded] = useState(true);
 
   const realAccounts = accounts.filter((r) => r.accountType === 'account');
   const bucketAccounts = accounts.filter((r) => r.accountType === 'bucket');
@@ -113,42 +123,65 @@ export default function BulkUpdateBalanceModal({
         <DialogHeader>
           <DialogTitle>{t('modals.bulkUpdate.title')}</DialogTitle>
         </DialogHeader>
-        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="bulk-date">{t('modals.bulkUpdate.date')}</Label>
-            <DatePicker id="bulk-date" value={date} onChange={setDate} />
-          </div>
+        <form
+          onSubmit={handleSubmit}
+          className="flex flex-col flex-1 overflow-hidden min-h-0 gap-4"
+        >
+          <DialogBody className="flex flex-col gap-4">
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="bulk-date">{t('modals.bulkUpdate.date')}</Label>
+              <DatePicker id="bulk-date" value={date} onChange={setDate} />
+            </div>
 
-          <hr className="border-border" />
+            <hr className="border-border" />
 
-          <div className="grid grid-cols-[auto_1fr] items-center gap-x-8 gap-y-3">
-            {realAccounts.length > 0 && (
-              <div className="col-span-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground pt-2">
-                {t('modals.bulkUpdate.accountsSection')}
-              </div>
-            )}
-            {realAccounts.map(renderRow)}
+            <div className="grid grid-cols-[auto_1fr] items-center gap-x-8 gap-y-3">
+              {realAccounts.length > 0 && (
+                <button
+                  type="button"
+                  className="col-span-2 flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground pt-2"
+                  onClick={() => setAccountsExpanded((v) => !v)}
+                >
+                  {accountsExpanded ? (
+                    <ChevronDown className="h-3.5 w-3.5" />
+                  ) : (
+                    <ChevronRight className="h-3.5 w-3.5" />
+                  )}
+                  {t('modals.bulkUpdate.accountsSection')}
+                </button>
+              )}
+              {accountsExpanded && realAccounts.map(renderRow)}
 
-            {bucketAccounts.length > 0 && (
-              <div className="col-span-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground pt-4">
-                {t('modals.bulkUpdate.bucketsSection')}
-              </div>
-            )}
-            {bucketAccounts.map(renderRow)}
-          </div>
+              {bucketAccounts.length > 0 && (
+                <button
+                  type="button"
+                  className="col-span-2 flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground pt-4"
+                  onClick={() => setBucketsExpanded((v) => !v)}
+                >
+                  {bucketsExpanded ? (
+                    <ChevronDown className="h-3.5 w-3.5" />
+                  ) : (
+                    <ChevronRight className="h-3.5 w-3.5" />
+                  )}
+                  {t('modals.bulkUpdate.bucketsSection')}
+                </button>
+              )}
+              {bucketsExpanded && bucketAccounts.map(renderRow)}
+            </div>
 
-          <hr className="border-border" />
+            <hr className="border-border" />
 
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="bulk-note">{t('modals.bulkUpdate.note')}</Label>
-            <Input
-              id="bulk-note"
-              type="text"
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              placeholder={t('modals.bulkUpdate.notePlaceholder')}
-            />
-          </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="bulk-note">{t('modals.bulkUpdate.note')}</Label>
+              <Input
+                id="bulk-note"
+                type="text"
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                placeholder={t('modals.bulkUpdate.notePlaceholder')}
+              />
+            </div>
+          </DialogBody>
 
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose}>

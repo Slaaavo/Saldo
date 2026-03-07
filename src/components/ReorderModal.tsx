@@ -16,7 +16,14 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { GripVertical } from 'lucide-react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogBody,
+  DialogFooter,
+} from './ui/dialog';
 import { Button } from './ui/button';
 
 interface Item {
@@ -94,24 +101,26 @@ export default function ReorderModal({ items, title, onSave, onClose }: Props) {
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
         </DialogHeader>
-        <p className="text-xs text-muted-foreground">{t('reorder.dragHint')}</p>
+        <DialogBody className="flex flex-col gap-2">
+          <p className="text-xs text-muted-foreground">{t('reorder.dragHint')}</p>
 
-        <div className="flex flex-col gap-2 py-2">
-          <DndContext
-            sensors={sensors}
-            collisionDetection={closestCenter}
-            onDragEnd={handleDragEnd}
-          >
-            <SortableContext
-              items={ordered.map((i) => i.id)}
-              strategy={verticalListSortingStrategy}
+          <div className="flex flex-col gap-2 py-2">
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragEnd={handleDragEnd}
             >
-              {ordered.map((item) => (
-                <SortableRow key={item.id} item={item} />
-              ))}
-            </SortableContext>
-          </DndContext>
-        </div>
+              <SortableContext
+                items={ordered.map((i) => i.id)}
+                strategy={verticalListSortingStrategy}
+              >
+                {ordered.map((item) => (
+                  <SortableRow key={item.id} item={item} />
+                ))}
+              </SortableContext>
+            </DndContext>
+          </div>
+        </DialogBody>
 
         <DialogFooter>
           <Button type="button" variant="outline" onClick={onClose}>

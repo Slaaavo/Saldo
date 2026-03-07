@@ -1,6 +1,13 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogBody,
+  DialogFooter,
+} from './ui/dialog';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
@@ -36,18 +43,23 @@ export default function RenameAccountModal({ accountId, currentName, onSubmit, o
         <DialogHeader>
           <DialogTitle>{t('modals.renameAccount.title')}</DialogTitle>
         </DialogHeader>
-        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="rename-name">{t('modals.renameAccount.nameLabel')}</Label>
-            <Input
-              id="rename-name"
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              required
-              autoFocus
-            />
-          </div>
+        <form
+          onSubmit={handleSubmit}
+          className="flex flex-col flex-1 overflow-hidden min-h-0 gap-4"
+        >
+          <DialogBody className="flex flex-col gap-4">
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="rename-name">{t('modals.renameAccount.nameLabel')}</Label>
+              <Input
+                id="rename-name"
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                required
+                autoFocus
+              />
+            </div>
+          </DialogBody>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose}>
               {t('modals.renameAccount.cancel')}

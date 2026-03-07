@@ -3,7 +3,14 @@ import { useTranslation } from 'react-i18next';
 import type { EventWithData, SnapshotRow } from '../types';
 import { formatDate } from '../utils/format';
 import { createBucketAllocation, getAccountAllocatedTotal, listBucketAllocations } from '../api';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogBody,
+  DialogFooter,
+} from './ui/dialog';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
@@ -272,193 +279,202 @@ export default function EditBalanceUpdateModal({ event, accounts, onSubmit, onCl
         <DialogHeader>
           <DialogTitle>{t('modals.editBalanceUpdate.title')}</DialogTitle>
         </DialogHeader>
-        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-          <div className="flex flex-col gap-2">
-            <Label>{t('modals.editBalanceUpdate.account')}</Label>
-            <Input type="text" value={event.accountName} disabled className="bg-muted" />
-          </div>
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="ebu-amount">
-              {isBucket
-                ? t('modals.createBalanceUpdate.extraBalance')
-                : t('modals.editBalanceUpdate.amount')}
-            </Label>
-            <div className="relative">
-              <Input
-                id="ebu-amount"
-                type="number"
-                step={minorUnits === 0 ? '1' : '0.' + '0'.repeat(minorUnits - 1) + '1'}
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                className="pr-14"
-                required
-                autoFocus
-              />
-              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground pointer-events-none">
-                {event.currencyCode}
-              </span>
+        <form
+          onSubmit={handleSubmit}
+          className="flex flex-col flex-1 overflow-hidden min-h-0 gap-4"
+        >
+          <DialogBody className="flex flex-col gap-4">
+            <div className="flex flex-col gap-2">
+              <Label>{t('modals.editBalanceUpdate.account')}</Label>
+              <Input type="text" value={event.accountName} disabled className="bg-muted" />
             </div>
-          </div>
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="ebu-date">{t('modals.editBalanceUpdate.date')}</Label>
-            <DatePicker id="ebu-date" value={date} onChange={setDate} />
-          </div>
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="ebu-note">{t('modals.editBalanceUpdate.note')}</Label>
-            <Input
-              id="ebu-note"
-              type="text"
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              placeholder={t('modals.editBalanceUpdate.notePlaceholder')}
-            />
-          </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="ebu-amount">
+                {isBucket
+                  ? t('modals.createBalanceUpdate.extraBalance')
+                  : t('modals.editBalanceUpdate.amount')}
+              </Label>
+              <div className="relative">
+                <Input
+                  id="ebu-amount"
+                  type="number"
+                  step={minorUnits === 0 ? '1' : '0.' + '0'.repeat(minorUnits - 1) + '1'}
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  className="pr-14"
+                  required
+                  autoFocus
+                />
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground pointer-events-none">
+                  {event.currencyCode}
+                </span>
+              </div>
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="ebu-date">{t('modals.editBalanceUpdate.date')}</Label>
+              <DatePicker id="ebu-date" value={date} onChange={setDate} />
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="ebu-note">{t('modals.editBalanceUpdate.note')}</Label>
+              <Input
+                id="ebu-note"
+                type="text"
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                placeholder={t('modals.editBalanceUpdate.notePlaceholder')}
+              />
+            </div>
 
-          {isBucket && (
-            <>
-              <hr className="border-border" />
-              <div className="flex flex-col gap-3">
-                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  {t('modals.createBalanceUpdate.linkedAccounts')}
-                </p>
+            {isBucket && (
+              <>
+                <hr className="border-border" />
+                <div className="flex flex-col gap-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    {t('modals.createBalanceUpdate.linkedAccounts')}
+                  </p>
 
-                {loadingAllocations ? (
-                  <p className="text-sm text-muted-foreground">…</p>
-                ) : (
-                  <>
-                    {visibleAllocations.map((row) => {
-                      const sourceAccount =
-                        row.sourceAccountId !== null
-                          ? realAccounts.find((a) => a.accountId === row.sourceAccountId)
-                          : undefined;
-                      const sourceMinorUnits = sourceAccount?.currencyMinorUnits ?? 2;
-                      const sourceCurrencyCode = sourceAccount?.currencyCode ?? '';
-                      const available = getAvailableBalance(row);
-                      const displayError = displayErrors[row.tempId];
-                      const showAmountRow = !row.isNew || row.sourceAccountId !== null;
+                  {loadingAllocations ? (
+                    <p className="text-sm text-muted-foreground">…</p>
+                  ) : (
+                    <>
+                      {visibleAllocations.map((row) => {
+                        const sourceAccount =
+                          row.sourceAccountId !== null
+                            ? realAccounts.find((a) => a.accountId === row.sourceAccountId)
+                            : undefined;
+                        const sourceMinorUnits = sourceAccount?.currencyMinorUnits ?? 2;
+                        const sourceCurrencyCode = sourceAccount?.currencyCode ?? '';
+                        const available = getAvailableBalance(row);
+                        const displayError = displayErrors[row.tempId];
+                        const showAmountRow = !row.isNew || row.sourceAccountId !== null;
 
-                      return (
-                        <div
-                          key={row.tempId}
-                          className="flex flex-col gap-2 rounded-md border border-border bg-muted/30 p-3"
-                        >
-                          {row.isNew ? (
-                            <Select
-                              value={
-                                row.sourceAccountId !== null ? String(row.sourceAccountId) : ''
-                              }
-                              onValueChange={(val) =>
-                                void handleSourceAccountSelect(row.tempId, Number(val))
-                              }
-                            >
-                              <SelectTrigger>
-                                <SelectValue
-                                  placeholder={t('modals.createBalanceUpdate.selectSourceAccount')}
-                                />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {availableToLink.map((a) => (
-                                  <SelectItem key={a.accountId} value={String(a.accountId)}>
-                                    {a.accountName}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          ) : (
-                            <p className="text-sm font-medium">
-                              {sourceAccount?.accountName ?? ''}
-                            </p>
-                          )}
-
-                          {showAmountRow && (
-                            <div className="flex items-center gap-2">
-                              <div className="relative flex-1">
-                                <Input
-                                  type="number"
-                                  step={
-                                    sourceMinorUnits === 0
-                                      ? '1'
-                                      : '0.' + '0'.repeat(sourceMinorUnits - 1) + '1'
-                                  }
-                                  value={row.amountStr}
-                                  onChange={(e) =>
-                                    handleAllocationAmountChange(row.tempId, e.target.value)
-                                  }
-                                  className={sourceCurrencyCode ? 'pr-14' : undefined}
-                                  placeholder={t('modals.createBalanceUpdate.allocationAmount')}
-                                />
-                                {sourceCurrencyCode && (
-                                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground pointer-events-none">
-                                    {sourceCurrencyCode}
-                                  </span>
-                                )}
-                              </div>
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                onClick={() =>
-                                  row.isNew ? handleRemoveNew(row.tempId) : handleUnlink(row.tempId)
+                        return (
+                          <div
+                            key={row.tempId}
+                            className="flex flex-col gap-2 rounded-md border border-border bg-muted/30 p-3"
+                          >
+                            {row.isNew ? (
+                              <Select
+                                value={
+                                  row.sourceAccountId !== null ? String(row.sourceAccountId) : ''
+                                }
+                                onValueChange={(val) =>
+                                  void handleSourceAccountSelect(row.tempId, Number(val))
                                 }
                               >
-                                {t('modals.createBalanceUpdate.unlinkAccount')}
-                              </Button>
-                            </div>
-                          )}
+                                <SelectTrigger>
+                                  <SelectValue
+                                    placeholder={t(
+                                      'modals.createBalanceUpdate.selectSourceAccount',
+                                    )}
+                                  />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {availableToLink.map((a) => (
+                                    <SelectItem key={a.accountId} value={String(a.accountId)}>
+                                      {a.accountName}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            ) : (
+                              <p className="text-sm font-medium">
+                                {sourceAccount?.accountName ?? ''}
+                              </p>
+                            )}
 
-                          {row.isNew && row.sourceAccountId === null && (
-                            <div className="flex justify-end">
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => handleRemoveNew(row.tempId)}
-                              >
-                                {t('modals.createBalanceUpdate.unlinkAccount')}
-                              </Button>
-                            </div>
-                          )}
+                            {showAmountRow && (
+                              <div className="flex items-center gap-2">
+                                <div className="relative flex-1">
+                                  <Input
+                                    type="number"
+                                    step={
+                                      sourceMinorUnits === 0
+                                        ? '1'
+                                        : '0.' + '0'.repeat(sourceMinorUnits - 1) + '1'
+                                    }
+                                    value={row.amountStr}
+                                    onChange={(e) =>
+                                      handleAllocationAmountChange(row.tempId, e.target.value)
+                                    }
+                                    className={sourceCurrencyCode ? 'pr-14' : undefined}
+                                    placeholder={t('modals.createBalanceUpdate.allocationAmount')}
+                                  />
+                                  {sourceCurrencyCode && (
+                                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground pointer-events-none">
+                                      {sourceCurrencyCode}
+                                    </span>
+                                  )}
+                                </div>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() =>
+                                    row.isNew
+                                      ? handleRemoveNew(row.tempId)
+                                      : handleUnlink(row.tempId)
+                                  }
+                                >
+                                  {t('modals.createBalanceUpdate.unlinkAccount')}
+                                </Button>
+                              </div>
+                            )}
 
-                          {showAmountRow && (
-                            <p className="text-xs text-muted-foreground">
-                              {t('modals.createBalanceUpdate.availableBalance', {
-                                amount: (available / Math.pow(10, sourceMinorUnits)).toFixed(
-                                  sourceMinorUnits,
-                                ),
-                                currency: sourceCurrencyCode,
-                              })}
-                            </p>
-                          )}
+                            {row.isNew && row.sourceAccountId === null && (
+                              <div className="flex justify-end">
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => handleRemoveNew(row.tempId)}
+                                >
+                                  {t('modals.createBalanceUpdate.unlinkAccount')}
+                                </Button>
+                              </div>
+                            )}
 
-                          {displayError && (
-                            <p className="text-xs text-destructive">{displayError}</p>
-                          )}
-                        </div>
-                      );
-                    })}
+                            {showAmountRow && (
+                              <p className="text-xs text-muted-foreground">
+                                {t('modals.createBalanceUpdate.availableBalance', {
+                                  amount: (available / Math.pow(10, sourceMinorUnits)).toFixed(
+                                    sourceMinorUnits,
+                                  ),
+                                  currency: sourceCurrencyCode,
+                                })}
+                              </p>
+                            )}
 
-                    {availableToLink.length > 0 ? (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={handleAddAllocation}
-                        className="self-start"
-                      >
-                        {t('modals.createBalanceUpdate.linkAccount')}
-                      </Button>
-                    ) : (
-                      realAccounts.length === 0 && (
-                        <p className="text-sm text-muted-foreground">
-                          {t('modals.createBalanceUpdate.noAccountsToLink')}
-                        </p>
-                      )
-                    )}
-                  </>
-                )}
-              </div>
-            </>
-          )}
+                            {displayError && (
+                              <p className="text-xs text-destructive">{displayError}</p>
+                            )}
+                          </div>
+                        );
+                      })}
+
+                      {availableToLink.length > 0 ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={handleAddAllocation}
+                          className="self-start"
+                        >
+                          {t('modals.createBalanceUpdate.linkAccount')}
+                        </Button>
+                      ) : (
+                        realAccounts.length === 0 && (
+                          <p className="text-sm text-muted-foreground">
+                            {t('modals.createBalanceUpdate.noAccountsToLink')}
+                          </p>
+                        )
+                      )}
+                    </>
+                  )}
+                </div>
+              </>
+            )}
+          </DialogBody>
 
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose}>

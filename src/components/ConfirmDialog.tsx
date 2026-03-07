@@ -6,6 +6,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogDescription,
+  DialogBody,
   DialogFooter,
 } from './ui/dialog';
 import { Button } from './ui/button';
@@ -37,8 +38,10 @@ export default function ConfirmDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{t('modals.confirm.title')}</DialogTitle>
-          <DialogDescription>{message}</DialogDescription>
         </DialogHeader>
+        <DialogBody>
+          <DialogDescription>{message}</DialogDescription>
+        </DialogBody>
         <DialogFooter>
           <Button variant="outline" onClick={onCancel} disabled={loading}>
             {t('modals.confirm.cancel')}
