@@ -175,7 +175,12 @@ function App() {
       closeModal();
       await refresh();
     } catch (err) {
-      window.alert(t('errors.deleteAccount', { error: String(err) }));
+      const msg = String(err);
+      if (msg.includes('active allocations in buckets')) {
+        window.alert(t('errors.deleteAccountLinked'));
+      } else {
+        window.alert(t('errors.deleteAccount', { error: msg }));
+      }
     }
   };
 
@@ -351,6 +356,7 @@ function App() {
                 <Ledger
                   events={events}
                   accounts={snapshot}
+                  consolidationCurrency={consolidationCurrency}
                   onEditEvent={(event) => setModalState({ type: 'editBalanceUpdate', event })}
                   onDeleteEvent={(eventId) =>
                     setModalState({ type: 'confirmDeleteEvent', eventId })
@@ -382,6 +388,7 @@ function App() {
       {modalState.type === 'editBalanceUpdate' && (
         <EditBalanceUpdateModal
           event={modalState.event}
+          accounts={snapshot}
           onSubmit={handleEditBalanceUpdate}
           onClose={closeModal}
         />

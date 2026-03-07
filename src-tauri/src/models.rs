@@ -28,6 +28,50 @@ pub struct SnapshotRow {
     pub currency_minor_units: i64,
     pub converted_balance_minor: i64,
     pub fx_rate_missing: bool,
+    /// Sum of allocations from this account across all buckets (account's currency).
+    /// Only meaningful for account-type rows.
+    pub allocated_total_minor: i64,
+    /// For bucket-type rows: converted sum of linked allocations (consolidation currency).
+    pub linked_allocations_balance_minor: i64,
+    /// Only populated when account is over-allocated; empty otherwise.
+    pub over_allocation_buckets: Vec<AllocationDetail>,
+    /// For bucket-type rows: the raw allocations contributing to this bucket's balance.
+    pub linked_allocations: Vec<BucketAllocation>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct BucketAllocation {
+    pub id: i64,
+    pub bucket_id: i64,
+    pub source_account_id: i64,
+    pub source_account_name: String,
+    pub source_currency_id: i64,
+    pub source_currency_code: String,
+    pub source_currency_minor_units: i64,
+    pub amount_minor: i64,
+    pub effective_date: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct AllocationDetail {
+    pub bucket_id: i64,
+    pub bucket_name: String,
+    pub amount_minor: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct OverAllocationWarning {
+    pub source_account_id: i64,
+    pub source_account_name: String,
+    pub currency_code: String,
+    pub currency_minor_units: i64,
+    pub balance_minor: i64,
+    pub total_allocated_minor: i64,
+    pub over_allocation_minor: i64,
+    pub allocations: Vec<AllocationDetail>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

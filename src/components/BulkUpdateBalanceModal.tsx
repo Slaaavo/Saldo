@@ -38,6 +38,11 @@ export default function BulkUpdateBalanceModal({
     <React.Fragment key={row.accountId}>
       <div className="flex-col flex">
         <div className="text-sm font-medium">{row.accountName}</div>
+        {row.accountType === 'bucket' && (
+          <div className="text-xs text-muted-foreground">
+            {t('modals.createBalanceUpdate.extraBalance')}
+          </div>
+        )}
         <NumberValue
           value={row.balanceMinor}
           currencyCode={row.currencyCode}

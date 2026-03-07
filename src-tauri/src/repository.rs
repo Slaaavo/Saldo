@@ -1,3 +1,4 @@
+use crate::error::AppError;
 use crate::models::*;
 use rusqlite::{params, Connection, OptionalExtension};
 
@@ -11,6 +12,27 @@ where
     match f() {
         Ok(val) => {
             conn.execute_batch("RELEASE SAVEPOINT repo_sp")?;
+            Ok(val)
+        }
+        Err(e) => {
+            let _ = conn.execute_batch("ROLLBACK TO SAVEPOINT repo_sp");
+            let _ = conn.execute_batch("RELEASE SAVEPOINT repo_sp");
+            Err(e)
+        }
+    }
+}
+
+/// Same as `with_savepoint` but for closures that return `Result<T, AppError>`.
+fn with_savepoint_app<T, F>(conn: &Connection, f: F) -> Result<T, AppError>
+where
+    F: FnOnce() -> Result<T, AppError>,
+{
+    conn.execute_batch("SAVEPOINT repo_sp")
+        .map_err(AppError::from)?;
+    match f() {
+        Ok(val) => {
+            conn.execute_batch("RELEASE SAVEPOINT repo_sp")
+                .map_err(AppError::from)?;
             Ok(val)
         }
         Err(e) => {
@@ -55,21 +77,57 @@ pub fn update_account(conn: &Connection, account_id: i64, name: &str) -> rusqlit
     Ok(())
 }
 
-pub fn delete_account(conn: &Connection, account_id: i64) -> rusqlite::Result<()> {
-    with_savepoint(conn, || {
+pub fn delete_account(conn: &Connection, account_id: i64) -> Result<(), AppError> {
+    with_savepoint_app(conn, || {
+        // Remove historical unlinked (zero-amount) allocation rows — these would trigger
+        // ON DELETE RESTRICT even though the user has already unlinked the account.
+        conn.execute(
+            "DELETE FROM bucket_allocation WHERE source_account_id = ?1 AND amount_minor = 0",
+            params![account_id],
+        )
+        .map_err(AppError::from)?;
+
+        // After removing zero-amount rows, check whether any active (non-zero) allocations
+        // remain. If so, return a descriptive error before attempting the delete, avoiding
+        // reliance on SQLite's extended FK error codes.
+        let mut check_stmt = conn
+            .prepare(
+                "SELECT DISTINCT a.name
+                 FROM bucket_allocation ba
+                 JOIN account a ON a.id = ba.bucket_id
+                 WHERE ba.source_account_id = ?1
+                   AND ba.amount_minor > 0",
+            )
+            .map_err(AppError::from)?;
+        let active_bucket_names: Vec<String> = check_stmt
+            .query_map(params![account_id], |row| row.get(0))
+            .map_err(AppError::from)?
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(AppError::from)?;
+        if !active_bucket_names.is_empty() {
+            return Err(AppError {
+                code: "VALIDATION".into(),
+                message: format!(
+                    "Cannot delete account: it has active allocations in buckets: {}. Unlink them first.",
+                    active_bucket_names.join(", ")
+                ),
+            });
+        }
+
         // Delete all events for this account.
         // ON DELETE CASCADE on event_data.event_id removes event_data rows.
         // DEFERRABLE FK on event.latest_data_id is checked at savepoint release.
         conn.execute(
             "DELETE FROM event WHERE account_id = ?1",
             params![account_id],
-        )?;
+        )
+        .map_err(AppError::from)?;
 
-        let rows = conn.execute("DELETE FROM account WHERE id = ?1", params![account_id])?;
-        if rows == 0 {
-            return Err(rusqlite::Error::QueryReturnedNoRows);
+        match conn.execute("DELETE FROM account WHERE id = ?1", params![account_id]) {
+            Ok(0) => Err(AppError::from(rusqlite::Error::QueryReturnedNoRows)),
+            Ok(_) => Ok(()),
+            Err(e) => Err(AppError::from(e)),
         }
-        Ok(())
     })
 }
 
@@ -259,7 +317,83 @@ pub fn get_accounts_snapshot(
             currency_minor_units,
             converted_balance_minor,
             fx_rate_missing,
+            allocated_total_minor: 0,
+            linked_allocations_balance_minor: 0,
+            over_allocation_buckets: vec![],
+            linked_allocations: vec![],
         });
+    }
+
+    // Second pass: populate allocation data for buckets and accounts.
+    for row in &mut result {
+        if row.account_type == "bucket" {
+            let allocations = list_bucket_allocations(conn, row.account_id, snapshot_date)?;
+            let mut linked_sum: i64 = 0;
+            for alloc in &allocations {
+                let converted = if alloc.source_currency_id == consolidation.id {
+                    alloc.amount_minor
+                } else {
+                    match get_fx_rate_for_conversion(
+                        conn,
+                        consolidation.id,
+                        alloc.source_currency_id,
+                        snapshot_date,
+                    )? {
+                        Some((mantissa, exponent)) => convert_balance(
+                            alloc.amount_minor,
+                            mantissa,
+                            exponent,
+                            alloc.source_currency_minor_units,
+                            consolidation.minor_units,
+                        ),
+                        None => {
+                            row.fx_rate_missing = true;
+                            convert_balance(
+                                alloc.amount_minor,
+                                1,
+                                0,
+                                alloc.source_currency_minor_units,
+                                consolidation.minor_units,
+                            )
+                        }
+                    }
+                };
+                linked_sum += converted;
+            }
+            row.linked_allocations_balance_minor = linked_sum;
+            row.converted_balance_minor += linked_sum;
+            row.linked_allocations = allocations;
+        } else if row.account_type == "account" {
+            let total_allocated = get_account_allocated_total(conn, row.account_id, snapshot_date)?;
+            row.allocated_total_minor = total_allocated;
+            if total_allocated > 0 && total_allocated > row.balance_minor {
+                let mut stmt = conn.prepare(
+                    "SELECT ba.bucket_id, a.name AS bucket_name, ba.amount_minor
+                     FROM bucket_allocation ba
+                     JOIN account a ON a.id = ba.bucket_id
+                     WHERE ba.source_account_id = ?1
+                       AND ba.amount_minor != 0
+                       AND ba.id = (
+                           SELECT id FROM bucket_allocation ba2
+                           WHERE ba2.source_account_id = ?1
+                             AND ba2.bucket_id = ba.bucket_id
+                             AND ba2.effective_date <= ?2
+                           ORDER BY ba2.effective_date DESC, ba2.id DESC
+                           LIMIT 1
+                       )",
+                )?;
+                let buckets: Vec<AllocationDetail> = stmt
+                    .query_map(params![row.account_id, snapshot_date], |r| {
+                        Ok(AllocationDetail {
+                            bucket_id: r.get(0)?,
+                            bucket_name: r.get(1)?,
+                            amount_minor: r.get(2)?,
+                        })
+                    })?
+                    .collect::<rusqlite::Result<Vec<_>>>()?;
+                row.over_allocation_buckets = buckets;
+            }
+        }
     }
 
     Ok(result)
@@ -570,6 +704,186 @@ pub fn convert_balance(
         let denominator = mantissa * factor;
         ((balance + denominator / 2) / denominator) as i64
     }
+}
+
+// ---------------------------------------------------------------------------
+// Bucket allocation functions (Step 5)
+// ---------------------------------------------------------------------------
+
+pub fn create_bucket_allocation(
+    conn: &Connection,
+    bucket_id: i64,
+    source_account_id: i64,
+    amount_minor: i64,
+    effective_date: &str,
+) -> rusqlite::Result<i64> {
+    conn.execute(
+        "INSERT INTO bucket_allocation (bucket_id, source_account_id, amount_minor, effective_date)
+         VALUES (?1, ?2, ?3, ?4)",
+        params![bucket_id, source_account_id, amount_minor, effective_date],
+    )?;
+    Ok(conn.last_insert_rowid())
+}
+
+/// For each distinct `source_account_id` linked to this bucket, return the latest
+/// allocation row where `effective_date <= as_of_date`. Excludes zero-amount rows
+/// (amount_minor = 0 represents an unlink event).
+pub fn list_bucket_allocations(
+    conn: &Connection,
+    bucket_id: i64,
+    as_of_date: &str,
+) -> rusqlite::Result<Vec<BucketAllocation>> {
+    let mut stmt = conn.prepare(
+        "SELECT
+           ba.id,
+           ba.bucket_id,
+           ba.source_account_id,
+           a.name  AS source_account_name,
+           c.id    AS source_currency_id,
+           c.code  AS source_currency_code,
+           c.minor_units AS source_currency_minor_units,
+           ba.amount_minor,
+           ba.effective_date
+         FROM bucket_allocation ba
+         JOIN account  a ON a.id = ba.source_account_id
+         JOIN currency c ON c.id = a.currency_id
+         WHERE ba.bucket_id = ?1
+           AND ba.id = (
+               SELECT id FROM bucket_allocation
+               WHERE bucket_id = ?1
+                 AND source_account_id = ba.source_account_id
+                 AND effective_date <= ?2
+               ORDER BY effective_date DESC, id DESC
+               LIMIT 1
+           )
+           AND ba.amount_minor != 0",
+    )?;
+    let rows = stmt.query_map(params![bucket_id, as_of_date], |row| {
+        Ok(BucketAllocation {
+            id: row.get(0)?,
+            bucket_id: row.get(1)?,
+            source_account_id: row.get(2)?,
+            source_account_name: row.get(3)?,
+            source_currency_id: row.get(4)?,
+            source_currency_code: row.get(5)?,
+            source_currency_minor_units: row.get(6)?,
+            amount_minor: row.get(7)?,
+            effective_date: row.get(8)?,
+        })
+    })?;
+    rows.collect()
+}
+
+/// Sum the latest allocation amount from `source_account_id` across all buckets
+/// where `effective_date <= as_of_date`. Zero-amount (unlinked) rows are excluded.
+pub fn get_account_allocated_total(
+    conn: &Connection,
+    source_account_id: i64,
+    as_of_date: &str,
+) -> rusqlite::Result<i64> {
+    conn.query_row(
+        "SELECT COALESCE(SUM(ba.amount_minor), 0)
+         FROM bucket_allocation ba
+         WHERE ba.source_account_id = ?1
+           AND ba.amount_minor != 0
+           AND ba.id = (
+               SELECT id FROM bucket_allocation ba2
+               WHERE ba2.source_account_id = ?1
+                 AND ba2.bucket_id = ba.bucket_id
+                 AND ba2.effective_date <= ?2
+               ORDER BY ba2.effective_date DESC, ba2.id DESC
+               LIMIT 1
+           )",
+        params![source_account_id, as_of_date],
+        |row| row.get(0),
+    )
+}
+
+/// Return the balance of `account_id` as of `selected_datetime` (ISO 8601 datetime).
+/// Applies the same snapshot algorithm as `get_accounts_snapshot`: latest non-deleted
+/// event_data where event_date <= selected_datetime. Returns 0 if no events found.
+pub fn get_account_balance_at_date(
+    conn: &Connection,
+    account_id: i64,
+    selected_datetime: &str,
+) -> rusqlite::Result<i64> {
+    conn.query_row(
+        "SELECT COALESCE((
+           SELECT ed.amount_minor
+           FROM event e
+           JOIN event_data ed ON ed.id = e.latest_data_id
+           WHERE e.account_id = ?1
+             AND e.deleted_at IS NULL
+             AND ed.event_date <= ?2
+           ORDER BY ed.event_date DESC, e.created_at DESC
+           LIMIT 1
+         ), 0)",
+        params![account_id, selected_datetime],
+        |row| row.get(0),
+    )
+}
+
+/// Check whether `source_account_id` is over-allocated as of `as_of_date` (YYYY-MM-DD).
+/// Returns `Some(OverAllocationWarning)` if total allocations exceed the account balance,
+/// or `None` if the account is within its balance.
+pub fn check_over_allocation(
+    conn: &Connection,
+    source_account_id: i64,
+    as_of_date: &str,
+) -> rusqlite::Result<Option<OverAllocationWarning>> {
+    let selected_datetime = format!("{}T23:59:59", as_of_date);
+    let balance = get_account_balance_at_date(conn, source_account_id, &selected_datetime)?;
+    let total_allocated = get_account_allocated_total(conn, source_account_id, as_of_date)?;
+
+    if total_allocated <= balance {
+        return Ok(None);
+    }
+
+    let (account_name, currency_code, currency_minor_units): (String, String, i64) = conn
+        .query_row(
+            "SELECT a.name, c.code, c.minor_units
+             FROM account a
+             JOIN currency c ON c.id = a.currency_id
+             WHERE a.id = ?1",
+            params![source_account_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )?;
+
+    let mut stmt = conn.prepare(
+        "SELECT ba.bucket_id, a.name AS bucket_name, ba.amount_minor
+         FROM bucket_allocation ba
+         JOIN account a ON a.id = ba.bucket_id
+         WHERE ba.source_account_id = ?1
+           AND ba.amount_minor != 0
+           AND ba.id = (
+               SELECT id FROM bucket_allocation ba2
+               WHERE ba2.source_account_id = ?1
+                 AND ba2.bucket_id = ba.bucket_id
+                 AND ba2.effective_date <= ?2
+               ORDER BY ba2.effective_date DESC, ba2.id DESC
+               LIMIT 1
+           )",
+    )?;
+    let allocations: Vec<AllocationDetail> = stmt
+        .query_map(params![source_account_id, as_of_date], |row| {
+            Ok(AllocationDetail {
+                bucket_id: row.get(0)?,
+                bucket_name: row.get(1)?,
+                amount_minor: row.get(2)?,
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+
+    Ok(Some(OverAllocationWarning {
+        source_account_id,
+        source_account_name: account_name,
+        currency_code,
+        currency_minor_units,
+        balance_minor: balance,
+        total_allocated_minor: total_allocated,
+        over_allocation_minor: total_allocated - balance,
+        allocations,
+    }))
 }
 
 #[cfg(test)]
@@ -999,6 +1313,180 @@ mod tests {
             )
             .unwrap();
         assert_eq!(is_manual, 1);
+    }
+
+    // ---------------------------------------------------------------------------
+    // Bucket allocation tests (Step 10b)
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn test_create_and_list_bucket_allocations() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        // Seed DB already has EUR (id=1) and "Main Account" (id=1, account_type='account').
+        let bucket_id = create_account(&conn, "Emergency Fund", 1, "bucket", None).unwrap();
+        create_bucket_allocation(&conn, bucket_id, 1, 5000, "2024-01-01").unwrap();
+
+        let allocs = list_bucket_allocations(&conn, bucket_id, "2024-12-31").unwrap();
+        assert_eq!(allocs.len(), 1);
+        assert_eq!(allocs[0].bucket_id, bucket_id);
+        assert_eq!(allocs[0].source_account_id, 1);
+        assert_eq!(allocs[0].amount_minor, 5000);
+        assert_eq!(allocs[0].source_currency_code, "EUR");
+        assert_eq!(allocs[0].effective_date, "2024-01-01");
+    }
+
+    #[test]
+    fn test_allocation_respects_effective_date() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let bucket_id = create_account(&conn, "Vacation Fund", 1, "bucket", None).unwrap();
+        create_bucket_allocation(&conn, bucket_id, 1, 5000, "2024-01-01").unwrap();
+        create_bucket_allocation(&conn, bucket_id, 1, 8000, "2024-06-01").unwrap();
+
+        // At 2024-03-01: only the first allocation is effective.
+        let early = list_bucket_allocations(&conn, bucket_id, "2024-03-01").unwrap();
+        assert_eq!(early.len(), 1);
+        assert_eq!(early[0].amount_minor, 5000);
+
+        // At 2024-07-01: the second allocation supersedes the first.
+        let late = list_bucket_allocations(&conn, bucket_id, "2024-07-01").unwrap();
+        assert_eq!(late.len(), 1);
+        assert_eq!(late[0].amount_minor, 8000);
+    }
+
+    #[test]
+    fn test_unlink_allocation_via_zero_amount() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let bucket_id = create_account(&conn, "Car Fund", 1, "bucket", None).unwrap();
+        create_bucket_allocation(&conn, bucket_id, 1, 5000, "2024-01-01").unwrap();
+        // Unlink: zero-amount allocation at a later date.
+        create_bucket_allocation(&conn, bucket_id, 1, 0, "2024-06-01").unwrap();
+
+        // Before unlink date: original allocation is still visible.
+        let before = list_bucket_allocations(&conn, bucket_id, "2024-03-01").unwrap();
+        assert_eq!(before.len(), 1);
+        assert_eq!(before[0].amount_minor, 5000);
+
+        // After unlink date: zero-amount row is excluded → empty.
+        let after = list_bucket_allocations(&conn, bucket_id, "2024-07-01").unwrap();
+        assert_eq!(after.len(), 0);
+    }
+
+    #[test]
+    fn test_get_account_allocated_total_sums_across_buckets() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let bucket1 = create_account(&conn, "Bucket A", 1, "bucket", None).unwrap();
+        let bucket2 = create_account(&conn, "Bucket B", 1, "bucket", None).unwrap();
+        create_bucket_allocation(&conn, bucket1, 1, 3000, "2024-01-01").unwrap();
+        create_bucket_allocation(&conn, bucket2, 1, 2000, "2024-01-01").unwrap();
+
+        let total = get_account_allocated_total(&conn, 1, "2024-12-31").unwrap();
+        assert_eq!(total, 5000);
+    }
+
+    #[test]
+    fn test_snapshot_includes_allocation_in_bucket_balance() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        // EUR is the consolidation currency; account 1 and bucket are both EUR.
+        let bucket_id = create_account(&conn, "Allocation Bucket", 1, "bucket", None).unwrap();
+        create_balance_update(&conn, 1, 10000, "2024-01-01", None).unwrap();
+        create_bucket_allocation(&conn, bucket_id, 1, 4000, "2024-01-01").unwrap();
+
+        let snapshot = get_accounts_snapshot(&conn, "2024-12-31T23:59:59").unwrap();
+        let bucket = snapshot.iter().find(|r| r.account_id == bucket_id).unwrap();
+
+        // Bucket has no manual balance events, so base balance = 0.
+        // linked_allocations_balance_minor should be 4000.
+        assert_eq!(bucket.linked_allocations_balance_minor, 4000);
+        // converted_balance_minor = base (0) + linked (4000) = 4000.
+        assert_eq!(bucket.converted_balance_minor, 4000);
+    }
+
+    #[test]
+    fn test_snapshot_includes_allocated_total_for_accounts() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let bucket1 = create_account(&conn, "Fund A", 1, "bucket", None).unwrap();
+        let bucket2 = create_account(&conn, "Fund B", 1, "bucket", None).unwrap();
+        create_balance_update(&conn, 1, 20000, "2024-01-01", None).unwrap();
+        create_bucket_allocation(&conn, bucket1, 1, 3000, "2024-01-01").unwrap();
+        create_bucket_allocation(&conn, bucket2, 1, 5000, "2024-01-01").unwrap();
+
+        let snapshot = get_accounts_snapshot(&conn, "2024-12-31T23:59:59").unwrap();
+        let account = snapshot.iter().find(|r| r.account_id == 1).unwrap();
+        assert_eq!(account.allocated_total_minor, 8000);
+    }
+
+    #[test]
+    fn test_over_allocation_check_detects_excess() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let bucket_id = create_account(&conn, "Over-Alloc Bucket", 1, "bucket", None).unwrap();
+        // Account starts at 10000.
+        create_balance_update(&conn, 1, 10000, "2024-01-01", None).unwrap();
+        // Allocate 10000 — exactly matching balance.
+        create_bucket_allocation(&conn, bucket_id, 1, 10000, "2024-01-01").unwrap();
+        // Later, balance drops to 5000.
+        create_balance_update(&conn, 1, 5000, "2024-06-01", None).unwrap();
+
+        // As of 2024-12-31: balance=5000, allocated=10000 → over by 5000.
+        let warning = check_over_allocation(&conn, 1, "2024-12-31").unwrap();
+        assert!(warning.is_some());
+        let w = warning.unwrap();
+        assert_eq!(w.source_account_id, 1);
+        assert_eq!(w.balance_minor, 5000);
+        assert_eq!(w.total_allocated_minor, 10000);
+        assert_eq!(w.over_allocation_minor, 5000);
+        assert_eq!(w.allocations.len(), 1);
+    }
+
+    #[test]
+    fn test_over_allocation_check_returns_none_when_ok() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let bucket_id = create_account(&conn, "Safe Bucket", 1, "bucket", None).unwrap();
+        create_balance_update(&conn, 1, 10000, "2024-01-01", None).unwrap();
+        create_bucket_allocation(&conn, bucket_id, 1, 5000, "2024-01-01").unwrap();
+
+        let warning = check_over_allocation(&conn, 1, "2024-12-31").unwrap();
+        assert!(warning.is_none());
+    }
+
+    #[test]
+    fn test_delete_account_blocked_by_allocation() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let bucket_id = create_account(&conn, "Emergency Reserve", 1, "bucket", None).unwrap();
+        create_balance_update(&conn, 1, 10000, "2024-01-01", None).unwrap();
+        create_bucket_allocation(&conn, bucket_id, 1, 5000, "2024-01-01").unwrap();
+
+        // Attempting to delete the source account should fail.
+        let result = delete_account(&conn, 1);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            err.message.contains("Emergency Reserve"),
+            "Error message should name the bucket: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn test_delete_bucket_cascades_allocations() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let bucket_id = create_account(&conn, "Cascade Bucket", 1, "bucket", None).unwrap();
+        create_balance_update(&conn, 1, 10000, "2024-01-01", None).unwrap();
+        create_bucket_allocation(&conn, bucket_id, 1, 5000, "2024-01-01").unwrap();
+
+        // Deleting the bucket should cascade-remove allocation rows.
+        delete_account(&conn, bucket_id).unwrap();
+
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM bucket_allocation WHERE bucket_id = ?1",
+                params![bucket_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            count, 0,
+            "bucket_allocation rows should be removed by CASCADE"
+        );
     }
 }
 

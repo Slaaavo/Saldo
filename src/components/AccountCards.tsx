@@ -2,6 +2,7 @@ import { useRef, useState, useCallback, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { SnapshotRow, Currency } from '../types';
 import NumberValue from './NumberValue';
+import BucketAmountWithTooltip from './BucketAmountWithTooltip';
 import { formatAmount } from '../utils/format';
 import { defaultNumberFormat } from '../config/numberFormat';
 import { cn } from '@/lib/utils';
@@ -13,7 +14,15 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
-import { MoreVertical, Plus, Pencil, Trash2, ChevronLeft, ChevronRight } from 'lucide-react';
+import {
+  MoreVertical,
+  Plus,
+  Pencil,
+  Trash2,
+  ChevronLeft,
+  ChevronRight,
+  AlertTriangle,
+} from 'lucide-react';
 
 interface Props {
   snapshot: SnapshotRow[];
@@ -70,6 +79,10 @@ export default function AccountCards({
     el.scrollBy({ left: amount, behavior: 'smooth' });
   }, []);
 
+  const numConfig = { ...defaultNumberFormat, currencySymbol: '' };
+  const fmtNum = (amountMinor: number, minorUnits: number) =>
+    formatAmount(amountMinor, minorUnits, numConfig).trim();
+
   return (
     <section>
       <div className="flex items-center justify-between mb-4">
@@ -99,48 +112,103 @@ export default function AccountCards({
             className="flex gap-4 overflow-x-auto no-scrollbar"
             style={{ scrollbarWidth: 'none' }}
           >
-            {snapshot.map((row) => (
-              <Card key={row.accountId} className="relative w-[250px] min-w-[250px] shrink-0">
-                <CardContent className="flex flex-col gap-1 p-4">
-                  <div className="flex items-start justify-between min-w-0">
-                    <span
-                      className="text-sm text-muted-foreground truncate"
-                      title={row.accountName}
-                    >
-                      {row.accountName}
-                    </span>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-7 w-7 -mr-2 -mt-1">
-                          <MoreVertical className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem
-                          onClick={() => onRenameAccount(row.accountId, row.accountName)}
-                        >
-                          <Pencil className="h-4 w-4" />
-                          {t('accounts.rename')}
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          className="text-destructive focus:text-destructive"
-                          onClick={() => onDeleteAccount(row.accountId, row.accountName)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                          {t('accounts.delete')}
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-                  {consolidationCurrency && row.currencyCode !== consolidationCurrency.code ? (
-                    <span
-                      title={[
-                        `≈ ${formatAmount(row.convertedBalanceMinor, consolidationCurrency.minorUnits, defaultNumberFormat, consolidationCurrency.code)}`,
-                        row.fxRateMissing ? t('accounts.fxRateMissingTooltip') : undefined,
-                      ]
-                        .filter(Boolean)
-                        .join(' · ')}
-                    >
+            {snapshot.map((row) => {
+              const isOverAllocated =
+                row.accountType === 'account' &&
+                row.allocatedTotalMinor > 0 &&
+                row.allocatedTotalMinor > row.balanceMinor;
+              const overAllocationTitle = isOverAllocated
+                ? t('accounts.overAllocationTooltip', {
+                    allocated: fmtNum(row.allocatedTotalMinor, row.currencyMinorUnits),
+                    balance: fmtNum(row.balanceMinor, row.currencyMinorUnits),
+                    currency: row.currencyCode,
+                    over: fmtNum(
+                      row.allocatedTotalMinor - row.balanceMinor,
+                      row.currencyMinorUnits,
+                    ),
+                    buckets: row.overAllocationBuckets.map((b) => b.bucketName).join(', '),
+                  })
+                : undefined;
+              return (
+                <Card
+                  key={row.accountId}
+                  className={cn(
+                    'relative w-[250px] min-w-[250px] shrink-0',
+                    isOverAllocated && 'border-amber-500',
+                  )}
+                >
+                  <CardContent className="flex flex-col gap-1 p-4">
+                    <div className="flex items-start justify-between min-w-0">
+                      <span
+                        className="text-sm text-muted-foreground truncate"
+                        title={row.accountName}
+                      >
+                        {row.accountName}
+                      </span>
+                      <div className="flex items-center">
+                        {isOverAllocated && (
+                          <span title={overAllocationTitle}>
+                            <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0" />
+                          </span>
+                        )}
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon" className="h-7 w-7 -mr-2 -mt-1">
+                              <MoreVertical className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem
+                              onClick={() => onRenameAccount(row.accountId, row.accountName)}
+                            >
+                              <Pencil className="h-4 w-4" />
+                              {t('accounts.rename')}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              className="text-destructive focus:text-destructive"
+                              onClick={() => onDeleteAccount(row.accountId, row.accountName)}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                              {t('accounts.delete')}
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
+                    </div>
+                    {row.accountType === 'bucket' ? (
+                      <BucketAmountWithTooltip
+                        totalMinor={row.convertedBalanceMinor}
+                        manualBalanceMinor={row.balanceMinor}
+                        allocations={row.linkedAllocations}
+                        currencyCode={consolidationCurrency?.code ?? row.currencyCode}
+                        minorUnits={consolidationCurrency?.minorUnits ?? row.currencyMinorUnits}
+                        manualCurrencyCode={row.currencyCode}
+                        manualMinorUnits={row.currencyMinorUnits}
+                        className={cn(
+                          'text-2xl font-bold',
+                          row.convertedBalanceMinor < 0 && 'text-destructive',
+                        )}
+                      />
+                    ) : consolidationCurrency && row.currencyCode !== consolidationCurrency.code ? (
+                      <span
+                        title={[
+                          `≈ ${formatAmount(row.convertedBalanceMinor, consolidationCurrency.minorUnits, defaultNumberFormat, consolidationCurrency.code)}`,
+                          row.fxRateMissing ? t('accounts.fxRateMissingTooltip') : undefined,
+                        ]
+                          .filter(Boolean)
+                          .join(' · ')}
+                      >
+                        <NumberValue
+                          value={row.balanceMinor}
+                          currencyCode={row.currencyCode}
+                          minorUnits={row.currencyMinorUnits}
+                          className={cn(
+                            'text-2xl font-bold',
+                            row.balanceMinor < 0 && 'text-destructive',
+                          )}
+                        />
+                      </span>
+                    ) : (
                       <NumberValue
                         value={row.balanceMinor}
                         currencyCode={row.currencyCode}
@@ -150,28 +218,18 @@ export default function AccountCards({
                           row.balanceMinor < 0 && 'text-destructive',
                         )}
                       />
-                    </span>
-                  ) : (
-                    <NumberValue
-                      value={row.balanceMinor}
-                      currencyCode={row.currencyCode}
-                      minorUnits={row.currencyMinorUnits}
-                      className={cn(
-                        'text-2xl font-bold',
-                        row.balanceMinor < 0 && 'text-destructive',
-                      )}
-                    />
-                  )}
-                  <button
-                    onClick={() => onUpdateBalance(row.accountId)}
-                    className="mt-2 text-xs font-bold uppercase tracking-wider text-muted-foreground hover:text-primary transition-colors flex items-center gap-1"
-                  >
-                    <Pencil className="h-3 w-3" />
-                    {t('accounts.updateBalance')}
-                  </button>
-                </CardContent>
-              </Card>
-            ))}
+                    )}
+                    <button
+                      onClick={() => onUpdateBalance(row.accountId)}
+                      className="mt-2 text-xs font-bold uppercase tracking-wider text-muted-foreground hover:text-primary transition-colors flex items-center gap-1"
+                    >
+                      <Pencil className="h-3 w-3" />
+                      {t('accounts.updateBalance')}
+                    </button>
+                  </CardContent>
+                </Card>
+              );
+            })}
           </div>
 
           {canScrollRight && (

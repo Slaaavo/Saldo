@@ -26,6 +26,35 @@ export interface EventWithData {
   currencyMinorUnits: number;
 }
 
+export interface AllocationDetail {
+  bucketId: number;
+  bucketName: string;
+  amountMinor: number;
+}
+
+export interface BucketAllocation {
+  id: number;
+  bucketId: number;
+  sourceAccountId: number;
+  sourceAccountName: string;
+  sourceCurrencyId: number;
+  sourceCurrencyCode: string;
+  sourceCurrencyMinorUnits: number;
+  amountMinor: number;
+  effectiveDate: string;
+}
+
+export interface OverAllocationWarning {
+  sourceAccountId: number;
+  sourceAccountName: string;
+  currencyCode: string;
+  currencyMinorUnits: number;
+  balanceMinor: number;
+  totalAllocatedMinor: number;
+  overAllocationMinor: number;
+  allocations: AllocationDetail[];
+}
+
 export interface SnapshotRow {
   accountId: number;
   accountName: string;
@@ -35,6 +64,10 @@ export interface SnapshotRow {
   currencyMinorUnits: number;
   convertedBalanceMinor: number;
   fxRateMissing: boolean;
+  allocatedTotalMinor: number;
+  linkedAllocationsBalanceMinor: number;
+  overAllocationBuckets: AllocationDetail[];
+  linkedAllocations: BucketAllocation[];
 }
 
 export interface FxRateRow {

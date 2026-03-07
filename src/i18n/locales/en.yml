@@ -22,12 +22,16 @@ accounts:
   scrollLeft: Scroll left
   scrollRight: Scroll right
   fxRateMissingTooltip: "Missing FX rate — using 1:1"
+  overAllocated: "Over-allocated"
+  overAllocationTooltip: "Allocated {{allocated}} of {{balance}} {{currency}} (over by {{over}}). Buckets: {{buckets}}"
 
 # ──── Bucket cards ────
 buckets:
   sectionTitle: Buckets
   addBucket: Add Bucket
   empty: No buckets yet. Create one to allocate your capital.
+  balanceBreakdown: "Balance breakdown"
+  additionalBalance: "Additional balance"
 
 # ──── Ledger ────
 ledger:
@@ -47,6 +51,15 @@ modals:
     notePlaceholder: Optional note
     cancel: Cancel
     submit: Create
+    linkedAccounts: "Linked Accounts"
+    linkAccount: "Link Account"
+    unlinkAccount: "Unlink"
+    availableBalance: "Available: {{amount}} {{currency}}"
+    allocationAmount: "Allocation Amount"
+    selectSourceAccount: "Select account to link"
+    extraBalance: "Additional Balance"
+    exceedsAvailable: "Exceeds available balance of {{amount}} {{currency}}"
+    noAccountsToLink: "No accounts available to link"
 
   editBalanceUpdate:
     title: Edit Balance Update
@@ -153,6 +166,8 @@ errors:
   renameAccount: "Failed to rename account: {{error}}"
   deleteAccount: "Failed to delete account: {{error}}"
   updateBalances: "Failed to update balances: {{error}}"
+  deleteAccountLinked: "Cannot delete this account: it has active allocations. Unlink the allocations first."
+  overAllocation: "Allocation exceeds available balance."
 
 # ──── Language selector ────
 language:

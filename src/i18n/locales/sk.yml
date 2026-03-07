@@ -22,11 +22,15 @@ accounts:
   scrollLeft: Posunúť doľava
   scrollRight: Posunúť doprava
   fxRateMissingTooltip: "Chýba kurz — používa sa 1:1"
+  overAllocated: "Prekročená alokácia"
+  overAllocationTooltip: "Alokované {{allocated}} z {{balance}} {{currency}} (prekročenie o {{over}}). Buckety: {{buckets}}"
 # ──── Obálky ────
 buckets:
   sectionTitle: Obálky
   addBucket: Pridať obálku
   empty: Zatiaľ žiadne obálky. Vytvorte si prvú na rozdelenie kapitálu.
+  balanceBreakdown: "Rozdelenie zostatku"
+  additionalBalance: "Dodatočný zostatok"
 
 # ──── Účtovná kniha ────
 ledger:
@@ -46,6 +50,15 @@ modals:
     notePlaceholder: Voliteľná poznámka
     cancel: Zrušiť
     submit: Vytvoriť
+    linkedAccounts: "Prepojené účty"
+    linkAccount: "Prepojiť účet"
+    unlinkAccount: "Odpojiť"
+    availableBalance: "Dostupné: {{amount}} {{currency}}"
+    allocationAmount: "Suma alokácie"
+    selectSourceAccount: "Vyberte účet na prepojenie"
+    extraBalance: "Dodatočný zostatok"
+    exceedsAvailable: "Prekračuje dostupný zostatok {{amount}} {{currency}}"
+    noAccountsToLink: "Žiadne účty na prepojenie"
 
   editBalanceUpdate:
     title: Upraviť aktualizáciu zostatku
@@ -150,6 +163,8 @@ errors:
   renameAccount: "Nepodarilo sa premenovať účet: {{error}}"
   deleteAccount: "Nepodarilo sa vymazať účet: {{error}}"
   updateBalances: "Nepodarilo sa aktualizovať zostatky: {{error}}"
+  deleteAccountLinked: "Tento účet nie je možné vymazať: má aktívne alokácie. Najskôr odpojte alokácie."
+  overAllocation: "Alokácia prekračuje dostupný zostatok."
 
 # ──── Výber jazyka ────
 language:

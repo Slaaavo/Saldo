@@ -19,6 +19,10 @@ const MIGRATIONS: &[(&str, &str)] = &[
         "005_fx_rate_and_settings.sql",
         include_str!("../../migrations/005_fx_rate_and_settings.sql"),
     ),
+    (
+        "006_bucket_allocation.sql",
+        include_str!("../../migrations/006_bucket_allocation.sql"),
+    ),
 ];
 
 pub fn run_pending(conn: &rusqlite::Connection) -> rusqlite::Result<()> {

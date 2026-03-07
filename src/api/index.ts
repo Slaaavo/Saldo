@@ -1,5 +1,12 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { SnapshotRow, EventWithData, Currency, FxRateRow } from '../types';
+import type {
+  SnapshotRow,
+  EventWithData,
+  Currency,
+  FxRateRow,
+  BucketAllocation,
+  OverAllocationWarning,
+} from '../types';
 
 export async function createBalanceUpdate(
   accountId: number,
@@ -127,6 +134,38 @@ export async function getMissingRateDates(): Promise<string[]> {
 
 export async function getAppSetting(key: string): Promise<string | null> {
   return invoke('get_app_setting', { key });
+}
+
+export async function createBucketAllocation(
+  bucketId: number,
+  sourceAccountId: number,
+  amountMinor: number,
+  effectiveDate: string,
+): Promise<number> {
+  return invoke('create_bucket_allocation', {
+    input: { bucketId, sourceAccountId, amountMinor, effectiveDate },
+  });
+}
+
+export async function listBucketAllocations(
+  bucketId: number,
+  asOfDate: string,
+): Promise<BucketAllocation[]> {
+  return invoke('list_bucket_allocations', { bucketId, asOfDate });
+}
+
+export async function getAccountAllocatedTotal(
+  sourceAccountId: number,
+  asOfDate: string,
+): Promise<number> {
+  return invoke('get_account_allocated_total', { sourceAccountId, asOfDate });
+}
+
+export async function checkOverAllocation(
+  sourceAccountId: number,
+  asOfDate: string,
+): Promise<OverAllocationWarning | null> {
+  return invoke('check_over_allocation', { sourceAccountId, asOfDate });
 }
 
 export async function setAppSetting(key: string, value: string): Promise<void> {

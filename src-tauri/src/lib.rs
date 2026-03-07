@@ -58,6 +58,10 @@ pub fn run() {
             commands::set_app_setting,
             commands::get_missing_rate_dates,
             commands::fetch_fx_rates,
+            commands::create_bucket_allocation,
+            commands::list_bucket_allocations,
+            commands::get_account_allocated_total,
+            commands::check_over_allocation,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
