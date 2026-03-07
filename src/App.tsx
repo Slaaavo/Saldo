@@ -32,6 +32,7 @@ import SettingsPage from './components/SettingsPage';
 import FxRatesPage from './components/FxRatesPage';
 import ReorderModal from './components/ReorderModal';
 import Sidebar from './components/Sidebar';
+import { useTheme } from './hooks/useTheme';
 
 type ModalState =
   | { type: 'none' }
@@ -54,6 +55,7 @@ type ModalState =
 function App() {
   const { t } = useTranslation();
   const tRef = useRef(t);
+  const { themePreference, setThemePreference } = useTheme();
   useEffect(() => {
     tRef.current = t;
   }, [t]);
@@ -259,7 +261,7 @@ function App() {
 
               {/* Offline FX rate banner */}
               {showFxRateBanner && (
-                <div className="mx-4 md:mx-10 mt-4 flex items-center justify-between rounded-md border border-orange-400 bg-orange-50 px-4 py-2 text-sm text-orange-800">
+                <div className="mx-4 md:mx-10 mt-4 flex items-center justify-between rounded-md border border-orange-400 bg-orange-50 px-4 py-2 text-sm text-orange-800 dark:border-orange-500/40 dark:bg-orange-900/20 dark:text-orange-300">
                   <span>{t('banner.fxRatesUnavailable')}</span>
                   <button
                     onClick={() => setShowFxRateBanner(false)}
@@ -274,14 +276,18 @@ function App() {
               {currentView === 'fx-rates' && <FxRatesPage />}
 
               {currentView === 'settings' && (
-                <SettingsPage onConsolidationCurrencyChange={handleConsolidationCurrencyChange} />
+                <SettingsPage
+                  onConsolidationCurrencyChange={handleConsolidationCurrencyChange}
+                  themePreference={themePreference}
+                  onThemeChange={setThemePreference}
+                />
               )}
 
               {currentView === 'dashboard' && (
                 <>
                   {/* FX rate missing warning */}
                   {missingFxCurrencies.length > 0 && (
-                    <div className="mx-4 md:mx-10 mb-4 rounded-md border border-yellow-400 bg-yellow-50 px-4 py-2 text-sm text-yellow-800">
+                    <div className="mx-4 md:mx-10 mb-4 rounded-md border border-yellow-400 bg-yellow-50 px-4 py-2 text-sm text-yellow-800 dark:border-yellow-500/40 dark:bg-yellow-900/20 dark:text-yellow-300">
                       {t('metrics.fxRateMissing', { currencies: missingFxCurrencies.join(', ') })}
                     </div>
                   )}

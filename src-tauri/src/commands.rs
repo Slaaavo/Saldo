@@ -299,7 +299,7 @@ pub fn list_fx_rates(
     Ok(rates)
 }
 
-const SETTING_ALLOWLIST: &[&str] = &["consolidation_currency_code", "oxr_app_id"];
+const SETTING_ALLOWLIST: &[&str] = &["consolidation_currency_code", "oxr_app_id", "theme"];
 
 fn validate_setting_key(key: &str) -> Result<(), AppError> {
     if SETTING_ALLOWLIST.contains(&key) {

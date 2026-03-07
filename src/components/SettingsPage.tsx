@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { Currency } from '../types';
+import type { ThemePreference } from '../hooks/useTheme';
 import {
   listCurrencies,
   getConsolidationCurrency,
@@ -11,14 +12,21 @@ import {
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import CurrencySelect from './CurrencySelect';
 import LanguageSelector from './LanguageSelector';
 
 interface Props {
   onConsolidationCurrencyChange: () => void;
+  themePreference: ThemePreference;
+  onThemeChange: (pref: ThemePreference) => void;
 }
 
-export default function SettingsPage({ onConsolidationCurrencyChange }: Props) {
+export default function SettingsPage({
+  onConsolidationCurrencyChange,
+  themePreference,
+  onThemeChange,
+}: Props) {
   const { t } = useTranslation();
   const [currencies, setCurrencies] = useState<Currency[]>([]);
   const [selectedCurrency, setSelectedCurrency] = useState<Currency | null>(null);
@@ -71,11 +79,30 @@ export default function SettingsPage({ onConsolidationCurrencyChange }: Props) {
           <LanguageSelector />
         </div>
 
+        {/* Theme field */}
+        <div className="flex flex-col gap-2 mb-4">
+          <Label>{t('settings.theme.label')}</Label>
+          <Select value={themePreference} onValueChange={onThemeChange}>
+            <SelectTrigger className="w-64 h-10 text-sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="light">{t('settings.theme.light')}</SelectItem>
+              <SelectItem value="dark">{t('settings.theme.dark')}</SelectItem>
+              <SelectItem value="system">{t('settings.theme.system')}</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
         {/* Consolidation Currency field */}
         <div className="flex flex-col gap-2">
           <div className="flex items-center gap-3">
             <Label>{t('settings.consolidationCurrency')}</Label>
-            {currencySaved && <span className="text-sm text-green-600">{t('settings.saved')}</span>}
+            {currencySaved && (
+              <span className="text-sm text-green-600 dark:text-green-400">
+                {t('settings.saved')}
+              </span>
+            )}
           </div>
           <CurrencySelect
             currencies={currencies}

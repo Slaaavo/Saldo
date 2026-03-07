@@ -228,7 +228,7 @@ export default function FxRatesPage() {
                         key={code}
                         className={cn(
                           'text-right py-1 px-3 font-mono text-sm cursor-pointer',
-                          row?.isManual && 'font-bold bg-amber-50',
+                          row?.isManual && 'font-bold bg-amber-50 dark:bg-amber-900/20',
                         )}
                         onClick={() => {
                           if (!isEditing) handleCellClick(date, code, row);

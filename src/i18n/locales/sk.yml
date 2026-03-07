@@ -150,6 +150,11 @@ settings:
   sectionIntegrations: "Integrácie"
   sectionIntegrationsDesc: "Pripojenia externých služieb"
   language: "Jazyk"
+  theme:
+    label: "Téma"
+    light: "Svetlá"
+    dark: "Tmavá"
+    system: "Systémová"
 
 # ──── Kurzy mien ────
 fxRates:

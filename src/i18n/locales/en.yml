@@ -138,6 +138,11 @@ settings:
   sectionIntegrations: "Integrations"
   sectionIntegrationsDesc: "External service connections"
   language: "Language"
+  theme:
+    label: "Theme"
+    light: "Light"
+    dark: "Dark"
+    system: "System"
 
 # ──── FX Rates screen ────
 fxRates:
