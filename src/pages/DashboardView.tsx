@@ -89,7 +89,15 @@ export default function DashboardView({
           <div className="flex flex-col items-center justify-center py-12 text-center">
             <h3 className="text-xl font-semibold mb-2">{t('demo.emptyTitle')}</h3>
             <p className="text-sm text-muted-foreground mb-6 max-w-xs">{t('demo.emptyDesc')}</p>
-            <Button onClick={onEnterDemoMode}>{t('demo.emptyCta')}</Button>
+            <div className="flex gap-3">
+              <Button onClick={onEnterDemoMode}>{t('demo.emptyCta')}</Button>
+              <Button
+                variant="outline"
+                onClick={() => setModalState({ type: 'createAccount', accountType: 'account' })}
+              >
+                {t('accounts.addAccount')}
+              </Button>
+            </div>
           </div>
         ) : (
           <AccountCards
@@ -117,41 +125,52 @@ export default function DashboardView({
         )}
       </div>
 
-      <hr className="border-border" />
+      {accounts.length > 0 && (
+        <>
+          <hr className="border-border" />
 
-      {/* Buckets */}
-      <div className="px-4 md:px-10 py-8">
-        <AccountCards
-          snapshot={buckets}
-          consolidationCurrency={consolidationCurrency}
-          sectionTitle={t('buckets.sectionTitle')}
-          addButtonLabel={t('buckets.addBucket')}
-          emptyMessage={t('buckets.empty')}
-          onUpdateBalance={(accountId) =>
-            setModalState({ type: 'createBalanceUpdate', preselectedAccountId: accountId })
-          }
-          onRenameAccount={(accountId, currentName) =>
-            setModalState({ type: 'renameAccount', accountId, currentName })
-          }
-          onDeleteAccount={(accountId, name) =>
-            setModalState({ type: 'confirmDeleteAccount', accountId, name, accountType: 'bucket' })
-          }
-          onCreateAccount={() => setModalState({ type: 'createAccount', accountType: 'bucket' })}
-          onReorder={() => setModalState({ type: 'reorderBuckets' })}
-        />
-      </div>
+          {/* Buckets */}
+          <div className="px-4 md:px-10 py-8">
+            <AccountCards
+              snapshot={buckets}
+              consolidationCurrency={consolidationCurrency}
+              sectionTitle={t('buckets.sectionTitle')}
+              addButtonLabel={t('buckets.addBucket')}
+              emptyMessage={t('buckets.empty')}
+              onUpdateBalance={(accountId) =>
+                setModalState({ type: 'createBalanceUpdate', preselectedAccountId: accountId })
+              }
+              onRenameAccount={(accountId, currentName) =>
+                setModalState({ type: 'renameAccount', accountId, currentName })
+              }
+              onDeleteAccount={(accountId, name) =>
+                setModalState({
+                  type: 'confirmDeleteAccount',
+                  accountId,
+                  name,
+                  accountType: 'bucket',
+                })
+              }
+              onCreateAccount={() =>
+                setModalState({ type: 'createAccount', accountType: 'bucket' })
+              }
+              onReorder={() => setModalState({ type: 'reorderBuckets' })}
+            />
+          </div>
 
-      {/* Ledger */}
-      <div className="px-4 md:px-10 py-8 border-t border-border">
-        <Ledger
-          events={events}
-          accounts={snapshot}
-          consolidationCurrency={consolidationCurrency}
-          onEditEvent={(event) => setModalState({ type: 'editBalanceUpdate', event })}
-          onDeleteEvent={(eventId) => setModalState({ type: 'confirmDeleteEvent', eventId })}
-          onUpdateBalances={() => setModalState({ type: 'bulkUpdateBalance' })}
-        />
-      </div>
+          {/* Ledger */}
+          <div className="px-4 md:px-10 py-8 border-t border-border">
+            <Ledger
+              events={events}
+              accounts={snapshot}
+              consolidationCurrency={consolidationCurrency}
+              onEditEvent={(event) => setModalState({ type: 'editBalanceUpdate', event })}
+              onDeleteEvent={(eventId) => setModalState({ type: 'confirmDeleteEvent', eventId })}
+              onUpdateBalances={() => setModalState({ type: 'bulkUpdateBalance' })}
+            />
+          </div>
+        </>
+      )}
     </>
   );
 }
