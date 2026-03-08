@@ -84,7 +84,7 @@ export default function FxRatesPage() {
     setIsRefreshing(true);
     setError(null);
     try {
-      await fetchFxRates(fetchDate);
+      await fetchFxRates(fetchDate, true);
       await loadRates();
       await loadMissingDates();
     } catch (err) {

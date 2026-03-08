@@ -14,8 +14,6 @@ interface Props {
   totalMinor: number;
   leftToSpendMinor: number;
   missingFxCurrencies: string[];
-  showFxRateBanner: boolean;
-  onDismissFxRateBanner: () => void;
   setModalState: (state: ModalState) => void;
 }
 
@@ -28,28 +26,12 @@ export default function DashboardView({
   totalMinor,
   leftToSpendMinor,
   missingFxCurrencies,
-  showFxRateBanner,
-  onDismissFxRateBanner,
   setModalState,
 }: Props) {
   const { t } = useTranslation();
 
   return (
     <>
-      {/* Offline FX rate banner */}
-      {showFxRateBanner && (
-        <div className="mx-4 md:mx-10 mt-4 flex items-center justify-between rounded-md border border-orange-400 bg-orange-50 px-4 py-2 text-sm text-orange-800 dark:border-orange-500/40 dark:bg-orange-900/20 dark:text-orange-300">
-          <span>{t('banner.fxRatesUnavailable')}</span>
-          <button
-            onClick={onDismissFxRateBanner}
-            className="ml-4 font-medium hover:opacity-70"
-            aria-label={t('banner.dismiss')}
-          >
-            ✕
-          </button>
-        </div>
-      )}
-
       {/* FX rate missing warning */}
       {missingFxCurrencies.length > 0 && (
         <div className="mx-4 md:mx-10 mb-4 rounded-md border border-yellow-400 bg-yellow-50 px-4 py-2 text-sm text-yellow-800 dark:border-yellow-500/40 dark:bg-yellow-900/20 dark:text-yellow-300">

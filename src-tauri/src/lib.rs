@@ -21,6 +21,79 @@ impl AppState {
     }
 }
 
+/// Fetch FX rates for `date`, skipping the OXR API call when all rates already exist
+/// (unless `force` is `true`). Follows the lock/drop/await/lock pattern: the DB mutex
+/// is never held across the async HTTP call.
+pub async fn smart_fetch_fx_rates(
+    state: &AppState,
+    date: &str,
+    force: bool,
+) -> Result<Vec<models::FxRateRow>, error::AppError> {
+    // 1. Read API key (lock → read → drop).
+    let api_key = {
+        let conn = state.conn()?;
+        repository::get_app_setting(&conn, "oxr_app_id")?
+            .filter(|k| !k.is_empty())
+            .ok_or_else(|| error::AppError {
+                code: "CONFIG_ERROR".into(),
+                message: "API key not configured. Set oxr_app_id in settings.".into(),
+            })?
+    };
+
+    // 2. Read consolidation currency and active non-consolidation currencies.
+    let (consolidation, active_currencies) = {
+        let conn = state.conn()?;
+        let consolidation = repository::get_consolidation_currency(&conn)?;
+        let active = repository::get_active_foreign_currencies(&conn, consolidation.id)?;
+        (consolidation, active)
+    };
+
+    // 3. If no active currencies, return stored rates immediately.
+    if active_currencies.is_empty() {
+        let conn = state.conn()?;
+        return Ok(repository::list_fx_rates(&conn, Some(date))?);
+    }
+
+    // 4. If not forced, check whether all active currencies already have a rate for this date.
+    if !force {
+        let conn = state.conn()?;
+        let has_all = repository::has_all_fx_rates_for_date(
+            &conn,
+            consolidation.id,
+            &active_currencies,
+            date,
+        )?;
+        if has_all {
+            return Ok(repository::list_fx_rates(&conn, Some(date))?);
+        }
+    }
+
+    // 5. HTTP call — no DB lock held across the await.
+    let oxr_response = oxr::fetch_rates(&api_key, Some(date)).await?;
+
+    // 6. Compute cross rates; skip currencies that fail.
+    let mut rates: Vec<(String, i64, i64, i64, i64)> = Vec::new();
+    for (code, id) in &active_currencies {
+        match oxr::compute_cross_rate(&oxr_response.rates, &consolidation.code, code) {
+            Ok((m, e)) => rates.push((date.to_string(), consolidation.id, *id, m, e)),
+            Err(err) => eprintln!(
+                "[smart_fetch_fx_rates] cross rate error for {}: {}",
+                code, err.message
+            ),
+        }
+    }
+
+    // 7. Upsert rates.
+    if !rates.is_empty() {
+        let conn = state.conn()?;
+        repository::upsert_fx_rates(&conn, &rates)?;
+    }
+
+    // 8. Return the stored rates for this date.
+    let conn = state.conn()?;
+    Ok(repository::list_fx_rates(&conn, Some(date))?)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -86,24 +159,24 @@ pub fn run() {
 async fn startup_auto_fetch(handle: tauri::AppHandle) {
     let state = handle.state::<AppState>();
 
-    // --- Read API key; skip silently if absent. ---
-    let api_key: String = {
+    // --- Skip silently if no API key configured. ---
+    {
         let conn = match state.db.lock() {
             Ok(g) => g,
             Err(_) => return,
         };
-        match repository::get_app_setting(&conn, "oxr_app_id") {
-            Ok(Some(k)) if !k.is_empty() => k,
-            _ => return,
+        let has_key = repository::get_app_setting(&conn, "oxr_app_id")
+            .ok()
+            .flatten()
+            .map(|k: String| !k.is_empty())
+            .unwrap_or(false);
+        if !has_key {
+            return;
         }
-    };
+    }
 
     // --- Read consolidation currency and active non-consolidation currencies. ---
-    let (consolidation_id, consolidation_code, active_currencies): (
-        i64,
-        String,
-        Vec<(String, i64)>,
-    ) = {
+    let (consolidation_id, active_currencies): (i64, Vec<(String, i64)>) = {
         let conn = match state.db.lock() {
             Ok(g) => g,
             Err(_) => return,
@@ -122,7 +195,7 @@ async fn startup_auto_fetch(handle: tauri::AppHandle) {
                 return;
             }
         };
-        (consol.id, consol.code, active)
+        (consol.id, active)
     };
 
     if active_currencies.is_empty() {
@@ -176,16 +249,11 @@ async fn startup_auto_fetch(handle: tauri::AppHandle) {
         needed.into_iter().rev().take(30).rev().collect()
     };
 
-    fetch_and_upsert_dates(
-        &state,
-        &api_key,
-        consolidation_id,
-        &consolidation_code,
-        &active_currencies,
-        &gap_dates,
-        "gap-fill",
-    )
-    .await;
+    for date in &gap_dates {
+        if let Err(e) = smart_fetch_fx_rates(&state, date, false).await {
+            eprintln!("[fx-startup/gap-fill/{}] error: {}", date, e.message);
+        }
+    }
 
     // --- Pass 2: ledger-driven backfill (uncapped). ---
     let ledger_dates: Vec<String> = {
@@ -209,63 +277,9 @@ async fn startup_auto_fetch(handle: tauri::AppHandle) {
         .filter(|d| !gap_set.contains(d.as_str()) && d.as_str() <= today_str.as_str())
         .collect();
 
-    fetch_and_upsert_dates(
-        &state,
-        &api_key,
-        consolidation_id,
-        &consolidation_code,
-        &active_currencies,
-        &remaining,
-        "ledger-backfill",
-    )
-    .await;
-}
-
-/// Fetch OXR rates for each date in `dates` and upsert them.  Errors are logged per-date;
-/// the loop always continues with remaining dates.
-async fn fetch_and_upsert_dates(
-    state: &tauri::State<'_, AppState>,
-    api_key: &str,
-    consolidation_id: i64,
-    consolidation_code: &str,
-    active_currencies: &[(String, i64)],
-    dates: &[String],
-    pass_name: &str,
-) {
-    for date in dates {
-        let resp = match oxr::fetch_rates(api_key, Some(date)).await {
-            Ok(r) => r,
-            Err(e) => {
-                eprintln!(
-                    "[fx-startup/{}/{}] fetch error: {}",
-                    pass_name, date, e.message
-                );
-                continue;
-            }
-        };
-
-        let mut rates: Vec<(String, i64, i64, i64, i64)> = Vec::new();
-        for (code, id) in active_currencies {
-            match oxr::compute_cross_rate(&resp.rates, consolidation_code, code) {
-                Ok((m, e)) => rates.push((date.clone(), consolidation_id, *id, m, e)),
-                Err(err) => eprintln!(
-                    "[fx-startup/{}/{}] cross rate error for {}: {}",
-                    pass_name, date, code, err.message
-                ),
-            }
-        }
-
-        if rates.is_empty() {
-            continue;
-        }
-
-        match state.db.lock() {
-            Ok(conn) => {
-                if let Err(e) = repository::upsert_fx_rates(&conn, &rates) {
-                    eprintln!("[fx-startup/{}/{}] upsert error: {}", pass_name, date, e);
-                }
-            }
-            Err(_) => eprintln!("[fx-startup/{}/{}] DB lock poisoned", pass_name, date),
+    for date in &remaining {
+        if let Err(e) = smart_fetch_fx_rates(&state, date, false).await {
+            eprintln!("[fx-startup/ledger-backfill/{}] error: {}", date, e.message);
         }
     }
 }

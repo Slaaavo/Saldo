@@ -349,59 +349,11 @@ pub fn get_missing_rate_dates(state: State<'_, AppState>) -> Result<Vec<String>,
 pub async fn fetch_fx_rates(
     state: tauri::State<'_, crate::AppState>,
     date_iso: Option<String>,
+    force: Option<bool>,
 ) -> Result<Vec<FxRateRow>, AppError> {
-    // 1. Read API key (lock → read → drop guard).
-    let api_key = {
-        let conn = state.conn()?;
-        repository::get_app_setting(&conn, "oxr_app_id")?
-            .filter(|k| !k.is_empty())
-            .ok_or_else(|| AppError {
-                code: "CONFIG_ERROR".into(),
-                message: "API key not configured. Set oxr_app_id in settings.".into(),
-            })?
-    };
-
-    // 2. Read consolidation currency and active non-consolidation currencies.
-    let (consolidation, active_currencies) = {
-        let conn = state.conn()?;
-        let consolidation = repository::get_consolidation_currency(&conn)?;
-        let active = repository::get_active_foreign_currencies(&conn, consolidation.id)?;
-        (consolidation, active)
-    };
-
-    // 3. HTTP call — no DB lock held across the await.
-    let oxr_response = crate::oxr::fetch_rates(&api_key, date_iso.as_deref()).await?;
-
-    // 4. Determine the calendar date to store in the fx_rate table.
-    let store_date = date_iso
-        .clone()
-        .unwrap_or_else(|| chrono::Local::now().format("%Y-%m-%d").to_string());
-
-    // 5. Compute cross rate for each active currency.
-    let mut rates: Vec<(String, i64, i64, i64, i64)> = Vec::new();
-    for (code, id) in &active_currencies {
-        match crate::oxr::compute_cross_rate(&oxr_response.rates, &consolidation.code, code) {
-            Ok((m, e)) => rates.push((store_date.clone(), consolidation.id, *id, m, e)),
-            Err(err) => eprintln!(
-                "[fetch_fx_rates] cross rate error for {}: {}",
-                code, err.message
-            ),
-        }
-    }
-
-    // 6. Upsert rates.
-    {
-        let conn = state.conn()?;
-        repository::upsert_fx_rates(&conn, &rates)?;
-    }
-
-    // 7. Return the stored rates for this date.
-    let stored = {
-        let conn = state.conn()?;
-        repository::list_fx_rates(&conn, Some(&store_date))?
-    };
-
-    Ok(stored)
+    let store_date =
+        date_iso.unwrap_or_else(|| chrono::Local::now().format("%Y-%m-%d").to_string());
+    crate::smart_fetch_fx_rates(&state, &store_date, force.unwrap_or(false)).await
 }
 
 #[tauri::command]

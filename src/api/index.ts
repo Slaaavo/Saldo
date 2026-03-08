@@ -124,8 +124,8 @@ export async function listFxRates(date?: string): Promise<FxRateRow[]> {
   return invoke('list_fx_rates', { date: date ?? null });
 }
 
-export async function fetchFxRates(date?: string): Promise<FxRateRow[]> {
-  return invoke('fetch_fx_rates', { dateIso: date ?? null });
+export async function fetchFxRates(date?: string, force?: boolean): Promise<FxRateRow[]> {
+  return invoke('fetch_fx_rates', { dateIso: date ?? null, force: force ?? null });
 }
 
 export async function getMissingRateDates(): Promise<string[]> {

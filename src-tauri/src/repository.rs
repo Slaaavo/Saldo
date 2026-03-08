@@ -697,6 +697,35 @@ pub fn get_dates_needing_fx_rates(
     rows.collect()
 }
 
+/// Return `true` if every currency in `active_currencies` has a stored fx_rate row for the
+/// given `date` and `consolidation_id`. Returns `true` immediately if the slice is empty.
+pub fn has_all_fx_rates_for_date(
+    conn: &Connection,
+    consolidation_id: i64,
+    active_currencies: &[(String, i64)],
+    date: &str,
+) -> rusqlite::Result<bool> {
+    if active_currencies.is_empty() {
+        return Ok(true);
+    }
+    for (_, currency_id) in active_currencies {
+        let exists: i64 = conn.query_row(
+            "SELECT EXISTS(
+               SELECT 1 FROM fx_rate
+               WHERE date = ?1
+                 AND from_currency_id = ?2
+                 AND to_currency_id = ?3
+             )",
+            params![date, consolidation_id, currency_id],
+            |row| row.get(0),
+        )?;
+        if exists == 0 {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
 /// Convert `balance_minor` (in source currency) to destination currency minor units.
 ///
 /// `rate` is stored as: 1 destination unit = `rate_mantissa × 10^rate_exponent` source units.

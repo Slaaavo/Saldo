@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { fetchFxRates } from './api';
 import Header from './components/Header';
@@ -26,12 +26,7 @@ function App() {
     'dashboard',
   );
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [showFxRateBanner, setShowFxRateBanner] = useState(false);
   const [fetchLoading, setFetchLoading] = useState(false);
-
-  useEffect(() => {
-    fetchFxRates().catch(() => setShowFxRateBanner(true));
-  }, []);
 
   const {
     selectedDate,
@@ -109,8 +104,6 @@ function App() {
                     totalMinor={totalMinor}
                     leftToSpendMinor={leftToSpendMinor}
                     missingFxCurrencies={missingFxCurrencies}
-                    showFxRateBanner={showFxRateBanner}
-                    onDismissFxRateBanner={() => setShowFxRateBanner(false)}
                     setModalState={setModalState}
                   />
                 )}
