@@ -1,4 +1,4 @@
--- Example seeds and usage for our-finances (MVP)
+-- Example seeds and usage for saldo (MVP)
 -- Date: 2026-03-02
 -- NOTE: This file is an example seed set for development/testing only. Do NOT treat as an automated migration.
 

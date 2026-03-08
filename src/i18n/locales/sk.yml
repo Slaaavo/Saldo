@@ -1,6 +1,6 @@
 # ──── Panel (sidebar) ────
 sidebar:
-  appName: "Naše financie"
+  appName: "Saldo"
   dashboard: "Prehľad"
   settings: "Nastavenia"
   fxRates: "Výmenné kurzy"
@@ -9,7 +9,7 @@ sidebar:
 
 # ──── Hlavička ────
 header:
-  title: Naše financie
+  title: Saldo
   date: Dátum
   settings: Nastavenia
   fxRates: Kurzy mien

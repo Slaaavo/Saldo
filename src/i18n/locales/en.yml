@@ -1,6 +1,6 @@
 # ──── Sidebar ────
 sidebar:
-  appName: "Our Finances"
+  appName: "Saldo"
   dashboard: "Dashboard"
   settings: "Settings"
   fxRates: "FX Rates"
@@ -9,7 +9,7 @@ sidebar:
 
 # ──── Header ────
 header:
-  title: Our Finances
+  title: Saldo
   date: Date
   settings: Settings
   fxRates: FX Rates

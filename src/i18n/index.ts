@@ -3,7 +3,15 @@ import { initReactI18next } from 'react-i18next';
 import en from './locales/en.yml';
 import sk from './locales/sk.yml';
 
-const STORAGE_KEY = 'our-finances-language';
+const STORAGE_KEY = 'saldo-language';
+
+// One-time migration: move language preference from old key to new key
+const OLD_STORAGE_KEY = 'our-finances-language';
+const savedLang = localStorage.getItem(OLD_STORAGE_KEY);
+if (savedLang) {
+  localStorage.setItem(STORAGE_KEY, savedLang);
+  localStorage.removeItem(OLD_STORAGE_KEY);
+}
 
 i18n.use(initReactI18next).init({
   resources: {

@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use crate::error::AppError;
 
-pub const DB_FILENAME: &str = "our-finances.db";
+pub const DB_FILENAME: &str = "saldo.db";
 const CONFIG_FILENAME: &str = "db-location.json";
 
 #[derive(Debug, Serialize, Deserialize)]

@@ -621,7 +621,7 @@ pub fn get_db_location(state: State<'_, AppState>) -> Result<DbLocationInfo, App
 }
 
 /// Opens a native folder-picker dialog and returns the selected folder with a flag
-/// indicating whether `our-finances.db` already exists there. Returns `None` if the
+/// indicating whether `saldo.db` already exists there. Returns `None` if the
 /// user cancelled the dialog.
 #[tauri::command]
 pub fn pick_db_folder(
@@ -879,7 +879,7 @@ pub fn reset_db_location(state: State<'_, AppState>, action: String) -> Result<(
     )
 }
 
-/// Returns `true` if `our-finances.db` already exists at the default `app_data_dir`.
+/// Returns `true` if `saldo.db` already exists at the default `app_data_dir`.
 /// Used by the frontend to decide which dialog to show for "Reset to default".
 #[tauri::command]
 pub fn check_default_db(state: State<'_, AppState>) -> Result<bool, AppError> {

@@ -1,4 +1,4 @@
--- our-finances: canonical schema (MVP)
+-- saldo: canonical schema (MVP)
 -- Date: 2026-03-02
 -- Notes:
 --  - latest_data_id is nullable to allow simple insert flow (insert event -> insert event_data -> trigger updates latest_data_id)

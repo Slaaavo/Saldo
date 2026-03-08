@@ -1,4 +1,4 @@
-Schema description — our-finances (MVP)
+Schema description — saldo (MVP)
 
 This folder contains canonical SQL schema and example seeds for the MVP.
 

@@ -15,7 +15,7 @@ const APP_URL = 'http://localhost:1420';
 
 async function navigateToApp(page: Page): Promise<void> {
   await page.goto(APP_URL);
-  await expect(page.getByText('Our Finances')).toBeVisible();
+  await expect(page.getByText('Saldo')).toBeVisible();
 }
 
 /**

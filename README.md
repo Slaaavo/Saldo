@@ -1,4 +1,4 @@
-# Our Finances
+# Saldo
 
 A personal finance desktop app for tracking account balances. Built with React + TypeScript + Vite (frontend) and Tauri + Rust + SQLite (backend).
 
