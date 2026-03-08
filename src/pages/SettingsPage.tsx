@@ -27,12 +27,18 @@ interface Props {
   onConsolidationCurrencyChange: () => void;
   themePreference: ThemePreference;
   onThemeChange: (pref: ThemePreference) => void;
+  isDemoMode: boolean;
+  onEnterDemoMode: () => void;
+  onExitDemoMode: () => void;
 }
 
 export default function SettingsPage({
   onConsolidationCurrencyChange,
   themePreference,
   onThemeChange,
+  isDemoMode,
+  onEnterDemoMode,
+  onExitDemoMode,
 }: Props) {
   const { t } = useTranslation();
   const [currencies, setCurrencies] = useState<Currency[]>([]);
@@ -122,7 +128,7 @@ export default function SettingsPage({
       </div>
 
       {/* Section 2: Integrations */}
-      <div>
+      <div className="border-b border-border pb-8 mb-8">
         <h3 className="text-lg font-semibold mb-1">{t('settings.sectionIntegrations')}</h3>
         <p className="text-sm text-muted-foreground mb-6">
           {t('settings.sectionIntegrationsDesc')}
@@ -149,6 +155,24 @@ export default function SettingsPage({
             </Button>
           </div>
         </div>
+      </div>
+
+      {/* Section 3: Demo Mode */}
+      <div>
+        <h3 className="text-lg font-semibold mb-1">{t('demo.settingsTitle')}</h3>
+        <p className="text-sm text-muted-foreground mb-6">{t('demo.settingsDesc')}</p>
+        {isDemoMode ? (
+          <Button variant="destructive" onClick={onExitDemoMode}>
+            {t('demo.stopButton')}
+          </Button>
+        ) : (
+          <div className="flex flex-col gap-4">
+            <p className="text-sm text-muted-foreground">{t('demo.settingsNote')}</p>
+            <div>
+              <Button onClick={onEnterDemoMode}>{t('demo.startButton')}</Button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

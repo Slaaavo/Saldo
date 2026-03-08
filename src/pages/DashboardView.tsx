@@ -4,6 +4,7 @@ import { cn } from '@/lib/utils';
 import NumberValue from '../components/NumberValue';
 import AccountCards from '../components/AccountCards';
 import Ledger from '../components/Ledger';
+import { Button } from '../components/ui/button';
 
 interface Props {
   snapshot: SnapshotRow[];
@@ -15,6 +16,8 @@ interface Props {
   leftToSpendMinor: number;
   missingFxCurrencies: string[];
   setModalState: (state: ModalState) => void;
+  isDemoMode: boolean;
+  onEnterDemoMode: () => void;
 }
 
 export default function DashboardView({
@@ -27,6 +30,8 @@ export default function DashboardView({
   leftToSpendMinor,
   missingFxCurrencies,
   setModalState,
+  isDemoMode,
+  onEnterDemoMode,
 }: Props) {
   const { t } = useTranslation();
 
@@ -80,23 +85,36 @@ export default function DashboardView({
 
       {/* Accounts */}
       <div className="px-4 md:px-10 py-8">
-        <AccountCards
-          snapshot={accounts}
-          consolidationCurrency={consolidationCurrency}
-          sectionTitle={t('accounts.sectionTitle')}
-          addButtonLabel={t('accounts.addAccount')}
-          onUpdateBalance={(accountId) =>
-            setModalState({ type: 'createBalanceUpdate', preselectedAccountId: accountId })
-          }
-          onRenameAccount={(accountId, currentName) =>
-            setModalState({ type: 'renameAccount', accountId, currentName })
-          }
-          onDeleteAccount={(accountId, name) =>
-            setModalState({ type: 'confirmDeleteAccount', accountId, name, accountType: 'account' })
-          }
-          onCreateAccount={() => setModalState({ type: 'createAccount', accountType: 'account' })}
-          onReorder={() => setModalState({ type: 'reorderAccounts' })}
-        />
+        {accounts.length === 0 && !isDemoMode ? (
+          <div className="flex flex-col items-center justify-center py-12 text-center">
+            <h3 className="text-xl font-semibold mb-2">{t('demo.emptyTitle')}</h3>
+            <p className="text-sm text-muted-foreground mb-6 max-w-xs">{t('demo.emptyDesc')}</p>
+            <Button onClick={onEnterDemoMode}>{t('demo.emptyCta')}</Button>
+          </div>
+        ) : (
+          <AccountCards
+            snapshot={accounts}
+            consolidationCurrency={consolidationCurrency}
+            sectionTitle={t('accounts.sectionTitle')}
+            addButtonLabel={t('accounts.addAccount')}
+            onUpdateBalance={(accountId) =>
+              setModalState({ type: 'createBalanceUpdate', preselectedAccountId: accountId })
+            }
+            onRenameAccount={(accountId, currentName) =>
+              setModalState({ type: 'renameAccount', accountId, currentName })
+            }
+            onDeleteAccount={(accountId, name) =>
+              setModalState({
+                type: 'confirmDeleteAccount',
+                accountId,
+                name,
+                accountType: 'account',
+              })
+            }
+            onCreateAccount={() => setModalState({ type: 'createAccount', accountType: 'account' })}
+            onReorder={() => setModalState({ type: 'reorderAccounts' })}
+          />
+        )}
       </div>
 
       <hr className="border-border" />

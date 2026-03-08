@@ -1,4 +1,6 @@
-use crate::{error::AppError, models::*, repository, AppState};
+use std::sync::atomic::Ordering;
+
+use crate::{db, demo, error::AppError, models::*, repository, AppState};
 use chrono::NaiveDate;
 use serde::Deserialize;
 use tauri::State;
@@ -523,4 +525,77 @@ pub fn update_sort_order(
         .collect();
     repository::update_sort_order(&conn, &pairs)?;
     Ok(())
+}
+
+/// Switch the active database to an ephemeral in-memory demo database seeded with
+/// realistic sample data. Carries over the user's API key and colour theme.
+/// No-op if demo mode is already active.
+#[tauri::command]
+pub fn enter_demo_mode(state: State<'_, AppState>) -> Result<(), AppError> {
+    if state.demo_mode.load(Ordering::SeqCst) {
+        return Ok(());
+    }
+
+    // Read settings from the persistent DB (currently the active connection).
+    let oxr_app_id = {
+        let conn = state.conn()?;
+        repository::get_app_setting(&conn, "oxr_app_id")?
+    };
+    let theme = {
+        let conn = state.conn()?;
+        repository::get_app_setting(&conn, "theme")?
+    };
+
+    // Create and seed the in-memory demo database.
+    let demo_conn = db::initialize_in_memory().map_err(AppError::from)?;
+    demo::seed_demo_data(&demo_conn, oxr_app_id, theme)?;
+
+    // Swap: stash persistent connection, promote demo connection.
+    // Lock ordering: db first, then persistent_db.
+    {
+        let mut db = state.db.lock().map_err(|e| AppError::from(e.to_string()))?;
+        let mut pdb = state
+            .persistent_db
+            .lock()
+            .map_err(|e| AppError::from(e.to_string()))?;
+        let old_conn = std::mem::replace(&mut *db, demo_conn);
+        *pdb = Some(old_conn);
+    }
+
+    state.demo_mode.store(true, Ordering::SeqCst);
+    Ok(())
+}
+
+/// Restore the persistent database and drop the in-memory demo database.
+/// All demo data is discarded. No-op if demo mode is not active.
+#[tauri::command]
+pub fn exit_demo_mode(state: State<'_, AppState>) -> Result<(), AppError> {
+    if !state.demo_mode.load(Ordering::SeqCst) {
+        return Ok(());
+    }
+
+    // Reverse swap: restore persistent connection, drop demo connection.
+    // Lock ordering: db first, then persistent_db.
+    {
+        let mut db = state.db.lock().map_err(|e| AppError::from(e.to_string()))?;
+        let mut pdb = state
+            .persistent_db
+            .lock()
+            .map_err(|e| AppError::from(e.to_string()))?;
+        let persistent = pdb.take().ok_or_else(|| AppError {
+            code: "STATE_ERROR".into(),
+            message: "No persistent connection stashed — state is inconsistent".into(),
+        })?;
+        // Old in-memory connection is dropped here, discarding all demo data.
+        let _demo = std::mem::replace(&mut *db, persistent);
+    }
+
+    state.demo_mode.store(false, Ordering::SeqCst);
+    Ok(())
+}
+
+/// Returns `true` when the app is currently running against the ephemeral demo database.
+#[tauri::command]
+pub fn is_demo_mode(state: State<'_, AppState>) -> Result<bool, AppError> {
+    Ok(state.demo_mode.load(Ordering::SeqCst))
 }

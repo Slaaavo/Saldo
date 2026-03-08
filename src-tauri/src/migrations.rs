@@ -27,6 +27,10 @@ const MIGRATIONS: &[(&str, &str)] = &[
         "007_add_sort_order.sql",
         include_str!("../../migrations/007_add_sort_order.sql"),
     ),
+    (
+        "008_remove_default_account.sql",
+        include_str!("../../migrations/008_remove_default_account.sql"),
+    ),
 ];
 
 pub fn run_pending(conn: &rusqlite::Connection) -> rusqlite::Result<()> {

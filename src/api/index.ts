@@ -177,3 +177,15 @@ export async function updateSortOrder(
 ): Promise<void> {
   return invoke('update_sort_order', { input: { entries } });
 }
+
+export async function enterDemoMode(): Promise<void> {
+  return invoke('enter_demo_mode');
+}
+
+export async function exitDemoMode(): Promise<void> {
+  return invoke('exit_demo_mode');
+}
+
+export async function isDemoMode(): Promise<boolean> {
+  return invoke('is_demo_mode');
+}

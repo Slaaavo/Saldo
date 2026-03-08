@@ -1,8 +1,10 @@
+use std::sync::atomic::AtomicBool;
 use std::sync::Mutex;
 use tauri::Manager;
 
 mod commands;
 mod db;
+mod demo;
 mod error;
 mod migrations;
 mod models;
@@ -11,6 +13,10 @@ mod repository;
 
 pub struct AppState {
     pub db: Mutex<rusqlite::Connection>,
+    /// Stash for the real persistent connection while demo mode is active.
+    pub persistent_db: Mutex<Option<rusqlite::Connection>>,
+    /// True when the app is running with the ephemeral in-memory demo database.
+    pub demo_mode: AtomicBool,
 }
 
 impl AppState {
@@ -110,6 +116,8 @@ pub fn run() {
 
             app.manage(AppState {
                 db: Mutex::new(conn),
+                persistent_db: Mutex::new(None),
+                demo_mode: AtomicBool::new(false),
             });
 
             // Spawn background FX rate fetch — non-blocking, errors are logged.
@@ -144,6 +152,9 @@ pub fn run() {
             commands::get_account_allocated_total,
             commands::check_over_allocation,
             commands::update_sort_order,
+            commands::enter_demo_mode,
+            commands::exit_demo_mode,
+            commands::is_demo_mode,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -161,7 +172,7 @@ async fn startup_auto_fetch(handle: tauri::AppHandle) {
 
     // --- Skip silently if no API key configured. ---
     {
-        let conn = match state.db.lock() {
+        let conn = match state.conn() {
             Ok(g) => g,
             Err(_) => return,
         };
@@ -177,7 +188,7 @@ async fn startup_auto_fetch(handle: tauri::AppHandle) {
 
     // --- Read consolidation currency and active non-consolidation currencies. ---
     let (consolidation_id, active_currencies): (i64, Vec<(String, i64)>) = {
-        let conn = match state.db.lock() {
+        let conn = match state.conn() {
             Ok(g) => g,
             Err(_) => return,
         };
@@ -207,7 +218,7 @@ async fn startup_auto_fetch(handle: tauri::AppHandle) {
 
     // --- Pass 1: gap-fill (capped at 30 calendar dates). ---
     let gap_dates: Vec<String> = {
-        let conn = match state.db.lock() {
+        let conn = match state.conn() {
             Ok(g) => g,
             Err(_) => return,
         };
@@ -257,7 +268,7 @@ async fn startup_auto_fetch(handle: tauri::AppHandle) {
 
     // --- Pass 2: ledger-driven backfill (uncapped). ---
     let ledger_dates: Vec<String> = {
-        let conn = match state.db.lock() {
+        let conn = match state.conn() {
             Ok(g) => g,
             Err(_) => return,
         };

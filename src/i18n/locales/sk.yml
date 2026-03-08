@@ -203,3 +203,18 @@ errors:
 language:
   en: English
   sk: Slovenčina
+
+# ──── Demo režim ────
+demo:
+  bannerLabel: "DEMO REŽIM"
+  bannerMessage: "Všetky zmeny sa stratia po ukončení demo režimu"
+  exitButton: "Ukončiť demo"
+  startButton: "Spustiť demo režim"
+  stopButton: "Zastaviť demo režim"
+  settingsTitle: "Demo režim"
+  settingsDesc: "Preskúmajte aplikáciu so vzorovými údajmi. Vaše skutočné údaje nebudú ovplyvnené."
+  settingsNote: "Vaše údaje nebudú ovplyvnené. Všetky zmeny v demo režime sú dočasné."
+  exitedToast: "Demo režim ukončený"
+  emptyCta: "Vyskúšať demo režim"
+  emptyTitle: "Zatiaľ žiadne účty"
+  emptyDesc: "Vytvorte svoj prvý účet alebo preskúmajte aplikáciu so vzorovými údajmi."

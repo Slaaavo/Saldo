@@ -972,19 +972,26 @@ mod tests {
     use super::*;
     use crate::db::initialize_in_memory;
 
+    /// Create a plain EUR account for use as a test fixture.
+    fn mk_account(conn: &Connection) -> i64 {
+        create_account(conn, "Test Account", 1, "account", None).expect("create account failed")
+    }
+
     #[test]
     fn snapshot_with_no_events_returns_zero() {
         let conn = initialize_in_memory().expect("DB init failed");
+        let account_id = mk_account(&conn);
         let snapshot = get_accounts_snapshot(&conn, "2099-12-31T23:59:59").unwrap();
         assert_eq!(snapshot.len(), 1);
-        assert_eq!(snapshot[0].account_name, "Main Account");
+        assert_eq!(snapshot[0].account_id, account_id);
         assert_eq!(snapshot[0].balance_minor, 0);
     }
 
     #[test]
     fn snapshot_reflects_balance_update() {
         let conn = initialize_in_memory().expect("DB init failed");
-        create_balance_update(&conn, 1, 5000, "2026-03-01", None).unwrap();
+        let account_id = mk_account(&conn);
+        create_balance_update(&conn, account_id, 5000, "2026-03-01", None).unwrap();
         let snapshot = get_accounts_snapshot(&conn, "2026-03-01T23:59:59").unwrap();
         assert_eq!(snapshot[0].balance_minor, 5000);
     }
@@ -992,7 +999,8 @@ mod tests {
     #[test]
     fn snapshot_ignores_future_events() {
         let conn = initialize_in_memory().expect("DB init failed");
-        create_balance_update(&conn, 1, 5000, "2026-06-01", None).unwrap();
+        let account_id = mk_account(&conn);
+        create_balance_update(&conn, account_id, 5000, "2026-06-01", None).unwrap();
         let snapshot = get_accounts_snapshot(&conn, "2026-03-01T23:59:59").unwrap();
         assert_eq!(snapshot[0].balance_minor, 0);
     }
@@ -1000,8 +1008,9 @@ mod tests {
     #[test]
     fn snapshot_uses_latest_event_by_date() {
         let conn = initialize_in_memory().expect("DB init failed");
-        create_balance_update(&conn, 1, 3000, "2026-01-01", None).unwrap();
-        create_balance_update(&conn, 1, 7000, "2026-02-01", None).unwrap();
+        let account_id = mk_account(&conn);
+        create_balance_update(&conn, account_id, 3000, "2026-01-01", None).unwrap();
+        create_balance_update(&conn, account_id, 7000, "2026-02-01", None).unwrap();
         let snapshot = get_accounts_snapshot(&conn, "2026-03-01T23:59:59").unwrap();
         assert_eq!(snapshot[0].balance_minor, 7000);
     }
@@ -1009,7 +1018,8 @@ mod tests {
     #[test]
     fn snapshot_ignores_soft_deleted_events() {
         let conn = initialize_in_memory().expect("DB init failed");
-        let event_id = create_balance_update(&conn, 1, 5000, "2026-03-01", None).unwrap();
+        let account_id = mk_account(&conn);
+        let event_id = create_balance_update(&conn, account_id, 5000, "2026-03-01", None).unwrap();
         delete_event(&conn, event_id).unwrap();
         let snapshot = get_accounts_snapshot(&conn, "2026-03-01T23:59:59").unwrap();
         assert_eq!(snapshot[0].balance_minor, 0);
@@ -1018,7 +1028,8 @@ mod tests {
     #[test]
     fn update_event_creates_new_data_row() {
         let conn = initialize_in_memory().expect("DB init failed");
-        let event_id = create_balance_update(&conn, 1, 5000, "2026-03-01", None).unwrap();
+        let account_id = mk_account(&conn);
+        let event_id = create_balance_update(&conn, account_id, 5000, "2026-03-01", None).unwrap();
         update_event(&conn, event_id, 9999, "2026-03-01", None).unwrap();
         let snapshot = get_accounts_snapshot(&conn, "2026-03-01T23:59:59").unwrap();
         assert_eq!(snapshot[0].balance_minor, 9999);
@@ -1027,7 +1038,8 @@ mod tests {
     #[test]
     fn update_event_rejects_deleted_event() {
         let conn = initialize_in_memory().expect("DB init failed");
-        let event_id = create_balance_update(&conn, 1, 5000, "2026-03-01", None).unwrap();
+        let account_id = mk_account(&conn);
+        let event_id = create_balance_update(&conn, account_id, 5000, "2026-03-01", None).unwrap();
         delete_event(&conn, event_id).unwrap();
         let result = update_event(&conn, event_id, 9999, "2026-03-01", None);
         assert!(result.is_err());
@@ -1047,18 +1059,20 @@ mod tests {
     #[test]
     fn delete_account_cascades_events() {
         let conn = initialize_in_memory().expect("DB init failed");
-        create_balance_update(&conn, 1, 5000, "2026-03-01", None).unwrap();
-        delete_account(&conn, 1).unwrap();
+        let account_id = mk_account(&conn);
+        create_balance_update(&conn, account_id, 5000, "2026-03-01", None).unwrap();
+        delete_account(&conn, account_id).unwrap();
         let snapshot = get_accounts_snapshot(&conn, "2099-12-31T23:59:59").unwrap();
-        assert!(snapshot.iter().all(|r| r.account_id != 1));
-        let events = list_events(&conn, Some(1), None).unwrap();
+        assert!(snapshot.iter().all(|r| r.account_id != account_id));
+        let events = list_events(&conn, Some(account_id), None).unwrap();
         assert_eq!(events.len(), 0);
     }
 
     #[test]
     fn delete_account_succeeds_when_no_active_events() {
         let conn = initialize_in_memory().expect("DB init failed");
-        let result = delete_account(&conn, 1);
+        let account_id = mk_account(&conn);
+        let result = delete_account(&conn, account_id);
         assert!(result.is_ok());
     }
 
@@ -1077,8 +1091,9 @@ mod tests {
     #[test]
     fn list_events_returns_all_non_deleted() {
         let conn = initialize_in_memory().expect("DB init failed");
-        create_balance_update(&conn, 1, 1000, "2026-01-01", None).unwrap();
-        create_balance_update(&conn, 1, 2000, "2026-02-01", None).unwrap();
+        let account_id = mk_account(&conn);
+        create_balance_update(&conn, account_id, 1000, "2026-01-01", None).unwrap();
+        create_balance_update(&conn, account_id, 2000, "2026-02-01", None).unwrap();
         let events = list_events(&conn, None, None).unwrap();
         assert_eq!(events.len(), 2);
     }
@@ -1086,13 +1101,14 @@ mod tests {
     #[test]
     fn list_events_filters_by_account() {
         let conn = initialize_in_memory().expect("DB init failed");
+        let acc1 = mk_account(&conn);
         let acc2 = create_account(&conn, "Second", 1, "account", None).unwrap();
-        create_balance_update(&conn, 1, 1000, "2026-01-01", None).unwrap();
+        create_balance_update(&conn, acc1, 1000, "2026-01-01", None).unwrap();
         create_balance_update(&conn, acc2, 2000, "2026-02-01", None).unwrap();
 
-        let events_acc1 = list_events(&conn, Some(1), None).unwrap();
+        let events_acc1 = list_events(&conn, Some(acc1), None).unwrap();
         assert_eq!(events_acc1.len(), 1);
-        assert_eq!(events_acc1[0].account_id, 1);
+        assert_eq!(events_acc1[0].account_id, acc1);
 
         let events_acc2 = list_events(&conn, Some(acc2), None).unwrap();
         assert_eq!(events_acc2.len(), 1);
@@ -1102,8 +1118,9 @@ mod tests {
     #[test]
     fn list_events_filters_by_date() {
         let conn = initialize_in_memory().expect("DB init failed");
-        create_balance_update(&conn, 1, 1000, "2026-01-15", None).unwrap();
-        create_balance_update(&conn, 1, 2000, "2026-03-15", None).unwrap();
+        let account_id = mk_account(&conn);
+        create_balance_update(&conn, account_id, 1000, "2026-01-15", None).unwrap();
+        create_balance_update(&conn, account_id, 2000, "2026-03-15", None).unwrap();
         let events = list_events(&conn, None, Some("2026-02-01T23:59:59")).unwrap();
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].amount_minor, 1000);
@@ -1122,6 +1139,7 @@ mod tests {
     #[test]
     fn snapshot_returns_account_type() {
         let conn = initialize_in_memory().expect("DB init failed");
+        mk_account(&conn);
         let snapshot = get_accounts_snapshot(&conn, "2099-12-31T23:59:59").unwrap();
         assert_eq!(snapshot.len(), 1);
         assert_eq!(snapshot[0].account_type, "account");
@@ -1169,6 +1187,7 @@ mod tests {
     #[test]
     fn snapshot_includes_currency_fields() {
         let conn = initialize_in_memory().expect("DB init failed");
+        mk_account(&conn);
         let snapshot = get_accounts_snapshot(&conn, "2099-12-31T23:59:59").unwrap();
         assert_eq!(snapshot[0].currency_code, "EUR");
         assert_eq!(snapshot[0].currency_minor_units, 2);
@@ -1226,8 +1245,9 @@ mod tests {
     #[test]
     fn list_events_includes_currency_fields() {
         let conn = initialize_in_memory().expect("DB init failed");
-        create_balance_update(&conn, 1, 5000, "2026-03-01", None).unwrap();
-        let events = list_events(&conn, Some(1), None).unwrap();
+        let account_id = mk_account(&conn);
+        create_balance_update(&conn, account_id, 5000, "2026-03-01", None).unwrap();
+        let events = list_events(&conn, Some(account_id), None).unwrap();
         assert_eq!(events[0].currency_code, "EUR");
         assert_eq!(events[0].currency_minor_units, 2);
     }
@@ -1403,14 +1423,14 @@ mod tests {
     #[test]
     fn test_create_and_list_bucket_allocations() {
         let conn = initialize_in_memory().expect("DB init failed");
-        // Seed DB already has EUR (id=1) and "Main Account" (id=1, account_type='account').
+        let source_id = mk_account(&conn);
         let bucket_id = create_account(&conn, "Emergency Fund", 1, "bucket", None).unwrap();
-        create_bucket_allocation(&conn, bucket_id, 1, 5000, "2024-01-01").unwrap();
+        create_bucket_allocation(&conn, bucket_id, source_id, 5000, "2024-01-01").unwrap();
 
         let allocs = list_bucket_allocations(&conn, bucket_id, "2024-12-31").unwrap();
         assert_eq!(allocs.len(), 1);
         assert_eq!(allocs[0].bucket_id, bucket_id);
-        assert_eq!(allocs[0].source_account_id, 1);
+        assert_eq!(allocs[0].source_account_id, source_id);
         assert_eq!(allocs[0].amount_minor, 5000);
         assert_eq!(allocs[0].source_currency_code, "EUR");
         assert_eq!(allocs[0].effective_date, "2024-01-01");
@@ -1419,9 +1439,10 @@ mod tests {
     #[test]
     fn test_allocation_respects_effective_date() {
         let conn = initialize_in_memory().expect("DB init failed");
+        let source_id = mk_account(&conn);
         let bucket_id = create_account(&conn, "Vacation Fund", 1, "bucket", None).unwrap();
-        create_bucket_allocation(&conn, bucket_id, 1, 5000, "2024-01-01").unwrap();
-        create_bucket_allocation(&conn, bucket_id, 1, 8000, "2024-06-01").unwrap();
+        create_bucket_allocation(&conn, bucket_id, source_id, 5000, "2024-01-01").unwrap();
+        create_bucket_allocation(&conn, bucket_id, source_id, 8000, "2024-06-01").unwrap();
 
         // At 2024-03-01: only the first allocation is effective.
         let early = list_bucket_allocations(&conn, bucket_id, "2024-03-01").unwrap();
@@ -1437,10 +1458,11 @@ mod tests {
     #[test]
     fn test_unlink_allocation_via_zero_amount() {
         let conn = initialize_in_memory().expect("DB init failed");
+        let source_id = mk_account(&conn);
         let bucket_id = create_account(&conn, "Car Fund", 1, "bucket", None).unwrap();
-        create_bucket_allocation(&conn, bucket_id, 1, 5000, "2024-01-01").unwrap();
+        create_bucket_allocation(&conn, bucket_id, source_id, 5000, "2024-01-01").unwrap();
         // Unlink: zero-amount allocation at a later date.
-        create_bucket_allocation(&conn, bucket_id, 1, 0, "2024-06-01").unwrap();
+        create_bucket_allocation(&conn, bucket_id, source_id, 0, "2024-06-01").unwrap();
 
         // Before unlink date: original allocation is still visible.
         let before = list_bucket_allocations(&conn, bucket_id, "2024-03-01").unwrap();
@@ -1455,22 +1477,24 @@ mod tests {
     #[test]
     fn test_get_account_allocated_total_sums_across_buckets() {
         let conn = initialize_in_memory().expect("DB init failed");
+        let source_id = mk_account(&conn);
         let bucket1 = create_account(&conn, "Bucket A", 1, "bucket", None).unwrap();
         let bucket2 = create_account(&conn, "Bucket B", 1, "bucket", None).unwrap();
-        create_bucket_allocation(&conn, bucket1, 1, 3000, "2024-01-01").unwrap();
-        create_bucket_allocation(&conn, bucket2, 1, 2000, "2024-01-01").unwrap();
+        create_bucket_allocation(&conn, bucket1, source_id, 3000, "2024-01-01").unwrap();
+        create_bucket_allocation(&conn, bucket2, source_id, 2000, "2024-01-01").unwrap();
 
-        let total = get_account_allocated_total(&conn, 1, "2024-12-31").unwrap();
+        let total = get_account_allocated_total(&conn, source_id, "2024-12-31").unwrap();
         assert_eq!(total, 5000);
     }
 
     #[test]
     fn test_snapshot_includes_allocation_in_bucket_balance() {
         let conn = initialize_in_memory().expect("DB init failed");
-        // EUR is the consolidation currency; account 1 and bucket are both EUR.
+        // EUR is the consolidation currency; source account and bucket are both EUR.
+        let source_id = mk_account(&conn);
         let bucket_id = create_account(&conn, "Allocation Bucket", 1, "bucket", None).unwrap();
-        create_balance_update(&conn, 1, 10000, "2024-01-01", None).unwrap();
-        create_bucket_allocation(&conn, bucket_id, 1, 4000, "2024-01-01").unwrap();
+        create_balance_update(&conn, source_id, 10000, "2024-01-01", None).unwrap();
+        create_bucket_allocation(&conn, bucket_id, source_id, 4000, "2024-01-01").unwrap();
 
         let snapshot = get_accounts_snapshot(&conn, "2024-12-31T23:59:59").unwrap();
         let bucket = snapshot.iter().find(|r| r.account_id == bucket_id).unwrap();
@@ -1485,33 +1509,35 @@ mod tests {
     #[test]
     fn test_snapshot_includes_allocated_total_for_accounts() {
         let conn = initialize_in_memory().expect("DB init failed");
+        let source_id = mk_account(&conn);
         let bucket1 = create_account(&conn, "Fund A", 1, "bucket", None).unwrap();
         let bucket2 = create_account(&conn, "Fund B", 1, "bucket", None).unwrap();
-        create_balance_update(&conn, 1, 20000, "2024-01-01", None).unwrap();
-        create_bucket_allocation(&conn, bucket1, 1, 3000, "2024-01-01").unwrap();
-        create_bucket_allocation(&conn, bucket2, 1, 5000, "2024-01-01").unwrap();
+        create_balance_update(&conn, source_id, 20000, "2024-01-01", None).unwrap();
+        create_bucket_allocation(&conn, bucket1, source_id, 3000, "2024-01-01").unwrap();
+        create_bucket_allocation(&conn, bucket2, source_id, 5000, "2024-01-01").unwrap();
 
         let snapshot = get_accounts_snapshot(&conn, "2024-12-31T23:59:59").unwrap();
-        let account = snapshot.iter().find(|r| r.account_id == 1).unwrap();
+        let account = snapshot.iter().find(|r| r.account_id == source_id).unwrap();
         assert_eq!(account.allocated_total_minor, 8000);
     }
 
     #[test]
     fn test_over_allocation_check_detects_excess() {
         let conn = initialize_in_memory().expect("DB init failed");
+        let source_id = mk_account(&conn);
         let bucket_id = create_account(&conn, "Over-Alloc Bucket", 1, "bucket", None).unwrap();
         // Account starts at 10000.
-        create_balance_update(&conn, 1, 10000, "2024-01-01", None).unwrap();
+        create_balance_update(&conn, source_id, 10000, "2024-01-01", None).unwrap();
         // Allocate 10000 — exactly matching balance.
-        create_bucket_allocation(&conn, bucket_id, 1, 10000, "2024-01-01").unwrap();
+        create_bucket_allocation(&conn, bucket_id, source_id, 10000, "2024-01-01").unwrap();
         // Later, balance drops to 5000.
-        create_balance_update(&conn, 1, 5000, "2024-06-01", None).unwrap();
+        create_balance_update(&conn, source_id, 5000, "2024-06-01", None).unwrap();
 
         // As of 2024-12-31: balance=5000, allocated=10000 → over by 5000.
-        let warning = check_over_allocation(&conn, 1, "2024-12-31").unwrap();
+        let warning = check_over_allocation(&conn, source_id, "2024-12-31").unwrap();
         assert!(warning.is_some());
         let w = warning.unwrap();
-        assert_eq!(w.source_account_id, 1);
+        assert_eq!(w.source_account_id, source_id);
         assert_eq!(w.balance_minor, 5000);
         assert_eq!(w.total_allocated_minor, 10000);
         assert_eq!(w.over_allocation_minor, 5000);
@@ -1521,23 +1547,25 @@ mod tests {
     #[test]
     fn test_over_allocation_check_returns_none_when_ok() {
         let conn = initialize_in_memory().expect("DB init failed");
+        let source_id = mk_account(&conn);
         let bucket_id = create_account(&conn, "Safe Bucket", 1, "bucket", None).unwrap();
-        create_balance_update(&conn, 1, 10000, "2024-01-01", None).unwrap();
-        create_bucket_allocation(&conn, bucket_id, 1, 5000, "2024-01-01").unwrap();
+        create_balance_update(&conn, source_id, 10000, "2024-01-01", None).unwrap();
+        create_bucket_allocation(&conn, bucket_id, source_id, 5000, "2024-01-01").unwrap();
 
-        let warning = check_over_allocation(&conn, 1, "2024-12-31").unwrap();
+        let warning = check_over_allocation(&conn, source_id, "2024-12-31").unwrap();
         assert!(warning.is_none());
     }
 
     #[test]
     fn test_delete_account_blocked_by_allocation() {
         let conn = initialize_in_memory().expect("DB init failed");
+        let source_id = mk_account(&conn);
         let bucket_id = create_account(&conn, "Emergency Reserve", 1, "bucket", None).unwrap();
-        create_balance_update(&conn, 1, 10000, "2024-01-01", None).unwrap();
-        create_bucket_allocation(&conn, bucket_id, 1, 5000, "2024-01-01").unwrap();
+        create_balance_update(&conn, source_id, 10000, "2024-01-01", None).unwrap();
+        create_bucket_allocation(&conn, bucket_id, source_id, 5000, "2024-01-01").unwrap();
 
         // Attempting to delete the source account should fail.
-        let result = delete_account(&conn, 1);
+        let result = delete_account(&conn, source_id);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(
@@ -1550,9 +1578,10 @@ mod tests {
     #[test]
     fn test_delete_bucket_cascades_allocations() {
         let conn = initialize_in_memory().expect("DB init failed");
+        let source_id = mk_account(&conn);
         let bucket_id = create_account(&conn, "Cascade Bucket", 1, "bucket", None).unwrap();
-        create_balance_update(&conn, 1, 10000, "2024-01-01", None).unwrap();
-        create_bucket_allocation(&conn, bucket_id, 1, 5000, "2024-01-01").unwrap();
+        create_balance_update(&conn, source_id, 10000, "2024-01-01", None).unwrap();
+        create_bucket_allocation(&conn, bucket_id, source_id, 5000, "2024-01-01").unwrap();
 
         // Deleting the bucket should cascade-remove allocation rows.
         delete_account(&conn, bucket_id).unwrap();

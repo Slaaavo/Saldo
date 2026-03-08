@@ -206,3 +206,18 @@ errors:
 language:
   en: English
   sk: Slovenčina
+
+# ──── Demo Mode ────
+demo:
+  bannerLabel: "DEMO MODE"
+  bannerMessage: "Any changes will be lost when you exit demo mode"
+  exitButton: "Exit Demo"
+  startButton: "Start Demo Mode"
+  stopButton: "Stop Demo Mode"
+  settingsTitle: "Demo Mode"
+  settingsDesc: "Explore the app with sample data. Your real data will not be affected."
+  settingsNote: "Your data will not be affected. Any changes made in demo mode are temporary."
+  exitedToast: "Demo mode ended"
+  emptyCta: "Try Demo Mode"
+  emptyTitle: "No accounts yet"
+  emptyDesc: "Create your first account or explore the app with sample data."

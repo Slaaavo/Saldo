@@ -19,7 +19,6 @@ pub fn set_pragmas(conn: &Connection) -> SqlResult<()> {
     Ok(())
 }
 
-#[cfg(test)]
 pub fn initialize_in_memory() -> SqlResult<Connection> {
     let conn = Connection::open_in_memory()?;
     set_pragmas(&conn)?;
@@ -37,7 +36,7 @@ mod tests {
         let count: i64 = conn
             .query_row("SELECT COUNT(*) FROM _migrations", [], |row| row.get(0))
             .expect("query failed");
-        assert_eq!(count, 7, "Expected 7 applied migrations");
+        assert_eq!(count, 8, "Expected 8 applied migrations");
     }
 
     #[test]
@@ -48,7 +47,7 @@ mod tests {
         let count: i64 = conn
             .query_row("SELECT COUNT(*) FROM _migrations", [], |row| row.get(0))
             .expect("query failed");
-        assert_eq!(count, 7, "Expected 7 applied migrations after double run");
+        assert_eq!(count, 8, "Expected 8 applied migrations after double run");
     }
 
     #[test]
@@ -62,11 +61,13 @@ mod tests {
             .expect("currency query failed");
         assert_eq!(currency_code, "EUR");
 
-        let account_name: String = conn
-            .query_row("SELECT name FROM account WHERE id = 1", [], |row| {
-                row.get(0)
-            })
-            .expect("account query failed");
-        assert_eq!(account_name, "Main Account");
+        // Migration 008 deletes "Main Account" when no events exist (fresh DB).
+        let account_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM account", [], |row| row.get(0))
+            .expect("account count query failed");
+        assert_eq!(
+            account_count, 0,
+            "Expected 0 accounts after migration 008 removes Main Account from empty DB"
+        );
     }
 }
