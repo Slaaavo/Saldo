@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { toast } from 'sonner';
 import {
   Dialog,
   DialogContent,
@@ -26,7 +27,7 @@ export default function RenameAccountModal({ accountId, currentName, onSubmit, o
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) {
-      window.alert(t('validation.nameRequired', { entity: t('common.account') }));
+      toast.error(t('validation.nameRequired', { entity: t('common.account') }));
       return;
     }
     onSubmit(accountId, name.trim());

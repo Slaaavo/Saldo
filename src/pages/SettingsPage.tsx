@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
+import { PINNED_CURRENCY_CODES } from '../config/constants';
 import type { Currency } from '../types';
 import type { ThemePreference } from '../hooks/useTheme';
 import {
@@ -9,12 +10,18 @@ import {
   getAppSetting,
   setAppSetting,
 } from '../api';
-import { Button } from './ui/button';
-import { Input } from './ui/input';
-import { Label } from './ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
-import CurrencySelect from './CurrencySelect';
-import LanguageSelector from './LanguageSelector';
+import { Button } from '../components/ui/button';
+import { Input } from '../components/ui/input';
+import { Label } from '../components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../components/ui/select';
+import CurrencySelect from '../components/CurrencySelect';
+import LanguageSelector from '../components/LanguageSelector';
 
 interface Props {
   onConsolidationCurrencyChange: () => void;
@@ -108,7 +115,7 @@ export default function SettingsPage({
             currencies={currencies}
             value={selectedCurrency}
             onChange={handleCurrencySelect}
-            pinnedCurrencyCodes={['EUR', 'USD', 'BTC']}
+            pinnedCurrencyCodes={PINNED_CURRENCY_CODES}
             className="w-64"
           />
         </div>

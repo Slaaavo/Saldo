@@ -11,9 +11,9 @@ import {
   getMissingRateDates,
 } from '../api';
 import { cn } from '@/lib/utils';
-import { Button } from './ui/button';
-import { DatePicker } from './ui/date-picker';
-import { Label } from './ui/label';
+import { Button } from '../components/ui/button';
+import { DatePicker } from '../components/ui/date-picker';
+import { Label } from '../components/ui/label';
 import { todayIso } from '../utils/format';
 
 const formatRate = (r: FxRateRow): string =>

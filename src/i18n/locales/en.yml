@@ -164,6 +164,10 @@ banner:
   fxRatesUnavailable: Could not fetch FX rates. Showing last known rates.
   dismiss: Dismiss
 
+# ──── Date picker ────
+datePicker:
+  today: Today
+
 # ──── Currency ────
 currency:
   label: Currency

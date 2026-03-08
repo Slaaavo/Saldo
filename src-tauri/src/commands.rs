@@ -1,6 +1,5 @@
 use crate::{error::AppError, models::*, repository, AppState};
 use chrono::NaiveDate;
-use rusqlite::{params, OptionalExtension};
 use serde::Deserialize;
 use tauri::State;
 
@@ -105,7 +104,7 @@ pub fn create_balance_update(
     input: CreateBalanceUpdateInput,
 ) -> Result<i64, AppError> {
     validate_event_date(&input.event_date)?;
-    let conn = state.db.lock().map_err(|e| AppError::from(e.to_string()))?;
+    let conn = state.conn()?;
     let event_id = repository::create_balance_update(
         &conn,
         input.account_id,
@@ -126,7 +125,7 @@ pub fn get_accounts_snapshot(
     } else {
         date_iso
     };
-    let conn = state.db.lock().map_err(|e| AppError::from(e.to_string()))?;
+    let conn = state.conn()?;
     let snapshot = repository::get_accounts_snapshot(&conn, &selected_datetime)?;
     Ok(snapshot)
 }
@@ -136,7 +135,7 @@ pub fn list_events(
     state: State<'_, AppState>,
     filter: ListEventsFilter,
 ) -> Result<Vec<EventWithData>, AppError> {
-    let conn = state.db.lock().map_err(|e| AppError::from(e.to_string()))?;
+    let conn = state.conn()?;
     let events = repository::list_events(&conn, filter.account_id, filter.before_date.as_deref())?;
     Ok(events)
 }
@@ -159,7 +158,7 @@ pub fn create_account(
             message: "account_type must be 'account' or 'bucket'".into(),
         });
     }
-    let conn = state.db.lock().map_err(|e| AppError::from(e.to_string()))?;
+    let conn = state.conn()?;
     let id = repository::create_account(
         &conn,
         input.name.trim(),
@@ -181,14 +180,14 @@ pub fn update_account(
             message: "Account name is required".into(),
         });
     }
-    let conn = state.db.lock().map_err(|e| AppError::from(e.to_string()))?;
+    let conn = state.conn()?;
     repository::update_account(&conn, input.account_id, input.name.trim())?;
     Ok(())
 }
 
 #[tauri::command]
 pub fn delete_account(state: State<'_, AppState>, account_id: i64) -> Result<(), AppError> {
-    let conn = state.db.lock().map_err(|e| AppError::from(e.to_string()))?;
+    let conn = state.conn()?;
     repository::delete_account(&conn, account_id)?;
     Ok(())
 }
@@ -196,7 +195,7 @@ pub fn delete_account(state: State<'_, AppState>, account_id: i64) -> Result<(),
 #[tauri::command]
 pub fn update_event(state: State<'_, AppState>, input: UpdateEventInput) -> Result<(), AppError> {
     validate_event_date(&input.event_date)?;
-    let conn = state.db.lock().map_err(|e| AppError::from(e.to_string()))?;
+    let conn = state.conn()?;
     repository::update_event(
         &conn,
         input.event_id,
@@ -209,7 +208,7 @@ pub fn update_event(state: State<'_, AppState>, input: UpdateEventInput) -> Resu
 
 #[tauri::command]
 pub fn delete_event(state: State<'_, AppState>, event_id: i64) -> Result<(), AppError> {
-    let conn = state.db.lock().map_err(|e| AppError::from(e.to_string()))?;
+    let conn = state.conn()?;
     repository::delete_event(&conn, event_id)?;
     Ok(())
 }
@@ -226,7 +225,7 @@ pub fn bulk_create_balance_updates(
             message: "At least one balance entry is required".into(),
         });
     }
-    let conn = state.db.lock().map_err(|e| AppError::from(e.to_string()))?;
+    let conn = state.conn()?;
     let entries: Vec<(i64, i64)> = input
         .entries
         .iter()
@@ -243,14 +242,14 @@ pub fn bulk_create_balance_updates(
 
 #[tauri::command]
 pub fn list_currencies(state: State<'_, AppState>) -> Result<Vec<Currency>, AppError> {
-    let conn = state.db.lock().map_err(|e| AppError::from(e.to_string()))?;
+    let conn = state.conn()?;
     let currencies = repository::list_currencies(&conn)?;
     Ok(currencies)
 }
 
 #[tauri::command]
 pub fn get_consolidation_currency(state: State<'_, AppState>) -> Result<Currency, AppError> {
-    let conn = state.db.lock().map_err(|e| AppError::from(e.to_string()))?;
+    let conn = state.conn()?;
     let currency = repository::get_consolidation_currency(&conn)?;
     Ok(currency)
 }
@@ -260,7 +259,7 @@ pub fn set_consolidation_currency(
     state: State<'_, AppState>,
     input: SetConsolidationCurrencyInput,
 ) -> Result<(), AppError> {
-    let conn = state.db.lock().map_err(|e| AppError::from(e.to_string()))?;
+    let conn = state.conn()?;
     repository::set_consolidation_currency(&conn, input.currency_id)?;
     Ok(())
 }
@@ -277,7 +276,7 @@ pub fn set_fx_rate_manual(
         });
     }
     validate_event_date(&input.date)?;
-    let conn = state.db.lock().map_err(|e| AppError::from(e.to_string()))?;
+    let conn = state.conn()?;
     repository::set_fx_rate_manual(
         &conn,
         input.from_currency_id,
@@ -294,7 +293,7 @@ pub fn list_fx_rates(
     state: State<'_, AppState>,
     date: Option<String>,
 ) -> Result<Vec<FxRateRow>, AppError> {
-    let conn = state.db.lock().map_err(|e| AppError::from(e.to_string()))?;
+    let conn = state.conn()?;
     let rates = repository::list_fx_rates(&conn, date.as_deref())?;
     Ok(rates)
 }
@@ -321,7 +320,7 @@ pub fn get_app_setting(
     key: String,
 ) -> Result<Option<String>, AppError> {
     validate_setting_key(&key)?;
-    let conn = state.db.lock().map_err(|e| AppError::from(e.to_string()))?;
+    let conn = state.conn()?;
     let value = repository::get_app_setting(&conn, &key)?;
     Ok(value)
 }
@@ -333,14 +332,14 @@ pub fn set_app_setting(
     value: String,
 ) -> Result<(), AppError> {
     validate_setting_key(&key)?;
-    let conn = state.db.lock().map_err(|e| AppError::from(e.to_string()))?;
+    let conn = state.conn()?;
     repository::set_app_setting(&conn, &key, &value)?;
     Ok(())
 }
 
 #[tauri::command]
 pub fn get_missing_rate_dates(state: State<'_, AppState>) -> Result<Vec<String>, AppError> {
-    let conn = state.db.lock().map_err(|e| AppError::from(e.to_string()))?;
+    let conn = state.conn()?;
     let consolidation = repository::get_consolidation_currency(&conn)?;
     let dates = repository::get_dates_needing_fx_rates(&conn, consolidation.id)?;
     Ok(dates)
@@ -353,7 +352,7 @@ pub async fn fetch_fx_rates(
 ) -> Result<Vec<FxRateRow>, AppError> {
     // 1. Read API key (lock → read → drop guard).
     let api_key = {
-        let conn = state.db.lock().map_err(|e| AppError::from(e.to_string()))?;
+        let conn = state.conn()?;
         repository::get_app_setting(&conn, "oxr_app_id")?
             .filter(|k| !k.is_empty())
             .ok_or_else(|| AppError {
@@ -364,7 +363,7 @@ pub async fn fetch_fx_rates(
 
     // 2. Read consolidation currency and active non-consolidation currencies.
     let (consolidation, active_currencies) = {
-        let conn = state.db.lock().map_err(|e| AppError::from(e.to_string()))?;
+        let conn = state.conn()?;
         let consolidation = repository::get_consolidation_currency(&conn)?;
         let active = repository::get_active_foreign_currencies(&conn, consolidation.id)?;
         (consolidation, active)
@@ -392,13 +391,13 @@ pub async fn fetch_fx_rates(
 
     // 6. Upsert rates.
     {
-        let conn = state.db.lock().map_err(|e| AppError::from(e.to_string()))?;
+        let conn = state.conn()?;
         repository::upsert_fx_rates(&conn, &rates)?;
     }
 
     // 7. Return the stored rates for this date.
     let stored = {
-        let conn = state.db.lock().map_err(|e| AppError::from(e.to_string()))?;
+        let conn = state.conn()?;
         repository::list_fx_rates(&conn, Some(&store_date))?
     };
 
@@ -417,17 +416,11 @@ pub fn create_bucket_allocation(
             message: "amount_minor must be >= 0".into(),
         });
     }
-    let conn = state.db.lock().map_err(|e| AppError::from(e.to_string()))?;
+    let conn = state.conn()?;
 
     // Validate that bucket_id refers to a bucket account.
-    let bucket_type: Option<String> = conn
-        .query_row(
-            "SELECT account_type FROM account WHERE id = ?1",
-            params![input.bucket_id],
-            |row| row.get(0),
-        )
-        .optional()
-        .map_err(AppError::from)?;
+    let bucket_type: Option<String> =
+        repository::get_account_type(&conn, input.bucket_id).map_err(AppError::from)?;
     match bucket_type.as_deref() {
         Some("bucket") => {}
         Some(_) => {
@@ -445,14 +438,8 @@ pub fn create_bucket_allocation(
     }
 
     // Validate that source_account_id refers to a regular account.
-    let source_type: Option<String> = conn
-        .query_row(
-            "SELECT account_type FROM account WHERE id = ?1",
-            params![input.source_account_id],
-            |row| row.get(0),
-        )
-        .optional()
-        .map_err(AppError::from)?;
+    let source_type: Option<String> =
+        repository::get_account_type(&conn, input.source_account_id).map_err(AppError::from)?;
     match source_type.as_deref() {
         Some("account") => {}
         Some(_) => {
@@ -486,24 +473,13 @@ pub fn create_bucket_allocation(
     .map_err(AppError::from)?;
 
     // Latest existing allocation from this source to THIS specific bucket at or before the date.
-    let existing_to_this_bucket: i64 = conn
-        .query_row(
-            "SELECT amount_minor FROM bucket_allocation
-             WHERE source_account_id = ?1
-               AND bucket_id = ?2
-               AND effective_date <= ?3
-             ORDER BY effective_date DESC, id DESC
-             LIMIT 1",
-            params![
-                input.source_account_id,
-                input.bucket_id,
-                input.effective_date
-            ],
-            |row| row.get(0),
-        )
-        .optional()
-        .map_err(AppError::from)?
-        .unwrap_or(0);
+    let existing_to_this_bucket: i64 = repository::get_existing_allocation_to_bucket(
+        &conn,
+        input.source_account_id,
+        input.bucket_id,
+        &input.effective_date,
+    )
+    .map_err(AppError::from)?;
 
     // available = balance - (total allocated across all buckets) + (existing to this bucket)
     // This allows the user to re-allocate up to their full available balance for this bucket.
@@ -533,7 +509,7 @@ pub fn list_bucket_allocations(
     bucket_id: i64,
     as_of_date: String,
 ) -> Result<Vec<BucketAllocation>, AppError> {
-    let conn = state.db.lock().map_err(|e| AppError::from(e.to_string()))?;
+    let conn = state.conn()?;
     let allocations = repository::list_bucket_allocations(&conn, bucket_id, &as_of_date)
         .map_err(AppError::from)?;
     Ok(allocations)
@@ -545,7 +521,7 @@ pub fn get_account_allocated_total(
     source_account_id: i64,
     as_of_date: String,
 ) -> Result<i64, AppError> {
-    let conn = state.db.lock().map_err(|e| AppError::from(e.to_string()))?;
+    let conn = state.conn()?;
     let total = repository::get_account_allocated_total(&conn, source_account_id, &as_of_date)
         .map_err(AppError::from)?;
     Ok(total)
@@ -557,7 +533,7 @@ pub fn check_over_allocation(
     source_account_id: i64,
     as_of_date: String,
 ) -> Result<Option<OverAllocationWarning>, AppError> {
-    let conn = state.db.lock().map_err(|e| AppError::from(e.to_string()))?;
+    let conn = state.conn()?;
     let warning = repository::check_over_allocation(&conn, source_account_id, &as_of_date)
         .map_err(AppError::from)?;
     Ok(warning)
@@ -587,7 +563,7 @@ pub fn update_sort_order(
             message: "entries must not be empty".into(),
         });
     }
-    let conn = state.db.lock().map_err(|e| AppError::from(e.to_string()))?;
+    let conn = state.conn()?;
     let pairs: Vec<(i64, i64)> = input
         .entries
         .iter()

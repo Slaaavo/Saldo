@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { CalendarIcon } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
@@ -34,6 +35,7 @@ export function DatePicker({
   id,
   className,
 }: DatePickerProps) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
 
   const selected = value ? parseIsoDate(value) : undefined;
@@ -76,7 +78,7 @@ export function DatePicker({
               setOpen(false);
             }}
           >
-            Today
+            {t('datePicker.today')}
           </Button>
         </div>
       </PopoverContent>

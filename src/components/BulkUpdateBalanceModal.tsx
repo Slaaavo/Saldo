@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { toast } from 'sonner';
 import { ChevronDown, ChevronRight } from 'lucide-react';
+import { toMinorUnits, getMinorUnitsStep } from '../utils/format';
 import type { SnapshotRow } from '../types';
 import NumberValue from './NumberValue';
 import {
@@ -12,6 +14,7 @@ import {
   DialogFooter,
 } from './ui/dialog';
 import { Button } from './ui/button';
+import { CurrencyInput } from './CurrencyInput';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { DatePicker } from './ui/date-picker';
@@ -60,20 +63,13 @@ export default function BulkUpdateBalanceModal({
           className="text-xs text-muted-foreground"
         />
       </div>
-      <div className="relative">
-        <Input
-          type="number"
-          step={
-            row.currencyMinorUnits === 0 ? '1' : '0.' + '0'.repeat(row.currencyMinorUnits - 1) + '1'
-          }
-          value={amounts[row.accountId] ?? ''}
-          onChange={(e) => handleAmountChange(row.accountId, e.target.value)}
-          className="pr-14"
-        />
-        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground pointer-events-none">
-          {row.currencyCode}
-        </span>
-      </div>
+      <CurrencyInput
+        type="number"
+        step={getMinorUnitsStep(row.currencyMinorUnits)}
+        value={amounts[row.accountId] ?? ''}
+        onChange={(e) => handleAmountChange(row.accountId, e.target.value)}
+        currencyCode={row.currencyCode}
+      />
     </React.Fragment>
   );
 
@@ -93,7 +89,7 @@ export default function BulkUpdateBalanceModal({
         if (isFinite(parsed)) {
           updates.push({
             accountId: account.accountId,
-            amountMinor: Math.round(parsed * Math.pow(10, account.currencyMinorUnits)),
+            amountMinor: toMinorUnits(raw, account.currencyMinorUnits),
           });
         }
       }
@@ -107,7 +103,7 @@ export default function BulkUpdateBalanceModal({
     try {
       await onSubmit(updates, date, note);
     } catch (err) {
-      window.alert(t('errors.updateBalances', { error: String(err) }));
+      toast.error(t('errors.updateBalances', { error: String(err) }));
       setSubmitting(false);
     }
   };

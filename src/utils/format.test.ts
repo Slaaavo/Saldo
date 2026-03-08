@@ -1,5 +1,14 @@
 import { describe, it, expect } from 'vitest';
-import { formatAmount, formatDate, toEndOfDay, todayIso, formatDisplayDate } from './format';
+import {
+  formatAmount,
+  formatDate,
+  toEndOfDay,
+  todayIso,
+  formatDisplayDate,
+  toMinorUnits,
+  fromMinorUnits,
+  getMinorUnitsStep,
+} from './format';
 
 describe('formatAmount', () => {
   it('formats zero', () => {
@@ -99,5 +108,70 @@ describe('formatDisplayDate', () => {
 
   it('formats December correctly', () => {
     expect(formatDisplayDate('2025-12-25')).toBe('25 December 2025');
+  });
+});
+
+describe('toMinorUnits', () => {
+  it('converts a 2-decimal string to minor units', () => {
+    expect(toMinorUnits('12.34', 2)).toBe(1234);
+    expect(toMinorUnits('0.01', 2)).toBe(1);
+    expect(toMinorUnits('1000.00', 2)).toBe(100000);
+  });
+
+  it('handles zero-decimal currencies', () => {
+    expect(toMinorUnits('150', 0)).toBe(150);
+    expect(toMinorUnits('0', 0)).toBe(0);
+  });
+
+  it('handles 8-decimal (BTC) precision', () => {
+    expect(toMinorUnits('0.50000000', 8)).toBe(50000000);
+    expect(toMinorUnits('1.00000001', 8)).toBe(100000001);
+  });
+
+  it('round-trips with fromMinorUnits', () => {
+    expect(toMinorUnits(fromMinorUnits(1234, 2), 2)).toBe(1234);
+    expect(toMinorUnits(fromMinorUnits(0, 2), 2)).toBe(0);
+    expect(toMinorUnits(fromMinorUnits(15723, 0), 0)).toBe(15723);
+    expect(toMinorUnits(fromMinorUnits(50000000, 8), 8)).toBe(50000000);
+  });
+});
+
+describe('fromMinorUnits', () => {
+  it('converts minor units to a decimal string', () => {
+    expect(fromMinorUnits(1234, 2)).toBe('12.34');
+    expect(fromMinorUnits(1, 2)).toBe('0.01');
+    expect(fromMinorUnits(100000, 2)).toBe('1000.00');
+  });
+
+  it('handles zero-decimal currencies', () => {
+    expect(fromMinorUnits(15723, 0)).toBe('15723');
+    expect(fromMinorUnits(0, 0)).toBe('0');
+  });
+
+  it('handles 8-decimal (BTC) precision', () => {
+    expect(fromMinorUnits(50000000, 8)).toBe('0.50000000');
+    expect(fromMinorUnits(100000001, 8)).toBe('1.00000001');
+  });
+});
+
+describe('getMinorUnitsStep', () => {
+  it('returns "1" for zero-decimal currencies', () => {
+    expect(getMinorUnitsStep(0)).toBe('1');
+  });
+
+  it('returns "0.01" for 2-decimal currencies', () => {
+    expect(getMinorUnitsStep(2)).toBe('0.01');
+  });
+
+  it('returns "0.001" for 3-decimal currencies', () => {
+    expect(getMinorUnitsStep(3)).toBe('0.001');
+  });
+
+  it('returns correct step for 8-decimal (BTC)', () => {
+    expect(getMinorUnitsStep(8)).toBe('0.00000001');
+  });
+
+  it('returns "0.1" for 1-decimal currency', () => {
+    expect(getMinorUnitsStep(1)).toBe('0.1');
   });
 });

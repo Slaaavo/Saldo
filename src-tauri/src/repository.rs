@@ -730,6 +730,38 @@ pub fn convert_balance(
 // Bucket allocation functions (Step 5)
 // ---------------------------------------------------------------------------
 
+/// Return the account_type of the account with the given `id`, or `None` if not found.
+pub fn get_account_type(conn: &Connection, account_id: i64) -> rusqlite::Result<Option<String>> {
+    conn.query_row(
+        "SELECT account_type FROM account WHERE id = ?1",
+        params![account_id],
+        |row| row.get(0),
+    )
+    .optional()
+}
+
+/// Return the latest allocation amount from `source_account_id` to `bucket_id`
+/// at or before `effective_date`. Returns 0 if no allocation exists.
+pub fn get_existing_allocation_to_bucket(
+    conn: &Connection,
+    source_account_id: i64,
+    bucket_id: i64,
+    effective_date: &str,
+) -> rusqlite::Result<i64> {
+    conn.query_row(
+        "SELECT amount_minor FROM bucket_allocation
+             WHERE source_account_id = ?1
+               AND bucket_id = ?2
+               AND effective_date <= ?3
+             ORDER BY effective_date DESC, id DESC
+             LIMIT 1",
+        params![source_account_id, bucket_id, effective_date],
+        |row| row.get(0),
+    )
+    .optional()
+    .map(|opt| opt.unwrap_or(0))
+}
+
 pub fn create_bucket_allocation(
     conn: &Connection,
     bucket_id: i64,

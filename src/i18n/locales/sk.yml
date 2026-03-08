@@ -123,6 +123,10 @@ modals:
 common:
   account: účet
   bucket: obálku
+# ──── Výber dátumu ────
+datePicker:
+  today: Dnes
+
 # ──── Mena ────
 currency:
   label: Mena

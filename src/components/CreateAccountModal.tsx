@@ -1,5 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
+import { PINNED_CURRENCY_CODES } from '../config/constants';
+import { toast } from 'sonner';
+import { toMinorUnits, getMinorUnitsStep } from '../utils/format';
 import type { Currency } from '../types';
 import { listCurrencies, getConsolidationCurrency } from '../api';
 import {
@@ -11,6 +14,7 @@ import {
   DialogFooter,
 } from './ui/dialog';
 import { Button } from './ui/button';
+import { CurrencyInput } from './CurrencyInput';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import CurrencySelect from './CurrencySelect';
@@ -47,23 +51,23 @@ export default function CreateAccountModal({ accountType, onSubmit, onClose }: P
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) {
-      window.alert(
+      toast.error(
         t('validation.nameRequired', { entity: t(isBucket ? 'common.bucket' : 'common.account') }),
       );
       return;
     }
     if (!selectedCurrency) {
-      window.alert(t('validation.currencyRequired'));
+      toast.error(t('validation.currencyRequired'));
       return;
     }
     let initialBalanceMinor: number | undefined;
     if (balance.trim()) {
       const parsed = parseFloat(balance);
       if (isNaN(parsed)) {
-        window.alert(t('validation.invalidBalance'));
+        toast.error(t('validation.invalidBalance'));
         return;
       }
-      initialBalanceMinor = Math.round(parsed * Math.pow(10, selectedCurrency.minorUnits));
+      initialBalanceMinor = toMinorUnits(balance, selectedCurrency.minorUnits);
     }
     onSubmit(name.trim(), selectedCurrency.id, initialBalanceMinor, accountType);
   };
@@ -111,7 +115,7 @@ export default function CreateAccountModal({ accountType, onSubmit, onClose }: P
                 currencies={currencies}
                 value={selectedCurrency}
                 onChange={setSelectedCurrency}
-                pinnedCurrencyCodes={['EUR', 'USD', 'BTC']}
+                pinnedCurrencyCodes={PINNED_CURRENCY_CODES}
               />
             </div>
 
@@ -119,26 +123,15 @@ export default function CreateAccountModal({ accountType, onSubmit, onClose }: P
               <Label htmlFor="create-account-balance">
                 {t('modals.createAccount.initialBalance')}
               </Label>
-              <div className="relative">
-                <Input
-                  id="create-account-balance"
-                  type="number"
-                  step={
-                    !selectedCurrency || selectedCurrency.minorUnits === 0
-                      ? '1'
-                      : '0.' + '0'.repeat(selectedCurrency.minorUnits - 1) + '1'
-                  }
-                  value={balance}
-                  onChange={(e) => setBalance(e.target.value)}
-                  placeholder="0"
-                  className={selectedCurrency ? 'pr-14' : undefined}
-                />
-                {selectedCurrency && (
-                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground pointer-events-none">
-                    {selectedCurrency.code}
-                  </span>
-                )}
-              </div>
+              <CurrencyInput
+                id="create-account-balance"
+                type="number"
+                step={getMinorUnitsStep(selectedCurrency?.minorUnits ?? 0)}
+                value={balance}
+                onChange={(e) => setBalance(e.target.value)}
+                placeholder="0"
+                currencyCode={selectedCurrency?.code}
+              />
             </div>
           </DialogBody>
 

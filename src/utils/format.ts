@@ -70,13 +70,37 @@ export function todayIso(): string {
 }
 
 /**
+ * Convert a decimal string to integer minor units.
+ * Example: toMinorUnits('12.34', 2) → 1234
+ */
+export function toMinorUnits(decimalStr: string, minorUnits: number): number {
+  return Math.round(parseFloat(decimalStr) * Math.pow(10, minorUnits));
+}
+
+/**
+ * Convert integer minor units to a decimal string with the right precision.
+ * Example: fromMinorUnits(1234, 2) → '12.34'
+ */
+export function fromMinorUnits(amountMinor: number, minorUnits: number): string {
+  return (amountMinor / Math.pow(10, minorUnits)).toFixed(minorUnits);
+}
+
+/**
+ * Get the step string for a number input based on minor units.
+ * Example: getMinorUnitsStep(2) → '0.01', getMinorUnitsStep(0) → '1'
+ */
+export function getMinorUnitsStep(minorUnits: number): string {
+  return minorUnits === 0 ? '1' : '0.' + '0'.repeat(minorUnits - 1) + '1';
+}
+
+/**
  * Format a YYYY-MM-DD date string as a human-readable date.
  * Example: "2026-03-05" → "5 March 2026"
  */
-export function formatDisplayDate(dateStr: string): string {
+export function formatDisplayDate(dateStr: string, locale = 'en-GB'): string {
   const [y, m, d] = dateStr.split('-').map(Number);
   const date = new Date(y, m - 1, d);
-  return date.toLocaleDateString('en-GB', {
+  return date.toLocaleDateString(locale, {
     year: 'numeric',
     month: 'long',
     day: 'numeric',

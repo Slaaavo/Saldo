@@ -13,6 +13,14 @@ pub struct AppState {
     pub db: Mutex<rusqlite::Connection>,
 }
 
+impl AppState {
+    pub fn conn(&self) -> Result<std::sync::MutexGuard<'_, rusqlite::Connection>, error::AppError> {
+        self.db
+            .lock()
+            .map_err(|e| error::AppError::from(e.to_string()))
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()

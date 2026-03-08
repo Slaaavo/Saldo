@@ -1,3 +1,21 @@
+export type ModalState =
+  | { type: 'none' }
+  | { type: 'createBalanceUpdate'; preselectedAccountId?: number }
+  | { type: 'editBalanceUpdate'; event: EventWithData }
+  | { type: 'createAccount'; accountType?: 'account' | 'bucket' }
+  | { type: 'renameAccount'; accountId: number; currentName: string }
+  | {
+      type: 'confirmDeleteAccount';
+      accountId: number;
+      name: string;
+      accountType?: 'account' | 'bucket';
+    }
+  | { type: 'confirmDeleteEvent'; eventId: number }
+  | { type: 'bulkUpdateBalance' }
+  | { type: 'fetchFxRatePrompt'; date: string }
+  | { type: 'reorderAccounts' }
+  | { type: 'reorderBuckets' };
+
 export interface Currency {
   id: number;
   code: string;
