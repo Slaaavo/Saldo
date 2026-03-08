@@ -34,3 +34,4 @@ playwright-report/
 *.njsproj
 *.sln
 *.sw?
+plans/
