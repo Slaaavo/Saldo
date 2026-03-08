@@ -221,3 +221,29 @@ demo:
   emptyCta: "Try Demo Mode"
   emptyTitle: "No accounts yet"
   emptyDesc: "Create your first account or explore the app with sample data."
+
+# ──── Data Storage ────
+dataStorage:
+  sectionTitle: "Data Storage"
+  sectionDesc: "Configure where your database file is stored on disk."
+  currentPath: "Current database file"
+  isDefault: "(default)"
+  changeButton: "Change…"
+  resetButton: "Reset to default"
+  disabledInDemoMode: "Database location cannot be changed while demo mode is active."
+  confirmSwitchMessage: "A database was found at this location. Switch to it? Your current data will remain at its original path."
+  noDbFoundTitle: "No Database Found"
+  noDbFoundMessage: "No database was found at the selected location. What would you like to do?"
+  moveButton: "Move current database"
+  freshButton: "Start fresh"
+  noDbFoundCancel: "Cancel"
+  confirmResetMessage: "A database was found at the default location. Switch to it? Your current data will remain at its original path."
+  toasts:
+    switched: "Switched to database at {{path}}"
+    moved: "Database moved to {{path}}"
+    fresh: "New database created at {{path}}"
+    reset: "Database reset to default location."
+    fallbackWarning: "Custom database location not found. Using default location."
+  errors:
+    change: "Failed to change database location: {{error}}"
+    reset: "Failed to reset database location: {{error}}"

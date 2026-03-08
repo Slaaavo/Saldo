@@ -30,6 +30,10 @@ interface Props {
   isDemoMode: boolean;
   onEnterDemoMode: () => void;
   onExitDemoMode: () => void;
+  dbLocationPath: string;
+  dbLocationIsDefault: boolean;
+  onChangeDbLocation: () => void;
+  onResetDbLocation: () => void;
 }
 
 export default function SettingsPage({
@@ -39,6 +43,10 @@ export default function SettingsPage({
   isDemoMode,
   onEnterDemoMode,
   onExitDemoMode,
+  dbLocationPath,
+  dbLocationIsDefault,
+  onChangeDbLocation,
+  onResetDbLocation,
 }: Props) {
   const { t } = useTranslation();
   const [currencies, setCurrencies] = useState<Currency[]>([]);
@@ -157,7 +165,50 @@ export default function SettingsPage({
         </div>
       </div>
 
-      {/* Section 3: Demo Mode */}
+      {/* Section 3: Data Storage */}
+      <div className="border-b border-border pb-8 mb-8">
+        <h3 className="text-lg font-semibold mb-1">{t('dataStorage.sectionTitle')}</h3>
+        <p className="text-sm text-muted-foreground mb-6">{t('dataStorage.sectionDesc')}</p>
+
+        <div className="flex flex-col gap-3">
+          <Label>{t('dataStorage.currentPath')}</Label>
+          <p className="select-text break-all rounded-md bg-muted px-3 py-2 font-mono text-sm">
+            {dbLocationPath}
+            {dbLocationIsDefault && (
+              <span className="ml-2 text-xs text-muted-foreground">
+                {t('dataStorage.isDefault')}
+              </span>
+            )}
+          </p>
+
+          {isDemoMode && (
+            <p className="text-sm text-muted-foreground">{t('dataStorage.disabledInDemoMode')}</p>
+          )}
+
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={onChangeDbLocation}
+              disabled={isDemoMode}
+            >
+              {t('dataStorage.changeButton')}
+            </Button>
+            {!dbLocationIsDefault && (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={onResetDbLocation}
+                disabled={isDemoMode}
+              >
+                {t('dataStorage.resetButton')}
+              </Button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Section 4: Demo Mode */}
       <div>
         <h3 className="text-lg font-semibold mb-1">{t('demo.settingsTitle')}</h3>
         <p className="text-sm text-muted-foreground mb-6">{t('demo.settingsDesc')}</p>

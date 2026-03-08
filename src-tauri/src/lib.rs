@@ -1,8 +1,10 @@
+use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::Mutex;
 use tauri::Manager;
 
 mod commands;
+mod config;
 mod db;
 mod demo;
 mod error;
@@ -17,6 +19,13 @@ pub struct AppState {
     pub persistent_db: Mutex<Option<rusqlite::Connection>>,
     /// True when the app is running with the ephemeral in-memory demo database.
     pub demo_mode: AtomicBool,
+    /// Absolute path to the app data directory (always the OS default).
+    pub app_data_dir: PathBuf,
+    /// Path to the currently active database file (may differ from app_data_dir).
+    pub db_path: Mutex<PathBuf>,
+    /// Set to true at startup when a configured custom folder is missing; cleared after any
+    /// successful location change.
+    pub fallback_warning: AtomicBool,
 }
 
 impl AppState {
@@ -104,13 +113,24 @@ pub async fn smart_fetch_fx_rates(
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let app_dir = app
                 .path()
                 .app_data_dir()
                 .expect("failed to get app data dir");
             std::fs::create_dir_all(&app_dir).expect("failed to create app data dir");
-            let db_path = app_dir.join("our-finances.db");
+
+            // Resolve DB path: use custom folder if configured and present; fall back
+            // to app_data_dir with a warning flag when the custom folder is missing.
+            let (db_path, fallback_warning) = match config::read_db_location(&app_dir) {
+                Some(folder) if folder.exists() => (folder.join(config::DB_FILENAME), false),
+                Some(_missing_folder) => {
+                    // Configured custom folder no longer exists — fall back silently.
+                    (app_dir.join(config::DB_FILENAME), true)
+                }
+                None => (app_dir.join(config::DB_FILENAME), false),
+            };
 
             let conn = db::initialize_db(&db_path).expect("failed to initialize database");
 
@@ -118,6 +138,9 @@ pub fn run() {
                 db: Mutex::new(conn),
                 persistent_db: Mutex::new(None),
                 demo_mode: AtomicBool::new(false),
+                app_data_dir: app_dir,
+                db_path: Mutex::new(db_path),
+                fallback_warning: AtomicBool::new(fallback_warning),
             });
 
             // Spawn background FX rate fetch — non-blocking, errors are logged.
@@ -155,6 +178,11 @@ pub fn run() {
             commands::enter_demo_mode,
             commands::exit_demo_mode,
             commands::is_demo_mode,
+            commands::get_db_location,
+            commands::pick_db_folder,
+            commands::change_db_location,
+            commands::reset_db_location,
+            commands::check_default_db,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

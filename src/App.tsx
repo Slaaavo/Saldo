@@ -1,6 +1,16 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { fetchFxRates, enterDemoMode, exitDemoMode, isDemoMode as checkIsDemoMode } from './api';
+import {
+  fetchFxRates,
+  enterDemoMode,
+  exitDemoMode,
+  isDemoMode as checkIsDemoMode,
+  getDbLocation,
+  pickDbFolder,
+  changeDbLocation,
+  resetDbLocation,
+  checkDefaultDb,
+} from './api';
 import Header from './components/Header';
 import CreateBalanceUpdateModal from './components/CreateBalanceUpdateModal';
 import EditBalanceUpdateModal from './components/EditBalanceUpdateModal';
@@ -8,6 +18,7 @@ import CreateAccountModal from './components/CreateAccountModal';
 import RenameAccountModal from './components/RenameAccountModal';
 import ConfirmDialog from './components/ConfirmDialog';
 import BulkUpdateBalanceModal from './components/BulkUpdateBalanceModal';
+import DbLocationChoiceDialog from './components/DbLocationChoiceDialog';
 import SettingsPage from './pages/SettingsPage';
 import FxRatesPage from './pages/FxRatesPage';
 import ReorderModal from './components/ReorderModal';
@@ -29,16 +40,61 @@ function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [fetchLoading, setFetchLoading] = useState(false);
   const [isDemoMode, setIsDemoMode] = useState<boolean>(false);
+  const [dbLocationPath, setDbLocationPath] = useState<string>('');
+  const [dbLocationIsDefault, setDbLocationIsDefault] = useState<boolean>(true);
+  const [dbActionLoading, setDbActionLoading] = useState<boolean>(false);
 
   useEffect(() => {
     checkIsDemoMode().then(setIsDemoMode).catch(console.error);
+    loadDbLocation();
   }, []);
+
+  const loadDbLocation = async () => {
+    try {
+      const info = await getDbLocation();
+      setDbLocationPath(info.currentPath);
+      setDbLocationIsDefault(info.isDefault);
+      if (info.fallbackWarning) {
+        toast.warning(t('dataStorage.toasts.fallbackWarning'));
+      }
+    } catch (err) {
+      console.error('Failed to load DB location:', err);
+    }
+  };
+
+  const handleChangeDbLocation = async () => {
+    try {
+      const result = await pickDbFolder();
+      if (!result) return;
+      if (result.dbExists) {
+        setModalState({ type: 'confirmSwitchDb', folder: result.folder });
+      } else {
+        setModalState({ type: 'dbLocationChoice', folder: result.folder, isReset: false });
+      }
+    } catch (err) {
+      toast.error(t('dataStorage.errors.change', { error: String(err) }));
+    }
+  };
+
+  const handleResetDbLocation = async () => {
+    try {
+      const dbExists = await checkDefaultDb();
+      if (dbExists) {
+        setModalState({ type: 'confirmResetDbLocation' });
+      } else {
+        setModalState({ type: 'dbLocationChoice', folder: '', isReset: true });
+      }
+    } catch (err) {
+      toast.error(t('dataStorage.errors.reset', { error: String(err) }));
+    }
+  };
 
   const handleEnterDemoMode = async () => {
     try {
       await enterDemoMode();
       setIsDemoMode(true);
       await refresh();
+      await loadDbLocation();
       setCurrentView('dashboard');
     } catch (err) {
       toast.error(String(err));
@@ -50,6 +106,7 @@ function App() {
       await exitDemoMode();
       setIsDemoMode(false);
       await refresh();
+      await loadDbLocation();
       toast.success(t('demo.exitedToast'));
     } catch (err) {
       toast.error(String(err));
@@ -124,6 +181,10 @@ function App() {
                       isDemoMode={isDemoMode}
                       onEnterDemoMode={handleEnterDemoMode}
                       onExitDemoMode={handleExitDemoMode}
+                      dbLocationPath={dbLocationPath}
+                      dbLocationIsDefault={dbLocationIsDefault}
+                      onChangeDbLocation={handleChangeDbLocation}
+                      onResetDbLocation={handleResetDbLocation}
                     />
                   )}
 
@@ -248,6 +309,88 @@ function App() {
               title={t('reorder.titleBuckets')}
               onSave={handleSaveOrder}
               onClose={closeModal}
+            />
+          )}
+
+          {modalState.type === 'confirmSwitchDb' && (
+            <ConfirmDialog
+              message={t('dataStorage.confirmSwitchMessage')}
+              confirmVariant="default"
+              loading={dbActionLoading}
+              onConfirm={async () => {
+                setDbActionLoading(true);
+                try {
+                  await changeDbLocation(modalState.folder, 'switch');
+                  await handleConsolidationCurrencyChange();
+                  await loadDbLocation();
+                  toast.success(t('dataStorage.toasts.switched', { path: modalState.folder }));
+                  closeModal();
+                } catch (err) {
+                  toast.error(t('dataStorage.errors.change', { error: String(err) }));
+                } finally {
+                  setDbActionLoading(false);
+                }
+              }}
+              onCancel={closeModal}
+            />
+          )}
+
+          {modalState.type === 'dbLocationChoice' && (
+            <DbLocationChoiceDialog
+              loading={dbActionLoading}
+              onAction={async (action) => {
+                setDbActionLoading(true);
+                const { folder, isReset } = modalState;
+                try {
+                  if (isReset) {
+                    await resetDbLocation(action);
+                  } else {
+                    await changeDbLocation(folder, action);
+                  }
+                  await handleConsolidationCurrencyChange();
+                  await loadDbLocation();
+                  if (isReset) {
+                    toast.success(t('dataStorage.toasts.reset'));
+                  } else if (action === 'move') {
+                    toast.success(t('dataStorage.toasts.moved', { path: folder }));
+                  } else {
+                    toast.success(t('dataStorage.toasts.fresh', { path: folder }));
+                  }
+                  closeModal();
+                } catch (err) {
+                  toast.error(
+                    isReset
+                      ? t('dataStorage.errors.reset', { error: String(err) })
+                      : t('dataStorage.errors.change', { error: String(err) }),
+                  );
+                } finally {
+                  setDbActionLoading(false);
+                }
+              }}
+              onCancel={closeModal}
+            />
+          )}
+
+          {modalState.type === 'confirmResetDbLocation' && (
+            <ConfirmDialog
+              message={t('dataStorage.confirmResetMessage')}
+              confirmVariant="default"
+              loading={dbActionLoading}
+              onConfirm={async () => {
+                setDbActionLoading(true);
+                try {
+                  await resetDbLocation('switch');
+                  await handleConsolidationCurrencyChange();
+                  await loadDbLocation();
+                  toast.success(t('dataStorage.toasts.reset'));
+                  closeModal();
+                } catch (err) {
+                  toast.error(t('dataStorage.errors.reset', { error: String(err) }));
+                } finally {
+                  setDbActionLoading(false);
+                }
+              }}
+              onCancel={closeModal}
             />
           )}
         </div>

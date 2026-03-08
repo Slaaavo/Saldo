@@ -6,6 +6,8 @@ import type {
   FxRateRow,
   BucketAllocation,
   OverAllocationWarning,
+  DbLocationInfo,
+  PickDbFolderResult,
 } from '../types';
 
 export async function createBalanceUpdate(
@@ -188,4 +190,24 @@ export async function exitDemoMode(): Promise<void> {
 
 export async function isDemoMode(): Promise<boolean> {
   return invoke('is_demo_mode');
+}
+
+export async function getDbLocation(): Promise<DbLocationInfo> {
+  return invoke('get_db_location');
+}
+
+export async function pickDbFolder(): Promise<PickDbFolderResult | null> {
+  return invoke('pick_db_folder');
+}
+
+export async function changeDbLocation(folder: string, action: string): Promise<void> {
+  return invoke('change_db_location', { folder, action });
+}
+
+export async function resetDbLocation(action: string): Promise<void> {
+  return invoke('reset_db_location', { action });
+}
+
+export async function checkDefaultDb(): Promise<boolean> {
+  return invoke('check_default_db');
 }

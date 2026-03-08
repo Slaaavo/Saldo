@@ -23,3 +23,12 @@ impl From<String> for AppError {
         }
     }
 }
+
+impl From<std::io::Error> for AppError {
+    fn from(e: std::io::Error) -> Self {
+        AppError {
+            code: "IO_ERROR".into(),
+            message: e.to_string(),
+        }
+    }
+}

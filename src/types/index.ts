@@ -14,7 +14,10 @@ export type ModalState =
   | { type: 'bulkUpdateBalance' }
   | { type: 'fetchFxRatePrompt'; date: string }
   | { type: 'reorderAccounts' }
-  | { type: 'reorderBuckets' };
+  | { type: 'reorderBuckets' }
+  | { type: 'confirmSwitchDb'; folder: string }
+  | { type: 'dbLocationChoice'; folder: string; isReset: boolean }
+  | { type: 'confirmResetDbLocation' };
 
 export interface Currency {
   id: number;
@@ -97,6 +100,18 @@ export interface FxRateRow {
   rateExponent: number;
   isManual: boolean;
   fetchedAt: string;
+}
+
+export interface DbLocationInfo {
+  currentPath: string;
+  isDefault: boolean;
+  isDemoMode: boolean;
+  fallbackWarning: boolean;
+}
+
+export interface PickDbFolderResult {
+  folder: string;
+  dbExists: boolean;
 }
 
 export interface AppError {

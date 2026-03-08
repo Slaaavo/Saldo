@@ -199,6 +199,32 @@ errors:
   deleteAccountLinked: "Tento účet nie je možné vymazať: má aktívne alokácie. Najskôr odpojte alokácie."
   overAllocation: "Alokácia prekračuje dostupný zostatok."
 
+# ──── Uložisko dát ────
+dataStorage:
+  sectionTitle: "Uložisko dát"
+  sectionDesc: "Nastavte, kde je uložený súbor databázy."
+  currentPath: "Aktuálny súbor databázy"
+  isDefault: "(predvolené)"
+  changeButton: "Zmeniť…"
+  resetButton: "Obnoviť predvolené"
+  disabledInDemoMode: "Umiestnenie databázy nie je možné zmeniť v režime demónstrácie."
+  confirmSwitchMessage: "Na tomto mieste bola nájdená databáza. Prepnúť na ňu? Vaše aktuálne dáta zostanú na pôvodnom mieste."
+  noDbFoundTitle: "Databáza nenájdená"
+  noDbFoundMessage: "Na vybratom mieste nebola nájdená žiadna databáza. Čo chcete urobiť?"
+  moveButton: "Presunúť aktuálnu databázu"
+  freshButton: "Začať odznova"
+  noDbFoundCancel: "Zrušiť"
+  confirmResetMessage: "Na predvolenom mieste bola nájdená databáza. Prepnúť na ňu? Vaše aktuálne dáta zostanú na pôvodnom mieste."
+  toasts:
+    switched: "Prepnuté na databázu na {{path}}"
+    moved: "Databáza presunutá do {{path}}"
+    fresh: "Nová databáza vytvorená na {{path}}"
+    reset: "Databáza obnovená na predvolené umiestnenie."
+    fallbackWarning: "Vlastné umiestnenie databázy nebolo nájdené. Používa sa predvolené umiestnenie."
+  errors:
+    change: "Nepodarilo sa zmeniť umiestnenie databázy: {{error}}"
+    reset: "Nepodarilo sa obnoviť umiestnenie databázy: {{error}}"
+
 # ──── Výber jazyka ────
 language:
   en: English
