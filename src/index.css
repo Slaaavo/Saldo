@@ -1,10 +1,11 @@
 @import 'tailwindcss';
+@custom-variant dark (&:where(.dark, .dark *));
 @import './styles/fonts.css';
 
 /*
  * Design System Tokens
  * Based on shadcn/ui convention: HSL values without the hsl() wrapper
- * Primary: #4e44e4 ≈ HSL(244, 76%, 58%)
+ * Primary: #2C35CC ≈ HSL(237, 65%, 49%)
  */
 @theme {
   --color-background: hsl(0 0% 98%);
@@ -13,23 +14,25 @@
   --color-card-foreground: hsl(240 10% 10%);
   --color-popover: hsl(0 0% 100%);
   --color-popover-foreground: hsl(240 10% 10%);
-  --color-primary: hsl(244 76% 58%);
+  --color-primary: hsl(237 65% 49%);
   --color-primary-foreground: hsl(0 0% 100%);
   --color-secondary: hsl(240 20% 96%);
   --color-secondary-foreground: hsl(240 10% 20%);
   --color-muted: hsl(240 10% 96%);
   --color-muted-foreground: hsl(240 5% 46%);
-  --color-accent: hsl(244 76% 96%);
-  --color-accent-foreground: hsl(244 76% 30%);
+  --color-accent: hsl(237 65% 96%);
+  --color-accent-foreground: hsl(237 65% 30%);
   --color-destructive: hsl(0 72% 51%);
   --color-destructive-foreground: hsl(0 0% 100%);
   --color-success: hsl(142 72% 40%);
   --color-success-foreground: hsl(0 0% 100%);
   --color-border: hsl(240 6% 90%);
   --color-input: hsl(240 6% 90%);
-  --color-ring: hsl(244 76% 58%);
+  --color-ring: hsl(237 65% 49%);
+  --color-brand-orange: hsl(15 96% 63%);
+  --color-brand-orange-foreground: hsl(0 0% 100%);
   --radius: 0.5rem;
-  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
 }
 
 .dark {
@@ -39,21 +42,23 @@
   --color-card-foreground: hsl(0 0% 95%);
   --color-popover: hsl(240 10% 12%);
   --color-popover-foreground: hsl(0 0% 95%);
-  --color-primary: hsl(244 76% 65%);
+  --color-primary: hsl(225 70% 58%);
   --color-primary-foreground: hsl(0 0% 100%);
   --color-secondary: hsl(240 10% 16%);
   --color-secondary-foreground: hsl(0 0% 90%);
   --color-muted: hsl(240 10% 16%);
   --color-muted-foreground: hsl(240 5% 60%);
-  --color-accent: hsl(244 40% 22%);
-  --color-accent-foreground: hsl(244 76% 80%);
+  --color-accent: hsl(225 40% 22%);
+  --color-accent-foreground: hsl(225 65% 80%);
   --color-destructive: hsl(0 72% 58%);
   --color-destructive-foreground: hsl(0 0% 100%);
   --color-success: hsl(142 60% 55%);
   --color-success-foreground: hsl(0 0% 100%);
   --color-border: hsl(240 6% 20%);
   --color-input: hsl(240 6% 20%);
-  --color-ring: hsl(244 76% 65%);
+  --color-ring: hsl(225 70% 58%);
+  --color-brand-orange: hsl(15 96% 68%);
+  --color-brand-orange-foreground: hsl(0 0% 100%);
 }
 
 @layer base {

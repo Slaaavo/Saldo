@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
-  Wallet,
   LayoutDashboard,
   Settings,
   ArrowLeftRight,
@@ -9,6 +8,9 @@ import {
   ChevronsRight,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import SaldoLogo from '@/components/SaldoLogo';
+import saldoLogotype from '@/assets/Saldo logotype transparent.svg';
+import saldoLogotypeDark from '@/assets/Saldo logotype transparent dark.svg';
 
 interface SidebarProps {
   currentView: 'dashboard' | 'fx-rates' | 'settings';
@@ -44,16 +46,15 @@ export default function Sidebar({
       onMouseLeave={() => setHovered(false)}
     >
       {/* App name row */}
-      <div className="px-4 py-4 flex items-center gap-3">
-        <Wallet className="h-5 w-5 shrink-0 text-primary" />
-        <span
-          className={cn(
-            'overflow-hidden whitespace-nowrap transition-opacity duration-150 font-bold text-base',
-            expanded ? 'opacity-100' : 'opacity-0 w-0',
-          )}
-        >
-          {t('sidebar.appName')}
-        </span>
+      <div className="flex items-center justify-center px-4 py-3 h-14">
+        {expanded ? (
+          <>
+            <img src={saldoLogotype} alt="Saldo" className="h-8 w-auto dark:hidden" />
+            <img src={saldoLogotypeDark} alt="Saldo" className="hidden h-8 w-auto dark:block" />
+          </>
+        ) : (
+          <SaldoLogo className="h-7 w-7" aria-label="Saldo" />
+        )}
       </div>
 
       {/* Collapse toggle */}

@@ -184,7 +184,14 @@ pub fn run() {
             commands::reset_db_location,
             commands::check_default_db,
         ])
-        .run(tauri::generate_context!())
+        .run({
+            let mut ctx = tauri::generate_context!();
+            ctx.set_default_window_icon(Some(
+                tauri::image::Image::from_bytes(include_bytes!("../icons/icon.png"))
+                    .expect("failed to load window icon"),
+            ));
+            ctx
+        })
         .expect("error while running tauri application");
 }
 
