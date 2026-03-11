@@ -19,6 +19,7 @@ CREATE TABLE currency (
   code TEXT NOT NULL UNIQUE,
   name TEXT NOT NULL,
   minor_units INTEGER NOT NULL DEFAULT 2,
+  is_custom INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f','now'))
 );
 
@@ -31,7 +32,7 @@ CREATE TABLE account (
   sort_order INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f','now')),
   FOREIGN KEY (currency_id) REFERENCES currency (id) ON DELETE RESTRICT,
-  CHECK (account_type IN ('account', 'bucket'))
+  CHECK (account_type IN ('account', 'bucket', 'asset'))
 );
 
 -- event (lifecycle record). latest_data_id is nullable to allow simple insert flow:
@@ -89,5 +90,18 @@ CREATE TABLE bucket_allocation (
 CREATE INDEX idx_bucket_alloc_bucket ON bucket_allocation (bucket_id);
 CREATE INDEX idx_bucket_alloc_source ON bucket_allocation (source_account_id);
 CREATE INDEX idx_bucket_alloc_effective ON bucket_allocation (bucket_id, source_account_id, effective_date DESC);
+
+-- account_asset_link: links a liability account (e.g. mortgage) to an asset (e.g. house)
+-- ON DELETE CASCADE on both FKs ensures links are removed when either side is deleted
+CREATE TABLE account_asset_link (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  account_id INTEGER NOT NULL REFERENCES account(id) ON DELETE CASCADE,
+  asset_id   INTEGER NOT NULL REFERENCES account(id) ON DELETE CASCADE,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f','now')),
+  UNIQUE (account_id, asset_id)
+);
+
+CREATE INDEX idx_account_asset_link_account ON account_asset_link (account_id);
+CREATE INDEX idx_account_asset_link_asset ON account_asset_link (asset_id);
 
 COMMIT;

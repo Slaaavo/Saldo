@@ -15,8 +15,11 @@ import {
   getConsolidationCurrency,
   listFxRates,
   updateSortOrder,
+  updateAssetValue,
+  setAccountAssetLinks,
 } from '../api';
 import { toEndOfDay, todayIso } from '../utils/format';
+import { extractErrorMessage } from '../utils/errors';
 
 interface UseFinanceDataOptions {
   closeModal: () => void;
@@ -47,7 +50,7 @@ export function useFinanceData({ closeModal, onFxRatePrompt }: UseFinanceDataOpt
       setSnapshot(snap);
       setEvents(evts);
     } catch (err) {
-      toast.error(t('errors.loadData', { error: String(err) }));
+      toast.error(t('errors.loadData', { error: extractErrorMessage(err) }));
     }
   }, [selectedDate, t]);
 
@@ -78,7 +81,7 @@ export function useFinanceData({ closeModal, onFxRatePrompt }: UseFinanceDataOpt
         }
       }
     } catch (err) {
-      toast.error(t('errors.createBalanceUpdate', { error: String(err) }));
+      toast.error(t('errors.createBalanceUpdate', { error: extractErrorMessage(err) }));
     }
   };
 
@@ -93,7 +96,7 @@ export function useFinanceData({ closeModal, onFxRatePrompt }: UseFinanceDataOpt
       closeModal();
       await refresh();
     } catch (err) {
-      toast.error(t('errors.updateEvent', { error: String(err) }));
+      toast.error(t('errors.updateEvent', { error: extractErrorMessage(err) }));
     }
   };
 
@@ -103,7 +106,7 @@ export function useFinanceData({ closeModal, onFxRatePrompt }: UseFinanceDataOpt
       closeModal();
       await refresh();
     } catch (err) {
-      toast.error(t('errors.deleteEvent', { error: String(err) }));
+      toast.error(t('errors.deleteEvent', { error: extractErrorMessage(err) }));
     }
   };
 
@@ -112,13 +115,21 @@ export function useFinanceData({ closeModal, onFxRatePrompt }: UseFinanceDataOpt
     currencyId: number,
     initialBalanceMinor?: number,
     accountType?: string,
+    linkedAssetIds?: number[],
   ) => {
     try {
-      await createAccount(name, currencyId, initialBalanceMinor, accountType);
+      await createAccount(
+        name,
+        currencyId,
+        initialBalanceMinor,
+        accountType,
+        undefined,
+        linkedAssetIds,
+      );
       closeModal();
       await refresh();
     } catch (err) {
-      toast.error(t('errors.createAccount', { error: String(err) }));
+      toast.error(t('errors.createAccount', { error: extractErrorMessage(err) }));
     }
   };
 
@@ -128,7 +139,7 @@ export function useFinanceData({ closeModal, onFxRatePrompt }: UseFinanceDataOpt
       closeModal();
       await refresh();
     } catch (err) {
-      toast.error(t('errors.renameAccount', { error: String(err) }));
+      toast.error(t('errors.renameAccount', { error: extractErrorMessage(err) }));
     }
   };
 
@@ -138,7 +149,7 @@ export function useFinanceData({ closeModal, onFxRatePrompt }: UseFinanceDataOpt
       closeModal();
       await refresh();
     } catch (err) {
-      const msg = String(err);
+      const msg = extractErrorMessage(err);
       if (msg.includes('active allocations in buckets')) {
         toast.error(t('errors.deleteAccountLinked'));
       } else {
@@ -164,7 +175,7 @@ export function useFinanceData({ closeModal, onFxRatePrompt }: UseFinanceDataOpt
       closeModal();
       await refresh();
     } catch (err) {
-      toast.error(String(err));
+      toast.error(extractErrorMessage(err));
     }
   };
 
@@ -182,6 +193,32 @@ export function useFinanceData({ closeModal, onFxRatePrompt }: UseFinanceDataOpt
     ...new Set(snapshot.filter((r) => r.fxRateMissing).map((r) => r.currencyCode)),
   ];
 
+  const handleUpdateAssetValue = async (
+    accountId: number,
+    amountMinor: number | null,
+    pricePerUnit: string | null,
+    eventDate: string,
+    note: string | null,
+  ) => {
+    try {
+      await updateAssetValue(accountId, amountMinor, pricePerUnit, eventDate, note);
+      closeModal();
+      await refresh();
+    } catch (err) {
+      toast.error(t('errors.updateAssetValue', { error: extractErrorMessage(err) }));
+    }
+  };
+
+  const handleSetAccountAssetLinks = async (accountId: number, assetIds: number[]) => {
+    try {
+      await setAccountAssetLinks(accountId, assetIds);
+      closeModal();
+      await refresh();
+    } catch (err) {
+      toast.error(extractErrorMessage(err));
+    }
+  };
+
   return {
     selectedDate,
     setSelectedDate,
@@ -198,6 +235,8 @@ export function useFinanceData({ closeModal, onFxRatePrompt }: UseFinanceDataOpt
     handleBulkUpdateSubmit,
     handleSaveOrder,
     handleConsolidationCurrencyChange,
+    handleUpdateAssetValue,
+    handleSetAccountAssetLinks,
     missingFxCurrencies,
   };
 }

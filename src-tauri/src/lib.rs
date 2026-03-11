@@ -183,6 +183,12 @@ pub fn run() {
             commands::change_db_location,
             commands::reset_db_location,
             commands::check_default_db,
+            commands::create_custom_unit,
+            commands::list_custom_units,
+            commands::update_custom_unit,
+            commands::update_asset_value,
+            commands::list_account_asset_links,
+            commands::set_account_asset_links,
         ])
         .run({
             let mut ctx = tauri::generate_context!();

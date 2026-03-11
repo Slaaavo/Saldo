@@ -96,6 +96,11 @@ export default function Ledger({
                       <CardContent className="flex items-center justify-between p-4">
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-semibold truncate">{ev.accountName}</p>
+                          {ev.accountType === 'asset' && (
+                            <p className="text-xs text-muted-foreground truncate">
+                              {t('ledger.valueUpdate')}
+                            </p>
+                          )}
                           {ev.note && (
                             <p className="text-xs text-muted-foreground italic truncate">
                               {ev.note}

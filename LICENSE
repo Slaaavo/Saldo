@@ -1,21 +1,53 @@
-MIT License
+Source Available, Noncommercial License
 
-Copyright (c) 2026 Jaroslav Sumbal
+Copyright (c) 2026 Jaroslav Sumbal. All rights reserved.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+---
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+1. WHAT YOU MAY DO
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+   You are free to:
+
+   - View, read, and study the source code.
+   - Download, clone, or fork the repository.
+   - Modify, adapt, and build upon the code.
+   - Test, experiment, and run the software locally or privately.
+   - Share modified or unmodified versions with others, provided
+     this license is included in full and the copyright notice above
+     is retained.
+
+2. WHAT YOU MAY NOT DO
+
+   You may not, under any circumstances:
+
+   - Sell, license, or sublicense the software or any derivative
+     of it for money or any other form of compensation.
+   - Use the software or any derivative of it as part of a product
+     or service that generates revenue, directly or indirectly.
+   - Offer the software or any derivative of it as a commercial
+     service, including but not limited to software-as-a-service
+     (SaaS), subscription products, or paid applications.
+   - Use the software to generate profit for yourself, your
+     employer, or any other party.
+
+   These restrictions apply equally to the original software and
+   to any modifications, forks, or derivative works based on it.
+
+3. ATTRIBUTION
+
+   Any distribution of the software or derivative works must
+   include this license file in full and clearly credit the
+   original author: Jaroslav Sumbal.
+
+4. NO WARRANTY
+
+   The software is provided "as is", without warranty of any kind,
+   express or implied. The author is not liable for any damages,
+   losses, or legal claims arising from the use or inability to
+   use the software.
+
+5. CONTACT
+
+   If you wish to use this software commercially or under terms
+   not covered by this license, contact the author to discuss
+   a separate agreement.

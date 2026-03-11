@@ -31,6 +31,18 @@ const MIGRATIONS: &[(&str, &str)] = &[
         "008_remove_default_account.sql",
         include_str!("../../migrations/008_remove_default_account.sql"),
     ),
+    (
+        "009_add_asset_type.sql",
+        include_str!("../../migrations/009_add_asset_type.sql"),
+    ),
+    (
+        "010_add_is_custom_currency.sql",
+        include_str!("../../migrations/010_add_is_custom_currency.sql"),
+    ),
+    (
+        "011_account_asset_link.sql",
+        include_str!("../../migrations/011_account_asset_link.sql"),
+    ),
 ];
 
 pub fn run_pending(conn: &rusqlite::Connection) -> rusqlite::Result<()> {

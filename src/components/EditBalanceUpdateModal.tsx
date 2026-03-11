@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import type { EventWithData, SnapshotRow } from '../types';
 import { formatDate, fromMinorUnits, toMinorUnits, getMinorUnitsStep } from '../utils/format';
+import { extractErrorMessage } from '../utils/errors';
 import {
   Dialog,
   DialogContent,
@@ -34,7 +35,9 @@ export default function EditBalanceUpdateModal({ event, accounts, onSubmit, onCl
   const [date, setDate] = useState(formatDate(event.eventDate));
   const [note, setNote] = useState(event.note ?? '');
 
-  const realAccounts = accounts.filter((a) => a.accountType === 'account');
+  const allocationSources = accounts.filter(
+    (a) => a.accountType === 'account' || a.accountType === 'asset',
+  );
 
   const {
     loadingAllocations,
@@ -52,7 +55,7 @@ export default function EditBalanceUpdateModal({ event, accounts, onSubmit, onCl
   } = useBucketAllocations({
     bucketId: isBucket ? event.accountId : null,
     date,
-    realAccounts,
+    allocationSources,
   });
   const [submitting, setSubmitting] = useState(false);
 
@@ -75,7 +78,7 @@ export default function EditBalanceUpdateModal({ event, accounts, onSubmit, onCl
       const amountMinor = toMinorUnits(amount, minorUnits);
       onSubmit(event.id, amountMinor, date, note);
     } catch (err) {
-      toast.error(String(err));
+      toast.error(extractErrorMessage(err));
       setSubmitting(false);
     }
   };
@@ -136,7 +139,7 @@ export default function EditBalanceUpdateModal({ event, accounts, onSubmit, onCl
               <BucketAllocationEditor
                 visibleAllocations={visibleAllocations}
                 availableToLink={availableToLink}
-                realAccounts={realAccounts}
+                allocationSources={allocationSources}
                 loadingAllocations={loadingAllocations}
                 displayErrors={displayErrors}
                 getAvailableBalance={getAvailableBalance}

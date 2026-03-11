@@ -10,10 +10,13 @@ interface Props {
   snapshot: SnapshotRow[];
   accounts: SnapshotRow[];
   buckets: SnapshotRow[];
+  assets: SnapshotRow[];
   events: EventWithData[];
   consolidationCurrency: Currency | null;
   totalMinor: number;
   leftToSpendMinor: number;
+  netWorthMinor: number;
+  hasAssets: boolean;
   missingFxCurrencies: string[];
   setModalState: (state: ModalState) => void;
   isDemoMode: boolean;
@@ -24,10 +27,13 @@ export default function DashboardView({
   snapshot,
   accounts,
   buckets,
+  assets,
   events,
   consolidationCurrency,
   totalMinor,
   leftToSpendMinor,
+  netWorthMinor,
+  hasAssets,
   missingFxCurrencies,
   setModalState,
   isDemoMode,
@@ -48,36 +54,91 @@ export default function DashboardView({
       <div
         className={cn(
           'px-4 md:px-10 py-10',
-          buckets.length > 0 ? 'grid grid-cols-2' : 'flex justify-center',
+          hasAssets
+            ? 'grid grid-cols-3'
+            : buckets.length > 0
+              ? 'grid grid-cols-2'
+              : 'flex justify-center',
         )}
       >
-        <div className="flex flex-col items-center">
-          <p className="text-sm font-medium uppercase tracking-widest text-muted-foreground mb-1">
-            {t('metrics.totalBalance')}
-          </p>
-          <p className={cn('text-5xl font-extrabold', totalMinor < 0 && 'text-destructive')}>
-            <NumberValue
-              value={totalMinor}
-              currencyCode={consolidationCurrency?.code}
-              minorUnits={consolidationCurrency?.minorUnits ?? 2}
-            />
-          </p>
-        </div>
-        {buckets.length > 0 && (
-          <div className="flex flex-col items-center">
-            <p className="text-sm font-medium uppercase tracking-widest text-muted-foreground mb-1">
-              {t('metrics.leftToSpend')}
-            </p>
-            <p
-              className={cn('text-5xl font-extrabold', leftToSpendMinor < 0 && 'text-destructive')}
-            >
-              <NumberValue
-                value={leftToSpendMinor}
-                currencyCode={consolidationCurrency?.code}
-                minorUnits={consolidationCurrency?.minorUnits ?? 2}
-              />
-            </p>
-          </div>
+        {hasAssets ? (
+          <>
+            <div className="flex flex-col items-center">
+              <p className="text-sm font-medium uppercase tracking-widest text-muted-foreground mb-1">
+                {t('metrics.netWorth')}
+              </p>
+              <p className={cn('text-5xl font-extrabold', netWorthMinor < 0 && 'text-destructive')}>
+                <NumberValue
+                  value={netWorthMinor}
+                  currencyCode={consolidationCurrency?.code}
+                  minorUnits={consolidationCurrency?.minorUnits ?? 2}
+                />
+              </p>
+            </div>
+            <div className="flex flex-col items-center">
+              <p className="text-sm font-medium uppercase tracking-widest text-muted-foreground mb-1">
+                {t('metrics.liquid')}
+              </p>
+              <p className={cn('text-5xl font-extrabold', totalMinor < 0 && 'text-destructive')}>
+                <NumberValue
+                  value={totalMinor}
+                  currencyCode={consolidationCurrency?.code}
+                  minorUnits={consolidationCurrency?.minorUnits ?? 2}
+                />
+              </p>
+            </div>
+            <div className="flex flex-col items-center">
+              <p className="text-sm font-medium uppercase tracking-widest text-muted-foreground mb-1">
+                {t('metrics.leftToSpend')}
+              </p>
+              <p
+                className={cn(
+                  'text-5xl font-extrabold',
+                  leftToSpendMinor < 0 && 'text-destructive',
+                )}
+              >
+                <NumberValue
+                  value={leftToSpendMinor}
+                  currencyCode={consolidationCurrency?.code}
+                  minorUnits={consolidationCurrency?.minorUnits ?? 2}
+                />
+              </p>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="flex flex-col items-center">
+              <p className="text-sm font-medium uppercase tracking-widest text-muted-foreground mb-1">
+                {t('metrics.totalBalance')}
+              </p>
+              <p className={cn('text-5xl font-extrabold', totalMinor < 0 && 'text-destructive')}>
+                <NumberValue
+                  value={totalMinor}
+                  currencyCode={consolidationCurrency?.code}
+                  minorUnits={consolidationCurrency?.minorUnits ?? 2}
+                />
+              </p>
+            </div>
+            {buckets.length > 0 && (
+              <div className="flex flex-col items-center">
+                <p className="text-sm font-medium uppercase tracking-widest text-muted-foreground mb-1">
+                  {t('metrics.leftToSpend')}
+                </p>
+                <p
+                  className={cn(
+                    'text-5xl font-extrabold',
+                    leftToSpendMinor < 0 && 'text-destructive',
+                  )}
+                >
+                  <NumberValue
+                    value={leftToSpendMinor}
+                    currencyCode={consolidationCurrency?.code}
+                    minorUnits={consolidationCurrency?.minorUnits ?? 2}
+                  />
+                </p>
+              </div>
+            )}
+          </>
         )}
       </div>
 
@@ -121,6 +182,10 @@ export default function DashboardView({
             }
             onCreateAccount={() => setModalState({ type: 'createAccount', accountType: 'account' })}
             onReorder={() => setModalState({ type: 'reorderAccounts' })}
+            onManageLinkedAssets={(accountId, accountName) =>
+              setModalState({ type: 'manageLinkedAssets', accountId, accountName })
+            }
+            allAssets={assets}
           />
         )}
       </div>
@@ -155,6 +220,50 @@ export default function DashboardView({
                 setModalState({ type: 'createAccount', accountType: 'bucket' })
               }
               onReorder={() => setModalState({ type: 'reorderBuckets' })}
+            />
+          </div>
+
+          <hr className="border-border" />
+
+          {/* Assets */}
+          <div className="px-4 md:px-10 py-8">
+            <AccountCards
+              snapshot={assets}
+              consolidationCurrency={consolidationCurrency}
+              sectionTitle={t('assets.sectionTitle')}
+              addButtonLabel={t('assets.addAsset')}
+              emptyMessage={t('assets.empty')}
+              updateButtonLabel={t('assets.updateValue')}
+              onUpdateBalance={(accountId) => {
+                const row = assets.find((a) => a.accountId === accountId);
+                if (row?.isCustom) {
+                  setModalState({
+                    type: 'updateAssetValue',
+                    accountId,
+                    accountName: row.accountName,
+                    currencyCode: row.currencyCode,
+                    currencyMinorUnits: row.currencyMinorUnits,
+                    isCustomUnit: true,
+                    balanceMinor: row.balanceMinor,
+                  });
+                } else {
+                  setModalState({ type: 'createBalanceUpdate', preselectedAccountId: accountId });
+                }
+              }}
+              onRenameAccount={(accountId, currentName) =>
+                setModalState({ type: 'renameAccount', accountId, currentName })
+              }
+              onDeleteAccount={(accountId, name) =>
+                setModalState({
+                  type: 'confirmDeleteAccount',
+                  accountId,
+                  name,
+                  accountType: 'asset',
+                })
+              }
+              onCreateAccount={() => setModalState({ type: 'createAsset' })}
+              onReorder={() => setModalState({ type: 'reorderAssets' })}
+              allAccounts={accounts}
             />
           </div>
 

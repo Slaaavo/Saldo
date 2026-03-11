@@ -4,6 +4,7 @@ sidebar:
   dashboard: "Dashboard"
   settings: "Settings"
   fxRates: "FX Rates"
+  units: "Units"
   collapse: "Collapse sidebar"
   expand: "Expand sidebar"
 
@@ -18,7 +19,10 @@ header:
 metrics:
   totalBalance: Total Balance
   leftToSpend: Left to Spend
+  netWorth: Net Worth
+  liquid: Liquid
   fxRateMissing: "Missing FX rate for {{currencies}}. Using 1:1 rate."
+  leftToSpendTooltip: "Assets are excluded from this calculation."
 
 # ──── Account cards ────
 accounts:
@@ -33,6 +37,8 @@ accounts:
   fxRateMissingTooltip: "Missing FX rate — using 1:1"
   overAllocated: "Over-allocated"
   overAllocationTooltip: "Allocated {{allocated}} of {{balance}} {{currency}} (over by {{over}}). Buckets: {{buckets}}"
+  manageLinkedAssets: "Manage Linked Assets"
+  linkedAssetTooltip: "Secured by: {{assets}}"
 
 # ──── Bucket cards ────
 buckets:
@@ -42,11 +48,20 @@ buckets:
   balanceBreakdown: "Balance breakdown"
   additionalBalance: "Additional balance"
 
+# ──── Asset cards ────
+assets:
+  sectionTitle: Assets
+  addAsset: Add Asset
+  updateValue: Update Value
+  empty: No assets yet.
+  equity: Equity
+
 # ──── Ledger ────
 ledger:
   title: Ledger
   updateBalances: Update Balances
   empty: No events to display.
+  valueUpdate: Value update
 
 # ──── Modals ────
 modals:
@@ -59,7 +74,7 @@ modals:
     note: Note
     notePlaceholder: Optional note
     cancel: Cancel
-    submit: Create
+    submit: Save
     linkedAccounts: "Linked Accounts"
     linkAccount: "Link Account"
     unlinkAccount: "Unlink"
@@ -85,6 +100,7 @@ modals:
     nameLabel: Account Name
     namePlaceholder: e.g. Checking Account
     initialBalance: "Initial Balance (optional)"
+    securedByAsset: "Secured by asset (optional)"
     cancel: Cancel
     submit: Create
 
@@ -93,17 +109,40 @@ modals:
     nameLabel: Bucket Name
     namePlaceholder: e.g. Emergency Fund
 
+  createAsset:
+    title: Add Asset
+    nameLabel: Asset name
+    namePlaceholder: "Apartment, Car, VWCE\u2026"
+    initialValue: "Initial value (optional)"
+    denominationCurrency: Currency
+    denominationUnit: Unit
+    selectUnit: Select unit
+    createNewUnit: "Create new unit"
+    unitName: Unit name
+    unitNameRequired: Unit name is required
+    decimalPlaces: Decimal places
+    quantity: "Quantity (optional)"
+    pricePerUnit: "Price per unit (optional)"
+    computedTotal: "Computed total"
+
   renameAccount:
     title: Rename Account
     nameLabel: New Name
     cancel: Cancel
     submit: Rename
 
+  updateAssetValue:
+    title: Update Asset Value
+    quantity: Quantity
+    pricePerUnit: Price per unit
+    total: Total
+
   confirm:
     title: Confirm
     cancel: Cancel
     submit: Confirm
     deleteAccount: 'Are you sure you want to delete {{entityType}} "{{name}}"? This will also delete all its events.'
+    deleteAssetWithLinks: 'Are you sure you want to delete {{entityType}} "{{name}}"? The following accounts are linked to this asset and will be unlinked: {{accounts}}. They will be included in Left to Spend again.'
     deleteEvent: Are you sure you want to delete this event?
 
   fetchFxRatePrompt:
@@ -114,16 +153,32 @@ modals:
     date: Date
     accountsSection: Accounts
     bucketsSection: Buckets
+    assetsSection: Assets
     note: Note
     notePlaceholder: "Note (optional)"
     amountPlaceholder: "New balance"
     cancel: Cancel
     submit: Update
 
+  allocation:
+    accountsGroup: "Accounts"
+    assetsGroup: "Assets"
+
+  manageLinkedAssets:
+    title: "Linked Assets \u2014 {{name}}"
+    helperText: "Linked accounts are excluded from Left to Spend and Liquid metrics."
+    noLinks: "No assets linked to this account."
+    addLink: "Add Asset Link"
+    noAssetsAvailable: "No assets available to link."
+    unlink: "Unlink"
+    cancel: Cancel
+    save: Save
+
 # ──── Shared ────
 common:
   account: account
   bucket: bucket
+  asset: asset
 
 # ──── Settings panel ────
 settings:
@@ -158,7 +213,13 @@ fxRates:
   currencyNotFound: Currency not found. Please refresh and try again.
   subtitle: "Rates relative to {{currency}}"
   baseCurrencyPrefix: "1 {{currency}} →"
-
+# ──── Units screen ────
+units:
+  title: Units
+  subtitle: "Prices in {{currency}}"
+  empty: "No units yet. Create one when adding a unit-denominated asset."
+  noPrices: "No prices recorded yet."
+  invalidPrice: Please enter a valid positive price.
 # ──── Offline banner ────
 banner:
   fxRatesUnavailable: Could not fetch FX rates. Showing last known rates.
@@ -178,6 +239,7 @@ currency:
 reorder:
   titleAccounts: Reorder Accounts
   titleBuckets: Reorder Buckets
+  titleAssets: Reorder Assets
   save: Save Order
   cancel: Cancel
   dragHint: Drag to reorder
@@ -201,6 +263,8 @@ errors:
   updateBalances: "Failed to update balances: {{error}}"
   deleteAccountLinked: "Cannot delete this account: it has active allocations. Unlink the allocations first."
   overAllocation: "Allocation exceeds available balance."
+  setAccountAssetLinks: "Failed to save asset links: {{error}}"
+  updateAssetValue: "Failed to update asset value: {{error}}"
 
 # ──── Language selector ────
 language:

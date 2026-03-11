@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { SnapshotRow } from '../types';
 import { toMinorUnits, fromMinorUnits } from '../utils/format';
+import { extractErrorMessage } from '../utils/errors';
 import { createBucketAllocation, getAccountAllocatedTotal, listBucketAllocations } from '../api';
 
 export interface AllocationRow {
@@ -16,7 +17,7 @@ export interface AllocationRow {
 interface UseBucketAllocationsParams {
   bucketId: number | null;
   date: string;
-  realAccounts: SnapshotRow[];
+  allocationSources: SnapshotRow[];
 }
 
 export interface UseBucketAllocationsReturn {
@@ -37,7 +38,7 @@ export interface UseBucketAllocationsReturn {
 export function useBucketAllocations({
   bucketId,
   date,
-  realAccounts,
+  allocationSources,
 }: UseBucketAllocationsParams): UseBucketAllocationsReturn {
   const isBucket = bucketId !== null;
   const { t } = useTranslation();
@@ -93,7 +94,7 @@ export function useBucketAllocations({
 
   const getAvailableBalance = (row: AllocationRow): number => {
     if (row.sourceAccountId === null) return 0;
-    const sourceAccount = realAccounts.find((a) => a.accountId === row.sourceAccountId);
+    const sourceAccount = allocationSources.find((a) => a.accountId === row.sourceAccountId);
     if (!sourceAccount) return 0;
     const allocated = allocatedTotals.get(row.sourceAccountId) ?? 0;
     return sourceAccount.balanceMinor - allocated + row.originalAmountMinor;
@@ -170,7 +171,7 @@ export function useBucketAllocations({
   if (isBucket) {
     for (const row of allocations) {
       if (row.isUnlinked || row.sourceAccountId === null) continue;
-      const sourceAccount = realAccounts.find((a) => a.accountId === row.sourceAccountId);
+      const sourceAccount = allocationSources.find((a) => a.accountId === row.sourceAccountId);
       const sourceMinorUnits = sourceAccount?.currencyMinorUnits ?? 2;
       const parsed = parseFloat(row.amountStr);
       if (row.amountStr !== '' && (isNaN(parsed) || parsed < 0)) {
@@ -199,7 +200,7 @@ export function useBucketAllocations({
     const apiErrors: Record<string, string> = {};
     for (const row of allocations) {
       if (row.sourceAccountId === null) continue;
-      const sourceAccount = realAccounts.find((a) => a.accountId === row.sourceAccountId);
+      const sourceAccount = allocationSources.find((a) => a.accountId === row.sourceAccountId);
       const sourceMinorUnits = sourceAccount?.currencyMinorUnits ?? 2;
       let amountMinor: number;
       if (row.isUnlinked) {
@@ -218,7 +219,7 @@ export function useBucketAllocations({
       try {
         await createBucketAllocation(bucketId, row.sourceAccountId, amountMinor, date);
       } catch (err) {
-        const errStr = String(err);
+        const errStr = extractErrorMessage(err);
         if (errStr.includes('OVER_ALLOCATION')) {
           apiErrors[row.tempId] = t('errors.overAllocation');
         } else {
@@ -239,7 +240,7 @@ export function useBucketAllocations({
       .filter((r) => r.sourceAccountId !== null)
       .map((r) => r.sourceAccountId as number),
   );
-  const availableToLink = realAccounts.filter((a) => !linkedAccountIds.has(a.accountId));
+  const availableToLink = allocationSources.filter((a) => !linkedAccountIds.has(a.accountId));
 
   return {
     loadingAllocations,

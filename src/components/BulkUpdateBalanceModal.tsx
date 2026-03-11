@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
-import { ChevronDown, ChevronRight } from 'lucide-react';
+import { ChevronDown, ChevronRight, Link2 } from 'lucide-react';
 import { toMinorUnits, getMinorUnitsStep } from '../utils/format';
+import { extractErrorMessage } from '../utils/errors';
 import type { SnapshotRow } from '../types';
 import NumberValue from './NumberValue';
 import {
@@ -43,14 +44,19 @@ export default function BulkUpdateBalanceModal({
   const [submitting, setSubmitting] = useState(false);
   const [accountsExpanded, setAccountsExpanded] = useState(true);
   const [bucketsExpanded, setBucketsExpanded] = useState(true);
+  const [assetsExpanded, setAssetsExpanded] = useState(true);
 
   const realAccounts = accounts.filter((r) => r.accountType === 'account');
   const bucketAccounts = accounts.filter((r) => r.accountType === 'bucket');
+  const assetAccounts = accounts.filter((r) => r.accountType === 'asset');
 
   const renderRow = (row: SnapshotRow) => (
     <React.Fragment key={row.accountId}>
       <div className="flex-col flex">
-        <div className="text-sm font-medium">{row.accountName}</div>
+        <div className="flex items-center gap-1.5 text-sm font-medium">
+          {row.isLinkedToAsset && <Link2 className="h-3.5 w-3.5 text-muted-foreground shrink-0" />}
+          {row.accountName}
+        </div>
         {row.accountType === 'bucket' && (
           <div className="text-xs text-muted-foreground">
             {t('modals.createBalanceUpdate.extraBalance')}
@@ -103,7 +109,7 @@ export default function BulkUpdateBalanceModal({
     try {
       await onSubmit(updates, date, note);
     } catch (err) {
-      toast.error(t('errors.updateBalances', { error: String(err) }));
+      toast.error(t('errors.updateBalances', { error: extractErrorMessage(err) }));
       setSubmitting(false);
     }
   };
@@ -163,6 +169,22 @@ export default function BulkUpdateBalanceModal({
                 </button>
               )}
               {bucketsExpanded && bucketAccounts.map(renderRow)}
+
+              {assetAccounts.length > 0 && (
+                <button
+                  type="button"
+                  className="col-span-2 flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground pt-4"
+                  onClick={() => setAssetsExpanded((v) => !v)}
+                >
+                  {assetsExpanded ? (
+                    <ChevronDown className="h-3.5 w-3.5" />
+                  ) : (
+                    <ChevronRight className="h-3.5 w-3.5" />
+                  )}
+                  {t('modals.bulkUpdate.assetsSection')}
+                </button>
+              )}
+              {assetsExpanded && assetAccounts.map(renderRow)}
             </div>
 
             <hr className="border-border" />

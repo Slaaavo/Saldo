@@ -1,6 +1,7 @@
 use crate::error::AppError;
 use crate::models::*;
 use rusqlite::{params, Connection, OptionalExtension};
+use std::collections::{HashMap, HashSet};
 
 /// Execute `f` inside a SAVEPOINT. Rolls back on error, releases on success.
 /// Works with &Connection (no &mut needed).
@@ -49,8 +50,9 @@ pub fn create_account(
     currency_id: i64,
     account_type: &str,
     initial_balance_minor: Option<i64>,
-) -> rusqlite::Result<i64> {
-    with_savepoint(conn, || {
+    price_per_unit: Option<&str>,
+) -> Result<i64, AppError> {
+    with_savepoint_app(conn, || {
         let next_sort_order: i64 = conn.query_row(
             "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM account WHERE account_type = ?1",
             params![account_type],
@@ -65,6 +67,11 @@ pub fn create_account(
         if let Some(amount) = initial_balance_minor {
             let now = local_now();
             create_balance_update_inner(conn, account_id, amount, &now, None)?;
+        }
+
+        if let Some(price) = price_per_unit {
+            let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+            store_asset_price(conn, account_id, price, &today)?;
         }
 
         Ok(account_id)
@@ -99,24 +106,56 @@ pub fn update_account(conn: &Connection, account_id: i64, name: &str) -> rusqlit
 
 pub fn delete_account(conn: &Connection, account_id: i64) -> Result<(), AppError> {
     with_savepoint_app(conn, || {
-        // Remove historical unlinked (zero-amount) allocation rows — these would trigger
-        // ON DELETE RESTRICT even though the user has already unlinked the account.
+        // Save currency_id before deleting (needed for orphaned custom unit cleanup).
+        let currency_id: i64 = conn
+            .query_row(
+                "SELECT currency_id FROM account WHERE id = ?1",
+                params![account_id],
+                |row| row.get(0),
+            )
+            .map_err(AppError::from)?;
+
+        // Delete ALL allocation rows for pairs where the latest row (by effective_date DESC,
+        // id DESC) has amount_minor = 0 — these are truly unlinked. Using only
+        // `amount_minor = 0` would miss the earlier positive-amount rows for the same pair,
+        // which would then be seen as active and block deletion.
         conn.execute(
-            "DELETE FROM bucket_allocation WHERE source_account_id = ?1 AND amount_minor = 0",
+            "DELETE FROM bucket_allocation
+             WHERE source_account_id = ?1
+               AND bucket_id IN (
+                 SELECT ba.bucket_id
+                 FROM bucket_allocation ba
+                 WHERE ba.source_account_id = ?1
+                   AND ba.id = (
+                     SELECT id FROM bucket_allocation ba2
+                     WHERE ba2.bucket_id = ba.bucket_id
+                       AND ba2.source_account_id = ba.source_account_id
+                     ORDER BY ba2.effective_date DESC, ba2.id DESC
+                     LIMIT 1
+                   )
+                   AND ba.amount_minor = 0
+               )",
             params![account_id],
         )
         .map_err(AppError::from)?;
 
-        // After removing zero-amount rows, check whether any active (non-zero) allocations
-        // remain. If so, return a descriptive error before attempting the delete, avoiding
-        // reliance on SQLite's extended FK error codes.
+        // Check whether any active allocations remain — i.e. pairs whose latest row has
+        // amount_minor != 0. If so, return a descriptive error. Uses the same
+        // latest-row-per-pair logic as list_bucket_allocations.
         let mut check_stmt = conn
             .prepare(
                 "SELECT DISTINCT a.name
                  FROM bucket_allocation ba
                  JOIN account a ON a.id = ba.bucket_id
                  WHERE ba.source_account_id = ?1
-                   AND ba.amount_minor > 0",
+                   AND ba.id = (
+                     SELECT id FROM bucket_allocation ba2
+                     WHERE ba2.bucket_id = ba.bucket_id
+                       AND ba2.source_account_id = ba.source_account_id
+                     ORDER BY ba2.effective_date DESC, ba2.id DESC
+                     LIMIT 1
+                   )
+                   AND ba.amount_minor != 0",
             )
             .map_err(AppError::from)?;
         let active_bucket_names: Vec<String> = check_stmt
@@ -144,10 +183,43 @@ pub fn delete_account(conn: &Connection, account_id: i64) -> Result<(), AppError
         .map_err(AppError::from)?;
 
         match conn.execute("DELETE FROM account WHERE id = ?1", params![account_id]) {
-            Ok(0) => Err(AppError::from(rusqlite::Error::QueryReturnedNoRows)),
-            Ok(_) => Ok(()),
-            Err(e) => Err(AppError::from(e)),
+            Ok(0) => return Err(AppError::from(rusqlite::Error::QueryReturnedNoRows)),
+            Ok(_) => {}
+            Err(e) => return Err(AppError::from(e)),
         }
+
+        // Step 23: orphaned custom unit cleanup.
+        // If the deleted account's currency is a custom unit and no other account
+        // references it, delete its fx_rate rows and then the currency itself.
+        let is_custom: i64 = conn
+            .query_row(
+                "SELECT COALESCE((SELECT is_custom FROM currency WHERE id = ?1), 0)",
+                params![currency_id],
+                |row| row.get(0),
+            )
+            .map_err(AppError::from)?;
+
+        if is_custom != 0 {
+            let other_refs: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM account WHERE currency_id = ?1",
+                    params![currency_id],
+                    |row| row.get(0),
+                )
+                .map_err(AppError::from)?;
+
+            if other_refs == 0 {
+                conn.execute(
+                    "DELETE FROM fx_rate WHERE from_currency_id = ?1 OR to_currency_id = ?1",
+                    params![currency_id],
+                )
+                .map_err(AppError::from)?;
+                conn.execute("DELETE FROM currency WHERE id = ?1", params![currency_id])
+                    .map_err(AppError::from)?;
+            }
+        }
+
+        Ok(())
     })
 }
 
@@ -244,6 +316,8 @@ pub fn delete_event(conn: &Connection, event_id: i64) -> rusqlite::Result<()> {
     Ok(())
 }
 
+type SnapshotRawRow = (i64, String, String, i64, String, i64, i64, i64);
+
 pub fn get_accounts_snapshot(
     conn: &Connection,
     selected_datetime: &str,
@@ -260,6 +334,7 @@ pub fn get_accounts_snapshot(
            c.id AS currency_id,
            c.code AS currency_code,
            c.minor_units AS currency_minor_units,
+           c.is_custom AS currency_is_custom,
            COALESCE((
              SELECT ed.amount_minor
              FROM event e
@@ -275,7 +350,7 @@ pub fn get_accounts_snapshot(
          ORDER BY a.account_type, a.sort_order, a.id",
     )?;
 
-    let row_data: Vec<(i64, String, String, i64, String, i64, i64)> = stmt
+    let row_data: Vec<SnapshotRawRow> = stmt
         .query_map(params![selected_datetime], |row| {
             Ok((
                 row.get(0)?,
@@ -285,6 +360,7 @@ pub fn get_accounts_snapshot(
                 row.get(4)?,
                 row.get(5)?,
                 row.get(6)?,
+                row.get(7)?,
             ))
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -297,6 +373,7 @@ pub fn get_accounts_snapshot(
         currency_id,
         currency_code,
         currency_minor_units,
+        currency_is_custom,
         balance_minor,
     ) in row_data
     {
@@ -335,13 +412,35 @@ pub fn get_accounts_snapshot(
             balance_minor,
             currency_code,
             currency_minor_units,
+            is_custom: currency_is_custom != 0,
             converted_balance_minor,
             fx_rate_missing,
             allocated_total_minor: 0,
             linked_allocations_balance_minor: 0,
             over_allocation_buckets: vec![],
             linked_allocations: vec![],
+            linked_allocations_from_assets_minor: 0,
+            is_linked_to_asset: false,
+            linked_asset_ids: vec![],
         });
+    }
+
+    // Populate asset-link fields using a single bulk query to avoid N+1.
+    let (linked_account_ids_set, account_to_assets, asset_to_accounts) =
+        get_all_account_asset_link_ids(conn)?;
+    for row in &mut result {
+        if row.account_type == "account" {
+            if linked_account_ids_set.contains(&row.account_id) {
+                row.is_linked_to_asset = true;
+                if let Some(asset_ids) = account_to_assets.get(&row.account_id) {
+                    row.linked_asset_ids = asset_ids.clone();
+                }
+            }
+        } else if row.account_type == "asset" {
+            if let Some(account_ids) = asset_to_accounts.get(&row.account_id) {
+                row.linked_asset_ids = account_ids.clone();
+            }
+        }
     }
 
     // Second pass: populate allocation data for buckets and accounts.
@@ -349,6 +448,7 @@ pub fn get_accounts_snapshot(
         if row.account_type == "bucket" {
             let allocations = list_bucket_allocations(conn, row.account_id, snapshot_date)?;
             let mut linked_sum: i64 = 0;
+            let mut asset_sum: i64 = 0;
             for alloc in &allocations {
                 let converted = if alloc.source_currency_id == consolidation.id {
                     alloc.amount_minor
@@ -379,8 +479,14 @@ pub fn get_accounts_snapshot(
                     }
                 };
                 linked_sum += converted;
+                if alloc.source_account_type == "asset"
+                    || linked_account_ids_set.contains(&alloc.source_account_id)
+                {
+                    asset_sum += converted;
+                }
             }
             row.linked_allocations_balance_minor = linked_sum;
+            row.linked_allocations_from_assets_minor = asset_sum;
             row.converted_balance_minor += linked_sum;
             row.linked_allocations = allocations;
         } else if row.account_type == "account" {
@@ -471,15 +577,23 @@ fn local_now() -> String {
     chrono::Local::now().format("%Y-%m-%d").to_string()
 }
 
-pub fn list_currencies(conn: &Connection) -> rusqlite::Result<Vec<Currency>> {
-    let mut stmt =
-        conn.prepare("SELECT id, code, name, minor_units FROM currency ORDER BY code")?;
+pub fn list_currencies(
+    conn: &Connection,
+    include_custom: Option<bool>,
+) -> rusqlite::Result<Vec<Currency>> {
+    let sql = if include_custom.unwrap_or(true) {
+        "SELECT id, code, name, minor_units, is_custom FROM currency ORDER BY code"
+    } else {
+        "SELECT id, code, name, minor_units, is_custom FROM currency WHERE is_custom = 0 ORDER BY code"
+    };
+    let mut stmt = conn.prepare(sql)?;
     let rows = stmt.query_map([], |row| {
         Ok(Currency {
             id: row.get(0)?,
             code: row.get(1)?,
             name: row.get(2)?,
             minor_units: row.get(3)?,
+            is_custom: row.get::<_, i64>(4)? != 0,
         })
     })?;
     rows.collect()
@@ -487,7 +601,7 @@ pub fn list_currencies(conn: &Connection) -> rusqlite::Result<Vec<Currency>> {
 
 pub fn get_consolidation_currency(conn: &Connection) -> rusqlite::Result<Currency> {
     conn.query_row(
-        "SELECT c.id, c.code, c.name, c.minor_units
+        "SELECT c.id, c.code, c.name, c.minor_units, c.is_custom
          FROM currency c
          JOIN app_setting s ON s.value = c.code
          WHERE s.key = 'consolidation_currency_code'",
@@ -498,6 +612,7 @@ pub fn get_consolidation_currency(conn: &Connection) -> rusqlite::Result<Currenc
                 code: row.get(1)?,
                 name: row.get(2)?,
                 minor_units: row.get(3)?,
+                is_custom: row.get::<_, i64>(4)? != 0,
             })
         },
     )
@@ -648,7 +763,8 @@ pub fn get_active_foreign_currencies(
         "SELECT DISTINCT c.code, c.id
          FROM account a
          JOIN currency c ON c.id = a.currency_id
-         WHERE a.currency_id != ?1",
+         WHERE a.currency_id != ?1
+           AND c.is_custom = 0",
     )?;
     let rows = stmt.query_map(params![consolidation_id], |row| {
         Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
@@ -820,6 +936,7 @@ pub fn list_bucket_allocations(
            ba.bucket_id,
            ba.source_account_id,
            a.name  AS source_account_name,
+           a.account_type AS source_account_type,
            c.id    AS source_currency_id,
            c.code  AS source_currency_code,
            c.minor_units AS source_currency_minor_units,
@@ -845,11 +962,12 @@ pub fn list_bucket_allocations(
             bucket_id: row.get(1)?,
             source_account_id: row.get(2)?,
             source_account_name: row.get(3)?,
-            source_currency_id: row.get(4)?,
-            source_currency_code: row.get(5)?,
-            source_currency_minor_units: row.get(6)?,
-            amount_minor: row.get(7)?,
-            effective_date: row.get(8)?,
+            source_account_type: row.get(4)?,
+            source_currency_id: row.get(5)?,
+            source_currency_code: row.get(6)?,
+            source_currency_minor_units: row.get(7)?,
+            amount_minor: row.get(8)?,
+            effective_date: row.get(9)?,
         })
     })?;
     rows.collect()
@@ -967,6 +1085,372 @@ pub fn check_over_allocation(
     }))
 }
 
+// ---------------------------------------------------------------------------
+// Custom unit functions (Step 19)
+// ---------------------------------------------------------------------------
+
+/// Parse a decimal price string P and return the inverse rate (1/P) as (mantissa, exponent).
+/// Uses 12-digit precision arithmetic to avoid floating-point loss.
+fn invert_price_str(price_str: &str) -> Result<(i64, i64), AppError> {
+    let (m_p, e_p) = crate::oxr::parse_decimal_str(price_str)?;
+    if m_p == 0 {
+        return Err(AppError {
+            code: "VALIDATION".into(),
+            message: "Price must be greater than zero".into(),
+        });
+    }
+    const PRECISION: i64 = 12;
+    let precision_factor = 10_i128.pow(PRECISION as u32);
+    let mut mantissa = precision_factor / (m_p as i128);
+    let mut exponent = -e_p - PRECISION;
+
+    if mantissa == 0 {
+        return Err(AppError {
+            code: "VALIDATION".into(),
+            message: "Computed rate is zero (price too large)".into(),
+        });
+    }
+
+    // Normalize: strip trailing zeros.
+    while mantissa != 0 && mantissa % 10 == 0 {
+        mantissa /= 10;
+        exponent += 1;
+    }
+
+    if mantissa > i64::MAX as i128 || mantissa < i64::MIN as i128 {
+        return Err(AppError {
+            code: "OVERFLOW".into(),
+            message: "Computed rate mantissa overflows i64".into(),
+        });
+    }
+
+    Ok((mantissa as i64, exponent))
+}
+
+/// Convert a price-per-unit string to an FX rate and upsert it.
+/// Stores rate from `consolidation → asset_currency` on `date`.
+/// Used by both `update_asset_value` and `create_account` (with initial price).
+pub fn store_asset_price(
+    conn: &Connection,
+    account_id: i64,
+    price_str: &str,
+    date: &str,
+) -> Result<(), AppError> {
+    let asset_currency_id: i64 = conn
+        .query_row(
+            "SELECT currency_id FROM account WHERE id = ?1",
+            params![account_id],
+            |row| row.get(0),
+        )
+        .map_err(AppError::from)?;
+
+    let consolidation = get_consolidation_currency(conn).map_err(AppError::from)?;
+    let (rate_mantissa, rate_exponent) = invert_price_str(price_str)?;
+
+    set_fx_rate_manual(
+        conn,
+        consolidation.id,
+        asset_currency_id,
+        date,
+        rate_mantissa,
+        rate_exponent,
+    )
+    .map_err(AppError::from)?;
+
+    Ok(())
+}
+
+/// Create a custom unit (currency with `is_custom = 1`).
+/// `code` and `name` are both set to `name`; validates uniqueness and minor_units range.
+pub fn create_custom_unit(
+    conn: &Connection,
+    name: &str,
+    minor_units: i64,
+) -> Result<i64, AppError> {
+    let exists: i64 = conn
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM currency WHERE code = ?1)",
+            params![name],
+            |row| row.get(0),
+        )
+        .map_err(AppError::from)?;
+    if exists != 0 {
+        return Err(AppError {
+            code: "VALIDATION".into(),
+            message: format!("A currency with code '{}' already exists", name),
+        });
+    }
+
+    conn.execute(
+        "INSERT INTO currency (code, name, minor_units, is_custom) VALUES (?1, ?2, ?3, 1)",
+        params![name, name, minor_units],
+    )
+    .map_err(AppError::from)?;
+
+    Ok(conn.last_insert_rowid())
+}
+
+/// List all custom units (currencies where `is_custom = 1`), ordered by code.
+pub fn list_custom_units(conn: &Connection) -> rusqlite::Result<Vec<Currency>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, code, name, minor_units, is_custom FROM currency WHERE is_custom = 1 ORDER BY code",
+    )?;
+    let rows = stmt.query_map([], |row| {
+        Ok(Currency {
+            id: row.get(0)?,
+            code: row.get(1)?,
+            name: row.get(2)?,
+            minor_units: row.get(3)?,
+            is_custom: row.get::<_, i64>(4)? != 0,
+        })
+    })?;
+    rows.collect()
+}
+
+/// Rename a custom unit. Updates both `code` and `name` columns.
+/// Returns `NOT_FOUND` if the currency doesn't exist, `VALIDATION` if it is not custom
+/// or the new name conflicts with an existing code.
+pub fn update_custom_unit(conn: &Connection, currency_id: i64, name: &str) -> Result<(), AppError> {
+    let is_custom: Option<i64> = conn
+        .query_row(
+            "SELECT is_custom FROM currency WHERE id = ?1",
+            params![currency_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(AppError::from)?;
+
+    match is_custom {
+        None => {
+            return Err(AppError {
+                code: "NOT_FOUND".into(),
+                message: "Currency not found".into(),
+            })
+        }
+        Some(0) => {
+            return Err(AppError {
+                code: "VALIDATION".into(),
+                message: "Cannot rename a built-in currency".into(),
+            })
+        }
+        _ => {}
+    }
+
+    let conflict: i64 = conn
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM currency WHERE code = ?1 AND id != ?2)",
+            params![name, currency_id],
+            |row| row.get(0),
+        )
+        .map_err(AppError::from)?;
+    if conflict != 0 {
+        return Err(AppError {
+            code: "VALIDATION".into(),
+            message: format!("A currency with code '{}' already exists", name),
+        });
+    }
+
+    conn.execute(
+        "UPDATE currency SET code = ?1, name = ?2 WHERE id = ?3",
+        params![name, name, currency_id],
+    )
+    .map_err(AppError::from)?;
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Asset value update (Step 20)
+// ---------------------------------------------------------------------------
+
+/// Record a new asset value: optionally update the balance snapshot and/or the
+/// price-per-unit FX rate. At least one of `amount_minor` or `price_per_unit` must
+/// be provided. The account must be of type 'asset'.
+pub fn update_asset_value(
+    conn: &Connection,
+    account_id: i64,
+    amount_minor: Option<i64>,
+    price_per_unit: Option<&str>,
+    event_date: &str,
+    note: Option<&str>,
+) -> Result<(), AppError> {
+    let account_type: Option<String> = conn
+        .query_row(
+            "SELECT account_type FROM account WHERE id = ?1",
+            params![account_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(AppError::from)?;
+
+    match account_type.as_deref() {
+        None => {
+            return Err(AppError {
+                code: "NOT_FOUND".into(),
+                message: "Account not found".into(),
+            })
+        }
+        Some("asset") => {}
+        Some(_) => {
+            return Err(AppError {
+                code: "VALIDATION".into(),
+                message: "update_asset_value can only be used with asset accounts".into(),
+            })
+        }
+    }
+
+    with_savepoint_app(conn, || {
+        if let Some(amount) = amount_minor {
+            create_balance_update_inner(conn, account_id, amount, event_date, note)
+                .map_err(AppError::from)?;
+        }
+
+        if let Some(price_str) = price_per_unit {
+            store_asset_price(conn, account_id, price_str, event_date)?;
+        }
+
+        Ok(())
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Account–Asset Linking functions
+// ---------------------------------------------------------------------------
+
+/// Return all account_asset_link rows, optionally filtered by account_id.
+/// Joins with account table (twice) to return account/asset names.
+pub fn list_account_asset_links(
+    conn: &Connection,
+    account_id: Option<i64>,
+) -> rusqlite::Result<Vec<AccountAssetLink>> {
+    let mut stmt = conn.prepare(
+        "SELECT
+           aal.id,
+           aal.account_id,
+           acc.name AS account_name,
+           aal.asset_id,
+           ast.name AS asset_name
+         FROM account_asset_link aal
+         JOIN account acc ON acc.id = aal.account_id
+         JOIN account ast ON ast.id = aal.asset_id
+         WHERE (?1 IS NULL OR aal.account_id = ?1)
+         ORDER BY aal.id",
+    )?;
+    let rows = stmt.query_map(params![account_id], |row| {
+        Ok(AccountAssetLink {
+            id: row.get(0)?,
+            account_id: row.get(1)?,
+            account_name: row.get(2)?,
+            asset_id: row.get(3)?,
+            asset_name: row.get(4)?,
+        })
+    })?;
+    rows.collect()
+}
+
+/// Replace all asset links for `account_id` with the supplied `asset_ids`.
+/// Validates that `account_id` is of type 'account' and each asset_id is of type 'asset'.
+pub fn set_account_asset_links(
+    conn: &Connection,
+    account_id: i64,
+    asset_ids: &[i64],
+) -> Result<(), AppError> {
+    with_savepoint_app(conn, || {
+        // Validate that account_id refers to an account-type row.
+        let account_type: Option<String> = get_account_type(conn, account_id)?;
+        match account_type.as_deref() {
+            Some("account") => {}
+            Some(_) => {
+                return Err(AppError {
+                    code: "VALIDATION".into(),
+                    message: "account_id must refer to an account-type account".into(),
+                })
+            }
+            None => {
+                return Err(AppError {
+                    code: "NOT_FOUND".into(),
+                    message: "Account not found".into(),
+                })
+            }
+        }
+
+        // Validate that each asset_id refers to an asset-type row.
+        for &aid in asset_ids {
+            let asset_type: Option<String> = get_account_type(conn, aid)?;
+            match asset_type.as_deref() {
+                Some("asset") => {}
+                Some(_) => {
+                    return Err(AppError {
+                        code: "VALIDATION".into(),
+                        message: format!("asset_id {} must refer to an asset-type account", aid),
+                    })
+                }
+                None => {
+                    return Err(AppError {
+                        code: "NOT_FOUND".into(),
+                        message: format!("Asset {} not found", aid),
+                    })
+                }
+            }
+        }
+
+        // Delete existing links for this account.
+        conn.execute(
+            "DELETE FROM account_asset_link WHERE account_id = ?1",
+            params![account_id],
+        )
+        .map_err(AppError::from)?;
+
+        // Insert new links.
+        for &aid in asset_ids {
+            conn.execute(
+                "INSERT INTO account_asset_link (account_id, asset_id) VALUES (?1, ?2)",
+                params![account_id, aid],
+            )
+            .map_err(AppError::from)?;
+        }
+
+        Ok(())
+    })
+}
+
+/// Fetch all account_asset_link rows and return three derived structures:
+///
+/// 1. Set of linked account IDs
+/// 2. Map of account_id → Vec<asset_id>
+/// 3. Map of asset_id → Vec<account_id>
+///
+/// Used by the snapshot computation to avoid N+1 queries.
+#[allow(clippy::type_complexity)]
+pub fn get_all_account_asset_link_ids(
+    conn: &Connection,
+) -> rusqlite::Result<(HashSet<i64>, HashMap<i64, Vec<i64>>, HashMap<i64, Vec<i64>>)> {
+    let mut stmt = conn.prepare(
+        "SELECT account_id, asset_id FROM account_asset_link ORDER BY account_id, asset_id",
+    )?;
+    let rows: Vec<(i64, i64)> = stmt
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+        .collect::<rusqlite::Result<_>>()?;
+
+    let mut linked_set: HashSet<i64> = HashSet::new();
+    let mut account_to_assets: HashMap<i64, Vec<i64>> = HashMap::new();
+    let mut asset_to_accounts: HashMap<i64, Vec<i64>> = HashMap::new();
+
+    for (account_id, asset_id) in rows {
+        linked_set.insert(account_id);
+        account_to_assets
+            .entry(account_id)
+            .or_default()
+            .push(asset_id);
+        asset_to_accounts
+            .entry(asset_id)
+            .or_default()
+            .push(account_id);
+    }
+
+    Ok((linked_set, account_to_assets, asset_to_accounts))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -974,7 +1458,8 @@ mod tests {
 
     /// Create a plain EUR account for use as a test fixture.
     fn mk_account(conn: &Connection) -> i64 {
-        create_account(conn, "Test Account", 1, "account", None).expect("create account failed")
+        create_account(conn, "Test Account", 1, "account", None, None)
+            .expect("create account failed")
     }
 
     #[test]
@@ -1077,9 +1562,62 @@ mod tests {
     }
 
     #[test]
+    fn delete_unit_asset_cleans_up_orphan_unit() {
+        let conn = initialize_in_memory().expect("DB init failed");
+
+        // Create a custom unit currency (e.g. a stock ticker)
+        let unit_id = create_custom_unit(&conn, "TSLA", 4).unwrap();
+
+        // Create an asset account denominated in this custom unit
+        let account_id = create_account(&conn, "TSLA Asset", unit_id, "asset", None, None).unwrap();
+
+        // Store a balance event for the asset
+        create_balance_update(&conn, account_id, 10_000, "2026-03-11", None).unwrap();
+
+        // Store an fx_rate for the custom unit (EUR → TSLA)
+        let eur_id: i64 = conn
+            .query_row("SELECT id FROM currency WHERE code = 'EUR'", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        set_fx_rate_manual(&conn, eur_id, unit_id, "2026-03-11", 1, -2).unwrap();
+
+        // Delete the account
+        delete_account(&conn, account_id).unwrap();
+
+        // Account must be gone from snapshot
+        let snapshot = get_accounts_snapshot(&conn, "2099-12-31T23:59:59").unwrap();
+        assert!(snapshot.iter().all(|r| r.account_id != account_id));
+
+        // Events must be gone
+        let events = list_events(&conn, Some(account_id), None).unwrap();
+        assert_eq!(events.len(), 0);
+
+        // fx_rate rows for the custom unit must be cleaned up
+        let fx_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM fx_rate WHERE from_currency_id = ?1 OR to_currency_id = ?1",
+                rusqlite::params![unit_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(fx_count, 0, "fx_rate rows should have been deleted");
+
+        // The custom currency row itself must be gone
+        let curr_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM currency WHERE id = ?1",
+                rusqlite::params![unit_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(curr_count, 0, "custom currency should have been deleted");
+    }
+
+    #[test]
     fn create_account_with_initial_balance() {
         let conn = initialize_in_memory().expect("DB init failed");
-        let account_id = create_account(&conn, "Savings", 1, "account", Some(10000)).unwrap();
+        let account_id = create_account(&conn, "Savings", 1, "account", Some(10000), None).unwrap();
         let snapshot = get_accounts_snapshot(&conn, "2099-12-31T23:59:59").unwrap();
         let row = snapshot
             .iter()
@@ -1102,7 +1640,7 @@ mod tests {
     fn list_events_filters_by_account() {
         let conn = initialize_in_memory().expect("DB init failed");
         let acc1 = mk_account(&conn);
-        let acc2 = create_account(&conn, "Second", 1, "account", None).unwrap();
+        let acc2 = create_account(&conn, "Second", 1, "account", None, None).unwrap();
         create_balance_update(&conn, acc1, 1000, "2026-01-01", None).unwrap();
         create_balance_update(&conn, acc2, 2000, "2026-02-01", None).unwrap();
 
@@ -1129,7 +1667,8 @@ mod tests {
     #[test]
     fn create_bucket_appears_in_snapshot() {
         let conn = initialize_in_memory().expect("DB init failed");
-        let bucket_id = create_account(&conn, "Emergency Fund", 1, "bucket", Some(20000)).unwrap();
+        let bucket_id =
+            create_account(&conn, "Emergency Fund", 1, "bucket", Some(20000), None).unwrap();
         let snapshot = get_accounts_snapshot(&conn, "2099-12-31T23:59:59").unwrap();
         let bucket = snapshot.iter().find(|r| r.account_id == bucket_id).unwrap();
         assert_eq!(bucket.account_type, "bucket");
@@ -1148,7 +1687,7 @@ mod tests {
     #[test]
     fn bucket_balance_update_works() {
         let conn = initialize_in_memory().expect("DB init failed");
-        let bucket_id = create_account(&conn, "Savings Bucket", 1, "bucket", None).unwrap();
+        let bucket_id = create_account(&conn, "Savings Bucket", 1, "bucket", None, None).unwrap();
         create_balance_update(&conn, bucket_id, 15000, "2026-03-01", None).unwrap();
         let snapshot = get_accounts_snapshot(&conn, "2026-03-01T23:59:59").unwrap();
         let bucket = snapshot.iter().find(|r| r.account_id == bucket_id).unwrap();
@@ -1158,22 +1697,24 @@ mod tests {
     #[test]
     fn list_events_includes_account_type() {
         let conn = initialize_in_memory().expect("DB init failed");
-        let bucket_id = create_account(&conn, "Test Bucket", 1, "bucket", None).unwrap();
+        let bucket_id = create_account(&conn, "Test Bucket", 1, "bucket", None, None).unwrap();
         create_balance_update(&conn, bucket_id, 5000, "2026-03-01", None).unwrap();
         let events = list_events(&conn, Some(bucket_id), None).unwrap();
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].account_type, "bucket");
 
-        let events_main = list_events(&conn, Some(1), None).unwrap();
-        // Main account has no events in this test
-        assert_eq!(events_main.len(), 0);
+        let empty_account_id =
+            create_account(&conn, "Empty Account", 1, "account", None, None).unwrap();
+        let events_empty = list_events(&conn, Some(empty_account_id), None).unwrap();
+        // Account with no balance updates has no events
+        assert_eq!(events_empty.len(), 0);
     }
 
     #[test]
     fn snapshot_orders_accounts_before_buckets() {
         let conn = initialize_in_memory().expect("DB init failed");
-        create_account(&conn, "Zebra Bucket", 1, "bucket", None).unwrap();
-        create_account(&conn, "Alpha Account", 1, "account", None).unwrap();
+        create_account(&conn, "Zebra Bucket", 1, "bucket", None, None).unwrap();
+        create_account(&conn, "Alpha Account", 1, "account", None, None).unwrap();
         let snapshot = get_accounts_snapshot(&conn, "2099-12-31T23:59:59").unwrap();
         // accounts come first (alphabetically 'account' < 'bucket'), then buckets
         let types: Vec<&str> = snapshot.iter().map(|r| r.account_type.as_str()).collect();
@@ -1208,7 +1749,7 @@ mod tests {
                 r.get::<_, i64>(0)
             })
             .unwrap();
-        let acc = create_account(&conn, "USD Account", usd, "account", None).unwrap();
+        let acc = create_account(&conn, "USD Account", usd, "account", None, None).unwrap();
         create_balance_update(&conn, acc, 108420, "2026-03-01", None).unwrap();
         let snapshot = get_accounts_snapshot(&conn, "2026-03-01T23:59:59").unwrap();
         let row = snapshot.iter().find(|r| r.account_id == acc).unwrap();
@@ -1231,7 +1772,7 @@ mod tests {
                 r.get::<_, i64>(0)
             })
             .unwrap();
-        let acc = create_account(&conn, "USD Account", usd, "account", None).unwrap();
+        let acc = create_account(&conn, "USD Account", usd, "account", None, None).unwrap();
         create_balance_update(&conn, acc, 108420, "2026-03-01", None).unwrap();
         // Store rate: 1 EUR = 1.0842 USD (mantissa=10842, exponent=-4)
         set_fx_rate_manual(&conn, eur, usd, "2026-03-01", 10842, -4).unwrap();
@@ -1424,7 +1965,7 @@ mod tests {
     fn test_create_and_list_bucket_allocations() {
         let conn = initialize_in_memory().expect("DB init failed");
         let source_id = mk_account(&conn);
-        let bucket_id = create_account(&conn, "Emergency Fund", 1, "bucket", None).unwrap();
+        let bucket_id = create_account(&conn, "Emergency Fund", 1, "bucket", None, None).unwrap();
         create_bucket_allocation(&conn, bucket_id, source_id, 5000, "2024-01-01").unwrap();
 
         let allocs = list_bucket_allocations(&conn, bucket_id, "2024-12-31").unwrap();
@@ -1440,7 +1981,7 @@ mod tests {
     fn test_allocation_respects_effective_date() {
         let conn = initialize_in_memory().expect("DB init failed");
         let source_id = mk_account(&conn);
-        let bucket_id = create_account(&conn, "Vacation Fund", 1, "bucket", None).unwrap();
+        let bucket_id = create_account(&conn, "Vacation Fund", 1, "bucket", None, None).unwrap();
         create_bucket_allocation(&conn, bucket_id, source_id, 5000, "2024-01-01").unwrap();
         create_bucket_allocation(&conn, bucket_id, source_id, 8000, "2024-06-01").unwrap();
 
@@ -1459,7 +2000,7 @@ mod tests {
     fn test_unlink_allocation_via_zero_amount() {
         let conn = initialize_in_memory().expect("DB init failed");
         let source_id = mk_account(&conn);
-        let bucket_id = create_account(&conn, "Car Fund", 1, "bucket", None).unwrap();
+        let bucket_id = create_account(&conn, "Car Fund", 1, "bucket", None, None).unwrap();
         create_bucket_allocation(&conn, bucket_id, source_id, 5000, "2024-01-01").unwrap();
         // Unlink: zero-amount allocation at a later date.
         create_bucket_allocation(&conn, bucket_id, source_id, 0, "2024-06-01").unwrap();
@@ -1478,8 +2019,8 @@ mod tests {
     fn test_get_account_allocated_total_sums_across_buckets() {
         let conn = initialize_in_memory().expect("DB init failed");
         let source_id = mk_account(&conn);
-        let bucket1 = create_account(&conn, "Bucket A", 1, "bucket", None).unwrap();
-        let bucket2 = create_account(&conn, "Bucket B", 1, "bucket", None).unwrap();
+        let bucket1 = create_account(&conn, "Bucket A", 1, "bucket", None, None).unwrap();
+        let bucket2 = create_account(&conn, "Bucket B", 1, "bucket", None, None).unwrap();
         create_bucket_allocation(&conn, bucket1, source_id, 3000, "2024-01-01").unwrap();
         create_bucket_allocation(&conn, bucket2, source_id, 2000, "2024-01-01").unwrap();
 
@@ -1492,7 +2033,8 @@ mod tests {
         let conn = initialize_in_memory().expect("DB init failed");
         // EUR is the consolidation currency; source account and bucket are both EUR.
         let source_id = mk_account(&conn);
-        let bucket_id = create_account(&conn, "Allocation Bucket", 1, "bucket", None).unwrap();
+        let bucket_id =
+            create_account(&conn, "Allocation Bucket", 1, "bucket", None, None).unwrap();
         create_balance_update(&conn, source_id, 10000, "2024-01-01", None).unwrap();
         create_bucket_allocation(&conn, bucket_id, source_id, 4000, "2024-01-01").unwrap();
 
@@ -1510,8 +2052,8 @@ mod tests {
     fn test_snapshot_includes_allocated_total_for_accounts() {
         let conn = initialize_in_memory().expect("DB init failed");
         let source_id = mk_account(&conn);
-        let bucket1 = create_account(&conn, "Fund A", 1, "bucket", None).unwrap();
-        let bucket2 = create_account(&conn, "Fund B", 1, "bucket", None).unwrap();
+        let bucket1 = create_account(&conn, "Fund A", 1, "bucket", None, None).unwrap();
+        let bucket2 = create_account(&conn, "Fund B", 1, "bucket", None, None).unwrap();
         create_balance_update(&conn, source_id, 20000, "2024-01-01", None).unwrap();
         create_bucket_allocation(&conn, bucket1, source_id, 3000, "2024-01-01").unwrap();
         create_bucket_allocation(&conn, bucket2, source_id, 5000, "2024-01-01").unwrap();
@@ -1525,7 +2067,8 @@ mod tests {
     fn test_over_allocation_check_detects_excess() {
         let conn = initialize_in_memory().expect("DB init failed");
         let source_id = mk_account(&conn);
-        let bucket_id = create_account(&conn, "Over-Alloc Bucket", 1, "bucket", None).unwrap();
+        let bucket_id =
+            create_account(&conn, "Over-Alloc Bucket", 1, "bucket", None, None).unwrap();
         // Account starts at 10000.
         create_balance_update(&conn, source_id, 10000, "2024-01-01", None).unwrap();
         // Allocate 10000 — exactly matching balance.
@@ -1548,7 +2091,7 @@ mod tests {
     fn test_over_allocation_check_returns_none_when_ok() {
         let conn = initialize_in_memory().expect("DB init failed");
         let source_id = mk_account(&conn);
-        let bucket_id = create_account(&conn, "Safe Bucket", 1, "bucket", None).unwrap();
+        let bucket_id = create_account(&conn, "Safe Bucket", 1, "bucket", None, None).unwrap();
         create_balance_update(&conn, source_id, 10000, "2024-01-01", None).unwrap();
         create_bucket_allocation(&conn, bucket_id, source_id, 5000, "2024-01-01").unwrap();
 
@@ -1560,7 +2103,8 @@ mod tests {
     fn test_delete_account_blocked_by_allocation() {
         let conn = initialize_in_memory().expect("DB init failed");
         let source_id = mk_account(&conn);
-        let bucket_id = create_account(&conn, "Emergency Reserve", 1, "bucket", None).unwrap();
+        let bucket_id =
+            create_account(&conn, "Emergency Reserve", 1, "bucket", None, None).unwrap();
         create_balance_update(&conn, source_id, 10000, "2024-01-01", None).unwrap();
         create_bucket_allocation(&conn, bucket_id, source_id, 5000, "2024-01-01").unwrap();
 
@@ -1579,7 +2123,7 @@ mod tests {
     fn test_delete_bucket_cascades_allocations() {
         let conn = initialize_in_memory().expect("DB init failed");
         let source_id = mk_account(&conn);
-        let bucket_id = create_account(&conn, "Cascade Bucket", 1, "bucket", None).unwrap();
+        let bucket_id = create_account(&conn, "Cascade Bucket", 1, "bucket", None, None).unwrap();
         create_balance_update(&conn, source_id, 10000, "2024-01-01", None).unwrap();
         create_bucket_allocation(&conn, bucket_id, source_id, 5000, "2024-01-01").unwrap();
 
@@ -1600,11 +2144,66 @@ mod tests {
     }
 
     #[test]
+    fn delete_account_succeeds_after_unlinking_from_bucket() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let source_id = mk_account(&conn);
+        let bucket_id = create_account(&conn, "Savings Pot", 1, "bucket", None, None).unwrap();
+        create_balance_update(&conn, source_id, 10000, "2024-01-01", None).unwrap();
+
+        // Link: positive-amount allocation row
+        create_bucket_allocation(&conn, bucket_id, source_id, 5000, "2024-01-01").unwrap();
+        // Unlink: zero-amount row supersedes the link
+        create_bucket_allocation(&conn, bucket_id, source_id, 0, "2024-06-01").unwrap();
+
+        // After unlinking, delete should succeed
+        let result = delete_account(&conn, source_id);
+        assert!(
+            result.is_ok(),
+            "delete_account failed after unlinking: {:?}",
+            result.unwrap_err()
+        );
+
+        // All allocation rows for this source must be gone
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM bucket_allocation WHERE source_account_id = ?1",
+                params![source_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 0, "all allocation rows should have been deleted");
+
+        // The account itself must be gone
+        let snap = get_accounts_snapshot(&conn, "2099-12-31T23:59:59").unwrap();
+        assert!(snap.iter().all(|r| r.account_id != source_id));
+    }
+
+    #[test]
+    fn delete_account_fails_when_still_linked_to_bucket() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let source_id = mk_account(&conn);
+        let bucket_id = create_account(&conn, "Active Reserve", 1, "bucket", None, None).unwrap();
+        create_balance_update(&conn, source_id, 10000, "2024-01-01", None).unwrap();
+
+        // Link without unlinking
+        create_bucket_allocation(&conn, bucket_id, source_id, 5000, "2024-01-01").unwrap();
+
+        let result = delete_account(&conn, source_id);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            err.message.contains("Active Reserve"),
+            "Error message should name the bucket: {}",
+            err.message
+        );
+    }
+
+    #[test]
     fn create_account_assigns_sequential_sort_order() {
         let conn = initialize_in_memory().expect("DB init failed");
         // Use bucket type: seed DB has no buckets, so first gets sort_order=0.
-        let id1 = create_account(&conn, "First Bucket", 1, "bucket", None).unwrap();
-        let id2 = create_account(&conn, "Second Bucket", 1, "bucket", None).unwrap();
+        let id1 = create_account(&conn, "First Bucket", 1, "bucket", None, None).unwrap();
+        let id2 = create_account(&conn, "Second Bucket", 1, "bucket", None, None).unwrap();
         let so1: i64 = conn
             .query_row(
                 "SELECT sort_order FROM account WHERE id = ?1",
@@ -1626,8 +2225,8 @@ mod tests {
     #[test]
     fn update_sort_order_changes_snapshot_order() {
         let conn = initialize_in_memory().expect("DB init failed");
-        let alpha_id = create_account(&conn, "Alpha", 1, "bucket", None).unwrap();
-        let beta_id = create_account(&conn, "Beta", 1, "bucket", None).unwrap();
+        let alpha_id = create_account(&conn, "Alpha", 1, "bucket", None, None).unwrap();
+        let beta_id = create_account(&conn, "Beta", 1, "bucket", None, None).unwrap();
         // Alpha gets sort_order=0, Beta gets sort_order=1 — swap them.
         update_sort_order(&conn, &[(beta_id, 0), (alpha_id, 1)]).unwrap();
         let snapshot = get_accounts_snapshot(&conn, "2099-12-31T23:59:59").unwrap();
@@ -1650,6 +2249,180 @@ mod tests {
         let conn = initialize_in_memory().expect("DB init failed");
         let result = update_sort_order(&conn, &[(9999, 0)]);
         assert!(result.is_err());
+    }
+
+    // ---------------------------------------------------------------------------
+    // Phase 3 — Asset-to-bucket linking (Step 35)
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn test_linked_allocations_from_assets_minor_populates_correctly() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        // Create a regular account, an asset, and a bucket — all EUR.
+        let account_id = mk_account(&conn);
+        let asset_id = create_account(&conn, "Test Asset", 1, "asset", Some(50000), None).unwrap();
+        let bucket_id = create_account(&conn, "Test Bucket", 1, "bucket", None, None).unwrap();
+        // Give the account a balance.
+        create_balance_update(&conn, account_id, 20000, "2024-01-01", None).unwrap();
+        // Allocate 3000 from account and 5000 from asset to the same bucket.
+        create_bucket_allocation(&conn, bucket_id, account_id, 3000, "2024-01-01").unwrap();
+        create_bucket_allocation(&conn, bucket_id, asset_id, 5000, "2024-01-01").unwrap();
+
+        let snapshot = get_accounts_snapshot(&conn, "2024-12-31T23:59:59").unwrap();
+        let bucket = snapshot.iter().find(|r| r.account_id == bucket_id).unwrap();
+
+        // Only the asset-sourced allocation appears in linked_allocations_from_assets_minor.
+        assert_eq!(bucket.linked_allocations_from_assets_minor, 5000);
+        // Total linked balance = account(3000) + asset(5000) = 8000.
+        assert_eq!(bucket.linked_allocations_balance_minor, 8000);
+    }
+
+    // ---------------------------------------------------------------------------
+    // Account–Asset Linking tests
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn test_set_and_list_account_asset_links() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let account_id = mk_account(&conn);
+        let asset_id = create_account(&conn, "House", 1, "asset", Some(40_000_000), None).unwrap();
+
+        // Link account to asset.
+        set_account_asset_links(&conn, account_id, &[asset_id]).unwrap();
+
+        let links = list_account_asset_links(&conn, Some(account_id)).unwrap();
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].account_id, account_id);
+        assert_eq!(links[0].asset_id, asset_id);
+
+        // Clear the link.
+        set_account_asset_links(&conn, account_id, &[]).unwrap();
+        let links_empty = list_account_asset_links(&conn, Some(account_id)).unwrap();
+        assert_eq!(links_empty.len(), 0);
+    }
+
+    #[test]
+    fn test_set_account_asset_links_validates_account_type() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let bucket_id = create_account(&conn, "Bucket", 1, "bucket", None, None).unwrap();
+        let asset_id = create_account(&conn, "House", 1, "asset", Some(40_000_000), None).unwrap();
+
+        // Attempting to link a bucket as the account side should fail.
+        let result = set_account_asset_links(&conn, bucket_id, &[asset_id]);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().code, "VALIDATION");
+    }
+
+    #[test]
+    fn test_set_account_asset_links_validates_asset_type() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let account_id = mk_account(&conn);
+        let other_account_id =
+            create_account(&conn, "Other Account", 1, "account", None, None).unwrap();
+
+        // Attempting to link account→account should fail validation.
+        let result = set_account_asset_links(&conn, account_id, &[other_account_id]);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().code, "VALIDATION");
+    }
+
+    #[test]
+    fn test_snapshot_is_linked_to_asset_flag() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let account_id = mk_account(&conn);
+        let asset_id = create_account(&conn, "House", 1, "asset", Some(40_000_000), None).unwrap();
+
+        // Before linking: flag is false.
+        let snap_before = get_accounts_snapshot(&conn, "2099-12-31T23:59:59").unwrap();
+        let acc_before = snap_before
+            .iter()
+            .find(|r| r.account_id == account_id)
+            .unwrap();
+        assert!(!acc_before.is_linked_to_asset);
+
+        // After linking: flag is true and linked_asset_ids contains the asset.
+        set_account_asset_links(&conn, account_id, &[asset_id]).unwrap();
+        let snap_after = get_accounts_snapshot(&conn, "2099-12-31T23:59:59").unwrap();
+        let acc_after = snap_after
+            .iter()
+            .find(|r| r.account_id == account_id)
+            .unwrap();
+        assert!(acc_after.is_linked_to_asset);
+        assert_eq!(acc_after.linked_asset_ids, vec![asset_id]);
+
+        // Asset row should have account_id in its linked_asset_ids.
+        let asset_row = snap_after
+            .iter()
+            .find(|r| r.account_id == asset_id)
+            .unwrap();
+        assert_eq!(asset_row.linked_asset_ids, vec![account_id]);
+    }
+
+    #[test]
+    fn test_snapshot_linked_allocations_includes_linked_accounts() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let account_id = mk_account(&conn);
+        let asset_id = create_account(&conn, "House", 1, "asset", Some(40_000_000), None).unwrap();
+        let bucket_id = create_account(&conn, "Bucket", 1, "bucket", None, None).unwrap();
+
+        create_balance_update(&conn, account_id, 20_000, "2024-01-01", None).unwrap();
+        // Link the account to the asset.
+        set_account_asset_links(&conn, account_id, &[asset_id]).unwrap();
+        // Allocate from the linked account to the bucket.
+        create_bucket_allocation(&conn, bucket_id, account_id, 5_000, "2024-01-01").unwrap();
+
+        let snap = get_accounts_snapshot(&conn, "2024-12-31T23:59:59").unwrap();
+        let bucket = snap.iter().find(|r| r.account_id == bucket_id).unwrap();
+        // Linked account treated same as asset — counted in linked_allocations_from_assets_minor.
+        assert_eq!(bucket.linked_allocations_from_assets_minor, 5_000);
+    }
+
+    #[test]
+    fn test_delete_asset_cascades_links() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let account_id = mk_account(&conn);
+        let asset_id = create_account(&conn, "House", 1, "asset", Some(40_000_000), None).unwrap();
+        set_account_asset_links(&conn, account_id, &[asset_id]).unwrap();
+
+        // Verify link exists.
+        let links_before = list_account_asset_links(&conn, Some(account_id)).unwrap();
+        assert_eq!(links_before.len(), 1);
+
+        // Delete the asset.
+        delete_account(&conn, asset_id).unwrap();
+
+        // Link should be gone via CASCADE.
+        let links_after = list_account_asset_links(&conn, Some(account_id)).unwrap();
+        assert_eq!(links_after.len(), 0);
+    }
+
+    #[test]
+    fn test_delete_account_cascades_links() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let account_id = mk_account(&conn);
+        let asset_id = create_account(&conn, "House", 1, "asset", Some(40_000_000), None).unwrap();
+        set_account_asset_links(&conn, account_id, &[asset_id]).unwrap();
+
+        // Delete the account.
+        delete_account(&conn, account_id).unwrap();
+
+        // Link should be gone via CASCADE.
+        let links: Vec<AccountAssetLink> = conn
+            .prepare("SELECT id, account_id, 'x', asset_id, 'y' FROM account_asset_link WHERE asset_id = ?1")
+            .unwrap()
+            .query_map(params![asset_id], |row| {
+                Ok(AccountAssetLink {
+                    id: row.get(0)?,
+                    account_id: row.get(1)?,
+                    account_name: row.get(2)?,
+                    asset_id: row.get(3)?,
+                    asset_name: row.get(4)?,
+                })
+            })
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap();
+        assert_eq!(links.len(), 0);
     }
 }
 

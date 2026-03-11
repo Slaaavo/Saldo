@@ -4,6 +4,7 @@ sidebar:
   dashboard: "Prehľad"
   settings: "Nastavenia"
   fxRates: "Výmenné kurzy"
+  units: "Jednotky"
   collapse: "Zbaliť panel"
   expand: "Rozbaliť panel"
 
@@ -18,7 +19,10 @@ header:
 metrics:
   totalBalance: Celkový zostatok
   leftToSpend: Zostáva na míňanie
+  netWorth: Čisté imanie
+  liquid: Likvidné
   fxRateMissing: "Chýba kurz pre {{currencies}}. Používa sa kurz 1:1."
+  leftToSpendTooltip: "Aktíva sú z tohto výpočtu vylúčené."
 
 # ──── Účty ────
 accounts:
@@ -33,6 +37,8 @@ accounts:
   fxRateMissingTooltip: "Chýba kurz — používa sa 1:1"
   overAllocated: "Prekročená alokácia"
   overAllocationTooltip: "Alokované {{allocated}} z {{balance}} {{currency}} (prekročenie o {{over}}). Buckety: {{buckets}}"
+  manageLinkedAssets: "Spravovať prepojené aktíva"
+  linkedAssetTooltip: "Zabezpečené aktívom: {{assets}}"
 # ──── Obálky ────
 buckets:
   sectionTitle: Obálky
@@ -41,11 +47,20 @@ buckets:
   balanceBreakdown: "Rozdelenie zostatku"
   additionalBalance: "Dodatočný zostatok"
 
+# ──── Aktíva ────
+assets:
+  sectionTitle: Aktíva
+  addAsset: Pridať aktívum
+  updateValue: Aktualizovať hodnotu
+  empty: Zatiaľ žiadne aktíva.
+  equity: Vlastný kapitál
+
 # ──── Účtovná kniha ────
 ledger:
   title: Účtovná kniha
   updateBalances: Aktualizovať zostatky
   empty: Žiadne udalosti na zobrazenie.
+  valueUpdate: Aktualizácia hodnoty
 
 # ──── Modálne okná ────
 modals:
@@ -58,7 +73,7 @@ modals:
     note: Poznámka
     notePlaceholder: Voliteľná poznámka
     cancel: Zrušiť
-    submit: Vytvoriť
+    submit: Uložiť
     linkedAccounts: "Prepojené účty"
     linkAccount: "Prepojiť účet"
     unlinkAccount: "Odpojiť"
@@ -84,6 +99,7 @@ modals:
     nameLabel: Názov účtu
     namePlaceholder: napr. Bežný účet
     initialBalance: "Počiatočný zostatok (voliteľný)"
+    securedByAsset: "Zabezpečené aktívom (voliteľné)"
     cancel: Zrušiť
     submit: Vytvoriť
 
@@ -92,17 +108,40 @@ modals:
     nameLabel: Názov obálky
     namePlaceholder: napr. Núdzový fond
 
+  createAsset:
+    title: Pridať aktívum
+    nameLabel: Názov aktíva
+    namePlaceholder: "Byt, Auto, VWCE\u2026"
+    initialValue: "Počiatočná hodnota (voliteľná)"
+    denominationCurrency: Mena
+    denominationUnit: Jednotka
+    selectUnit: Vyberte jednotku
+    createNewUnit: "Vytvoriť novú jednotku"
+    unitName: Názov jednotky
+    unitNameRequired: Názov jednotky je povinný
+    decimalPlaces: Desatinné miesta
+    quantity: "Množstvo (voliteľné)"
+    pricePerUnit: "Cena za jednotku (voliteľná)"
+    computedTotal: "Celková hodnota"
+
   renameAccount:
     title: Premenovať účet
     nameLabel: Nový názov
     cancel: Zrušiť
     submit: Premenovať
 
+  updateAssetValue:
+    title: Aktualizovať hodnotu aktíva
+    quantity: Množstvo
+    pricePerUnit: Cena za jednotku
+    total: Celková hodnota
+
   confirm:
     title: Potvrdiť
     cancel: Zrušiť
     submit: Potvrdiť
     deleteAccount: 'Naozaj chcete vymazať {{entityType}} "{{name}}"? Tým sa vymažú aj všetky jeho udalosti.'
+    deleteAssetWithLinks: 'Naozaj chcete vymazať {{entityType}} "{{name}}"? Nasledujúce účty sú prepojené s týmto aktívom a budú odpojené: {{accounts}}. Budú opäť zahrnuté do Voľných prostriedkov.'
     deleteEvent: Naozaj chcete vymazať túto udalosť?
 
   fetchFxRatePrompt:
@@ -113,16 +152,32 @@ modals:
     date: Dátum
     accountsSection: Účty
     bucketsSection: Obálky
+    assetsSection: Aktíva
     note: Poznámka
     notePlaceholder: "Poznámka (voliteľná)"
     amountPlaceholder: "Nový zostatok"
     cancel: Zrušiť
     submit: Aktualizovať
 
+  allocation:
+    accountsGroup: "Účty"
+    assetsGroup: "Aktíva"
+
+  manageLinkedAssets:
+    title: "Prepojené aktíva \u2014 {{name}}"
+    helperText: "Prepojené účty sú vylúčené z výpočtov Zostáva na míňanie a Likvidné."
+    noLinks: "Žiadne aktíva nie sú prepojené s týmto účtom."
+    addLink: "Pridať prepojenie aktíva"
+    noAssetsAvailable: "Žiadne aktíva na prepojenie."
+    unlink: "Odpojiť"
+    cancel: Zrušiť
+    save: Uložiť
+
 # ──── Spoločné ────
 common:
   account: účet
   bucket: obálku
+  asset: aktívum
 # ──── Výber dátumu ────
 datePicker:
   today: Dnes
@@ -137,6 +192,7 @@ currency:
 reorder:
   titleAccounts: Zoradiť účty
   titleBuckets: Zoradiť obálky
+  titleAssets: Zoradiť aktíva
   save: Uložiť poradie
   cancel: Zrušiť
   dragHint: Presuňte na zoradenie
@@ -174,7 +230,13 @@ fxRates:
   currencyNotFound: Mena nebola nájdená. Obnovte stránku a skúste znova.
   subtitle: "Kurzy voči {{currency}}"
   baseCurrencyPrefix: "1 {{currency}} →"
-
+# ──── Jednotky ────
+units:
+  title: Jednotky
+  subtitle: "Ceny v {{currency}}"
+  empty: "Zatiaľ žiadne jednotky. Vytvorte jednu pri pridaní aktíva v jednotkách."
+  noPrices: "Zatiaľ žiadne ceny."
+  invalidPrice: Zadajte platnú kladnú cenu.
 # ──── Offline banner ────
 banner:
   fxRatesUnavailable: Nepodarilo sa načítať kurzy mien. Zobrazujú sa posledné dostupné kurzy.
@@ -198,6 +260,8 @@ errors:
   updateBalances: "Nepodarilo sa aktualizovať zostatky: {{error}}"
   deleteAccountLinked: "Tento účet nie je možné vymazať: má aktívne alokácie. Najskôr odpojte alokácie."
   overAllocation: "Alokácia prekračuje dostupný zostatok."
+  setAccountAssetLinks: "Nepodarilo sa uložiť prepojenia aktív: {{error}}"
+  updateAssetValue: "Nepodarilo sa aktualizovať hodnotu aktíva: {{error}}"
 
 # ──── Uložisko dát ────
 dataStorage:

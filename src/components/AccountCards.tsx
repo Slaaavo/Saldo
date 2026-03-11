@@ -8,6 +8,7 @@ import { defaultNumberFormat } from '../config/numberFormat';
 import { cn } from '@/lib/utils';
 import { Button } from './ui/button';
 import { Card, CardContent } from './ui/card';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/tooltip';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -23,6 +24,7 @@ import {
   ChevronRight,
   AlertTriangle,
   ArrowUpDown,
+  Link2,
 } from 'lucide-react';
 
 interface Props {
@@ -30,12 +32,18 @@ interface Props {
   consolidationCurrency?: Currency | null;
   sectionTitle?: string;
   addButtonLabel?: string;
+  updateButtonLabel?: string;
   emptyMessage?: string;
   onUpdateBalance: (accountId: number) => void;
   onRenameAccount: (accountId: number, currentName: string) => void;
   onDeleteAccount: (accountId: number, name: string) => void;
   onCreateAccount: () => void;
   onReorder?: () => void;
+  onManageLinkedAssets?: (accountId: number, accountName: string) => void;
+  /** All asset rows — used to resolve asset names for the link indicator tooltip on account cards */
+  allAssets?: SnapshotRow[];
+  /** All account rows — used to resolve linked account balances for equity tooltip on asset cards */
+  allAccounts?: SnapshotRow[];
 }
 
 export default function AccountCards({
@@ -43,12 +51,16 @@ export default function AccountCards({
   consolidationCurrency,
   sectionTitle,
   addButtonLabel,
+  updateButtonLabel,
   emptyMessage,
   onUpdateBalance,
   onRenameAccount,
   onDeleteAccount,
   onCreateAccount,
   onReorder,
+  onManageLinkedAssets,
+  allAssets,
+  allAccounts,
 }: Props) {
   const { t } = useTranslation();
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -139,6 +151,18 @@ export default function AccountCards({
                     buckets: row.overAllocationBuckets.map((b) => b.bucketName).join(', '),
                   })
                 : undefined;
+              const hasEquityTooltip =
+                row.accountType === 'asset' &&
+                row.linkedAssetIds.length > 0 &&
+                !!allAccounts &&
+                !!consolidationCurrency;
+              const equityLinkedRows = hasEquityTooltip
+                ? allAccounts!.filter((a) => row.linkedAssetIds.includes(a.accountId))
+                : [];
+              const equityMinor = hasEquityTooltip
+                ? row.convertedBalanceMinor +
+                  equityLinkedRows.reduce((sum, a) => sum + a.convertedBalanceMinor, 0)
+                : 0;
               return (
                 <Card
                   key={row.accountId}
@@ -149,12 +173,35 @@ export default function AccountCards({
                 >
                   <CardContent className="flex flex-col gap-1 p-4">
                     <div className="flex items-start justify-between min-w-0">
-                      <span
-                        className="text-sm text-muted-foreground truncate"
-                        title={row.accountName}
-                      >
-                        {row.accountName}
-                      </span>
+                      <div className="flex items-center gap-1 min-w-0">
+                        {row.isLinkedToAsset && allAssets && (
+                          <TooltipProvider delayDuration={300}>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span className="shrink-0 cursor-help">
+                                  <Link2 className="h-3.5 w-3.5 text-muted-foreground" />
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p className="text-xs">
+                                  {t('accounts.linkedAssetTooltip', {
+                                    assets: allAssets
+                                      .filter((a) => row.linkedAssetIds.includes(a.accountId))
+                                      .map((a) => a.accountName)
+                                      .join(', '),
+                                  })}
+                                </p>
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        )}
+                        <span
+                          className="text-sm text-muted-foreground truncate"
+                          title={row.accountName}
+                        >
+                          {row.accountName}
+                        </span>
+                      </div>
                       <div className="flex items-center">
                         {isOverAllocated && (
                           <span title={overAllocationTitle}>
@@ -174,6 +221,14 @@ export default function AccountCards({
                               <Pencil className="h-4 w-4" />
                               {t('accounts.rename')}
                             </DropdownMenuItem>
+                            {onManageLinkedAssets && row.accountType === 'account' && (
+                              <DropdownMenuItem
+                                onClick={() => onManageLinkedAssets(row.accountId, row.accountName)}
+                              >
+                                <Link2 className="h-4 w-4" />
+                                {t('accounts.manageLinkedAssets')}
+                              </DropdownMenuItem>
+                            )}
                             <DropdownMenuItem
                               className="text-destructive focus:text-destructive"
                               onClick={() => onDeleteAccount(row.accountId, row.accountName)}
@@ -199,25 +254,63 @@ export default function AccountCards({
                           row.convertedBalanceMinor < 0 && 'text-destructive',
                         )}
                       />
+                    ) : row.isCustom && consolidationCurrency ? (
+                      // Unit-denominated asset: show consolidated value as primary, tooltip with breakdown
+                      <TooltipProvider delayDuration={300}>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span className="cursor-help inline-block">
+                              <NumberValue
+                                value={row.convertedBalanceMinor}
+                                currencyCode={consolidationCurrency.code}
+                                minorUnits={consolidationCurrency.minorUnits}
+                                className={cn(
+                                  'text-2xl font-bold',
+                                  row.convertedBalanceMinor < 0 && 'text-destructive',
+                                )}
+                              />
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p className="text-xs">
+                              {`${fmtNum(row.balanceMinor, row.currencyMinorUnits)} ${row.currencyCode} = ${formatAmount(row.convertedBalanceMinor, consolidationCurrency.minorUnits, defaultNumberFormat, consolidationCurrency.code)}`}
+                            </p>
+                            {row.fxRateMissing && (
+                              <p className="text-xs text-muted-foreground mt-1">
+                                {t('accounts.fxRateMissingTooltip')}
+                              </p>
+                            )}
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
                     ) : consolidationCurrency && row.currencyCode !== consolidationCurrency.code ? (
-                      <span
-                        title={[
-                          `≈ ${formatAmount(row.convertedBalanceMinor, consolidationCurrency.minorUnits, defaultNumberFormat, consolidationCurrency.code)}`,
-                          row.fxRateMissing ? t('accounts.fxRateMissingTooltip') : undefined,
-                        ]
-                          .filter(Boolean)
-                          .join(' · ')}
-                      >
-                        <NumberValue
-                          value={row.balanceMinor}
-                          currencyCode={row.currencyCode}
-                          minorUnits={row.currencyMinorUnits}
-                          className={cn(
-                            'text-2xl font-bold',
-                            row.balanceMinor < 0 && 'text-destructive',
-                          )}
-                        />
-                      </span>
+                      <TooltipProvider delayDuration={300}>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span className="cursor-help inline-block">
+                              <NumberValue
+                                value={row.balanceMinor}
+                                currencyCode={row.currencyCode}
+                                minorUnits={row.currencyMinorUnits}
+                                className={cn(
+                                  'text-2xl font-bold',
+                                  row.balanceMinor < 0 && 'text-destructive',
+                                )}
+                              />
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p className="text-xs">
+                              {`≈ ${formatAmount(row.convertedBalanceMinor, consolidationCurrency.minorUnits, defaultNumberFormat, consolidationCurrency.code)}`}
+                            </p>
+                            {row.fxRateMissing && (
+                              <p className="text-xs text-muted-foreground mt-1">
+                                {t('accounts.fxRateMissingTooltip')}
+                              </p>
+                            )}
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
                     ) : (
                       <NumberValue
                         value={row.balanceMinor}
@@ -229,12 +322,59 @@ export default function AccountCards({
                         )}
                       />
                     )}
+                    {hasEquityTooltip && (
+                      <TooltipProvider delayDuration={300}>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span className="cursor-help mt-1 text-xs text-muted-foreground inline-flex items-center gap-1">
+                              {t('assets.equity')}:{' '}
+                              <NumberValue
+                                value={equityMinor}
+                                currencyCode={consolidationCurrency!.code}
+                                minorUnits={consolidationCurrency!.minorUnits}
+                                className="font-medium text-foreground"
+                              />
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <div className="text-xs space-y-1 min-w-[160px]">
+                              <div className="flex justify-between gap-4">
+                                <span>{row.accountName}</span>
+                                <NumberValue
+                                  value={row.convertedBalanceMinor}
+                                  currencyCode={consolidationCurrency!.code}
+                                  minorUnits={consolidationCurrency!.minorUnits}
+                                />
+                              </div>
+                              {equityLinkedRows.map((a) => (
+                                <div key={a.accountId} className="flex justify-between gap-4">
+                                  <span className="text-muted-foreground">{a.accountName}</span>
+                                  <NumberValue
+                                    value={a.convertedBalanceMinor}
+                                    currencyCode={consolidationCurrency!.code}
+                                    minorUnits={consolidationCurrency!.minorUnits}
+                                  />
+                                </div>
+                              ))}
+                              <div className="flex justify-between gap-4 border-t border-border pt-1 font-medium">
+                                <span>{t('assets.equity')}</span>
+                                <NumberValue
+                                  value={equityMinor}
+                                  currencyCode={consolidationCurrency!.code}
+                                  minorUnits={consolidationCurrency!.minorUnits}
+                                />
+                              </div>
+                            </div>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    )}
                     <button
                       onClick={() => onUpdateBalance(row.accountId)}
                       className="mt-2 text-xs font-bold uppercase tracking-wider text-muted-foreground hover:text-primary transition-colors flex items-center gap-1"
                     >
                       <Pencil className="h-3 w-3" />
-                      {t('accounts.updateBalance')}
+                      {updateButtonLabel ?? t('accounts.updateBalance')}
                     </button>
                   </CardContent>
                 </Card>

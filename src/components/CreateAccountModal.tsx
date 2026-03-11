@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { PINNED_CURRENCY_CODES } from '../config/constants';
 import { toast } from 'sonner';
 import { toMinorUnits, getMinorUnitsStep } from '../utils/format';
-import type { Currency } from '../types';
+import type { Currency, SnapshotRow } from '../types';
 import { listCurrencies, getConsolidationCurrency } from '../api';
 import {
   Dialog,
@@ -20,39 +20,47 @@ import { Label } from './ui/label';
 import CurrencySelect from './CurrencySelect';
 
 interface Props {
-  accountType?: 'account' | 'bucket';
+  accountType?: 'account' | 'bucket' | 'asset';
+  assets?: SnapshotRow[];
   onSubmit: (
     name: string,
     currencyId: number,
     initialBalanceMinor?: number,
     accountType?: string,
+    linkedAssetIds?: number[],
   ) => void;
   onClose: () => void;
 }
 
-export default function CreateAccountModal({ accountType, onSubmit, onClose }: Props) {
+export default function CreateAccountModal({ accountType, assets, onSubmit, onClose }: Props) {
   const { t } = useTranslation();
   const [name, setName] = useState('');
   const [balance, setBalance] = useState('');
+  const [linkedAssetIds, setLinkedAssetIds] = useState<number[]>([]);
   const [currencies, setCurrencies] = useState<Currency[]>([]);
   const [selectedCurrency, setSelectedCurrency] = useState<Currency | null>(null);
 
   const isBucket = accountType === 'bucket';
+  const isAsset = accountType === 'asset';
 
   useEffect(() => {
-    Promise.all([listCurrencies(), getConsolidationCurrency()])
+    // Exclude custom units from currency list for accounts and buckets (not assets)
+    const includeCustom = accountType === 'asset' ? undefined : false;
+    Promise.all([listCurrencies(includeCustom), getConsolidationCurrency()])
       .then(([all, consolidation]) => {
         setCurrencies(all);
         setSelectedCurrency(consolidation);
       })
       .catch((err) => console.error('Failed to load currencies:', err));
-  }, []);
+  }, [accountType]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) {
       toast.error(
-        t('validation.nameRequired', { entity: t(isBucket ? 'common.bucket' : 'common.account') }),
+        t('validation.nameRequired', {
+          entity: t(isAsset ? 'common.asset' : isBucket ? 'common.bucket' : 'common.account'),
+        }),
       );
       return;
     }
@@ -69,7 +77,13 @@ export default function CreateAccountModal({ accountType, onSubmit, onClose }: P
       }
       initialBalanceMinor = toMinorUnits(balance, selectedCurrency.minorUnits);
     }
-    onSubmit(name.trim(), selectedCurrency.id, initialBalanceMinor, accountType);
+    onSubmit(
+      name.trim(),
+      selectedCurrency.id,
+      initialBalanceMinor,
+      accountType,
+      linkedAssetIds.length > 0 ? linkedAssetIds : undefined,
+    );
   };
 
   return (
@@ -82,7 +96,13 @@ export default function CreateAccountModal({ accountType, onSubmit, onClose }: P
       <DialogContent>
         <DialogHeader>
           <DialogTitle>
-            {t(isBucket ? 'modals.createBucket.title' : 'modals.createAccount.title')}
+            {t(
+              isAsset
+                ? 'modals.createAsset.title'
+                : isBucket
+                  ? 'modals.createBucket.title'
+                  : 'modals.createAccount.title',
+            )}
           </DialogTitle>
         </DialogHeader>
         <form
@@ -92,7 +112,13 @@ export default function CreateAccountModal({ accountType, onSubmit, onClose }: P
           <DialogBody className="flex flex-col gap-4">
             <div className="flex flex-col gap-2">
               <Label htmlFor="create-account-name">
-                {t(isBucket ? 'modals.createBucket.nameLabel' : 'modals.createAccount.nameLabel')}
+                {t(
+                  isAsset
+                    ? 'modals.createAsset.nameLabel'
+                    : isBucket
+                      ? 'modals.createBucket.nameLabel'
+                      : 'modals.createAccount.nameLabel',
+                )}
               </Label>
               <Input
                 id="create-account-name"
@@ -100,9 +126,11 @@ export default function CreateAccountModal({ accountType, onSubmit, onClose }: P
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder={t(
-                  isBucket
-                    ? 'modals.createBucket.namePlaceholder'
-                    : 'modals.createAccount.namePlaceholder',
+                  isAsset
+                    ? 'modals.createAsset.namePlaceholder'
+                    : isBucket
+                      ? 'modals.createBucket.namePlaceholder'
+                      : 'modals.createAccount.namePlaceholder',
                 )}
                 required
                 autoFocus
@@ -121,7 +149,11 @@ export default function CreateAccountModal({ accountType, onSubmit, onClose }: P
 
             <div className="flex flex-col gap-2">
               <Label htmlFor="create-account-balance">
-                {t('modals.createAccount.initialBalance')}
+                {t(
+                  isAsset
+                    ? 'modals.createAsset.initialValue'
+                    : 'modals.createAccount.initialBalance',
+                )}
               </Label>
               <CurrencyInput
                 id="create-account-balance"
@@ -133,6 +165,35 @@ export default function CreateAccountModal({ accountType, onSubmit, onClose }: P
                 currencyCode={selectedCurrency?.code}
               />
             </div>
+
+            {!isBucket && !isAsset && assets && assets.length > 0 && (
+              <div className="flex flex-col gap-2">
+                <Label>{t('modals.createAccount.securedByAsset')}</Label>
+                <div className="flex flex-col gap-1">
+                  {assets.map((asset) => (
+                    <label
+                      key={asset.accountId}
+                      className="flex items-center gap-2 text-sm cursor-pointer"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={linkedAssetIds.includes(asset.accountId)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setLinkedAssetIds((prev) => [...prev, asset.accountId]);
+                          } else {
+                            setLinkedAssetIds((prev) =>
+                              prev.filter((id) => id !== asset.accountId),
+                            );
+                          }
+                        }}
+                      />
+                      {asset.accountName}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
           </DialogBody>
 
           <DialogFooter>

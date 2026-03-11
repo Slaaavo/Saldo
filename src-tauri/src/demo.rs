@@ -124,6 +124,13 @@ fn seed_impl(
 
     conn.execute(
         "INSERT INTO account (name, currency_id, account_type, sort_order)
+         VALUES ('Mortgage', ?1, 'account', 3)",
+        params![eur_id],
+    )?;
+    let mortgage_id = conn.last_insert_rowid();
+
+    conn.execute(
+        "INSERT INTO account (name, currency_id, account_type, sort_order)
          VALUES ('Emergency Fund', ?1, 'bucket', 0)",
         params![eur_id],
     )?;
@@ -143,6 +150,13 @@ fn seed_impl(
     )?;
     let holiday_id = conn.last_insert_rowid();
 
+    conn.execute(
+        "INSERT INTO account (name, currency_id, account_type, sort_order)
+         VALUES ('House', ?1, 'asset', 0)",
+        params![eur_id],
+    )?;
+    let house_id = conn.last_insert_rowid();
+
     // E. Insert 9 account balance update events (3 accounts × 3 months).
     // Checking Account
     insert_balance_update(conn, checking_id, 425_000, m1_event)?;
@@ -156,6 +170,10 @@ fn seed_impl(
     insert_balance_update(conn, btc_wallet_id, 8_500_000, m1_event)?;
     insert_balance_update(conn, btc_wallet_id, 8_500_000, m2_event)?;
     insert_balance_update(conn, btc_wallet_id, 9_200_000, m3_event)?;
+    // Mortgage (negative EUR cents — liability)
+    insert_balance_update(conn, mortgage_id, -20_000_000, m1_event)?;
+    insert_balance_update(conn, mortgage_id, -19_850_000, m2_event)?;
+    insert_balance_update(conn, mortgage_id, -19_700_000, m3_event)?;
 
     // F. Insert 6 bucket balance update events (2 buckets × 3 months).
     // Emergency Fund (EUR cents)
@@ -166,6 +184,15 @@ fn seed_impl(
     insert_balance_update(conn, holiday_id, 0, m1_event)?;
     insert_balance_update(conn, holiday_id, 20_000, m2_event)?;
     insert_balance_update(conn, holiday_id, 45_000, m3_event)?;
+
+    // House asset (EUR cents — €400,000)
+    insert_balance_update(conn, house_id, 40_000_000, m1_event)?;
+
+    // I. Link Mortgage account to House asset.
+    conn.execute(
+        "INSERT INTO account_asset_link (account_id, asset_id) VALUES (?1, ?2)",
+        params![mortgage_id, house_id],
+    )?;
 
     // G. Insert 3 bucket allocations: Retirement Fund ← BTC Wallet (satoshis).
     conn.execute(
@@ -252,13 +279,13 @@ mod tests {
         let conn = initialize_in_memory().expect("DB init failed");
         seed_demo_data(&conn, None, None).expect("seed failed");
 
-        // 6 accounts total
+        // 8 accounts total (4 regular + 3 bucket + 1 asset)
         let account_count: i64 = conn
             .query_row("SELECT COUNT(*) FROM account", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(account_count, 6);
+        assert_eq!(account_count, 8);
 
-        // 3 regular accounts
+        // 4 regular accounts
         let regular_count: i64 = conn
             .query_row(
                 "SELECT COUNT(*) FROM account WHERE account_type = 'account'",
@@ -266,7 +293,7 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(regular_count, 3);
+        assert_eq!(regular_count, 4);
 
         // 3 bucket accounts
         let bucket_count: i64 = conn
@@ -278,11 +305,21 @@ mod tests {
             .unwrap();
         assert_eq!(bucket_count, 3);
 
-        // 15 events: 9 account (3×3) + 6 bucket (2×3, including holiday M1=0)
+        // 1 asset account
+        let asset_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM account WHERE account_type = 'asset'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(asset_count, 1);
+
+        // 19 events: Checking(3) + CreditCard(3) + BTC(3) + Mortgage(3) + EmergencyFund(3) + Holiday(3) + House(1)
         let event_count: i64 = conn
             .query_row("SELECT COUNT(*) FROM event", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(event_count, 15);
+        assert_eq!(event_count, 19);
 
         // 3 bucket allocations (Retirement Fund ← BTC Wallet, one per month)
         let alloc_count: i64 = conn
@@ -295,6 +332,12 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM fx_rate", [], |r| r.get(0))
             .unwrap();
         assert_eq!(rate_count, 3);
+
+        // 1 account-asset link (Mortgage → House)
+        let link_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM account_asset_link", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(link_count, 1);
 
         // Consolidation currency is EUR
         let consol: String = conn

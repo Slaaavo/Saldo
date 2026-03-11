@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import type { SnapshotRow } from '../types';
 import { todayIso, toMinorUnits, getMinorUnitsStep } from '../utils/format';
+import { extractErrorMessage } from '../utils/errors';
 import {
   Dialog,
   DialogContent,
@@ -49,7 +50,9 @@ export default function CreateBalanceUpdateModal({
   const currencyCode = selectedAccount?.currencyCode;
   const isBucket = selectedAccount?.accountType === 'bucket';
 
-  const realAccounts = accounts.filter((a) => a.accountType === 'account');
+  const allocationSources = accounts.filter(
+    (a) => a.accountType === 'account' || a.accountType === 'asset',
+  );
 
   const {
     loadingAllocations,
@@ -67,7 +70,7 @@ export default function CreateBalanceUpdateModal({
   } = useBucketAllocations({
     bucketId: isBucket ? accountId : null,
     date,
-    realAccounts,
+    allocationSources,
   });
   const [submitting, setSubmitting] = useState(false);
 
@@ -97,7 +100,7 @@ export default function CreateBalanceUpdateModal({
       const amountMinor = toMinorUnits(amount, minorUnits);
       onSubmit(accountId, amountMinor, date, note);
     } catch (err) {
-      toast.error(String(err));
+      toast.error(extractErrorMessage(err));
       setSubmitting(false);
     }
   };
@@ -168,7 +171,7 @@ export default function CreateBalanceUpdateModal({
               <BucketAllocationEditor
                 visibleAllocations={visibleAllocations}
                 availableToLink={availableToLink}
-                realAccounts={realAccounts}
+                allocationSources={allocationSources}
                 loadingAllocations={loadingAllocations}
                 displayErrors={displayErrors}
                 getAvailableBalance={getAvailableBalance}

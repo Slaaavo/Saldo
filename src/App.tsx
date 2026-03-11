@@ -15,13 +15,17 @@ import Header from './components/Header';
 import CreateBalanceUpdateModal from './components/CreateBalanceUpdateModal';
 import EditBalanceUpdateModal from './components/EditBalanceUpdateModal';
 import CreateAccountModal from './components/CreateAccountModal';
+import CreateAssetModal from './components/CreateAssetModal';
+import UpdateAssetValueModal from './components/UpdateAssetValueModal';
 import RenameAccountModal from './components/RenameAccountModal';
 import ConfirmDialog from './components/ConfirmDialog';
 import BulkUpdateBalanceModal from './components/BulkUpdateBalanceModal';
 import DbLocationChoiceDialog from './components/DbLocationChoiceDialog';
 import SettingsPage from './pages/SettingsPage';
 import FxRatesPage from './pages/FxRatesPage';
+import UnitsPage from './pages/UnitsPage';
 import ReorderModal from './components/ReorderModal';
+import ManageLinkedAssetsModal from './components/ManageLinkedAssetsModal';
 import Sidebar from './components/Sidebar';
 import { useTheme } from './hooks/useTheme';
 import { useModalManager } from './hooks/useModalManager';
@@ -29,12 +33,13 @@ import { useFinanceData } from './hooks/useFinanceData';
 import DashboardView from './pages/DashboardView';
 import DemoModeBanner from './components/DemoModeBanner';
 import { Toaster, toast } from 'sonner';
+import { extractErrorMessage } from './utils/errors';
 
 function App() {
   const { t } = useTranslation();
   const { theme, themePreference, setThemePreference } = useTheme();
   const { modalState, setModalState, closeModal } = useModalManager();
-  const [currentView, setCurrentView] = useState<'dashboard' | 'fx-rates' | 'settings'>(
+  const [currentView, setCurrentView] = useState<'dashboard' | 'fx-rates' | 'units' | 'settings'>(
     'dashboard',
   );
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -72,7 +77,7 @@ function App() {
         setModalState({ type: 'dbLocationChoice', folder: result.folder, isReset: false });
       }
     } catch (err) {
-      toast.error(t('dataStorage.errors.change', { error: String(err) }));
+      toast.error(t('dataStorage.errors.change', { error: extractErrorMessage(err) }));
     }
   };
 
@@ -85,7 +90,7 @@ function App() {
         setModalState({ type: 'dbLocationChoice', folder: '', isReset: true });
       }
     } catch (err) {
-      toast.error(t('dataStorage.errors.reset', { error: String(err) }));
+      toast.error(t('dataStorage.errors.reset', { error: extractErrorMessage(err) }));
     }
   };
 
@@ -97,7 +102,7 @@ function App() {
       await loadDbLocation();
       setCurrentView('dashboard');
     } catch (err) {
-      toast.error(String(err));
+      toast.error(extractErrorMessage(err));
     }
   };
 
@@ -109,7 +114,7 @@ function App() {
       await loadDbLocation();
       toast.success(t('demo.exitedToast'));
     } catch (err) {
-      toast.error(String(err));
+      toast.error(extractErrorMessage(err));
     }
   };
 
@@ -129,6 +134,8 @@ function App() {
     handleBulkUpdateSubmit,
     handleSaveOrder,
     handleConsolidationCurrencyChange,
+    handleUpdateAssetValue,
+    handleSetAccountAssetLinks,
     missingFxCurrencies,
   } = useFinanceData({
     closeModal,
@@ -137,16 +144,29 @@ function App() {
 
   const accounts = snapshot.filter((r) => r.accountType === 'account');
   const buckets = snapshot.filter((r) => r.accountType === 'bucket');
-  const totalMinor = accounts.reduce((sum, r) => sum + r.convertedBalanceMinor, 0);
+  const assets = snapshot.filter((r) => r.accountType === 'asset');
+  const hasAssets = assets.length > 0;
+  const liquidMinor = accounts
+    .filter((r) => !r.isLinkedToAsset)
+    .reduce((sum, r) => sum + r.convertedBalanceMinor, 0);
+  const allAccountsMinor = accounts.reduce((sum, r) => sum + r.convertedBalanceMinor, 0);
   const bucketsMinor = buckets.reduce((sum, r) => sum + r.convertedBalanceMinor, 0);
-  const leftToSpendMinor = totalMinor - bucketsMinor;
+  const assetTotalMinor = assets.reduce((sum, r) => sum + r.convertedBalanceMinor, 0);
+  const assetAllocationsInBuckets = buckets.reduce(
+    (sum, r) => sum + r.linkedAllocationsFromAssetsMinor,
+    0,
+  );
+  const leftToSpendMinor = liquidMinor - bucketsMinor + assetAllocationsInBuckets;
+  const netWorthMinor = allAccountsMinor + assetTotalMinor;
 
   const pageTitle =
     currentView === 'settings'
       ? t('sidebar.settings')
       : currentView === 'fx-rates'
         ? t('sidebar.fxRates')
-        : t('sidebar.dashboard');
+        : currentView === 'units'
+          ? t('sidebar.units')
+          : t('sidebar.dashboard');
 
   return (
     <>
@@ -173,6 +193,8 @@ function App() {
 
                   {currentView === 'fx-rates' && <FxRatesPage />}
 
+                  {currentView === 'units' && <UnitsPage />}
+
                   {currentView === 'settings' && (
                     <SettingsPage
                       onConsolidationCurrencyChange={handleConsolidationCurrencyChange}
@@ -193,10 +215,13 @@ function App() {
                       snapshot={snapshot}
                       accounts={accounts}
                       buckets={buckets}
+                      assets={assets}
                       events={events}
                       consolidationCurrency={consolidationCurrency}
-                      totalMinor={totalMinor}
+                      totalMinor={liquidMinor}
                       leftToSpendMinor={leftToSpendMinor}
+                      netWorthMinor={netWorthMinor}
+                      hasAssets={hasAssets}
                       missingFxCurrencies={missingFxCurrencies}
                       setModalState={setModalState}
                       isDemoMode={isDemoMode}
@@ -229,7 +254,18 @@ function App() {
           {modalState.type === 'createAccount' && (
             <CreateAccountModal
               accountType={modalState.accountType}
+              assets={assets}
               onSubmit={handleCreateAccount}
+              onClose={closeModal}
+            />
+          )}
+
+          {modalState.type === 'createAsset' && (
+            <CreateAssetModal
+              onSuccess={() => {
+                closeModal();
+                refresh();
+              }}
               onClose={closeModal}
             />
           )}
@@ -245,12 +281,28 @@ function App() {
 
           {modalState.type === 'confirmDeleteAccount' && (
             <ConfirmDialog
-              message={t('modals.confirm.deleteAccount', {
-                entityType: t(
-                  modalState.accountType === 'bucket' ? 'common.bucket' : 'common.account',
-                ),
-                name: modalState.name,
-              })}
+              message={
+                modalState.accountType === 'asset' &&
+                accounts.some((a) => a.linkedAssetIds.includes(modalState.accountId))
+                  ? t('modals.confirm.deleteAssetWithLinks', {
+                      entityType: t('common.asset'),
+                      name: modalState.name,
+                      accounts: accounts
+                        .filter((a) => a.linkedAssetIds.includes(modalState.accountId))
+                        .map((a) => a.accountName)
+                        .join(', '),
+                    })
+                  : t('modals.confirm.deleteAccount', {
+                      entityType: t(
+                        modalState.accountType === 'bucket'
+                          ? 'common.bucket'
+                          : modalState.accountType === 'asset'
+                            ? 'common.asset'
+                            : 'common.account',
+                      ),
+                      name: modalState.name,
+                    })
+              }
               onConfirm={() => handleDeleteAccount(modalState.accountId)}
               onCancel={closeModal}
             />
@@ -294,6 +346,19 @@ function App() {
             />
           )}
 
+          {modalState.type === 'updateAssetValue' && (
+            <UpdateAssetValueModal
+              accountId={modalState.accountId}
+              accountName={modalState.accountName}
+              currencyCode={modalState.currencyCode}
+              currencyMinorUnits={modalState.currencyMinorUnits}
+              balanceMinor={modalState.balanceMinor}
+              consolidationCurrency={consolidationCurrency}
+              onSubmit={handleUpdateAssetValue}
+              onClose={closeModal}
+            />
+          )}
+
           {modalState.type === 'reorderAccounts' && (
             <ReorderModal
               items={accounts.map((r) => ({ id: r.accountId, name: r.accountName }))}
@@ -312,6 +377,28 @@ function App() {
             />
           )}
 
+          {modalState.type === 'reorderAssets' && (
+            <ReorderModal
+              items={assets.map((r) => ({ id: r.accountId, name: r.accountName }))}
+              title={t('reorder.titleAssets')}
+              onSave={handleSaveOrder}
+              onClose={closeModal}
+            />
+          )}
+
+          {modalState.type === 'manageLinkedAssets' && (
+            <ManageLinkedAssetsModal
+              accountId={modalState.accountId}
+              accountName={modalState.accountName}
+              assets={assets}
+              currentLinks={
+                snapshot.find((r) => r.accountId === modalState.accountId)?.linkedAssetIds ?? []
+              }
+              onSave={handleSetAccountAssetLinks}
+              onClose={closeModal}
+            />
+          )}
+
           {modalState.type === 'confirmSwitchDb' && (
             <ConfirmDialog
               message={t('dataStorage.confirmSwitchMessage')}
@@ -326,7 +413,7 @@ function App() {
                   toast.success(t('dataStorage.toasts.switched', { path: modalState.folder }));
                   closeModal();
                 } catch (err) {
-                  toast.error(t('dataStorage.errors.change', { error: String(err) }));
+                  toast.error(t('dataStorage.errors.change', { error: extractErrorMessage(err) }));
                 } finally {
                   setDbActionLoading(false);
                 }
@@ -360,8 +447,8 @@ function App() {
                 } catch (err) {
                   toast.error(
                     isReset
-                      ? t('dataStorage.errors.reset', { error: String(err) })
-                      : t('dataStorage.errors.change', { error: String(err) }),
+                      ? t('dataStorage.errors.reset', { error: extractErrorMessage(err) })
+                      : t('dataStorage.errors.change', { error: extractErrorMessage(err) }),
                   );
                 } finally {
                   setDbActionLoading(false);
@@ -385,7 +472,7 @@ function App() {
                   toast.success(t('dataStorage.toasts.reset'));
                   closeModal();
                 } catch (err) {
-                  toast.error(t('dataStorage.errors.reset', { error: String(err) }));
+                  toast.error(t('dataStorage.errors.reset', { error: extractErrorMessage(err) }));
                 } finally {
                   setDbActionLoading(false);
                 }

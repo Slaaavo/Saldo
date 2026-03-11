@@ -75,7 +75,7 @@ pub fn parse_rate_to_mantissa_exponent(value: &serde_json::Value) -> Result<(i64
     parse_decimal_str(&s)
 }
 
-fn parse_decimal_str(s: &str) -> Result<(i64, i64), AppError> {
+pub(crate) fn parse_decimal_str(s: &str) -> Result<(i64, i64), AppError> {
     let s = s.trim();
 
     // Handle optional leading minus sign.

@@ -15,6 +15,7 @@ import { Button } from '../components/ui/button';
 import { DatePicker } from '../components/ui/date-picker';
 import { Label } from '../components/ui/label';
 import { todayIso } from '../utils/format';
+import { extractErrorMessage } from '../utils/errors';
 
 const formatRate = (r: FxRateRow): string =>
   new Decimal(`${r.rateMantissa}e${r.rateExponent}`).toString();
@@ -56,7 +57,7 @@ export default function FxRatesPage() {
       const data = await listFxRates();
       setRates(data);
     } catch (err) {
-      setError(String(err));
+      setError(extractErrorMessage(err));
     }
   }, []);
 
@@ -72,7 +73,7 @@ export default function FxRatesPage() {
   useEffect(() => {
     loadRates();
     loadMissingDates();
-    listCurrencies()
+    listCurrencies(false)
       .then(setCurrencies)
       .catch(() => {});
     getConsolidationCurrency()
@@ -88,7 +89,7 @@ export default function FxRatesPage() {
       await loadRates();
       await loadMissingDates();
     } catch (err) {
-      setError(String(err));
+      setError(extractErrorMessage(err));
     } finally {
       setIsRefreshing(false);
     }
@@ -104,13 +105,33 @@ export default function FxRatesPage() {
       await loadRates();
       await loadMissingDates();
     } catch (err) {
-      setError(String(err));
+      setError(extractErrorMessage(err));
     } finally {
       setIsBackfilling(false);
     }
   };
 
   const codeToId = new Map<string, number>(currencies.map((c) => [c.code, c.id]));
+
+  // Filter out custom-unit rates so they don't appear as columns on the FX Rates page.
+  // Gate on currencies.length > 0 to avoid filtering everything while currencies are loading.
+  const validCurrencyCodes = currencies.length > 0 ? new Set(currencies.map((c) => c.code)) : null;
+  const filteredRates =
+    validCurrencyCodes !== null
+      ? rates.filter((r) => validCurrencyCodes.has(r.toCurrencyCode))
+      : rates;
+
+  // Pivot table construction
+  // dates → rows (most recent first)
+  const dates = [...new Set(filteredRates.map((r) => r.date))].sort((a, b) => b.localeCompare(a));
+  // toCurrencyCode → columns (target/non-consolidation currencies)
+  const targetCurrencies = [...new Set(filteredRates.map((r) => r.toCurrencyCode))].sort();
+
+  // Key: `${date}:${toCurrencyCode}`
+  const rateMap = new Map<string, FxRateRow>();
+  for (const r of filteredRates) {
+    rateMap.set(`${r.date}:${r.toCurrencyCode}`, r);
+  }
 
   const handleCellClick = (date: string, code: string, row: FxRateRow | undefined) => {
     setEditingCell({ date, code });
@@ -136,21 +157,9 @@ export default function FxRatesPage() {
       await setFxRateManual(fromId, toId, date, parsed.mantissa, parsed.exponent);
       await loadRates();
     } catch (err) {
-      setError(String(err));
+      setError(extractErrorMessage(err));
     }
   };
-
-  // Pivot table construction
-  // dates → rows (most recent first)
-  const dates = [...new Set(rates.map((r) => r.date))].sort((a, b) => b.localeCompare(a));
-  // toCurrencyCode → columns (target/non-consolidation currencies)
-  const targetCurrencies = [...new Set(rates.map((r) => r.toCurrencyCode))].sort();
-
-  // Key: `${date}:${toCurrencyCode}`
-  const rateMap = new Map<string, FxRateRow>();
-  for (const r of rates) {
-    rateMap.set(`${r.date}:${r.toCurrencyCode}`, r);
-  }
 
   return (
     <div className="px-4 md:px-10 py-8">

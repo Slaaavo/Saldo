@@ -8,6 +8,7 @@ import type {
   OverAllocationWarning,
   DbLocationInfo,
   PickDbFolderResult,
+  AccountAssetLink,
 } from '../types';
 
 export async function createBalanceUpdate(
@@ -47,6 +48,8 @@ export async function createAccount(
   currencyId: number,
   initialBalanceMinor?: number,
   accountType?: string,
+  pricePerUnit?: string,
+  linkedAssetIds?: number[],
 ): Promise<number> {
   return invoke('create_account', {
     input: {
@@ -54,6 +57,8 @@ export async function createAccount(
       currencyId,
       initialBalanceMinor: initialBalanceMinor ?? null,
       accountType: accountType ?? null,
+      pricePerUnit: pricePerUnit ?? null,
+      linkedAssetIds: linkedAssetIds ?? null,
     },
   });
 }
@@ -98,8 +103,8 @@ export async function bulkCreateBalanceUpdates(
   });
 }
 
-export async function listCurrencies(): Promise<Currency[]> {
-  return invoke('list_currencies');
+export async function listCurrencies(includeCustom?: boolean): Promise<Currency[]> {
+  return invoke('list_currencies', { includeCustom: includeCustom ?? null });
 }
 
 export async function getConsolidationCurrency(): Promise<Currency> {
@@ -210,4 +215,36 @@ export async function resetDbLocation(action: string): Promise<void> {
 
 export async function checkDefaultDb(): Promise<boolean> {
   return invoke('check_default_db');
+}
+
+export async function createCustomUnit(name: string, minorUnits: number): Promise<number> {
+  return invoke('create_custom_unit', { input: { name, minorUnits } });
+}
+
+export async function listCustomUnits(): Promise<Currency[]> {
+  return invoke('list_custom_units');
+}
+
+export async function updateCustomUnit(currencyId: number, name: string): Promise<void> {
+  return invoke('update_custom_unit', { input: { currencyId, name } });
+}
+
+export async function updateAssetValue(
+  accountId: number,
+  amountMinor: number | null,
+  pricePerUnit: string | null,
+  eventDate: string,
+  note: string | null,
+): Promise<void> {
+  return invoke('update_asset_value', {
+    input: { accountId, amountMinor, pricePerUnit, eventDate, note },
+  });
+}
+
+export async function listAccountAssetLinks(accountId?: number): Promise<AccountAssetLink[]> {
+  return invoke('list_account_asset_links', { accountId: accountId ?? null });
+}
+
+export async function setAccountAssetLinks(accountId: number, assetIds: number[]): Promise<void> {
+  return invoke('set_account_asset_links', { input: { accountId, assetIds } });
 }

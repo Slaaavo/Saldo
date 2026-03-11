@@ -4,12 +4,20 @@ import type { AllocationRow } from '../hooks/useBucketAllocations';
 import { getMinorUnitsStep, fromMinorUnits } from '../utils/format';
 import { Button } from './ui/button';
 import { CurrencyInput } from './CurrencyInput';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue,
+} from './ui/select';
 
 interface Props {
   visibleAllocations: AllocationRow[];
   availableToLink: SnapshotRow[];
-  realAccounts: SnapshotRow[];
+  allocationSources: SnapshotRow[];
   loadingAllocations: boolean;
   displayErrors: Record<string, string>;
   getAvailableBalance: (row: AllocationRow) => number;
@@ -23,7 +31,7 @@ interface Props {
 export default function BucketAllocationEditor({
   visibleAllocations,
   availableToLink,
-  realAccounts,
+  allocationSources,
   loadingAllocations,
   displayErrors,
   getAvailableBalance,
@@ -34,6 +42,9 @@ export default function BucketAllocationEditor({
   handleUnlink,
 }: Props) {
   const { t } = useTranslation();
+
+  const accountOptions = availableToLink.filter((a) => a.accountType === 'account');
+  const assetOptions = availableToLink.filter((a) => a.accountType === 'asset');
 
   return (
     <>
@@ -50,13 +61,33 @@ export default function BucketAllocationEditor({
             {visibleAllocations.map((row) => {
               const sourceAccount =
                 row.sourceAccountId !== null
-                  ? realAccounts.find((a) => a.accountId === row.sourceAccountId)
+                  ? allocationSources.find((a) => a.accountId === row.sourceAccountId)
                   : undefined;
               const sourceMinorUnits = sourceAccount?.currencyMinorUnits ?? 2;
               const sourceCurrencyCode = sourceAccount?.currencyCode ?? '';
               const available = getAvailableBalance(row);
               const displayError = displayErrors[row.tempId];
               const showAmountRow = !row.isNew || row.sourceAccountId !== null;
+
+              // When a new row has an account selected, that account is excluded from
+              // availableToLink (to prevent double-linking). Ensure it still appears in
+              // the dropdown so Radix Select can display its label.
+              let extraAccountForRow: (typeof allocationSources)[0] | undefined;
+              let extraAssetForRow: (typeof allocationSources)[0] | undefined;
+              if (row.isNew && row.sourceAccountId !== null) {
+                const selected = allocationSources.find((a) => a.accountId === row.sourceAccountId);
+                if (
+                  selected &&
+                  !accountOptions.some((a) => a.accountId === row.sourceAccountId) &&
+                  !assetOptions.some((a) => a.accountId === row.sourceAccountId)
+                ) {
+                  if (selected.accountType === 'account') {
+                    extraAccountForRow = selected;
+                  } else {
+                    extraAssetForRow = selected;
+                  }
+                }
+              }
 
               return (
                 <div
@@ -76,11 +107,40 @@ export default function BucketAllocationEditor({
                         />
                       </SelectTrigger>
                       <SelectContent>
-                        {availableToLink.map((a) => (
-                          <SelectItem key={a.accountId} value={String(a.accountId)}>
-                            {a.accountName}
-                          </SelectItem>
-                        ))}
+                        <SelectGroup>
+                          <SelectLabel>{t('modals.allocation.accountsGroup')}</SelectLabel>
+                          {accountOptions.map((a) => (
+                            <SelectItem key={a.accountId} value={String(a.accountId)}>
+                              {a.accountName}
+                            </SelectItem>
+                          ))}
+                          {extraAccountForRow && (
+                            <SelectItem
+                              key={extraAccountForRow.accountId}
+                              value={String(extraAccountForRow.accountId)}
+                            >
+                              {extraAccountForRow.accountName}
+                            </SelectItem>
+                          )}
+                        </SelectGroup>
+                        {(assetOptions.length > 0 || extraAssetForRow) && (
+                          <SelectGroup>
+                            <SelectLabel>{t('modals.allocation.assetsGroup')}</SelectLabel>
+                            {assetOptions.map((a) => (
+                              <SelectItem key={a.accountId} value={String(a.accountId)}>
+                                {a.accountName}
+                              </SelectItem>
+                            ))}
+                            {extraAssetForRow && (
+                              <SelectItem
+                                key={extraAssetForRow.accountId}
+                                value={String(extraAssetForRow.accountId)}
+                              >
+                                {extraAssetForRow.accountName}
+                              </SelectItem>
+                            )}
+                          </SelectGroup>
+                        )}
                       </SelectContent>
                     </Select>
                   ) : (
@@ -150,7 +210,7 @@ export default function BucketAllocationEditor({
                 {t('modals.createBalanceUpdate.linkAccount')}
               </Button>
             ) : (
-              realAccounts.length === 0 && (
+              allocationSources.length === 0 && (
                 <p className="text-sm text-muted-foreground">
                   {t('modals.createBalanceUpdate.noAccountsToLink')}
                 </p>

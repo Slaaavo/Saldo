@@ -21,6 +21,8 @@ pub struct CreateAccountInput {
     pub currency_id: i64,
     pub account_type: Option<String>,
     pub initial_balance_minor: Option<i64>,
+    pub price_per_unit: Option<String>,
+    pub linked_asset_ids: Option<Vec<i64>>,
 }
 
 #[derive(Deserialize)]
@@ -84,6 +86,30 @@ pub struct SetFxRateManualInput {
     pub date: String,
     pub rate_mantissa: i64,
     pub rate_exponent: i64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateCustomUnitInput {
+    pub name: String,
+    pub minor_units: i64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateCustomUnitInput {
+    pub currency_id: i64,
+    pub name: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateAssetValueInput {
+    pub account_id: i64,
+    pub amount_minor: Option<i64>,
+    pub price_per_unit: Option<String>,
+    pub event_date: String,
+    pub note: Option<String>,
 }
 
 fn validate_event_date(date_str: &str) -> Result<(), AppError> {
@@ -154,10 +180,16 @@ pub fn create_account(
         });
     }
     let account_type = input.account_type.as_deref().unwrap_or("account");
-    if account_type != "account" && account_type != "bucket" {
+    if !matches!(account_type, "account" | "bucket" | "asset") {
         return Err(AppError {
             code: "VALIDATION".into(),
-            message: "account_type must be 'account' or 'bucket'".into(),
+            message: "account_type must be 'account', 'bucket', or 'asset'".into(),
+        });
+    }
+    if input.price_per_unit.is_some() && account_type != "asset" {
+        return Err(AppError {
+            code: "VALIDATION".into(),
+            message: "price_per_unit can only be used with asset accounts".into(),
         });
     }
     let conn = state.conn()?;
@@ -167,7 +199,18 @@ pub fn create_account(
         input.currency_id,
         account_type,
         input.initial_balance_minor,
+        input.price_per_unit.as_deref(),
     )?;
+
+    // Link to assets if provided and this is a regular account.
+    if account_type == "account" {
+        if let Some(asset_ids) = &input.linked_asset_ids {
+            if !asset_ids.is_empty() {
+                repository::set_account_asset_links(&conn, id, asset_ids)?;
+            }
+        }
+    }
+
     Ok(id)
 }
 
@@ -243,9 +286,12 @@ pub fn bulk_create_balance_updates(
 }
 
 #[tauri::command]
-pub fn list_currencies(state: State<'_, AppState>) -> Result<Vec<Currency>, AppError> {
+pub fn list_currencies(
+    state: State<'_, AppState>,
+    include_custom: Option<bool>,
+) -> Result<Vec<Currency>, AppError> {
     let conn = state.conn()?;
-    let currencies = repository::list_currencies(&conn)?;
+    let currencies = repository::list_currencies(&conn, include_custom)?;
     Ok(currencies)
 }
 
@@ -391,15 +437,15 @@ pub fn create_bucket_allocation(
         }
     }
 
-    // Validate that source_account_id refers to a regular account.
+    // Validate that source_account_id refers to a regular account or asset.
     let source_type: Option<String> =
         repository::get_account_type(&conn, input.source_account_id).map_err(AppError::from)?;
     match source_type.as_deref() {
-        Some("account") => {}
+        Some("account") | Some("asset") => {}
         Some(_) => {
             return Err(AppError {
                 code: "VALIDATION".into(),
-                message: "source_account_id must refer to a regular account".into(),
+                message: "source_account_id must refer to a regular account or asset".into(),
             });
         }
         None => {
@@ -885,4 +931,114 @@ pub fn reset_db_location(state: State<'_, AppState>, action: String) -> Result<(
 pub fn check_default_db(state: State<'_, AppState>) -> Result<bool, AppError> {
     let default_path = state.app_data_dir.join(crate::config::DB_FILENAME);
     Ok(default_path.exists())
+}
+
+// ---------------------------------------------------------------------------
+// Custom unit commands (Step 19)
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub fn create_custom_unit(
+    state: State<'_, AppState>,
+    input: CreateCustomUnitInput,
+) -> Result<i64, AppError> {
+    let name = input.name.trim().to_string();
+    if name.is_empty() {
+        return Err(AppError {
+            code: "VALIDATION".into(),
+            message: "Unit name is required".into(),
+        });
+    }
+    if input.minor_units < 0 || input.minor_units > 8 {
+        return Err(AppError {
+            code: "VALIDATION".into(),
+            message: "minor_units must be between 0 and 8".into(),
+        });
+    }
+    let conn = state.conn()?;
+    let id = repository::create_custom_unit(&conn, &name, input.minor_units)?;
+    Ok(id)
+}
+
+#[tauri::command]
+pub fn list_custom_units(state: State<'_, AppState>) -> Result<Vec<Currency>, AppError> {
+    let conn = state.conn()?;
+    let units = repository::list_custom_units(&conn)?;
+    Ok(units)
+}
+
+#[tauri::command]
+pub fn update_custom_unit(
+    state: State<'_, AppState>,
+    input: UpdateCustomUnitInput,
+) -> Result<(), AppError> {
+    let name = input.name.trim().to_string();
+    if name.is_empty() {
+        return Err(AppError {
+            code: "VALIDATION".into(),
+            message: "Unit name is required".into(),
+        });
+    }
+    let conn = state.conn()?;
+    repository::update_custom_unit(&conn, input.currency_id, &name)?;
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Asset value update command (Step 20)
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub fn update_asset_value(
+    state: State<'_, AppState>,
+    input: UpdateAssetValueInput,
+) -> Result<(), AppError> {
+    if input.amount_minor.is_none() && input.price_per_unit.is_none() {
+        return Err(AppError {
+            code: "VALIDATION".into(),
+            message: "At least one of amount_minor or price_per_unit is required".into(),
+        });
+    }
+    validate_event_date(&input.event_date)?;
+    let conn = state.conn()?;
+    repository::update_asset_value(
+        &conn,
+        input.account_id,
+        input.amount_minor,
+        input.price_per_unit.as_deref(),
+        &input.event_date,
+        input.note.as_deref(),
+    )?;
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Account-asset linking commands (Step 9)
+// ---------------------------------------------------------------------------
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetAccountAssetLinksInput {
+    pub account_id: i64,
+    pub asset_ids: Vec<i64>,
+}
+
+#[tauri::command]
+pub fn list_account_asset_links(
+    state: State<'_, AppState>,
+    account_id: Option<i64>,
+) -> Result<Vec<AccountAssetLink>, AppError> {
+    let conn = state.conn()?;
+    let links = repository::list_account_asset_links(&conn, account_id)?;
+    Ok(links)
+}
+
+#[tauri::command]
+pub fn set_account_asset_links(
+    state: State<'_, AppState>,
+    input: SetAccountAssetLinksInput,
+) -> Result<(), AppError> {
+    let conn = state.conn()?;
+    repository::set_account_asset_links(&conn, input.account_id, &input.asset_ids)?;
+    Ok(())
 }
