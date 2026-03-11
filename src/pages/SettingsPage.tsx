@@ -1,15 +1,7 @@
-import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { PINNED_CURRENCY_CODES } from '../config/constants';
-import type { Currency } from '../types';
 import type { ThemePreference } from '../hooks/useTheme';
-import {
-  listCurrencies,
-  getConsolidationCurrency,
-  setConsolidationCurrency,
-  getAppSetting,
-  setAppSetting,
-} from '../api';
+import { useSettings } from '../hooks/useSettings';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
@@ -49,43 +41,16 @@ export default function SettingsPage({
   onResetDbLocation,
 }: Props) {
   const { t } = useTranslation();
-  const [currencies, setCurrencies] = useState<Currency[]>([]);
-  const [selectedCurrency, setSelectedCurrency] = useState<Currency | null>(null);
-  const [apiKey, setApiKey] = useState('');
-  const [apiKeySaved, setApiKeySaved] = useState(false);
-  const [currencySaved, setCurrencySaved] = useState(false);
-
-  useEffect(() => {
-    Promise.all([listCurrencies(), getConsolidationCurrency(), getAppSetting('oxr_app_id')])
-      .then(([all, consolidation, storedKey]) => {
-        setCurrencies(all);
-        setSelectedCurrency(consolidation);
-        if (storedKey) setApiKey(storedKey);
-      })
-      .catch((err) => console.error('Failed to load settings:', err));
-  }, []);
-
-  const handleCurrencySelect = async (currency: Currency) => {
-    setSelectedCurrency(currency);
-    try {
-      await setConsolidationCurrency(currency.id);
-      onConsolidationCurrencyChange();
-      setCurrencySaved(true);
-      setTimeout(() => setCurrencySaved(false), 2000);
-    } catch (err) {
-      console.error('Failed to set consolidation currency:', err);
-    }
-  };
-
-  const handleSaveApiKey = async () => {
-    try {
-      await setAppSetting('oxr_app_id', apiKey.trim());
-      setApiKeySaved(true);
-      setTimeout(() => setApiKeySaved(false), 2000);
-    } catch (err) {
-      console.error('Failed to save API key:', err);
-    }
-  };
+  const {
+    currencies,
+    selectedCurrency,
+    apiKey,
+    setApiKey,
+    apiKeySaved,
+    currencySaved,
+    handleCurrencySelect,
+    handleSaveApiKey,
+  } = useSettings({ onConsolidationCurrencyChange });
 
   return (
     <div className="px-4 md:px-10 py-8">
