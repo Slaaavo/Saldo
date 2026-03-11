@@ -23,6 +23,31 @@ interface Props {
   onEnterDemoMode: () => void;
 }
 
+function MetricCard({
+  label,
+  value,
+  currency,
+}: {
+  label: string;
+  value: number;
+  currency: Currency | null;
+}) {
+  return (
+    <div className="flex flex-col items-center">
+      <p className="text-sm font-medium uppercase tracking-widest text-muted-foreground mb-1">
+        {label}
+      </p>
+      <p className={cn('text-4xl font-extrabold', value < 0 && 'text-destructive')}>
+        <NumberValue
+          value={value}
+          currencyCode={currency?.code}
+          minorUnits={currency?.minorUnits ?? 2}
+        />
+      </p>
+    </div>
+  );
+}
+
 export default function DashboardView({
   snapshot,
   accounts,
@@ -41,6 +66,18 @@ export default function DashboardView({
 }: Props) {
   const { t } = useTranslation();
 
+  const metrics = [
+    ...(hasAssets
+      ? [
+          { key: 'netWorth', label: t('metrics.netWorth'), value: netWorthMinor },
+          { key: 'liquid', label: t('metrics.liquid'), value: totalMinor },
+        ]
+      : [{ key: 'totalBalance', label: t('metrics.totalBalance'), value: totalMinor }]),
+    ...(buckets.length > 0
+      ? [{ key: 'leftToSpend', label: t('metrics.leftToSpend'), value: leftToSpendMinor }]
+      : []),
+  ];
+
   return (
     <>
       {/* FX rate missing warning */}
@@ -54,92 +91,16 @@ export default function DashboardView({
       <div
         className={cn(
           'px-4 md:px-10 py-10',
-          hasAssets
+          metrics.length === 3
             ? 'grid grid-cols-3'
-            : buckets.length > 0
+            : metrics.length === 2
               ? 'grid grid-cols-2'
               : 'flex justify-center',
         )}
       >
-        {hasAssets ? (
-          <>
-            <div className="flex flex-col items-center">
-              <p className="text-sm font-medium uppercase tracking-widest text-muted-foreground mb-1">
-                {t('metrics.netWorth')}
-              </p>
-              <p className={cn('text-5xl font-extrabold', netWorthMinor < 0 && 'text-destructive')}>
-                <NumberValue
-                  value={netWorthMinor}
-                  currencyCode={consolidationCurrency?.code}
-                  minorUnits={consolidationCurrency?.minorUnits ?? 2}
-                />
-              </p>
-            </div>
-            <div className="flex flex-col items-center">
-              <p className="text-sm font-medium uppercase tracking-widest text-muted-foreground mb-1">
-                {t('metrics.liquid')}
-              </p>
-              <p className={cn('text-5xl font-extrabold', totalMinor < 0 && 'text-destructive')}>
-                <NumberValue
-                  value={totalMinor}
-                  currencyCode={consolidationCurrency?.code}
-                  minorUnits={consolidationCurrency?.minorUnits ?? 2}
-                />
-              </p>
-            </div>
-            <div className="flex flex-col items-center">
-              <p className="text-sm font-medium uppercase tracking-widest text-muted-foreground mb-1">
-                {t('metrics.leftToSpend')}
-              </p>
-              <p
-                className={cn(
-                  'text-5xl font-extrabold',
-                  leftToSpendMinor < 0 && 'text-destructive',
-                )}
-              >
-                <NumberValue
-                  value={leftToSpendMinor}
-                  currencyCode={consolidationCurrency?.code}
-                  minorUnits={consolidationCurrency?.minorUnits ?? 2}
-                />
-              </p>
-            </div>
-          </>
-        ) : (
-          <>
-            <div className="flex flex-col items-center">
-              <p className="text-sm font-medium uppercase tracking-widest text-muted-foreground mb-1">
-                {t('metrics.totalBalance')}
-              </p>
-              <p className={cn('text-5xl font-extrabold', totalMinor < 0 && 'text-destructive')}>
-                <NumberValue
-                  value={totalMinor}
-                  currencyCode={consolidationCurrency?.code}
-                  minorUnits={consolidationCurrency?.minorUnits ?? 2}
-                />
-              </p>
-            </div>
-            {buckets.length > 0 && (
-              <div className="flex flex-col items-center">
-                <p className="text-sm font-medium uppercase tracking-widest text-muted-foreground mb-1">
-                  {t('metrics.leftToSpend')}
-                </p>
-                <p
-                  className={cn(
-                    'text-5xl font-extrabold',
-                    leftToSpendMinor < 0 && 'text-destructive',
-                  )}
-                >
-                  <NumberValue
-                    value={leftToSpendMinor}
-                    currencyCode={consolidationCurrency?.code}
-                    minorUnits={consolidationCurrency?.minorUnits ?? 2}
-                  />
-                </p>
-              </div>
-            )}
-          </>
-        )}
+        {metrics.map(({ key, label, value }) => (
+          <MetricCard key={key} label={label} value={value} currency={consolidationCurrency} />
+        ))}
       </div>
 
       <hr className="border-border" />

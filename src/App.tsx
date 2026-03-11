@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   fetchFxRates,
@@ -49,12 +49,7 @@ function App() {
   const [dbLocationIsDefault, setDbLocationIsDefault] = useState<boolean>(true);
   const [dbActionLoading, setDbActionLoading] = useState<boolean>(false);
 
-  useEffect(() => {
-    checkIsDemoMode().then(setIsDemoMode).catch(console.error);
-    loadDbLocation();
-  }, []);
-
-  const loadDbLocation = async () => {
+  const loadDbLocation = useCallback(async () => {
     try {
       const info = await getDbLocation();
       setDbLocationPath(info.currentPath);
@@ -65,7 +60,12 @@ function App() {
     } catch (err) {
       console.error('Failed to load DB location:', err);
     }
-  };
+  }, [t]);
+
+  useEffect(() => {
+    checkIsDemoMode().then(setIsDemoMode).catch(console.error);
+    loadDbLocation();
+  }, [loadDbLocation]);
 
   const handleChangeDbLocation = async () => {
     try {
@@ -182,7 +182,7 @@ function App() {
           />
           <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
             <div className="flex-1 overflow-y-auto [scrollbar-gutter:stable]">
-              <div className="mx-auto max-w-4xl py-6 px-4">
+              <div className="mx-auto max-w-5xl py-6 px-4">
                 <div className="bg-card rounded-xl shadow-sm overflow-hidden">
                   <Header
                     pageTitle={pageTitle}
