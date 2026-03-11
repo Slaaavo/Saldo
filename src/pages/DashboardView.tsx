@@ -48,6 +48,14 @@ function MetricCard({
   );
 }
 
+const sectionClass = 'px-4 md:px-10 py-8';
+
+function metricsGridClass(count: number) {
+  if (count === 3) return 'grid grid-cols-3';
+  if (count === 2) return 'grid grid-cols-2';
+  return 'flex justify-center';
+}
+
 export default function DashboardView({
   snapshot,
   accounts,
@@ -78,6 +86,33 @@ export default function DashboardView({
       : []),
   ];
 
+  const handleRename = (accountId: number, currentName: string) =>
+    setModalState({ type: 'renameAccount', accountId, currentName });
+
+  const handleDelete =
+    (accountType: 'account' | 'bucket' | 'asset') => (accountId: number, name: string) =>
+      setModalState({ type: 'confirmDeleteAccount', accountId, name, accountType });
+
+  const handleUpdateBalance = (accountId: number) =>
+    setModalState({ type: 'createBalanceUpdate', preselectedAccountId: accountId });
+
+  const handleUpdateAssetValue = (accountId: number) => {
+    const row = assets.find((a) => a.accountId === accountId);
+    if (row?.isCustom) {
+      setModalState({
+        type: 'updateAssetValue',
+        accountId,
+        accountName: row.accountName,
+        currencyCode: row.currencyCode,
+        currencyMinorUnits: row.currencyMinorUnits,
+        isCustomUnit: true,
+        balanceMinor: row.balanceMinor,
+      });
+    } else {
+      handleUpdateBalance(accountId);
+    }
+  };
+
   return (
     <>
       {/* FX rate missing warning */}
@@ -88,16 +123,7 @@ export default function DashboardView({
       )}
 
       {/* Hero metrics */}
-      <div
-        className={cn(
-          'px-4 md:px-10 py-10',
-          metrics.length === 3
-            ? 'grid grid-cols-3'
-            : metrics.length === 2
-              ? 'grid grid-cols-2'
-              : 'flex justify-center',
-        )}
-      >
+      <div className={cn('px-4 md:px-10 py-10', metricsGridClass(metrics.length))}>
         {metrics.map(({ key, label, value }) => (
           <MetricCard key={key} label={label} value={value} currency={consolidationCurrency} />
         ))}
@@ -106,7 +132,7 @@ export default function DashboardView({
       <hr className="border-border" />
 
       {/* Accounts */}
-      <div className="px-4 md:px-10 py-8">
+      <div className={sectionClass}>
         {accounts.length === 0 && !isDemoMode ? (
           <div className="flex flex-col items-center justify-center py-12 text-center">
             <h3 className="text-xl font-semibold mb-2">{t('demo.emptyTitle')}</h3>
@@ -127,20 +153,9 @@ export default function DashboardView({
             consolidationCurrency={consolidationCurrency}
             sectionTitle={t('accounts.sectionTitle')}
             addButtonLabel={t('accounts.addAccount')}
-            onUpdateBalance={(accountId) =>
-              setModalState({ type: 'createBalanceUpdate', preselectedAccountId: accountId })
-            }
-            onRenameAccount={(accountId, currentName) =>
-              setModalState({ type: 'renameAccount', accountId, currentName })
-            }
-            onDeleteAccount={(accountId, name) =>
-              setModalState({
-                type: 'confirmDeleteAccount',
-                accountId,
-                name,
-                accountType: 'account',
-              })
-            }
+            onUpdateBalance={handleUpdateBalance}
+            onRenameAccount={handleRename}
+            onDeleteAccount={handleDelete('account')}
             onCreateAccount={() => setModalState({ type: 'createAccount', accountType: 'account' })}
             onReorder={() => setModalState({ type: 'reorderAccounts' })}
             onManageLinkedAssets={(accountId, accountName) =>
@@ -156,27 +171,16 @@ export default function DashboardView({
           <hr className="border-border" />
 
           {/* Buckets */}
-          <div className="px-4 md:px-10 py-8">
+          <div className={sectionClass}>
             <AccountCards
               snapshot={buckets}
               consolidationCurrency={consolidationCurrency}
               sectionTitle={t('buckets.sectionTitle')}
               addButtonLabel={t('buckets.addBucket')}
               emptyMessage={t('buckets.empty')}
-              onUpdateBalance={(accountId) =>
-                setModalState({ type: 'createBalanceUpdate', preselectedAccountId: accountId })
-              }
-              onRenameAccount={(accountId, currentName) =>
-                setModalState({ type: 'renameAccount', accountId, currentName })
-              }
-              onDeleteAccount={(accountId, name) =>
-                setModalState({
-                  type: 'confirmDeleteAccount',
-                  accountId,
-                  name,
-                  accountType: 'bucket',
-                })
-              }
+              onUpdateBalance={handleUpdateBalance}
+              onRenameAccount={handleRename}
+              onDeleteAccount={handleDelete('bucket')}
               onCreateAccount={() =>
                 setModalState({ type: 'createAccount', accountType: 'bucket' })
               }
@@ -187,7 +191,7 @@ export default function DashboardView({
           <hr className="border-border" />
 
           {/* Assets */}
-          <div className="px-4 md:px-10 py-8">
+          <div className={sectionClass}>
             <AccountCards
               snapshot={assets}
               consolidationCurrency={consolidationCurrency}
@@ -195,33 +199,9 @@ export default function DashboardView({
               addButtonLabel={t('assets.addAsset')}
               emptyMessage={t('assets.empty')}
               updateButtonLabel={t('assets.updateValue')}
-              onUpdateBalance={(accountId) => {
-                const row = assets.find((a) => a.accountId === accountId);
-                if (row?.isCustom) {
-                  setModalState({
-                    type: 'updateAssetValue',
-                    accountId,
-                    accountName: row.accountName,
-                    currencyCode: row.currencyCode,
-                    currencyMinorUnits: row.currencyMinorUnits,
-                    isCustomUnit: true,
-                    balanceMinor: row.balanceMinor,
-                  });
-                } else {
-                  setModalState({ type: 'createBalanceUpdate', preselectedAccountId: accountId });
-                }
-              }}
-              onRenameAccount={(accountId, currentName) =>
-                setModalState({ type: 'renameAccount', accountId, currentName })
-              }
-              onDeleteAccount={(accountId, name) =>
-                setModalState({
-                  type: 'confirmDeleteAccount',
-                  accountId,
-                  name,
-                  accountType: 'asset',
-                })
-              }
+              onUpdateBalance={handleUpdateAssetValue}
+              onRenameAccount={handleRename}
+              onDeleteAccount={handleDelete('asset')}
               onCreateAccount={() => setModalState({ type: 'createAsset' })}
               onReorder={() => setModalState({ type: 'reorderAssets' })}
               allAccounts={accounts}
