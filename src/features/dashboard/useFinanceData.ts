@@ -1,0 +1,68 @@
+import { useState, useCallback, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
+import { toast } from 'sonner';
+import type { EventWithData, SnapshotRow, Currency } from '../../shared/types';
+import { getAccountsSnapshot, listEvents, getConsolidationCurrency } from '../../shared/api';
+import { toEndOfDay, todayIso } from '../../shared/utils/format';
+import { extractErrorMessage } from '../../shared/utils/errors';
+
+export function useFinanceData() {
+  const { t } = useTranslation();
+
+  const [selectedDate, setSelectedDate] = useState(todayIso());
+  const [snapshot, setSnapshot] = useState<SnapshotRow[]>([]);
+  const [events, setEvents] = useState<EventWithData[]>([]);
+  const [consolidationCurrency, setConsolidationCurrency] = useState<Currency | null>(null);
+
+  useEffect(() => {
+    getConsolidationCurrency()
+      .then(setConsolidationCurrency)
+      .catch((err) => console.error('Failed to load consolidation currency:', err));
+  }, []);
+
+  const refresh = useCallback(async () => {
+    try {
+      const endOfDay = toEndOfDay(selectedDate);
+      const [snap, evts] = await Promise.all([
+        getAccountsSnapshot(endOfDay),
+        listEvents(undefined, endOfDay),
+      ]);
+      setSnapshot(snap);
+      setEvents(evts);
+    } catch (err) {
+      toast.error(t('errors.loadData', { error: extractErrorMessage(err) }));
+    }
+  }, [selectedDate, t]);
+
+  useEffect(() => {
+    const load = async () => {
+      await refresh();
+    };
+    load();
+  }, [refresh]);
+
+  const handleConsolidationCurrencyChange = useCallback(async () => {
+    try {
+      const currency = await getConsolidationCurrency();
+      setConsolidationCurrency(currency);
+      await refresh();
+    } catch (err) {
+      console.error('Failed to reload after currency change:', err);
+    }
+  }, [refresh]);
+
+  const missingFxCurrencies = [
+    ...new Set(snapshot.filter((r) => r.fxRateMissing).map((r) => r.currencyCode)),
+  ];
+
+  return {
+    selectedDate,
+    setSelectedDate,
+    snapshot,
+    events,
+    consolidationCurrency,
+    refresh,
+    handleConsolidationCurrencyChange,
+    missingFxCurrencies,
+  };
+}

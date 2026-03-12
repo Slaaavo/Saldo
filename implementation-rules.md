@@ -15,17 +15,28 @@ Purpose: capture general architecture, conventions, and technical guidance for t
 - Formatting/lint: Prettier, ESLint (TS rules), rustfmt, clippy
 - Bundling/CI: Vite build for UI; Tauri build for native bundles
 
-## 2. Project Layout (suggested)
+## 2. Project Layout
 - /src-tauri/  — Rust + SQLite access + Tauri commands
 - /src/           — React + TS UI (Vite)
-  - /src/pages/      — Page-level view components (DashboardView, SettingsPage, FxRatesPage)
-  - /src/hooks/      — Custom React hooks (useFinanceData, useModalManager, useBucketAllocations, useTheme)
-  - /src/components/ — Reusable UI components and modals
-  - /src/api/        — Tauri IPC command wrappers
-  - /src/types/      — TypeScript type definitions (Account, Event, ModalState, etc.)
-  - /src/config/     — Configuration constants (numberFormat, pinned currencies)
-  - /src/utils/      — Utility functions (format, conversion)
+  - /src/app/            — Application shell (App, AppModals, useModalManager, useModalActions)
+  - /src/features/       — Domain feature modules, each containing views, hooks, components, and utils
+    - /src/features/dashboard/    — Main dashboard view, account cards, ledger, metrics
+    - /src/features/accounts/     — Account creation and rename modals
+    - /src/features/buckets/      — Bucket allocation hook, editor, and tooltip display
+    - /src/features/assets/       — Asset/units page, asset modals, unit pricing utils
+    - /src/features/transactions/ — Balance update modals (create, edit, bulk)
+    - /src/features/currency/     — FX rates page, currency select, rate utils
+    - /src/features/settings/     — Settings page, theme/DB/demo hooks, language selector
+  - /src/shared/api/     — Tauri IPC command wrappers
+  - /src/shared/types/   — TypeScript type definitions (Account, Event, ModalState, etc.)
+  - /src/shared/ui/      — Reusable UI components: shadcn/ui primitives + NumberValue, CurrencyInput, ConfirmDialog, ReorderModal
+  - /src/shared/layout/  — App layout components (Header, Sidebar, SaldoLogo)
+  - /src/shared/config/  — Configuration constants (numberFormat, pinned currencies)
+  - /src/shared/utils/   — Utility functions (format, errors)
+  - /src/shared/lib/     — Third-party integration helpers (cn utility for Tailwind class merging)
   - /src/i18n/       — Internationalization (en, sk locales)
+  - /src/styles/     — Global CSS styles
+  - /src/assets/     — Static assets (logos, images)
 - /migrations/ — SQL migration files (one file per migration)
 - /tests/     — Playwright tests
 - package.json, Cargo.toml, vite.config.ts, tauri.conf.json
@@ -47,10 +58,10 @@ Notes:
 ## 4. Monetary arithmetic rules
 - Store and compute in integer minor units. Use 64-bit integers (`i64` / `BigInt` if required in JS).
 - Display formatting divides by the currency's minor unit factor and always shows the appropriate number of decimal places.
-- **Displaying amounts in the UI:** Always use the `<NumberValue>` component (`src/components/NumberValue.tsx`). Never format amounts manually or call `formatAmount` directly in JSX. The component accepts `value` (minor units), an optional `minorUnits` prop (defaults to 2, derived from the currency model), and an optional `config` override for display preferences.
-- Display preferences (currency symbol, position, thousands/decimal separators) are defined in `src/config/numberFormat.ts` as a `NumberFormatConfig` object. The default config uses `€` on the right, space as thousands separator, and dot as decimal separator. This config is designed to be swappable from a future settings UI.
-- **Converting between minor units and display values:** Use the utility functions in `src/utils/format.ts`: `toMinorUnits(decimalStr, minorUnits)` to convert a decimal string to integer minor units, `fromMinorUnits(amountMinor, minorUnits)` to convert back to a decimal string, and `getMinorUnitsStep(minorUnits)` for HTML input `step` attributes. Never use raw `Math.pow(10, minorUnits)` arithmetic inline.
-- **Currency amount inputs:** Use the `<CurrencyInput>` component (`src/components/CurrencyInput.tsx`) for all form inputs that accept monetary amounts. It wraps `<Input>` with an optional currency code suffix overlay. Never recreate the currency suffix pattern inline.
+- **Displaying amounts in the UI:** Always use the `<NumberValue>` component (`src/shared/ui/NumberValue.tsx`). Never format amounts manually or call `formatAmount` directly in JSX. The component accepts `value` (minor units), an optional `minorUnits` prop (defaults to 2, derived from the currency model), and an optional `config` override for display preferences.
+- Display preferences (currency symbol, position, thousands/decimal separators) are defined in `src/shared/config/numberFormat.ts` as a `NumberFormatConfig` object. The default config uses `€` on the right, space as thousands separator, and dot as decimal separator. This config is designed to be swappable from a future settings UI.
+- **Converting between minor units and display values:** Use the utility functions in `src/shared/utils/format.ts`: `toMinorUnits(decimalStr, minorUnits)` to convert a decimal string to integer minor units, `fromMinorUnits(amountMinor, minorUnits)` to convert back to a decimal string, and `getMinorUnitsStep(minorUnits)` for HTML input `step` attributes. Never use raw `Math.pow(10, minorUnits)` arithmetic inline.
+- **Currency amount inputs:** Use the `<CurrencyInput>` component (`src/shared/ui/CurrencyInput.tsx`) for all form inputs that accept monetary amounts. It wraps `<Input>` with an optional currency code suffix overlay. Never recreate the currency suffix pattern inline.
 
 ## 5. Snapshot algorithm (per selected date)
 1. For each account, find the current data of the last non-deleted event: join `event` (with `deleted_at IS NULL`) to its latest `event_data` row (by `event_data.created_at DESC`), filter `event_data.event_date <= selected_datetime`, order by `event_data.event_date DESC, event.created_at DESC`, take the first. When the UI passes just a date, interpret it as end-of-day (`YYYY-MM-DDT23:59:59`) for snapshot purposes.
@@ -89,10 +100,10 @@ API exposed from Rust (Tauri commands):
 ## 9. TypeScript / React guidelines
 - Keep business-critical calculations in Rust; React reads converted values via the command API.
 - Use strict TypeScript (`strict: true`). Define interfaces for `Account`, `Event`, `EventData`, `SnapshotRow`.
-- **Application state:** Business logic and data management is encapsulated in custom hooks (`src/hooks/`). `useFinanceData` owns snapshot/events state and all mutation handlers. `useModalManager` owns modal state via a `ModalState` discriminated union type (defined in `src/types/`). `App.tsx` is a thin composition root that wires hooks to views.
-- **Page vs Component separation:** Page-level views live in `src/pages/` (DashboardView, SettingsPage, FxRatesPage). Reusable UI components and modals live in `src/components/`. Pages compose components; components should not import pages.
+- **Application state:** Business logic and data management is encapsulated in custom hooks. `useFinanceData` (in `src/features/dashboard/useFinanceData`) owns snapshot/events state and all mutation handlers. `useModalManager` (in `src/app/useModalManager`) owns modal state via a `ModalState` discriminated union type (defined in `src/shared/types/`). `App.tsx` is a thin composition root that wires hooks to views.
+- **Feature vs Shared separation:** Page-level views live inside their feature folder (e.g. `src/features/dashboard/DashboardView.tsx`). Reusable UI components live in `src/shared/ui/`. Feature-specific components live in `src/features/<domain>/`. Components should not import across unrelated features; use `src/shared/` for cross-cutting concerns.
 - **Error handling (UI):** Use `toast.error()` from `sonner` for user-facing error messages. Never use `window.alert()`. The `<Toaster>` component is mounted in `App.tsx` with theme-aware configuration.
-- **Shared constants:** App-wide constants (e.g., `PINNED_CURRENCY_CODES`) live in `src/config/constants.ts`. Do not duplicate magic values across components.
+- **Shared constants:** App-wide constants (e.g., `PINNED_CURRENCY_CODES`) live in `src/shared/config/constants.ts`. Do not duplicate magic values across components.
 
 ## 10. Testing
 - Unit tests:
