@@ -3,15 +3,14 @@ use std::sync::atomic::AtomicBool;
 use std::sync::Mutex;
 use tauri::Manager;
 
-mod commands;
 mod config;
 mod db;
 mod demo;
 mod error;
+mod features;
 mod migrations;
-mod models;
 mod oxr;
-mod repository;
+mod shared;
 
 pub struct AppState {
     pub db: Mutex<rusqlite::Connection>,
@@ -43,11 +42,11 @@ pub async fn smart_fetch_fx_rates(
     state: &AppState,
     date: &str,
     force: bool,
-) -> Result<Vec<models::FxRateRow>, error::AppError> {
+) -> Result<Vec<features::currency::FxRateRow>, error::AppError> {
     // 1. Read API key (lock → read → drop).
     let api_key = {
         let conn = state.conn()?;
-        repository::get_app_setting(&conn, "oxr_app_id")?
+        features::settings::repository::get_app_setting(&conn, "oxr_app_id")?
             .filter(|k| !k.is_empty())
             .ok_or_else(|| error::AppError {
                 code: "CONFIG_ERROR".into(),
@@ -58,28 +57,35 @@ pub async fn smart_fetch_fx_rates(
     // 2. Read consolidation currency and active non-consolidation currencies.
     let (consolidation, active_currencies) = {
         let conn = state.conn()?;
-        let consolidation = repository::get_consolidation_currency(&conn)?;
-        let active = repository::get_active_foreign_currencies(&conn, consolidation.id)?;
+        let consolidation = features::currency::repository::get_consolidation_currency(&conn)?;
+        let active =
+            features::currency::repository::get_active_foreign_currencies(&conn, consolidation.id)?;
         (consolidation, active)
     };
 
     // 3. If no active currencies, return stored rates immediately.
     if active_currencies.is_empty() {
         let conn = state.conn()?;
-        return Ok(repository::list_fx_rates(&conn, Some(date))?);
+        return Ok(features::currency::repository::list_fx_rates(
+            &conn,
+            Some(date),
+        )?);
     }
 
     // 4. If not forced, check whether all active currencies already have a rate for this date.
     if !force {
         let conn = state.conn()?;
-        let has_all = repository::has_all_fx_rates_for_date(
+        let has_all = features::currency::repository::has_all_fx_rates_for_date(
             &conn,
             consolidation.id,
             &active_currencies,
             date,
         )?;
         if has_all {
-            return Ok(repository::list_fx_rates(&conn, Some(date))?);
+            return Ok(features::currency::repository::list_fx_rates(
+                &conn,
+                Some(date),
+            )?);
         }
     }
 
@@ -101,12 +107,15 @@ pub async fn smart_fetch_fx_rates(
     // 7. Upsert rates.
     if !rates.is_empty() {
         let conn = state.conn()?;
-        repository::upsert_fx_rates(&conn, &rates)?;
+        features::currency::repository::upsert_fx_rates(&conn, &rates)?;
     }
 
     // 8. Return the stored rates for this date.
     let conn = state.conn()?;
-    Ok(repository::list_fx_rates(&conn, Some(date))?)
+    Ok(features::currency::repository::list_fx_rates(
+        &conn,
+        Some(date),
+    )?)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -152,43 +161,43 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            commands::create_balance_update,
-            commands::get_accounts_snapshot,
-            commands::list_events,
-            commands::create_account,
-            commands::update_account,
-            commands::delete_account,
-            commands::update_event,
-            commands::delete_event,
-            commands::bulk_create_balance_updates,
-            commands::list_currencies,
-            commands::get_consolidation_currency,
-            commands::set_consolidation_currency,
-            commands::set_fx_rate_manual,
-            commands::list_fx_rates,
-            commands::get_app_setting,
-            commands::set_app_setting,
-            commands::get_missing_rate_dates,
-            commands::fetch_fx_rates,
-            commands::create_bucket_allocation,
-            commands::list_bucket_allocations,
-            commands::get_account_allocated_total,
-            commands::check_over_allocation,
-            commands::update_sort_order,
-            commands::enter_demo_mode,
-            commands::exit_demo_mode,
-            commands::is_demo_mode,
-            commands::get_db_location,
-            commands::pick_db_folder,
-            commands::change_db_location,
-            commands::reset_db_location,
-            commands::check_default_db,
-            commands::create_custom_unit,
-            commands::list_custom_units,
-            commands::update_custom_unit,
-            commands::update_asset_value,
-            commands::list_account_asset_links,
-            commands::set_account_asset_links,
+            features::create_balance_update,
+            features::get_accounts_snapshot,
+            features::list_events,
+            features::create_account,
+            features::update_account,
+            features::delete_account,
+            features::update_event,
+            features::delete_event,
+            features::bulk_create_balance_updates,
+            features::list_currencies,
+            features::get_consolidation_currency,
+            features::set_consolidation_currency,
+            features::set_fx_rate_manual,
+            features::list_fx_rates,
+            features::get_app_setting,
+            features::set_app_setting,
+            features::get_missing_rate_dates,
+            features::fetch_fx_rates,
+            features::create_bucket_allocation,
+            features::list_bucket_allocations,
+            features::get_account_allocated_total,
+            features::check_over_allocation,
+            features::update_sort_order,
+            features::enter_demo_mode,
+            features::exit_demo_mode,
+            features::is_demo_mode,
+            features::get_db_location,
+            features::pick_db_folder,
+            features::change_db_location,
+            features::reset_db_location,
+            features::check_default_db,
+            features::create_custom_unit,
+            features::list_custom_units,
+            features::update_custom_unit,
+            features::update_asset_value,
+            features::list_account_asset_links,
+            features::set_account_asset_links,
         ])
         .run({
             let mut ctx = tauri::generate_context!();
@@ -217,7 +226,7 @@ async fn startup_auto_fetch(handle: tauri::AppHandle) {
             Ok(g) => g,
             Err(_) => return,
         };
-        let has_key = repository::get_app_setting(&conn, "oxr_app_id")
+        let has_key = features::settings::repository::get_app_setting(&conn, "oxr_app_id")
             .ok()
             .flatten()
             .map(|k: String| !k.is_empty())
@@ -233,20 +242,21 @@ async fn startup_auto_fetch(handle: tauri::AppHandle) {
             Ok(g) => g,
             Err(_) => return,
         };
-        let consol = match repository::get_consolidation_currency(&conn) {
+        let consol = match features::currency::repository::get_consolidation_currency(&conn) {
             Ok(c) => c,
             Err(e) => {
                 eprintln!("[fx-startup] consolidation lookup failed: {}", e);
                 return;
             }
         };
-        let active = match repository::get_active_foreign_currencies(&conn, consol.id) {
-            Ok(v) => v,
-            Err(e) => {
-                eprintln!("[fx-startup] active currency lookup failed: {}", e);
-                return;
-            }
-        };
+        let active =
+            match features::currency::repository::get_active_foreign_currencies(&conn, consol.id) {
+                Ok(v) => v,
+                Err(e) => {
+                    eprintln!("[fx-startup] active currency lookup failed: {}", e);
+                    return;
+                }
+            };
         (consol.id, active)
     };
 
@@ -266,7 +276,11 @@ async fn startup_auto_fetch(handle: tauri::AppHandle) {
 
         let mut needed: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
         for (_, id) in &active_currencies {
-            let latest = match repository::get_latest_fx_rate_date(&conn, consolidation_id, *id) {
+            let latest = match features::currency::repository::get_latest_fx_rate_date(
+                &conn,
+                consolidation_id,
+                *id,
+            ) {
                 Ok(d) => d,
                 Err(e) => {
                     eprintln!("[fx-startup] get_latest_fx_rate_date error: {}", e);
@@ -313,7 +327,7 @@ async fn startup_auto_fetch(handle: tauri::AppHandle) {
             Ok(g) => g,
             Err(_) => return,
         };
-        match repository::get_dates_needing_fx_rates(&conn, consolidation_id) {
+        match features::currency::repository::get_dates_needing_fx_rates(&conn, consolidation_id) {
             Ok(v) => v,
             Err(e) => {
                 eprintln!("[fx-startup] get_dates_needing_fx_rates error: {}", e);

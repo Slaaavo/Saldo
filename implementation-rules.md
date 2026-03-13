@@ -17,6 +17,23 @@ Purpose: capture general architecture, conventions, and technical guidance for t
 
 ## 2. Project Layout
 - /src-tauri/  — Rust + SQLite access + Tauri commands
+  - src-tauri/src/features/  — 6 domain modules, each with commands.rs, repository.rs, and optionally models.rs
+    - features/accounts/     — Account CRUD, account type management
+    - features/transactions/ — Balance update events (create, edit, delete, bulk, snapshot)
+    - features/buckets/      — Bucket allocation commands and repository
+    - features/currency/     — Currency list, FX rates, consolidation currency
+    - features/assets/       — Custom asset units, asset pricing, account-asset links
+    - features/settings/     — App settings (language, theme, demo mode config)
+  - src-tauri/src/shared/    — Shared helper utilities re-exported at the `crate::shared` level
+    - helpers.rs             — `with_savepoint`, `with_savepoint_app`, `local_now`, `convert_balance`, `validate_event_date`
+  - src-tauri/src/ (root files) — Infrastructure modules
+    - error.rs       — `AppError` type and `From` conversions
+    - db.rs          — SQLite connection setup
+    - config.rs      — Runtime configuration (DB path, demo mode flag)
+    - demo.rs        — Demo mode seed and teardown logic
+    - migrations.rs  — SQL migration runner
+    - oxr.rs         — Open Exchange Rates client and decimal parsing utilities
+    - lib.rs         — `AppState`, Tauri app setup, and FX rate orchestration
 - /src/           — React + TS UI (Vite)
   - /src/app/            — Application shell (App, AppModals, useModalManager, useModalActions)
   - /src/features/       — Domain feature modules, each containing views, hooks, components, and utils
