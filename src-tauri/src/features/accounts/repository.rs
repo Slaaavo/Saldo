@@ -243,8 +243,8 @@ mod tests {
         delete_account(&conn, account_id).unwrap();
         let snapshot = get_accounts_snapshot(&conn, "2099-12-31T23:59:59").unwrap();
         assert!(snapshot.iter().all(|r| r.account_id != account_id));
-        let events = list_events(&conn, Some(account_id), None).unwrap();
-        assert_eq!(events.len(), 0);
+        let result = list_events(&conn, Some(account_id), None, None, None, None).unwrap();
+        assert_eq!(result.events.len(), 0);
     }
 
     #[test]
@@ -284,8 +284,8 @@ mod tests {
         assert!(snapshot.iter().all(|r| r.account_id != account_id));
 
         // Events must be gone
-        let events = list_events(&conn, Some(account_id), None).unwrap();
-        assert_eq!(events.len(), 0);
+        let result = list_events(&conn, Some(account_id), None, None, None, None).unwrap();
+        assert_eq!(result.events.len(), 0);
 
         // fx_rate rows for the custom unit must be cleaned up
         let fx_count: i64 = conn

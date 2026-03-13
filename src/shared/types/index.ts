@@ -68,6 +68,11 @@ export interface EventWithData {
   currencyMinorUnits: number;
 }
 
+export interface ListEventsResult {
+  events: EventWithData[];
+  totalCount: number;
+}
+
 export interface AllocationDetail {
   bucketId: number;
   bucketName: string;

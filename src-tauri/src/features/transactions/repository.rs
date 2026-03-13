@@ -7,7 +7,7 @@ use crate::features::currency::repository::{
 use crate::shared::{convert_balance, local_now, with_savepoint};
 use rusqlite::{params, Connection, OptionalExtension};
 
-use super::models::{EventWithData, SnapshotRow};
+use super::models::{EventWithData, ListEventsResult, SnapshotRow};
 
 type SnapshotRawRow = (i64, String, String, i64, String, i64, i64, i64);
 
@@ -107,10 +107,57 @@ pub fn delete_event(conn: &Connection, event_id: i64) -> rusqlite::Result<()> {
 pub fn list_events(
     conn: &Connection,
     account_id: Option<i64>,
+    account_ids: Option<&[i64]>,
     before_date: Option<&str>,
-) -> rusqlite::Result<Vec<EventWithData>> {
-    let sql = "
-        SELECT
+    from_date: Option<&str>,
+    limit: Option<i64>,
+) -> rusqlite::Result<ListEventsResult> {
+    let base = "FROM event e
+        JOIN account a ON a.id = e.account_id
+        JOIN currency c ON c.id = a.currency_id
+        JOIN event_data ed ON ed.id = e.latest_data_id
+        WHERE e.deleted_at IS NULL";
+
+    let mut where_suffix = String::new();
+    let mut params: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+
+    // account_ids multi-select filter: non-empty slice takes precedence over account_id
+    let use_multi = account_ids.is_some_and(|ids| !ids.is_empty());
+    if use_multi {
+        let ids = account_ids.unwrap();
+        let placeholders = std::iter::repeat_n("?", ids.len())
+            .collect::<Vec<_>>()
+            .join(", ");
+        where_suffix.push_str(&format!(" AND e.account_id IN ({placeholders})"));
+        for &id in ids {
+            params.push(Box::new(id));
+        }
+    } else if let Some(id) = account_id {
+        where_suffix.push_str(" AND e.account_id = ?");
+        params.push(Box::new(id));
+    }
+
+    if let Some(bd) = before_date {
+        where_suffix.push_str(" AND ed.event_date <= ?");
+        params.push(Box::new(bd.to_owned()));
+    }
+
+    if let Some(fd) = from_date {
+        where_suffix.push_str(" AND ed.event_date >= ?");
+        params.push(Box::new(fd.to_owned()));
+    }
+
+    // Count query: same conditions, no ORDER BY or LIMIT
+    let count_sql = format!("SELECT COUNT(*) {}{}", base, where_suffix);
+    let total_count: i64 = conn.query_row(
+        &count_sql,
+        rusqlite::params_from_iter(params.iter()),
+        |row| row.get(0),
+    )?;
+
+    // Events query: add ORDER BY and optional LIMIT
+    let mut sql = format!(
+        "SELECT
           e.id,
           e.account_id,
           a.name AS account_name,
@@ -122,18 +169,18 @@ pub fn list_events(
           e.created_at,
           c.code AS currency_code,
           c.minor_units AS currency_minor_units
-        FROM event e
-        JOIN account a ON a.id = e.account_id
-        JOIN currency c ON c.id = a.currency_id
-        JOIN event_data ed ON ed.id = e.latest_data_id
-        WHERE e.deleted_at IS NULL
-          AND (?1 IS NULL OR e.account_id = ?1)
-          AND (?2 IS NULL OR ed.event_date <= ?2)
-        ORDER BY ed.event_date DESC, e.created_at DESC
-    ";
+        {}{}",
+        base, where_suffix
+    );
+    sql.push_str(" ORDER BY ed.event_date DESC, e.created_at DESC");
 
-    let mut stmt = conn.prepare(sql)?;
-    let rows = stmt.query_map(params![account_id, before_date], |row| {
+    if let Some(lim) = limit {
+        sql.push_str(" LIMIT ?");
+        params.push(Box::new(lim));
+    }
+
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(rusqlite::params_from_iter(params.iter()), |row| {
         Ok(EventWithData {
             id: row.get(0)?,
             account_id: row.get(1)?,
@@ -149,7 +196,12 @@ pub fn list_events(
         })
     })?;
 
-    rows.collect()
+    let events = rows.collect::<rusqlite::Result<Vec<_>>>()?;
+
+    Ok(ListEventsResult {
+        events,
+        total_count,
+    })
 }
 
 pub fn get_accounts_snapshot(
@@ -456,8 +508,8 @@ mod tests {
         let account_id = mk_account(&conn);
         create_balance_update(&conn, account_id, 1000, "2026-01-01", None).unwrap();
         create_balance_update(&conn, account_id, 2000, "2026-02-01", None).unwrap();
-        let events = list_events(&conn, None, None).unwrap();
-        assert_eq!(events.len(), 2);
+        let result = list_events(&conn, None, None, None, None, None).unwrap();
+        assert_eq!(result.events.len(), 2);
     }
 
     #[test]
@@ -468,13 +520,13 @@ mod tests {
         create_balance_update(&conn, acc1, 1000, "2026-01-01", None).unwrap();
         create_balance_update(&conn, acc2, 2000, "2026-02-01", None).unwrap();
 
-        let events_acc1 = list_events(&conn, Some(acc1), None).unwrap();
-        assert_eq!(events_acc1.len(), 1);
-        assert_eq!(events_acc1[0].account_id, acc1);
+        let result_acc1 = list_events(&conn, Some(acc1), None, None, None, None).unwrap();
+        assert_eq!(result_acc1.events.len(), 1);
+        assert_eq!(result_acc1.events[0].account_id, acc1);
 
-        let events_acc2 = list_events(&conn, Some(acc2), None).unwrap();
-        assert_eq!(events_acc2.len(), 1);
-        assert_eq!(events_acc2[0].account_id, acc2);
+        let result_acc2 = list_events(&conn, Some(acc2), None, None, None, None).unwrap();
+        assert_eq!(result_acc2.events.len(), 1);
+        assert_eq!(result_acc2.events[0].account_id, acc2);
     }
 
     #[test]
@@ -483,9 +535,10 @@ mod tests {
         let account_id = mk_account(&conn);
         create_balance_update(&conn, account_id, 1000, "2026-01-15", None).unwrap();
         create_balance_update(&conn, account_id, 2000, "2026-03-15", None).unwrap();
-        let events = list_events(&conn, None, Some("2026-02-01T23:59:59")).unwrap();
-        assert_eq!(events.len(), 1);
-        assert_eq!(events[0].amount_minor, 1000);
+        let result =
+            list_events(&conn, None, None, Some("2026-02-01T23:59:59"), None, None).unwrap();
+        assert_eq!(result.events.len(), 1);
+        assert_eq!(result.events[0].amount_minor, 1000);
     }
 
     #[test]
@@ -523,15 +576,16 @@ mod tests {
         let conn = initialize_in_memory().expect("DB init failed");
         let bucket_id = create_account(&conn, "Test Bucket", 1, "bucket", None, None).unwrap();
         create_balance_update(&conn, bucket_id, 5000, "2026-03-01", None).unwrap();
-        let events = list_events(&conn, Some(bucket_id), None).unwrap();
-        assert_eq!(events.len(), 1);
-        assert_eq!(events[0].account_type, "bucket");
+        let result = list_events(&conn, Some(bucket_id), None, None, None, None).unwrap();
+        assert_eq!(result.events.len(), 1);
+        assert_eq!(result.events[0].account_type, "bucket");
 
         let empty_account_id =
             create_account(&conn, "Empty Account", 1, "account", None, None).unwrap();
-        let events_empty = list_events(&conn, Some(empty_account_id), None).unwrap();
+        let result_empty =
+            list_events(&conn, Some(empty_account_id), None, None, None, None).unwrap();
         // Account with no balance updates has no events
-        assert_eq!(events_empty.len(), 0);
+        assert_eq!(result_empty.events.len(), 0);
     }
 
     #[test]
@@ -612,8 +666,22 @@ mod tests {
         let conn = initialize_in_memory().expect("DB init failed");
         let account_id = mk_account(&conn);
         create_balance_update(&conn, account_id, 5000, "2026-03-01", None).unwrap();
-        let events = list_events(&conn, Some(account_id), None).unwrap();
-        assert_eq!(events[0].currency_code, "EUR");
-        assert_eq!(events[0].currency_minor_units, 2);
+        let result = list_events(&conn, Some(account_id), None, None, None, None).unwrap();
+        assert_eq!(result.events[0].currency_code, "EUR");
+        assert_eq!(result.events[0].currency_minor_units, 2);
+    }
+
+    #[test]
+    fn list_events_returns_correct_total_count_with_limit() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let account_id = mk_account(&conn);
+        create_balance_update(&conn, account_id, 1000, "2026-01-01", None).unwrap();
+        create_balance_update(&conn, account_id, 2000, "2026-02-01", None).unwrap();
+        create_balance_update(&conn, account_id, 3000, "2026-03-01", None).unwrap();
+        create_balance_update(&conn, account_id, 4000, "2026-04-01", None).unwrap();
+        create_balance_update(&conn, account_id, 5000, "2026-05-01", None).unwrap();
+        let result = list_events(&conn, None, None, None, None, Some(2)).unwrap();
+        assert_eq!(result.events.len(), 2);
+        assert_eq!(result.total_count, 5);
     }
 }

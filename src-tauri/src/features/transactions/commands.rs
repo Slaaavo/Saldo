@@ -3,7 +3,7 @@ use crate::AppState;
 use serde::Deserialize;
 use tauri::State;
 
-use super::models::{EventWithData, SnapshotRow};
+use super::models::{ListEventsResult, SnapshotRow};
 use super::repository;
 
 #[derive(Deserialize)]
@@ -28,7 +28,10 @@ pub struct UpdateEventInput {
 #[serde(rename_all = "camelCase")]
 pub struct ListEventsFilter {
     pub account_id: Option<i64>,
+    pub account_ids: Option<Vec<i64>>,
     pub before_date: Option<String>,
+    pub from_date: Option<String>,
+    pub limit: Option<i64>,
 }
 
 #[derive(Deserialize)]
@@ -82,10 +85,17 @@ pub fn get_accounts_snapshot(
 pub fn list_events(
     state: State<'_, AppState>,
     filter: ListEventsFilter,
-) -> Result<Vec<EventWithData>, AppError> {
+) -> Result<ListEventsResult, AppError> {
     let conn = state.conn()?;
-    let events = repository::list_events(&conn, filter.account_id, filter.before_date.as_deref())?;
-    Ok(events)
+    let result = repository::list_events(
+        &conn,
+        filter.account_id,
+        filter.account_ids.as_deref(),
+        filter.before_date.as_deref(),
+        filter.from_date.as_deref(),
+        filter.limit,
+    )?;
+    Ok(result)
 }
 
 #[tauri::command]

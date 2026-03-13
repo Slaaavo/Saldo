@@ -53,11 +53,16 @@ vi.mock('./AccountCards', () => ({
 }));
 
 vi.mock('./Ledger', () => ({
-  default: (props: { onUpdateBalances: () => void }) => (
+  default: (props: { onUpdateBalances: () => void; onViewAll?: () => void }) => (
     <div data-testid="ledger">
       <button data-testid="update-balances-btn" onClick={props.onUpdateBalances}>
         Update
       </button>
+      {props.onViewAll && (
+        <button data-testid="view-all-btn" onClick={props.onViewAll}>
+          View all
+        </button>
+      )}
     </div>
   ),
 }));
@@ -152,6 +157,7 @@ function makeProps(overrides?: DefaultPropsOptions) {
     buckets,
     assets,
     events,
+    totalEvents: 0,
     consolidationCurrency: EUR,
     totalMinor: overrides?.totalMinor ?? 100000,
     leftToSpendMinor: overrides?.leftToSpendMinor ?? 50000,
@@ -161,6 +167,7 @@ function makeProps(overrides?: DefaultPropsOptions) {
     setModalState: vi.fn() as ReturnType<typeof vi.fn> & ((state: ModalState) => void),
     isDemoMode: overrides?.isDemoMode ?? false,
     onEnterDemoMode: vi.fn(),
+    onNavigate: vi.fn(),
   };
 }
 
@@ -382,6 +389,14 @@ describe('DashboardView', () => {
       render(<DashboardView {...props} />);
       await user.click(screen.getByTestId('update-balances-btn'));
       expect(props.setModalState).toHaveBeenCalledWith({ type: 'bulkUpdateBalance' });
+    });
+
+    it('calls onNavigate with "ledger" when View all is clicked', async () => {
+      const user = userEvent.setup();
+      const props = makeProps();
+      render(<DashboardView {...props} />);
+      await user.click(screen.getByTestId('view-all-btn'));
+      expect(props.onNavigate).toHaveBeenCalledWith('ledger');
     });
   });
 

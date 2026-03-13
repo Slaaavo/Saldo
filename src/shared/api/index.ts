@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import type {
   SnapshotRow,
-  EventWithData,
+  ListEventsResult,
   Currency,
   FxRateRow,
   BucketAllocation,
@@ -31,14 +31,22 @@ export async function getAccountsSnapshot(dateIso: string): Promise<SnapshotRow[
   return invoke('get_accounts_snapshot', { dateIso });
 }
 
-export async function listEvents(
-  accountId?: number,
-  beforeDate?: string,
-): Promise<EventWithData[]> {
+export interface ListEventsFilter {
+  accountId?: number;
+  accountIds?: number[];
+  beforeDate?: string;
+  fromDate?: string;
+  limit?: number;
+}
+
+export async function listEvents(filter?: ListEventsFilter): Promise<ListEventsResult> {
   return invoke('list_events', {
     filter: {
-      accountId: accountId ?? null,
-      beforeDate: beforeDate ?? null,
+      accountId: filter?.accountId ?? null,
+      accountIds: filter?.accountIds ?? null,
+      beforeDate: filter?.beforeDate ?? null,
+      fromDate: filter?.fromDate ?? null,
+      limit: filter?.limit ?? null,
     },
   });
 }

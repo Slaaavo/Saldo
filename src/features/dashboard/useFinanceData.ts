@@ -6,12 +6,15 @@ import { getAccountsSnapshot, listEvents, getConsolidationCurrency } from '../..
 import { toEndOfDay, todayIso } from '../../shared/utils/format';
 import { extractErrorMessage } from '../../shared/utils/errors';
 
+const DASHBOARD_LEDGER_LIMIT = 20;
+
 export function useFinanceData() {
   const { t } = useTranslation();
 
   const [selectedDate, setSelectedDate] = useState(todayIso());
   const [snapshot, setSnapshot] = useState<SnapshotRow[]>([]);
   const [events, setEvents] = useState<EventWithData[]>([]);
+  const [totalEvents, setTotalEvents] = useState<number>(0);
   const [consolidationCurrency, setConsolidationCurrency] = useState<Currency | null>(null);
 
   useEffect(() => {
@@ -23,12 +26,13 @@ export function useFinanceData() {
   const refresh = useCallback(async () => {
     try {
       const endOfDay = toEndOfDay(selectedDate);
-      const [snap, evts] = await Promise.all([
+      const [snap, { events: evts, totalCount }] = await Promise.all([
         getAccountsSnapshot(endOfDay),
-        listEvents(undefined, endOfDay),
+        listEvents({ beforeDate: endOfDay, limit: DASHBOARD_LEDGER_LIMIT }),
       ]);
       setSnapshot(snap);
       setEvents(evts);
+      setTotalEvents(totalCount);
     } catch (err) {
       toast.error(t('errors.loadData', { error: extractErrorMessage(err) }));
     }
@@ -60,6 +64,7 @@ export function useFinanceData() {
     setSelectedDate,
     snapshot,
     events,
+    totalEvents,
     consolidationCurrency,
     refresh,
     handleConsolidationCurrencyChange,

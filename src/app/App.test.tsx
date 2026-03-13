@@ -113,6 +113,7 @@ function defaultFinanceData(overrides?: Partial<typeof financeDataReturn>) {
     setSelectedDate: mockSetSelectedDate,
     snapshot: [] as SnapshotRow[],
     events: [] as EventWithData[],
+    totalEvents: 0,
     consolidationCurrency: EUR,
     refresh: mockRefresh,
     handleConsolidationCurrencyChange: mockHandleConsolidationCurrencyChange,

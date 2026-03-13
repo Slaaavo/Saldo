@@ -2,6 +2,7 @@
 sidebar:
   appName: "Saldo"
   dashboard: "Dashboard"
+  ledger: "Ledger"
   settings: "Settings"
   fxRates: "FX Rates"
   units: "Units"
@@ -62,6 +63,18 @@ ledger:
   updateBalances: Update Balances
   empty: No events to display.
   valueUpdate: Value update
+  viewAll: "Showing {{shown}} of {{total}} events. View all"
+
+# ──── Ledger Page ────
+ledgerPage:
+  title: "Ledger"
+  filterFrom: "From"
+  filterTo: "To"
+  portfolioItem: "Portfolio Item"
+  portfolioItemCount: "Portfolio Item ({{count}})"
+  groupAccounts: "Accounts"
+  groupBuckets: "Buckets"
+  groupAssets: "Assets"
 
 # ──── Modals ────
 modals:

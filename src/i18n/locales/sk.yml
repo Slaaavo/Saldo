@@ -2,6 +2,7 @@
 sidebar:
   appName: "Saldo"
   dashboard: "Prehľad"
+  ledger: "Kniha"
   settings: "Nastavenia"
   fxRates: "Výmenné kurzy"
   units: "Jednotky"
@@ -61,6 +62,18 @@ ledger:
   updateBalances: Aktualizovať zostatky
   empty: Žiadne udalosti na zobrazenie.
   valueUpdate: Aktualizácia hodnoty
+  viewAll: "Zobrazených {{shown}} z {{total}} udalostí. Zobraziť všetko"
+
+# ──── Stránka účtovnéj knihy ────
+ledgerPage:
+  title: "Účtovná kniha"
+  filterFrom: "Od"
+  filterTo: "Do"
+  portfolioItem: "Položka portfólia"
+  portfolioItemCount: "Položka portfólia ({{count}})"
+  groupAccounts: "Účty"
+  groupBuckets: "Obálky"
+  groupAssets: "Aktíva"
 
 # ──── Modálne okná ────
 modals:

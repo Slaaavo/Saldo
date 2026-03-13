@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { CalendarIcon } from 'lucide-react';
+import { CalendarIcon, X } from 'lucide-react';
 
 import { cn } from '@/shared/lib/utils';
 import { formatDisplayDate, todayIso } from '@/shared/utils/format';
@@ -9,11 +9,12 @@ import { Calendar } from './calendar';
 import { Popover, PopoverContent, PopoverTrigger } from './popover';
 
 interface DatePickerProps {
-  value: string;
+  value: string | undefined;
   onChange: (date: string) => void;
   placeholder?: string;
   id?: string;
   className?: string;
+  clearable?: boolean;
 }
 
 function parseIsoDate(iso: string): Date {
@@ -34,6 +35,7 @@ export function DatePicker({
   placeholder = 'Pick a date',
   id,
   className,
+  clearable = false,
 }: DatePickerProps) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
@@ -53,7 +55,28 @@ export function DatePicker({
           )}
         >
           {value ? formatDisplayDate(value) : <span>{placeholder}</span>}
-          <CalendarIcon className="ml-auto size-4 opacity-50" />
+          {clearable && value ? (
+            <span
+              role="button"
+              aria-label="Clear date"
+              tabIndex={0}
+              className="ml-auto opacity-50 hover:opacity-100"
+              onClick={(e) => {
+                e.stopPropagation();
+                onChange('');
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.stopPropagation();
+                  onChange('');
+                }
+              }}
+            >
+              <X className="size-4" />
+            </span>
+          ) : (
+            <CalendarIcon className="ml-auto size-4 opacity-50" />
+          )}
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-auto p-0">

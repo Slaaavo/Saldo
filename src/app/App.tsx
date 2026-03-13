@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import Header from '../shared/layout/Header';
 import AppModals from './AppModals';
@@ -13,11 +13,13 @@ import { useDbLocation } from '../features/settings/useDbLocation';
 import { useDemoMode } from '../features/settings/useDemoMode';
 import DashboardView from '../features/dashboard/DashboardView';
 import DemoModeBanner from '../features/settings/DemoModeBanner';
+import LedgerPage from '../features/ledger/LedgerPage';
 import { Toaster } from 'sonner';
 import { computeDashboardMetrics } from '../features/dashboard/dashboardMetrics';
 
 const PAGE_TITLES: Record<string, string> = {
   dashboard: 'sidebar.dashboard',
+  ledger: 'sidebar.ledger',
   'fx-rates': 'sidebar.fxRates',
   units: 'sidebar.units',
   settings: 'sidebar.settings',
@@ -27,21 +29,28 @@ function App() {
   const { t } = useTranslation();
   const { theme, themePreference, setThemePreference } = useTheme();
   const { modalState, setModalState, closeModal } = useModalManager();
-  const [currentView, setCurrentView] = useState<'dashboard' | 'fx-rates' | 'units' | 'settings'>(
-    'dashboard',
-  );
+  const [currentView, setCurrentView] = useState<
+    'dashboard' | 'ledger' | 'fx-rates' | 'units' | 'settings'
+  >('dashboard');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [ledgerRefreshCounter, setLedgerRefreshCounter] = useState(0);
 
   const {
     selectedDate,
     setSelectedDate,
     snapshot,
     events,
+    totalEvents,
     consolidationCurrency,
     refresh,
     handleConsolidationCurrencyChange,
     missingFxCurrencies,
   } = useFinanceData();
+
+  const refreshAll = useCallback(async () => {
+    await refresh();
+    setLedgerRefreshCounter((c) => c + 1);
+  }, [refresh]);
 
   const dbLocation = useDbLocation({
     setModalState,
@@ -102,6 +111,15 @@ function App() {
                     />
                   )}
 
+                  {currentView === 'ledger' && (
+                    <LedgerPage
+                      snapshot={snapshot}
+                      consolidationCurrency={consolidationCurrency}
+                      setModalState={setModalState}
+                      refreshTrigger={ledgerRefreshCounter}
+                    />
+                  )}
+
                   {currentView === 'dashboard' && (
                     <DashboardView
                       snapshot={snapshot}
@@ -109,6 +127,7 @@ function App() {
                       buckets={buckets}
                       assets={assets}
                       events={events}
+                      totalEvents={totalEvents}
                       consolidationCurrency={consolidationCurrency}
                       totalMinor={liquidMinor}
                       leftToSpendMinor={leftToSpendMinor}
@@ -118,6 +137,11 @@ function App() {
                       setModalState={setModalState}
                       isDemoMode={demo.isDemoMode}
                       onEnterDemoMode={demo.handleEnter}
+                      onNavigate={(v) =>
+                        setCurrentView(
+                          v as 'dashboard' | 'ledger' | 'fx-rates' | 'units' | 'settings',
+                        )
+                      }
                     />
                   )}
                 </div>
@@ -135,7 +159,7 @@ function App() {
             assets={assets}
             selectedDate={selectedDate}
             consolidationCurrency={consolidationCurrency}
-            refresh={refresh}
+            refresh={refreshAll}
             dbLocation={dbLocation}
           />
         </div>

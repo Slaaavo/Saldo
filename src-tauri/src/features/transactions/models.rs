@@ -21,6 +21,13 @@ pub struct EventWithData {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
+pub struct ListEventsResult {
+    pub events: Vec<EventWithData>,
+    pub total_count: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct SnapshotRow {
     pub account_id: i64,
     pub account_name: String,

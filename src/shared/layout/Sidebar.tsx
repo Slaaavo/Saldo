@@ -7,6 +7,7 @@ import {
   ChevronsLeft,
   ChevronsRight,
   Layers,
+  BookOpen,
 } from 'lucide-react';
 import { cn } from '@/shared/lib/utils';
 import SaldoLogo from './SaldoLogo';
@@ -14,8 +15,8 @@ import saldoLogotype from '@/assets/Saldo logotype transparent.svg';
 import saldoLogotypeDark from '@/assets/Saldo logotype transparent dark.svg';
 
 interface SidebarProps {
-  currentView: 'dashboard' | 'fx-rates' | 'units' | 'settings';
-  onNavigate: (view: 'dashboard' | 'fx-rates' | 'units' | 'settings') => void;
+  currentView: 'dashboard' | 'ledger' | 'fx-rates' | 'units' | 'settings';
+  onNavigate: (view: 'dashboard' | 'ledger' | 'fx-rates' | 'units' | 'settings') => void;
   collapsed: boolean;
   onToggleCollapse: () => void;
 }
@@ -33,6 +34,7 @@ export default function Sidebar({
 
   const navItems = [
     { view: 'dashboard' as const, icon: LayoutDashboard, label: t('sidebar.dashboard') },
+    { view: 'ledger' as const, icon: BookOpen, label: t('sidebar.ledger') },
     { view: 'settings' as const, icon: Settings, label: t('sidebar.settings') },
     { view: 'fx-rates' as const, icon: ArrowLeftRight, label: t('sidebar.fxRates') },
     { view: 'units' as const, icon: Layers, label: t('sidebar.units') },

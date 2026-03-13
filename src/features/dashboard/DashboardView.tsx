@@ -12,6 +12,7 @@ interface Props {
   buckets: SnapshotRow[];
   assets: SnapshotRow[];
   events: EventWithData[];
+  totalEvents: number;
   consolidationCurrency: Currency | null;
   totalMinor: number;
   leftToSpendMinor: number;
@@ -21,6 +22,7 @@ interface Props {
   setModalState: (state: ModalState) => void;
   isDemoMode: boolean;
   onEnterDemoMode: () => void;
+  onNavigate: (view: string) => void;
 }
 
 function MetricCard({
@@ -62,6 +64,7 @@ export default function DashboardView({
   buckets,
   assets,
   events,
+  totalEvents,
   consolidationCurrency,
   totalMinor,
   leftToSpendMinor,
@@ -71,6 +74,7 @@ export default function DashboardView({
   setModalState,
   isDemoMode,
   onEnterDemoMode,
+  onNavigate,
 }: Props) {
   const { t } = useTranslation();
 
@@ -217,6 +221,8 @@ export default function DashboardView({
               onEditEvent={(event) => setModalState({ type: 'editBalanceUpdate', event })}
               onDeleteEvent={(eventId) => setModalState({ type: 'confirmDeleteEvent', eventId })}
               onUpdateBalances={() => setModalState({ type: 'bulkUpdateBalance' })}
+              totalEvents={totalEvents}
+              onViewAll={() => onNavigate('ledger')}
             />
           </div>
         </>
