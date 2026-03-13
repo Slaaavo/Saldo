@@ -187,6 +187,15 @@ modals:
     cancel: Cancel
     save: Save
 
+  bulkUpdateVisibility:
+    title: "Bulk Update Visibility"
+    selectAll: "Select All"
+    accountsSection: "Accounts"
+    bucketsSection: "Buckets"
+    assetsSection: "Assets"
+    cancel: "Cancel"
+    save: "Save"
+
 # ──── Shared ────
 common:
   account: account
@@ -211,6 +220,11 @@ settings:
     light: "Light"
     dark: "Dark"
     system: "System"
+  bulkUpdateVisibility:
+    title: "Bulk Update Visibility"
+    desc: "Configure which items appear in the bulk update balance modal."
+    allIncluded: "All accounts, buckets, and assets"
+    edit: "Edit"
 
 # ──── FX Rates screen ────
 fxRates:
@@ -278,6 +292,7 @@ errors:
   overAllocation: "Allocation exceeds available balance."
   setAccountAssetLinks: "Failed to save asset links: {{error}}"
   updateAssetValue: "Failed to update asset value: {{error}}"
+  bulkUpdateVisibility: "Failed to save bulk update visibility: {{error}}"
 
 # ──── Language selector ────
 language:

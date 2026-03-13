@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import Header from '../shared/layout/Header';
 import AppModals from './AppModals';
@@ -16,6 +16,7 @@ import DemoModeBanner from '../features/settings/DemoModeBanner';
 import LedgerPage from '../features/ledger/LedgerPage';
 import { Toaster } from 'sonner';
 import { computeDashboardMetrics } from '../features/dashboard/dashboardMetrics';
+import { getBulkUpdateExclusions } from '../shared/api';
 
 const PAGE_TITLES: Record<string, string> = {
   dashboard: 'sidebar.dashboard',
@@ -34,6 +35,19 @@ function App() {
   >('dashboard');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [ledgerRefreshCounter, setLedgerRefreshCounter] = useState(0);
+  const [bulkUpdateExclusions, setBulkUpdateExclusions] = useState<number[]>([]);
+
+  useEffect(() => {
+    getBulkUpdateExclusions()
+      .then(setBulkUpdateExclusions)
+      .catch(() => {});
+  }, []);
+
+  const reloadExclusions = useCallback(() => {
+    getBulkUpdateExclusions()
+      .then(setBulkUpdateExclusions)
+      .catch(() => {});
+  }, []);
 
   const {
     selectedDate,
@@ -108,6 +122,9 @@ function App() {
                       dbLocationIsDefault={dbLocation.isDefault}
                       onChangeDbLocation={dbLocation.handleChange}
                       onResetDbLocation={dbLocation.handleReset}
+                      snapshot={snapshot}
+                      exclusions={bulkUpdateExclusions}
+                      onExclusionsChange={reloadExclusions}
                     />
                   )}
 
@@ -161,6 +178,7 @@ function App() {
             consolidationCurrency={consolidationCurrency}
             refresh={refreshAll}
             dbLocation={dbLocation}
+            exclusions={bulkUpdateExclusions}
           />
         </div>
       </div>

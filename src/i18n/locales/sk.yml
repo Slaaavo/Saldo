@@ -186,6 +186,15 @@ modals:
     cancel: Zrušiť
     save: Uložiť
 
+  bulkUpdateVisibility:
+    title: "Viditeľnosť hromadnej aktualizácie"
+    selectAll: "Vybrať všetko"
+    accountsSection: "Účty"
+    bucketsSection: "Obálky"
+    assetsSection: "Aktíva"
+    cancel: "Zrušiť"
+    save: "Uložiť"
+
 # ──── Spoločné ────
 common:
   account: účet
@@ -228,6 +237,11 @@ settings:
     light: "Svetlá"
     dark: "Tmavá"
     system: "Systémová"
+  bulkUpdateVisibility:
+    title: "Viditeľnosť hromadnej aktualizácie"
+    desc: "Nastavte, ktoré položky sa zobrazujú v modálnom okne hromadnej aktualizácie zostatkov."
+    allIncluded: "Všetky účty, obálky a aktíva"
+    edit: "Upraviť"
 
 # ──── Kurzy mien ────
 fxRates:
@@ -275,6 +289,7 @@ errors:
   overAllocation: "Alokácia prekračuje dostupný zostatok."
   setAccountAssetLinks: "Nepodarilo sa uložiť prepojenia aktív: {{error}}"
   updateAssetValue: "Nepodarilo sa aktualizovať hodnotu aktíva: {{error}}"
+  bulkUpdateVisibility: "Nepodarilo sa uložiť viditeľnosť hromadnej aktualizácie: {{error}}"
 
 # ──── Uložisko dát ────
 dataStorage:

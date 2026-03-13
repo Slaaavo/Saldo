@@ -198,6 +198,8 @@ pub fn run() {
             features::update_asset_value,
             features::list_account_asset_links,
             features::set_account_asset_links,
+            features::get_bulk_update_exclusions,
+            features::set_bulk_update_exclusions,
         ])
         .run({
             let mut ctx = tauri::generate_context!();

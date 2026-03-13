@@ -256,3 +256,11 @@ export async function listAccountAssetLinks(accountId?: number): Promise<Account
 export async function setAccountAssetLinks(accountId: number, assetIds: number[]): Promise<void> {
   return invoke('set_account_asset_links', { input: { accountId, assetIds } });
 }
+
+export async function getBulkUpdateExclusions(): Promise<number[]> {
+  return invoke('get_bulk_update_exclusions');
+}
+
+export async function setBulkUpdateExclusions(accountIds: number[]): Promise<void> {
+  return invoke('set_bulk_update_exclusions', { accountIds });
+}

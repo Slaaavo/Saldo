@@ -23,6 +23,7 @@ import { DatePicker } from '../../shared/ui/date-picker';
 interface Props {
   accounts: SnapshotRow[];
   selectedDate: string;
+  exclusions: number[];
   onSubmit: (
     updates: { accountId: number; amountMinor: number }[],
     eventDate: string,
@@ -34,6 +35,7 @@ interface Props {
 export default function BulkUpdateBalanceModal({
   accounts,
   selectedDate,
+  exclusions,
   onSubmit,
   onClose,
 }: Props) {
@@ -46,9 +48,12 @@ export default function BulkUpdateBalanceModal({
   const [bucketsExpanded, setBucketsExpanded] = useState(true);
   const [assetsExpanded, setAssetsExpanded] = useState(true);
 
-  const realAccounts = accounts.filter((r) => r.accountType === 'account');
-  const bucketAccounts = accounts.filter((r) => r.accountType === 'bucket');
-  const assetAccounts = accounts.filter((r) => r.accountType === 'asset');
+  const exclusionSet = new Set(exclusions);
+  const visibleAccounts = accounts.filter((r) => !exclusionSet.has(r.accountId));
+
+  const realAccounts = visibleAccounts.filter((r) => r.accountType === 'account');
+  const bucketAccounts = visibleAccounts.filter((r) => r.accountType === 'bucket');
+  const assetAccounts = visibleAccounts.filter((r) => r.accountType === 'asset');
 
   const renderRow = (row: SnapshotRow) => (
     <React.Fragment key={row.accountId}>
@@ -88,7 +93,7 @@ export default function BulkUpdateBalanceModal({
     setSubmitting(true);
 
     const updates: { accountId: number; amountMinor: number }[] = [];
-    for (const account of accounts) {
+    for (const account of visibleAccounts) {
       const raw = amounts[account.accountId];
       if (raw !== undefined && raw !== '') {
         const parsed = parseFloat(raw);

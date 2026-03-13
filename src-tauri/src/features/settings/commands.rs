@@ -405,3 +405,19 @@ pub fn check_default_db(state: State<'_, AppState>) -> Result<bool, AppError> {
     let default_path = state.app_data_dir.join(crate::config::DB_FILENAME);
     Ok(default_path.exists())
 }
+
+#[tauri::command]
+pub fn get_bulk_update_exclusions(state: State<'_, AppState>) -> Result<Vec<i64>, AppError> {
+    let conn = state.conn()?;
+    Ok(repository::fetch_bulk_update_exclusions(&conn)?)
+}
+
+#[tauri::command]
+pub fn set_bulk_update_exclusions(
+    state: State<'_, AppState>,
+    account_ids: Vec<i64>,
+) -> Result<(), AppError> {
+    let conn = state.conn()?;
+    repository::replace_bulk_update_exclusions(&conn, &account_ids)?;
+    Ok(())
+}

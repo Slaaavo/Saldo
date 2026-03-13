@@ -1,6 +1,9 @@
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { toast } from 'sonner';
 import { PINNED_CURRENCY_CODES } from '../../shared/config/constants';
 import type { ThemePreference } from './useTheme';
+import type { SnapshotRow } from '../../shared/types';
 import { useSettings } from './useSettings';
 import { Button } from '../../shared/ui/button';
 import { Input } from '../../shared/ui/input';
@@ -14,6 +17,9 @@ import {
 } from '../../shared/ui/select';
 import CurrencySelect from '../currency/CurrencySelect';
 import LanguageSelector from './LanguageSelector';
+import BulkUpdateVisibilityModal from './BulkUpdateVisibilityModal';
+import { setBulkUpdateExclusions } from '../../shared/api';
+import { extractErrorMessage } from '../../shared/utils/errors';
 
 interface Props {
   onConsolidationCurrencyChange: () => void;
@@ -26,6 +32,9 @@ interface Props {
   dbLocationIsDefault: boolean;
   onChangeDbLocation: () => void;
   onResetDbLocation: () => void;
+  snapshot: SnapshotRow[];
+  exclusions: number[];
+  onExclusionsChange: () => void;
 }
 
 export default function SettingsPage({
@@ -39,8 +48,12 @@ export default function SettingsPage({
   dbLocationIsDefault,
   onChangeDbLocation,
   onResetDbLocation,
+  snapshot,
+  exclusions,
+  onExclusionsChange,
 }: Props) {
   const { t } = useTranslation();
+  const [visibilityModalOpen, setVisibilityModalOpen] = useState(false);
   const {
     currencies,
     selectedCurrency,
@@ -173,7 +186,50 @@ export default function SettingsPage({
         </div>
       </div>
 
-      {/* Section 4: Demo Mode */}
+      {/* Section 4: Bulk Update Visibility */}
+      <div className="border-b border-border pb-8 mb-8">
+        <h3 className="text-lg font-semibold mb-1">{t('settings.bulkUpdateVisibility.title')}</h3>
+        <p className="text-sm text-muted-foreground mb-6">
+          {t('settings.bulkUpdateVisibility.desc')}
+        </p>
+        <div className="flex flex-col gap-3">
+          <p className="text-sm text-muted-foreground">
+            {exclusions.length === 0
+              ? t('settings.bulkUpdateVisibility.allIncluded')
+              : (() => {
+                  const exclusionSet = new Set(exclusions);
+                  return snapshot
+                    .filter((r) => !exclusionSet.has(r.accountId))
+                    .map((r) => r.accountName)
+                    .join(', ');
+                })()}
+          </p>
+          <div>
+            <Button type="button" variant="outline" onClick={() => setVisibilityModalOpen(true)}>
+              {t('settings.bulkUpdateVisibility.edit')}
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      {visibilityModalOpen && (
+        <BulkUpdateVisibilityModal
+          accounts={snapshot}
+          currentExclusions={exclusions}
+          onSave={async (excludedIds) => {
+            try {
+              await setBulkUpdateExclusions(excludedIds);
+              onExclusionsChange();
+              setVisibilityModalOpen(false);
+            } catch (err) {
+              toast.error(t('errors.bulkUpdateVisibility', { error: extractErrorMessage(err) }));
+            }
+          }}
+          onClose={() => setVisibilityModalOpen(false)}
+        />
+      )}
+
+      {/* Section 5: Demo Mode */}
       <div>
         <h3 className="text-lg font-semibold mb-1">{t('demo.settingsTitle')}</h3>
         <p className="text-sm text-muted-foreground mb-6">{t('demo.settingsDesc')}</p>

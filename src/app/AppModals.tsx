@@ -32,6 +32,7 @@ interface AppModalsProps {
     handleLocationChoiceAction: (action: string, folder: string, isReset: boolean) => Promise<void>;
     handleConfirmReset: () => Promise<void>;
   };
+  exclusions: number[];
 }
 
 export default function AppModals({
@@ -46,6 +47,7 @@ export default function AppModals({
   consolidationCurrency,
   refresh,
   dbLocation,
+  exclusions,
 }: AppModalsProps) {
   const { t } = useTranslation();
   const [fetchLoading, setFetchLoading] = useState(false);
@@ -158,6 +160,7 @@ export default function AppModals({
         <BulkUpdateBalanceModal
           accounts={snapshot}
           selectedDate={selectedDate}
+          exclusions={exclusions}
           onSubmit={handleBulkUpdateSubmit}
           onClose={closeModal}
         />

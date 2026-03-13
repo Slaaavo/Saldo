@@ -43,6 +43,10 @@ const MIGRATIONS: &[(&str, &str)] = &[
         "011_account_asset_link.sql",
         include_str!("../../migrations/011_account_asset_link.sql"),
     ),
+    (
+        "012_bulk_update_exclusion.sql",
+        include_str!("../../migrations/012_bulk_update_exclusion.sql"),
+    ),
 ];
 
 pub fn run_pending(conn: &rusqlite::Connection) -> rusqlite::Result<()> {
