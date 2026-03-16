@@ -17,6 +17,17 @@ pub struct EventWithData {
     pub created_at: String,
     pub currency_code: String,
     pub currency_minor_units: i64,
+    pub counterpart_account_id: Option<i64>,
+    pub counterpart_account_name: Option<String>,
+    pub bucket_id: Option<i64>,
+    pub bucket_name: Option<String>,
+    pub original_currency_id: Option<i64>,
+    pub original_currency_code: Option<String>,
+    pub original_amount_minor: Option<i64>,
+    pub original_currency_minor_units: Option<i64>,
+    pub fx_rate_mantissa: Option<i64>,
+    pub fx_rate_exponent: Option<i64>,
+    pub linked_event_id: Option<i64>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

@@ -16,6 +16,7 @@ export function useLedgerData({ refreshTrigger }: UseLedgerDataOptions = {}) {
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
   const [selectedAccountIds, setSelectedAccountIds] = useState<number[]>([]);
+  const [eventTypeFilter, setEventTypeFilter] = useState<string>('all');
   const [events, setEvents] = useState<EventWithData[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -26,6 +27,7 @@ export function useLedgerData({ refreshTrigger }: UseLedgerDataOptions = {}) {
       if (fromDate) filter.fromDate = `${fromDate}T00:00:00`;
       if (toDate) filter.beforeDate = toEndOfDay(toDate);
       if (selectedAccountIds.length > 0) filter.accountIds = selectedAccountIds;
+      if (eventTypeFilter !== 'all') filter.eventTypes = [eventTypeFilter];
       const { events: evts } = await listEvents(filter);
       setEvents(evts);
     } catch (err) {
@@ -33,7 +35,7 @@ export function useLedgerData({ refreshTrigger }: UseLedgerDataOptions = {}) {
     } finally {
       setLoading(false);
     }
-  }, [fromDate, toDate, selectedAccountIds, t]);
+  }, [fromDate, toDate, selectedAccountIds, eventTypeFilter, t]);
 
   // Re-fetch whenever filters change
   useEffect(() => {
@@ -55,6 +57,8 @@ export function useLedgerData({ refreshTrigger }: UseLedgerDataOptions = {}) {
     setToDate,
     selectedAccountIds,
     setSelectedAccountIds,
+    eventTypeFilter,
+    setEventTypeFilter,
     events,
     loading,
     refresh,

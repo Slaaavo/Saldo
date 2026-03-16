@@ -14,6 +14,7 @@ import BulkUpdateBalanceModal from '../features/transactions/BulkUpdateBalanceMo
 import DbLocationChoiceDialog from '../features/settings/DbLocationChoiceDialog';
 import ReorderModal from '../shared/ui/ReorderModal';
 import ManageLinkedAssetsModal from '../features/assets/ManageLinkedAssetsModal';
+import CsvImportModal from '../features/transactions/CsvImportModal';
 
 interface AppModalsProps {
   modalState: ModalState;
@@ -157,6 +158,15 @@ export default function AppModals({
         />
       );
 
+    case 'confirmDeleteTransferEvent':
+      return (
+        <ConfirmDialog
+          message={t('modals.confirm.deleteTransferEvent')}
+          onConfirm={() => handleDeleteEvent(modalState.eventId)}
+          onCancel={closeModal}
+        />
+      );
+
     case 'bulkUpdateBalance':
       return (
         <BulkUpdateBalanceModal
@@ -269,6 +279,9 @@ export default function AppModals({
           onCancel={closeModal}
         />
       );
+
+    case 'csvImport':
+      return <CsvImportModal snapshot={snapshot} onClose={closeModal} onSuccess={refresh} />;
 
     case 'confirmResetDbLocation':
       return (

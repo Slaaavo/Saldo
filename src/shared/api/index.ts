@@ -38,6 +38,7 @@ export interface ListEventsFilter {
   beforeDate?: string;
   fromDate?: string;
   limit?: number;
+  eventTypes?: string[];
 }
 
 export async function listEvents(filter?: ListEventsFilter): Promise<ListEventsResult> {
@@ -48,6 +49,7 @@ export async function listEvents(filter?: ListEventsFilter): Promise<ListEventsR
       beforeDate: filter?.beforeDate ?? null,
       fromDate: filter?.fromDate ?? null,
       limit: filter?.limit ?? null,
+      eventTypes: filter?.eventTypes ?? null,
     },
   });
 }
@@ -294,4 +296,64 @@ export async function getBulkUpdateExclusions(): Promise<number[]> {
 
 export async function setBulkUpdateExclusions(accountIds: number[]): Promise<void> {
   return invoke('set_bulk_update_exclusions', { accountIds });
+}
+
+export async function createCashflow(input: {
+  accountId: number;
+  amountMinor: number;
+  eventDate: string;
+  note?: string;
+  counterpartAccountId?: number;
+  bucketId?: number;
+  originalCurrencyId?: number;
+  originalAmountMinor?: number;
+  fxRateMantissa?: number;
+  fxRateExponent?: number;
+}): Promise<number> {
+  return invoke('create_cashflow', {
+    input: {
+      accountId: input.accountId,
+      amountMinor: input.amountMinor,
+      eventDate: input.eventDate,
+      note: input.note ?? null,
+      counterpartAccountId: input.counterpartAccountId ?? null,
+      bucketId: input.bucketId ?? null,
+      originalCurrencyId: input.originalCurrencyId ?? null,
+      originalAmountMinor: input.originalAmountMinor ?? null,
+      fxRateMantissa: input.fxRateMantissa ?? null,
+      fxRateExponent: input.fxRateExponent ?? null,
+    },
+  });
+}
+
+export async function bulkCreateCashflows(input: {
+  entries: Array<{
+    accountId: number;
+    amountMinor: number;
+    eventDate: string;
+    note?: string;
+    counterpartAccountId?: number;
+    bucketId?: number;
+    originalCurrencyId?: number;
+    originalAmountMinor?: number;
+    fxRateMantissa?: number;
+    fxRateExponent?: number;
+  }>;
+}): Promise<number[]> {
+  return invoke('bulk_create_cashflows', {
+    input: {
+      entries: input.entries.map((e) => ({
+        accountId: e.accountId,
+        amountMinor: e.amountMinor,
+        eventDate: e.eventDate,
+        note: e.note ?? null,
+        counterpartAccountId: e.counterpartAccountId ?? null,
+        bucketId: e.bucketId ?? null,
+        originalCurrencyId: e.originalCurrencyId ?? null,
+        originalAmountMinor: e.originalAmountMinor ?? null,
+        fxRateMantissa: e.fxRateMantissa ?? null,
+        fxRateExponent: e.fxRateExponent ?? null,
+      })),
+    },
+  });
 }

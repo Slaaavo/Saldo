@@ -91,6 +91,21 @@ ledgerPage:
   groupAccounts: "Accounts"
   groupBuckets: "Buckets"
   groupAssets: "Assets"
+  filterType:
+    all: "All"
+    balanceUpdates: "Balance Updates"
+    cashflows: "Cashflows"
+    transfers: "Transfers"
+
+# ──── Event types ────
+events:
+  type:
+    cashflow: "Cashflow"
+    transfer: "Transfer"
+    balanceUpdate: "Balance Update"
+  counterpart: "Counterpart"
+  foreignAmount: "{{amount}} {{currency}}"
+  bucketTag: "Bucket: {{name}}"
 
 # ──── Modals ────
 modals:
@@ -199,6 +214,7 @@ modals:
     deleteAccount: 'Are you sure you want to delete {{entityType}} "{{name}}"? This will also delete all its events.'
     deleteAssetWithLinks: 'Are you sure you want to delete {{entityType}} "{{name}}"? The following accounts are linked to this asset and will be unlinked: {{accounts}}. They will be included in Left to Spend again.'
     deleteEvent: Are you sure you want to delete this event?
+    deleteTransferEvent: "Are you sure you want to delete this transfer? The linked transfer on the other account will also be deleted."
 
   fetchFxRatePrompt:
     message: "No FX rate for {{date}}. Fetch rates for this date?"
@@ -340,6 +356,7 @@ errors:
   createPartner: "Failed to create partner: {{error}}"
   updatePartner: "Failed to update partner: {{error}}"
   deletePartner: "Failed to delete partner: {{error}}"
+  importCashflows: "Failed to import cashflows: {{error}}"
 
 # ──── Language selector ────
 language:
@@ -386,3 +403,50 @@ dataStorage:
   errors:
     change: "Failed to change database location: {{error}}"
     reset: "Failed to reset database location: {{error}}"
+
+# ──── CSV Import ────
+import:
+  title: "Import CSV"
+  uploadStep:
+    title: "Upload File"
+    dragDrop: "Drag and drop a CSV file here"
+    browse: "Browse"
+    selectAccount: "Select account to import into"
+    invalidFile: "Please select a valid CSV file"
+  mappingStep:
+    title: "Map Columns"
+    description: "Match your CSV columns to the transaction fields"
+    field:
+      date: "Date"
+      amount: "Amount"
+      partner: "Partner / IBAN"
+      currency: "Currency"
+      fxRate: "FX Rate"
+      note: "Note"
+    skip: "— skip —"
+    required: "(required)"
+    autoDetected: "Auto-detected"
+  reviewStep:
+    title: "Review & Import"
+    summary: "{{total}} rows parsed, {{duplicates}} possible duplicates"
+    balanceWarning: "Balance update exists on {{dates}}"
+    selectAll: "Select All"
+    deselectAll: "Deselect All"
+    duplicate: "Duplicate"
+    newPartner: "New partner"
+    createPartner: "Create Partner"
+    createPartnerAccount: "Create partner account"
+    assignToAccount: "Assign to Account"
+    accountAssigned: "Account assigned"
+    partnerCreated: "Partner created"
+    bucket: "Bucket"
+    selectBucket: "Select bucket"
+    importButton: "Import {{count}} rows"
+    noRowsSelected: "No rows selected"
+    transfer: "Transfer"
+    assignCounterpart: "Assign account"
+    counterpartAssigned: "Account assigned"
+  success: "Imported {{count}} transactions"
+  error: "Failed to import transactions"
+  next: "Next"
+  back: "Back"

@@ -71,6 +71,146 @@ pub fn bulk_create_balance_updates(
     })
 }
 
+pub struct CashflowEntry {
+    pub account_id: i64,
+    pub amount_minor: i64,
+    pub event_date: String,
+    pub note: Option<String>,
+    pub counterpart_account_id: Option<i64>,
+    pub bucket_id: Option<i64>,
+    pub original_currency_id: Option<i64>,
+    pub original_amount_minor: Option<i64>,
+    pub fx_rate_mantissa: Option<i64>,
+    pub fx_rate_exponent: Option<i64>,
+}
+
+pub(crate) fn create_cashflow_inner(
+    conn: &Connection,
+    entry: &CashflowEntry,
+    event_type: &str,
+    linked_event_id: Option<i64>,
+) -> rusqlite::Result<i64> {
+    conn.execute(
+        "INSERT INTO event (account_id, event_type, linked_event_id) VALUES (?1, ?2, ?3)",
+        params![entry.account_id, event_type, linked_event_id],
+    )?;
+    let event_id = conn.last_insert_rowid();
+
+    conn.execute(
+        "INSERT INTO event_data (event_id, amount_minor, event_date, note, counterpart_account_id, bucket_id, original_currency_id, original_amount_minor, fx_rate_mantissa, fx_rate_exponent)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+        params![
+            event_id,
+            entry.amount_minor,
+            entry.event_date,
+            entry.note.as_deref(),
+            entry.counterpart_account_id,
+            entry.bucket_id,
+            entry.original_currency_id,
+            entry.original_amount_minor,
+            entry.fx_rate_mantissa,
+            entry.fx_rate_exponent
+        ],
+    )?;
+
+    Ok(event_id)
+}
+
+pub fn create_cashflow(conn: &Connection, entry: &CashflowEntry) -> rusqlite::Result<i64> {
+    with_savepoint(conn, || {
+        create_cashflow_inner(conn, entry, "cashflow", None)
+    })
+}
+
+pub fn create_transfer(conn: &Connection, entry: &CashflowEntry) -> rusqlite::Result<(i64, i64)> {
+    with_savepoint(conn, || {
+        let counterpart_account_id = entry
+            .counterpart_account_id
+            .expect("create_transfer requires counterpart_account_id");
+
+        let source_id = create_cashflow_inner(conn, entry, "transfer", None)?;
+
+        // For cross-currency transfers, counterpart amount = source's original_amount_minor.
+        // For same-currency transfers, counterpart amount = inverted source amount.
+        let counterpart_amount = entry.original_amount_minor.unwrap_or(-entry.amount_minor);
+
+        let counterpart_entry = CashflowEntry {
+            account_id: counterpart_account_id,
+            amount_minor: counterpart_amount,
+            event_date: entry.event_date.clone(),
+            note: entry.note.clone(),
+            counterpart_account_id: Some(entry.account_id),
+            bucket_id: None,
+            original_currency_id: None,
+            original_amount_minor: None,
+            fx_rate_mantissa: None,
+            fx_rate_exponent: None,
+        };
+
+        let counterpart_id =
+            create_cashflow_inner(conn, &counterpart_entry, "transfer", Some(source_id))?;
+
+        conn.execute(
+            "UPDATE event SET linked_event_id = ?1 WHERE id = ?2",
+            params![counterpart_id, source_id],
+        )?;
+
+        Ok((source_id, counterpart_id))
+    })
+}
+
+pub fn bulk_create_cashflows(
+    conn: &Connection,
+    entries: &[CashflowEntry],
+) -> rusqlite::Result<Vec<i64>> {
+    with_savepoint(conn, || {
+        let mut ids = Vec::new();
+        for entry in entries {
+            let counterpart_type = match entry.counterpart_account_id {
+                Some(cp_id) => {
+                    crate::features::accounts::repository::get_account_type(conn, cp_id)?
+                }
+                None => None,
+            };
+
+            if counterpart_type.as_deref() == Some("account") {
+                let counterpart_account_id = entry.counterpart_account_id.unwrap();
+                let counterpart_amount = entry.original_amount_minor.unwrap_or(-entry.amount_minor);
+
+                let source_id = create_cashflow_inner(conn, entry, "transfer", None)?;
+
+                let counterpart_entry = CashflowEntry {
+                    account_id: counterpart_account_id,
+                    amount_minor: counterpart_amount,
+                    event_date: entry.event_date.clone(),
+                    note: entry.note.clone(),
+                    counterpart_account_id: Some(entry.account_id),
+                    bucket_id: None,
+                    original_currency_id: None,
+                    original_amount_minor: None,
+                    fx_rate_mantissa: None,
+                    fx_rate_exponent: None,
+                };
+
+                let counterpart_id =
+                    create_cashflow_inner(conn, &counterpart_entry, "transfer", Some(source_id))?;
+
+                conn.execute(
+                    "UPDATE event SET linked_event_id = ?1 WHERE id = ?2",
+                    params![counterpart_id, source_id],
+                )?;
+
+                ids.push(source_id);
+                ids.push(counterpart_id);
+            } else {
+                let event_id = create_cashflow_inner(conn, entry, "cashflow", None)?;
+                ids.push(event_id);
+            }
+        }
+        Ok(ids)
+    })
+}
+
 pub fn update_event(
     conn: &Connection,
     event_id: i64,
@@ -93,6 +233,9 @@ pub fn update_event(
         Some(None) => {} // active event, proceed
     }
 
+    // Note: cashflow-specific columns (counterpart_account_id, bucket_id, original_currency_id,
+    // original_amount_minor, fx_rate_mantissa, fx_rate_exponent) are not carried forward.
+    // This is safe because cashflows/transfers are not editable in Phase 2 (import-only).
     conn.execute(
         "INSERT INTO event_data (event_id, amount_minor, event_date, note) VALUES (?1, ?2, ?3, ?4)",
         params![event_id, amount_minor, event_date, note],
@@ -102,8 +245,7 @@ pub fn update_event(
     Ok(())
 }
 
-pub fn delete_event(conn: &Connection, event_id: i64) -> rusqlite::Result<()> {
-    let now = local_now();
+fn delete_event_inner(conn: &Connection, event_id: i64, now: &str) -> rusqlite::Result<()> {
     let rows = conn.execute(
         "UPDATE event SET deleted_at = ?1 WHERE id = ?2 AND deleted_at IS NULL",
         params![now, event_id],
@@ -114,18 +256,47 @@ pub fn delete_event(conn: &Connection, event_id: i64) -> rusqlite::Result<()> {
     Ok(())
 }
 
+pub fn delete_event(conn: &Connection, event_id: i64) -> rusqlite::Result<Vec<i64>> {
+    with_savepoint(conn, || {
+        let now = local_now();
+
+        let linked_event_id: Option<i64> = conn
+            .query_row(
+                "SELECT linked_event_id FROM event WHERE id = ?1",
+                params![event_id],
+                |row| row.get(0),
+            )
+            .optional()?
+            .flatten();
+
+        delete_event_inner(conn, event_id, &now)?;
+
+        let mut deleted = vec![event_id];
+        if let Some(linked_id) = linked_event_id {
+            delete_event_inner(conn, linked_id, &now)?;
+            deleted.push(linked_id);
+        }
+
+        Ok(deleted)
+    })
+}
+
 pub fn list_events(
     conn: &Connection,
     account_id: Option<i64>,
     account_ids: Option<&[i64]>,
     before_date: Option<&str>,
     from_date: Option<&str>,
+    event_types: Option<&[String]>,
     limit: Option<i64>,
 ) -> rusqlite::Result<ListEventsResult> {
     let base = "FROM event e
         JOIN account a ON a.id = e.account_id
         JOIN currency c ON c.id = a.currency_id
         JOIN event_data ed ON ed.id = e.latest_data_id
+        LEFT JOIN account counter_a ON counter_a.id = ed.counterpart_account_id
+        LEFT JOIN account bucket_a ON bucket_a.id = ed.bucket_id
+        LEFT JOIN currency orig_c ON orig_c.id = ed.original_currency_id
         WHERE e.deleted_at IS NULL";
 
     let mut where_suffix = String::new();
@@ -157,6 +328,18 @@ pub fn list_events(
         params.push(Box::new(fd.to_owned()));
     }
 
+    if let Some(types) = event_types {
+        if !types.is_empty() {
+            let placeholders = std::iter::repeat_n("?", types.len())
+                .collect::<Vec<_>>()
+                .join(", ");
+            where_suffix.push_str(&format!(" AND e.event_type IN ({placeholders})"));
+            for t in types {
+                params.push(Box::new(t.to_owned()));
+            }
+        }
+    }
+
     // Count query: same conditions, no ORDER BY or LIMIT
     let count_sql = format!("SELECT COUNT(*) {}{}", base, where_suffix);
     let total_count: i64 = conn.query_row(
@@ -178,7 +361,18 @@ pub fn list_events(
           ed.note,
           e.created_at,
           c.code AS currency_code,
-          c.minor_units AS currency_minor_units
+          c.minor_units AS currency_minor_units,
+          e.linked_event_id,
+          ed.counterpart_account_id,
+          ed.bucket_id,
+          ed.original_currency_id,
+          ed.original_amount_minor,
+          ed.fx_rate_mantissa,
+          ed.fx_rate_exponent,
+          counter_a.name AS counterpart_account_name,
+          bucket_a.name AS bucket_name,
+          orig_c.code AS original_currency_code,
+          orig_c.minor_units AS original_currency_minor_units
         {}{}",
         base, where_suffix
     );
@@ -203,6 +397,17 @@ pub fn list_events(
             created_at: row.get(8)?,
             currency_code: row.get(9)?,
             currency_minor_units: row.get(10)?,
+            linked_event_id: row.get(11)?,
+            counterpart_account_id: row.get(12)?,
+            bucket_id: row.get(13)?,
+            original_currency_id: row.get(14)?,
+            original_amount_minor: row.get(15)?,
+            fx_rate_mantissa: row.get(16)?,
+            fx_rate_exponent: row.get(17)?,
+            counterpart_account_name: row.get(18)?,
+            bucket_name: row.get(19)?,
+            original_currency_code: row.get(20)?,
+            original_currency_minor_units: row.get(21)?,
         })
     })?;
 
@@ -232,16 +437,39 @@ pub fn get_accounts_snapshot(
            c.code AS currency_code,
            c.minor_units AS currency_minor_units,
            c.is_custom AS currency_is_custom,
-           COALESCE((
-             SELECT ed.amount_minor
-             FROM event e
-             JOIN event_data ed ON ed.id = e.latest_data_id
-             WHERE e.account_id = a.id
-               AND e.deleted_at IS NULL
-               AND ed.event_date <= ?1
-             ORDER BY ed.event_date DESC, e.created_at DESC
-             LIMIT 1
-           ), 0) AS balance_minor
+           COALESCE(
+             (SELECT ed.amount_minor
+              FROM event e
+              JOIN event_data ed ON ed.id = e.latest_data_id
+              WHERE e.account_id = a.id
+                AND e.deleted_at IS NULL
+                AND e.event_type = 'balance_update'
+                AND ed.event_date <= ?1
+              ORDER BY ed.event_date DESC, e.created_at DESC
+              LIMIT 1),
+             0
+           ) + COALESCE(
+             (SELECT SUM(ed2.amount_minor)
+              FROM event e2
+              JOIN event_data ed2 ON ed2.id = e2.latest_data_id
+              WHERE e2.account_id = a.id
+                AND e2.deleted_at IS NULL
+                AND e2.event_type IN ('cashflow', 'transfer')
+                AND ed2.event_date <= ?1
+                AND ed2.event_date > COALESCE(
+                  (SELECT ed3.event_date
+                   FROM event e3
+                   JOIN event_data ed3 ON ed3.id = e3.latest_data_id
+                   WHERE e3.account_id = a.id
+                     AND e3.deleted_at IS NULL
+                     AND e3.event_type = 'balance_update'
+                     AND ed3.event_date <= ?1
+                   ORDER BY ed3.event_date DESC, e3.created_at DESC
+                   LIMIT 1),
+                  ''
+                )),
+             0
+           ) AS balance_minor
          FROM account a
          JOIN currency c ON c.id = a.currency_id
          WHERE a.account_type IN ('account', 'bucket', 'asset')
@@ -523,7 +751,7 @@ mod tests {
         let account_id = mk_account(&conn);
         create_balance_update(&conn, account_id, 1000, "2026-01-01", None).unwrap();
         create_balance_update(&conn, account_id, 2000, "2026-02-01", None).unwrap();
-        let result = list_events(&conn, None, None, None, None, None).unwrap();
+        let result = list_events(&conn, None, None, None, None, None, None).unwrap();
         assert_eq!(result.events.len(), 2);
     }
 
@@ -535,11 +763,11 @@ mod tests {
         create_balance_update(&conn, acc1, 1000, "2026-01-01", None).unwrap();
         create_balance_update(&conn, acc2, 2000, "2026-02-01", None).unwrap();
 
-        let result_acc1 = list_events(&conn, Some(acc1), None, None, None, None).unwrap();
+        let result_acc1 = list_events(&conn, Some(acc1), None, None, None, None, None).unwrap();
         assert_eq!(result_acc1.events.len(), 1);
         assert_eq!(result_acc1.events[0].account_id, acc1);
 
-        let result_acc2 = list_events(&conn, Some(acc2), None, None, None, None).unwrap();
+        let result_acc2 = list_events(&conn, Some(acc2), None, None, None, None, None).unwrap();
         assert_eq!(result_acc2.events.len(), 1);
         assert_eq!(result_acc2.events[0].account_id, acc2);
     }
@@ -550,8 +778,16 @@ mod tests {
         let account_id = mk_account(&conn);
         create_balance_update(&conn, account_id, 1000, "2026-01-15", None).unwrap();
         create_balance_update(&conn, account_id, 2000, "2026-03-15", None).unwrap();
-        let result =
-            list_events(&conn, None, None, Some("2026-02-01T23:59:59"), None, None).unwrap();
+        let result = list_events(
+            &conn,
+            None,
+            None,
+            Some("2026-02-01T23:59:59"),
+            None,
+            None,
+            None,
+        )
+        .unwrap();
         assert_eq!(result.events.len(), 1);
         assert_eq!(result.events[0].amount_minor, 1000);
     }
@@ -601,14 +837,14 @@ mod tests {
         let bucket_id =
             create_account(&conn, "Test Bucket", 1, "bucket", None, None, None).unwrap();
         create_balance_update(&conn, bucket_id, 5000, "2026-03-01", None).unwrap();
-        let result = list_events(&conn, Some(bucket_id), None, None, None, None).unwrap();
+        let result = list_events(&conn, Some(bucket_id), None, None, None, None, None).unwrap();
         assert_eq!(result.events.len(), 1);
         assert_eq!(result.events[0].account_type, "bucket");
 
         let empty_account_id =
             create_account(&conn, "Empty Account", 1, "account", None, None, None).unwrap();
         let result_empty =
-            list_events(&conn, Some(empty_account_id), None, None, None, None).unwrap();
+            list_events(&conn, Some(empty_account_id), None, None, None, None, None).unwrap();
         // Account with no balance updates has no events
         assert_eq!(result_empty.events.len(), 0);
     }
@@ -691,7 +927,7 @@ mod tests {
         let conn = initialize_in_memory().expect("DB init failed");
         let account_id = mk_account(&conn);
         create_balance_update(&conn, account_id, 5000, "2026-03-01", None).unwrap();
-        let result = list_events(&conn, Some(account_id), None, None, None, None).unwrap();
+        let result = list_events(&conn, Some(account_id), None, None, None, None, None).unwrap();
         assert_eq!(result.events[0].currency_code, "EUR");
         assert_eq!(result.events[0].currency_minor_units, 2);
     }
@@ -705,8 +941,278 @@ mod tests {
         create_balance_update(&conn, account_id, 3000, "2026-03-01", None).unwrap();
         create_balance_update(&conn, account_id, 4000, "2026-04-01", None).unwrap();
         create_balance_update(&conn, account_id, 5000, "2026-05-01", None).unwrap();
-        let result = list_events(&conn, None, None, None, None, Some(2)).unwrap();
+        let result = list_events(&conn, None, None, None, None, None, Some(2)).unwrap();
         assert_eq!(result.events.len(), 2);
         assert_eq!(result.total_count, 5);
+    }
+
+    #[test]
+    fn snapshot_cashflow_after_balance_update_is_summed() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let account_id = mk_account(&conn);
+        create_balance_update(&conn, account_id, 5000, "2026-03-01T10:00:00", None).unwrap();
+        create_cashflow(
+            &conn,
+            &CashflowEntry {
+                account_id,
+                amount_minor: 200,
+                event_date: "2026-03-01T14:30:00".to_string(),
+                note: None,
+                counterpart_account_id: None,
+                bucket_id: None,
+                original_currency_id: None,
+                original_amount_minor: None,
+                fx_rate_mantissa: None,
+                fx_rate_exponent: None,
+            },
+        )
+        .unwrap();
+        let snapshot = get_accounts_snapshot(&conn, "2026-03-31T23:59:59").unwrap();
+        assert_eq!(snapshot[0].balance_minor, 5200);
+    }
+
+    #[test]
+    fn snapshot_cashflow_before_balance_update_not_counted() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let account_id = mk_account(&conn);
+        create_cashflow(
+            &conn,
+            &CashflowEntry {
+                account_id,
+                amount_minor: 500,
+                event_date: "2026-01-01T12:00:00".to_string(),
+                note: None,
+                counterpart_account_id: None,
+                bucket_id: None,
+                original_currency_id: None,
+                original_amount_minor: None,
+                fx_rate_mantissa: None,
+                fx_rate_exponent: None,
+            },
+        )
+        .unwrap();
+        create_balance_update(&conn, account_id, 5000, "2026-03-01T00:00:00", None).unwrap();
+        let snapshot = get_accounts_snapshot(&conn, "2026-12-31T23:59:59").unwrap();
+        // The cashflow at 2026-01-01 is before the anchor; only the anchor balance counts.
+        assert_eq!(snapshot[0].balance_minor, 5000);
+    }
+
+    #[test]
+    fn snapshot_with_no_balance_update_sums_all_cashflows() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let account_id = mk_account(&conn);
+        create_cashflow(
+            &conn,
+            &CashflowEntry {
+                account_id,
+                amount_minor: 1000,
+                event_date: "2026-01-01T12:00:00".to_string(),
+                note: None,
+                counterpart_account_id: None,
+                bucket_id: None,
+                original_currency_id: None,
+                original_amount_minor: None,
+                fx_rate_mantissa: None,
+                fx_rate_exponent: None,
+            },
+        )
+        .unwrap();
+        create_cashflow(
+            &conn,
+            &CashflowEntry {
+                account_id,
+                amount_minor: 500,
+                event_date: "2026-02-01T12:00:00".to_string(),
+                note: None,
+                counterpart_account_id: None,
+                bucket_id: None,
+                original_currency_id: None,
+                original_amount_minor: None,
+                fx_rate_mantissa: None,
+                fx_rate_exponent: None,
+            },
+        )
+        .unwrap();
+        let snapshot = get_accounts_snapshot(&conn, "2026-12-31T23:59:59").unwrap();
+        assert_eq!(snapshot[0].balance_minor, 1500);
+    }
+
+    #[test]
+    fn create_transfer_creates_linked_pair() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let acc1 = mk_account(&conn);
+        let acc2 = create_account(&conn, "Second Account", 1, "account", None, None, None).unwrap();
+        let (source_id, counterpart_id) = create_transfer(
+            &conn,
+            &CashflowEntry {
+                account_id: acc1,
+                amount_minor: -10000,
+                event_date: "2026-03-01T12:00:00".to_string(),
+                note: None,
+                counterpart_account_id: Some(acc2),
+                bucket_id: None,
+                original_currency_id: None,
+                original_amount_minor: None,
+                fx_rate_mantissa: None,
+                fx_rate_exponent: None,
+            },
+        )
+        .unwrap();
+
+        let source_linked: Option<i64> = conn
+            .query_row(
+                "SELECT linked_event_id FROM event WHERE id = ?1",
+                params![source_id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        let counterpart_linked: Option<i64> = conn
+            .query_row(
+                "SELECT linked_event_id FROM event WHERE id = ?1",
+                params![counterpart_id],
+                |r| r.get(0),
+            )
+            .unwrap();
+
+        assert_eq!(source_linked, Some(counterpart_id));
+        assert_eq!(counterpart_linked, Some(source_id));
+
+        let snapshot1 = get_accounts_snapshot(&conn, "2026-12-31T23:59:59").unwrap();
+        let row1 = snapshot1.iter().find(|r| r.account_id == acc1).unwrap();
+        let row2 = snapshot1.iter().find(|r| r.account_id == acc2).unwrap();
+        assert_eq!(row1.balance_minor, -10000);
+        assert_eq!(row2.balance_minor, 10000);
+    }
+
+    #[test]
+    fn delete_transfer_also_deletes_counterpart() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let acc1 = mk_account(&conn);
+        let acc2 = create_account(&conn, "Second Account", 1, "account", None, None, None).unwrap();
+        let (source_id, counterpart_id) = create_transfer(
+            &conn,
+            &CashflowEntry {
+                account_id: acc1,
+                amount_minor: -10000,
+                event_date: "2026-03-01T12:00:00".to_string(),
+                note: None,
+                counterpart_account_id: Some(acc2),
+                bucket_id: None,
+                original_currency_id: None,
+                original_amount_minor: None,
+                fx_rate_mantissa: None,
+                fx_rate_exponent: None,
+            },
+        )
+        .unwrap();
+
+        let deleted = delete_event(&conn, source_id).unwrap();
+        assert_eq!(deleted.len(), 2);
+        assert!(deleted.contains(&source_id));
+        assert!(deleted.contains(&counterpart_id));
+
+        let source_deleted_at: Option<String> = conn
+            .query_row(
+                "SELECT deleted_at FROM event WHERE id = ?1",
+                params![source_id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        let counterpart_deleted_at: Option<String> = conn
+            .query_row(
+                "SELECT deleted_at FROM event WHERE id = ?1",
+                params![counterpart_id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(source_deleted_at.is_some());
+        assert!(counterpart_deleted_at.is_some());
+    }
+
+    #[test]
+    fn snapshot_transfer_affects_both_accounts() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let acc_a = mk_account(&conn);
+        let acc_b = create_account(&conn, "Account B", 1, "account", None, None, None).unwrap();
+        create_balance_update(&conn, acc_a, 10000, "2026-01-10T09:00:00", None).unwrap();
+        create_balance_update(&conn, acc_b, 5000, "2026-01-10T09:00:00", None).unwrap();
+        create_transfer(
+            &conn,
+            &CashflowEntry {
+                account_id: acc_a,
+                amount_minor: -3000,
+                event_date: "2026-01-15T12:00:00".to_string(),
+                note: None,
+                counterpart_account_id: Some(acc_b),
+                bucket_id: None,
+                original_currency_id: None,
+                original_amount_minor: None,
+                fx_rate_mantissa: None,
+                fx_rate_exponent: None,
+            },
+        )
+        .unwrap();
+        let snapshot = get_accounts_snapshot(&conn, "2026-12-31T23:59:59").unwrap();
+        let row_a = snapshot.iter().find(|r| r.account_id == acc_a).unwrap();
+        let row_b = snapshot.iter().find(|r| r.account_id == acc_b).unwrap();
+        assert_eq!(row_a.balance_minor, 7000);
+        assert_eq!(row_b.balance_minor, 8000);
+    }
+
+    #[test]
+    fn delete_transfer_restores_snapshot_balances() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let acc_a = mk_account(&conn);
+        let acc_b = create_account(&conn, "Account B", 1, "account", None, None, None).unwrap();
+        create_balance_update(&conn, acc_a, 10000, "2026-01-10T09:00:00", None).unwrap();
+        create_balance_update(&conn, acc_b, 5000, "2026-01-10T09:00:00", None).unwrap();
+        let (source_id, _) = create_transfer(
+            &conn,
+            &CashflowEntry {
+                account_id: acc_a,
+                amount_minor: -3000,
+                event_date: "2026-01-15T12:00:00".to_string(),
+                note: None,
+                counterpart_account_id: Some(acc_b),
+                bucket_id: None,
+                original_currency_id: None,
+                original_amount_minor: None,
+                fx_rate_mantissa: None,
+                fx_rate_exponent: None,
+            },
+        )
+        .unwrap();
+        delete_event(&conn, source_id).unwrap();
+        let snapshot = get_accounts_snapshot(&conn, "2026-12-31T23:59:59").unwrap();
+        let row_a = snapshot.iter().find(|r| r.account_id == acc_a).unwrap();
+        let row_b = snapshot.iter().find(|r| r.account_id == acc_b).unwrap();
+        assert_eq!(row_a.balance_minor, 10000);
+        assert_eq!(row_b.balance_minor, 5000);
+    }
+
+    #[test]
+    fn snapshot_ignores_soft_deleted_cashflows() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let account_id = mk_account(&conn);
+        create_balance_update(&conn, account_id, 10000, "2026-03-01T10:00:00", None).unwrap();
+        let cashflow_id = create_cashflow(
+            &conn,
+            &CashflowEntry {
+                account_id,
+                amount_minor: -2000,
+                event_date: "2026-03-01T12:00:00".to_string(),
+                note: None,
+                counterpart_account_id: None,
+                bucket_id: None,
+                original_currency_id: None,
+                original_amount_minor: None,
+                fx_rate_mantissa: None,
+                fx_rate_exponent: None,
+            },
+        )
+        .unwrap();
+        delete_event(&conn, cashflow_id).unwrap();
+        let snapshot = get_accounts_snapshot(&conn, "2026-03-31T23:59:59").unwrap();
+        assert_eq!(snapshot[0].balance_minor, 10000);
     }
 }

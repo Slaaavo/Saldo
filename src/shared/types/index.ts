@@ -26,6 +26,7 @@ export type ModalState =
       accountType?: 'account' | 'bucket' | 'asset';
     }
   | { type: 'confirmDeleteEvent'; eventId: number }
+  | { type: 'confirmDeleteTransferEvent'; eventId: number; linkedEventId: number }
   | { type: 'bulkUpdateBalance' }
   | { type: 'fetchFxRatePrompt'; date: string }
   | { type: 'reorderAccounts' }
@@ -43,7 +44,8 @@ export type ModalState =
       isCustomUnit: boolean;
       balanceMinor: number;
     }
-  | { type: 'manageLinkedAssets'; accountId: number; accountName: string };
+  | { type: 'manageLinkedAssets'; accountId: number; accountName: string }
+  | { type: 'csvImport' };
 
 export interface Currency {
   id: number;
@@ -72,6 +74,17 @@ export interface EventWithData {
   createdAt: string;
   currencyCode: string;
   currencyMinorUnits: number;
+  counterpartAccountId: number | null;
+  counterpartAccountName: string | null;
+  bucketId: number | null;
+  bucketName: string | null;
+  originalCurrencyId: number | null;
+  originalCurrencyCode: string | null;
+  originalAmountMinor: number | null;
+  originalCurrencyMinorUnits: number | null;
+  fxRateMantissa: number | null;
+  fxRateExponent: number | null;
+  linkedEventId: number | null;
 }
 
 export interface ListEventsResult {

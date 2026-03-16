@@ -31,7 +31,29 @@ pub struct ListEventsFilter {
     pub account_ids: Option<Vec<i64>>,
     pub before_date: Option<String>,
     pub from_date: Option<String>,
+    pub event_types: Option<Vec<String>>,
     pub limit: Option<i64>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateCashflowInput {
+    pub account_id: i64,
+    pub amount_minor: i64,
+    pub event_date: String,
+    pub note: Option<String>,
+    pub counterpart_account_id: Option<i64>,
+    pub bucket_id: Option<i64>,
+    pub original_currency_id: Option<i64>,
+    pub original_amount_minor: Option<i64>,
+    pub fx_rate_mantissa: Option<i64>,
+    pub fx_rate_exponent: Option<i64>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BulkCreateCashflowsInput {
+    pub entries: Vec<CreateCashflowInput>,
 }
 
 #[derive(Deserialize)]
@@ -103,6 +125,7 @@ pub fn list_events(
         filter.account_ids.as_deref(),
         filter.before_date.as_deref(),
         filter.from_date.as_deref(),
+        filter.event_types.as_deref(),
         filter.limit,
     )?;
     Ok(result)
@@ -165,5 +188,106 @@ pub fn bulk_create_balance_updates(
         &input.event_date,
         input.note.as_deref(),
     )?;
+    Ok(ids)
+}
+
+#[tauri::command]
+pub fn create_cashflow(
+    state: State<'_, AppState>,
+    input: CreateCashflowInput,
+) -> Result<i64, AppError> {
+    crate::shared::validate_event_date(&input.event_date)?;
+    let conn = state.conn()?;
+    if let Some(account_type) =
+        crate::features::accounts::repository::get_account_type(&conn, input.account_id)?
+    {
+        if account_type == "partner" {
+            return Err(AppError {
+                code: "VALIDATION".into(),
+                message: "Cannot create events on partner accounts".into(),
+            });
+        }
+    }
+    if input.counterpart_account_id == Some(input.account_id) {
+        return Err(AppError {
+            code: "VALIDATION".into(),
+            message: "Cannot transfer to the same account".into(),
+        });
+    }
+    let counterpart_type = match input.counterpart_account_id {
+        Some(cp_id) => crate::features::accounts::repository::get_account_type(&conn, cp_id)?,
+        None => None,
+    };
+    let entry = repository::CashflowEntry {
+        account_id: input.account_id,
+        amount_minor: input.amount_minor,
+        event_date: input.event_date.clone(),
+        note: input.note.clone(),
+        counterpart_account_id: input.counterpart_account_id,
+        bucket_id: input.bucket_id,
+        original_currency_id: input.original_currency_id,
+        original_amount_minor: input.original_amount_minor,
+        fx_rate_mantissa: input.fx_rate_mantissa,
+        fx_rate_exponent: input.fx_rate_exponent,
+    };
+    let event_id = if counterpart_type.as_deref() == Some("account") {
+        let (source_id, _) = repository::create_transfer(&conn, &entry)?;
+        source_id
+    } else {
+        repository::create_cashflow(&conn, &entry)?
+    };
+    Ok(event_id)
+}
+
+#[tauri::command]
+pub fn bulk_create_cashflows(
+    state: State<'_, AppState>,
+    input: BulkCreateCashflowsInput,
+) -> Result<Vec<i64>, AppError> {
+    if input.entries.is_empty() {
+        return Err(AppError {
+            code: "VALIDATION".into(),
+            message: "At least one cashflow entry is required".into(),
+        });
+    }
+    for entry in &input.entries {
+        crate::shared::validate_event_date(&entry.event_date)?;
+    }
+    let conn = state.conn()?;
+    for entry in &input.entries {
+        if let Some(account_type) =
+            crate::features::accounts::repository::get_account_type(&conn, entry.account_id)?
+        {
+            if account_type == "partner" {
+                return Err(AppError {
+                    code: "VALIDATION".into(),
+                    message: "Cannot create events on partner accounts".into(),
+                });
+            }
+        }
+        if entry.counterpart_account_id == Some(entry.account_id) {
+            return Err(AppError {
+                code: "VALIDATION".into(),
+                message: "Cannot transfer to the same account".into(),
+            });
+        }
+    }
+    let entries: Vec<repository::CashflowEntry> = input
+        .entries
+        .into_iter()
+        .map(|e| repository::CashflowEntry {
+            account_id: e.account_id,
+            amount_minor: e.amount_minor,
+            event_date: e.event_date,
+            note: e.note,
+            counterpart_account_id: e.counterpart_account_id,
+            bucket_id: e.bucket_id,
+            original_currency_id: e.original_currency_id,
+            original_amount_minor: e.original_amount_minor,
+            fx_rate_mantissa: e.fx_rate_mantissa,
+            fx_rate_exponent: e.fx_rate_exponent,
+        })
+        .collect();
+    let ids = repository::bulk_create_cashflows(&conn, &entries)?;
     Ok(ids)
 }

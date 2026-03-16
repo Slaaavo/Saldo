@@ -2,7 +2,7 @@ import { useTranslation } from 'react-i18next';
 import type { EventWithData, SnapshotRow, Currency } from '../../shared/types';
 import LedgerEventList from '../../shared/ui/LedgerEventList';
 import { Button } from '../../shared/ui/button';
-import { RefreshCw } from 'lucide-react';
+import { RefreshCw, Upload } from 'lucide-react';
 
 interface Props {
   events: EventWithData[];
@@ -10,9 +10,11 @@ interface Props {
   consolidationCurrency?: Currency | null;
   onEditEvent: (event: EventWithData) => void;
   onDeleteEvent: (eventId: number) => void;
+  onDeleteTransferEvent?: (eventId: number, linkedEventId: number) => void;
   onUpdateBalances: () => void;
   totalEvents?: number;
   onViewAll?: () => void;
+  onImportCsv?: () => void;
 }
 
 export default function Ledger({
@@ -21,9 +23,11 @@ export default function Ledger({
   consolidationCurrency,
   onEditEvent,
   onDeleteEvent,
+  onDeleteTransferEvent,
   onUpdateBalances,
   totalEvents,
   onViewAll,
+  onImportCsv,
 }: Props) {
   const { t } = useTranslation();
 
@@ -34,10 +38,18 @@ export default function Ledger({
     <section>
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-xl font-semibold">{t('ledger.title')}</h2>
-        <Button onClick={onUpdateBalances} size="sm">
-          <RefreshCw className="h-4 w-4" />
-          {t('ledger.updateBalances')}
-        </Button>
+        <div className="flex items-center gap-2">
+          {onImportCsv && (
+            <Button onClick={onImportCsv} size="sm" variant="outline">
+              <Upload className="h-4 w-4" />
+              {t('import.title')}
+            </Button>
+          )}
+          <Button onClick={onUpdateBalances} size="sm">
+            <RefreshCw className="h-4 w-4" />
+            {t('ledger.updateBalances')}
+          </Button>
+        </div>
       </div>
 
       <LedgerEventList
@@ -46,6 +58,7 @@ export default function Ledger({
         consolidationCurrency={consolidationCurrency}
         onEditEvent={onEditEvent}
         onDeleteEvent={onDeleteEvent}
+        onDeleteTransferEvent={onDeleteTransferEvent}
       />
 
       {showViewAll && (

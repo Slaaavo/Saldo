@@ -228,7 +228,11 @@ export default function DashboardView({
               consolidationCurrency={consolidationCurrency}
               onEditEvent={(event) => setModalState({ type: 'editBalanceUpdate', event })}
               onDeleteEvent={(eventId) => setModalState({ type: 'confirmDeleteEvent', eventId })}
+              onDeleteTransferEvent={(eventId, linkedEventId) =>
+                setModalState({ type: 'confirmDeleteTransferEvent', eventId, linkedEventId })
+              }
               onUpdateBalances={() => setModalState({ type: 'bulkUpdateBalance' })}
+              onImportCsv={() => setModalState({ type: 'csvImport' })}
               totalEvents={totalEvents}
               onViewAll={() => onNavigate('ledger')}
             />

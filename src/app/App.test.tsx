@@ -460,6 +460,17 @@ function makeEvent(overrides?: Partial<EventWithData>): EventWithData {
     createdAt: '2026-01-15T10:00:00',
     currencyCode: 'EUR',
     currencyMinorUnits: 2,
+    counterpartAccountId: null,
+    counterpartAccountName: null,
+    bucketId: null,
+    bucketName: null,
+    originalCurrencyId: null,
+    originalCurrencyCode: null,
+    originalAmountMinor: null,
+    originalCurrencyMinorUnits: null,
+    fxRateMantissa: null,
+    fxRateExponent: null,
+    linkedEventId: null,
     ...overrides,
   };
 }

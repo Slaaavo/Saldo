@@ -90,6 +90,21 @@ ledgerPage:
   groupAccounts: "Účty"
   groupBuckets: "Obálky"
   groupAssets: "Aktíva"
+  filterType:
+    all: "Všetko"
+    balanceUpdates: "Aktualizácie zostatkov"
+    cashflows: "Transakcie"
+    transfers: "Prevody"
+
+# ──── Typy udalostí ────
+events:
+  type:
+    cashflow: "Transakcia"
+    transfer: "Prevod"
+    balanceUpdate: "Aktualizácia zostatku"
+  counterpart: "Protistrana"
+  foreignAmount: "{{amount}} {{currency}}"
+  bucketTag: "Obálka: {{name}}"
 
 # ──── Modálne okná ────
 modals:
@@ -198,6 +213,7 @@ modals:
     deleteAccount: 'Naozaj chcete vymazať {{entityType}} "{{name}}"? Tým sa vymažú aj všetky jeho udalosti.'
     deleteAssetWithLinks: 'Naozaj chcete vymazať {{entityType}} "{{name}}"? Nasledujúce účty sú prepojené s týmto aktívom a budú odpojené: {{accounts}}. Budú opäť zahrnuté do Voľných prostriedkov.'
     deleteEvent: Naozaj chcete vymazať túto udalosť?
+    deleteTransferEvent: "Naozaj chcete vymazať tento prevod? Prepojený prevod na druhom účte bude tiež vymazaný."
 
   fetchFxRatePrompt:
     message: "Pre {{date}} chýba kurz meny. Načítať kurzy pre tento dátum?"
@@ -337,6 +353,7 @@ errors:
   createPartner: "Nepodarilo sa vytvoriť partnera: {{error}}"
   updatePartner: "Nepodarilo sa aktualizovať partnera: {{error}}"
   deletePartner: "Nepodarilo sa vymazať partnera: {{error}}"
+  importCashflows: "Nepodarilo sa importovať transakcie: {{error}}"
 
 # ──── Uložisko dát ────
 dataStorage:
@@ -363,6 +380,53 @@ dataStorage:
   errors:
     change: "Nepodarilo sa zmeniť umiestnenie databázy: {{error}}"
     reset: "Nepodarilo sa obnoviť umiestnenie databázy: {{error}}"
+
+# ──── Import CSV ────
+import:
+  title: "Importovať CSV"
+  uploadStep:
+    title: "Nahrať súbor"
+    dragDrop: "Presuňte CSV súbor sem"
+    browse: "Prehľadávať"
+    selectAccount: "Vyberte účet na import"
+    invalidFile: "Vyberte platný CSV súbor"
+  mappingStep:
+    title: "Mapovanie stĺpcov"
+    description: "Priraďte stĺpce CSV k poliam transakcie"
+    field:
+      date: "Dátum"
+      amount: "Suma"
+      partner: "Partner / IBAN"
+      currency: "Mena"
+      fxRate: "Kurz meny"
+      note: "Poznámka"
+    skip: "— preskočiť —"
+    required: "(povinné)"
+    autoDetected: "Automaticky rozpoznané"
+  reviewStep:
+    title: "Kontrola a import"
+    summary: "{{total}} riadkov spracovaných, {{duplicates}} možných duplikátov"
+    balanceWarning: "Aktualizácia zostatku existuje k {{dates}}"
+    selectAll: "Vybrať všetko"
+    deselectAll: "Zrušiť výber"
+    duplicate: "Duplikát"
+    newPartner: "Nový partner"
+    createPartner: "Vytvoriť partnera"
+    createPartnerAccount: "Vytvoriť partnerský účet"
+    assignToAccount: "Priradiť k účtu"
+    accountAssigned: "Účet priradený"
+    partnerCreated: "Partner vytvorený"
+    bucket: "Obálka"
+    selectBucket: "Vybrať obálku"
+    importButton: "Importovať {{count}} riadkov"
+    noRowsSelected: "Žiadne riadky nie sú vybraté"
+    transfer: "Prevod"
+    assignCounterpart: "Priradiť účet"
+    counterpartAssigned: "Účet priradený"
+  success: "Importovaných {{count}} transakcií"
+  error: "Nepodarilo sa importovať transakcie"
+  next: "Ďalej"
+  back: "Späť"
 
 # ──── Výber jazyka ────
 language:

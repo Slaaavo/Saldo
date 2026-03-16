@@ -170,6 +170,8 @@ pub fn run() {
             features::update_event,
             features::delete_event,
             features::bulk_create_balance_updates,
+            features::create_cashflow,
+            features::bulk_create_cashflows,
             features::list_currencies,
             features::get_consolidation_currency,
             features::set_consolidation_currency,
