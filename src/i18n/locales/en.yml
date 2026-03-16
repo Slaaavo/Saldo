@@ -426,6 +426,7 @@ import:
     skip: "— skip —"
     required: "(required)"
     autoDetected: "Auto-detected"
+    noHeader: "No header (column {{column}})"
   reviewStep:
     title: "Review & Import"
     summary: "{{total}} rows parsed, {{duplicates}} possible duplicates"

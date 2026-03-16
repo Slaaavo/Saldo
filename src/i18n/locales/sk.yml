@@ -403,6 +403,7 @@ import:
     skip: "— preskočiť —"
     required: "(povinné)"
     autoDetected: "Automaticky rozpoznané"
+    noHeader: "Bez hlavičky (stĺpec {{column}})"
   reviewStep:
     title: "Kontrola a import"
     summary: "{{total}} riadkov spracovaných, {{duplicates}} možných duplikátov"

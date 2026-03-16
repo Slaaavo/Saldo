@@ -19,9 +19,75 @@ describe('parseCsvFile', () => {
     const file = new File([''], 'empty.csv', { type: 'text/csv' });
     await expect(parseCsvFile(file)).rejects.toThrow();
   });
-});
 
-describe('autoDetectMapping', () => {
+  it('normalizes missing headers to no-header-column-N', async () => {
+    const file = new File([',Amount,,\n2026-01-01,100,val3,val4'], 'test.csv', {
+      type: 'text/csv',
+    });
+    const result = await parseCsvFile(file);
+    expect(result.headers).toEqual([
+      'no-header-column-1',
+      'Amount',
+      'no-header-column-3',
+      'no-header-column-4',
+    ]);
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0]).toMatchObject({
+      'no-header-column-1': '2026-01-01',
+      Amount: '100',
+      'no-header-column-3': 'val3',
+      'no-header-column-4': 'val4',
+    });
+  });
+
+  it('normalizes whitespace-only headers', async () => {
+    const file = new File([' , Amount,   ,\n2026-01-01,100,val3'], 'test.csv', {
+      type: 'text/csv',
+    });
+    const result = await parseCsvFile(file);
+    expect(result.headers).toEqual([
+      'no-header-column-1',
+      ' Amount',
+      'no-header-column-3',
+      'no-header-column-4',
+    ]);
+    expect(result.rows[0]).toMatchObject({
+      'no-header-column-1': '2026-01-01',
+      ' Amount': '100',
+      'no-header-column-3': 'val3',
+    });
+  });
+
+  it('normalizes single missing header', async () => {
+    const file = new File([',Amount\nval1,val2'], 'test.csv', { type: 'text/csv' });
+    const result = await parseCsvFile(file);
+    expect(result.headers).toEqual(['no-header-column-1', 'Amount']);
+    expect(result.rows[0]).toMatchObject({
+      'no-header-column-1': 'val1',
+      Amount: 'val2',
+    });
+  });
+
+  it('preserves literal _1 header unchanged', async () => {
+    const file = new File(['_1,Amount\nval1,val2'], 'test.csv', { type: 'text/csv' });
+    const result = await parseCsvFile(file);
+    expect(result.headers).toEqual(['_1', 'Amount']);
+    expect(result.rows[0]).toMatchObject({
+      _1: 'val1',
+      Amount: 'val2',
+    });
+  });
+
+  it('preserves literal _1 header in mixed scenario with blank header', async () => {
+    const file = new File([',_1,Amount\nval1,val2,val3'], 'test.csv', { type: 'text/csv' });
+    const result = await parseCsvFile(file);
+    expect(result.headers).toEqual(['no-header-column-1', '_1', 'Amount']);
+    expect(result.rows[0]).toMatchObject({
+      'no-header-column-1': 'val1',
+      _1: 'val2',
+      Amount: 'val3',
+    });
+  });
   it('detects English date header', () => {
     const result = autoDetectMapping(['Date', 'Amount', 'Note']);
     expect(result.date).toBe('Date');
@@ -88,6 +154,13 @@ describe('autoDetectMapping', () => {
     const result = autoDetectMapping([]);
     expect(result.date).toBeNull();
     expect(result.amount).toBeNull();
+  });
+
+  it('does not auto-detect no-header-column tokens', () => {
+    const result = autoDetectMapping(['no-header-column-1', 'Amount', 'no-header-column-3']);
+    expect(result.date).toBeNull();
+    expect(result.amount).toBe('Amount');
+    expect(result.partner).toBeNull();
   });
 });
 

@@ -53,6 +53,14 @@ export default function MappingStep({
     return columnMapping[field] ?? SKIP_VALUE;
   };
 
+  const getHeaderLabel = (header: string): string => {
+    const match = header.match(/^no-header-column-(\d+)$/);
+    if (match) {
+      return t('import.mappingStep.noHeader', { column: match[1] });
+    }
+    return header;
+  };
+
   return (
     <>
       <div className="flex flex-col gap-4">
@@ -82,7 +90,7 @@ export default function MappingStep({
                   <SelectItem value={SKIP_VALUE}>{t('import.mappingStep.skip')}</SelectItem>
                   {csvHeaders.map((header) => (
                     <SelectItem key={header} value={header}>
-                      {header}
+                      {getHeaderLabel(header)}
                     </SelectItem>
                   ))}
                 </SelectContent>

@@ -3,6 +3,13 @@ import type { CsvRow, ColumnMapping, CashflowFieldKey } from './types';
 
 export async function parseCsvFile(file: File): Promise<{ headers: string[]; rows: CsvRow[] }> {
   const text = await readFileAsText(file);
+  const lines = text.split('\n');
+  if (lines.length < 2) {
+    throw new Error('The CSV file must have at least a header row and one data row.');
+  }
+  const firstLine = lines[0];
+  const rawParse = Papa.parse(firstLine, { header: false, skipEmptyLines: false });
+  const rawHeaders = rawParse.data[0] as string[];
   return new Promise((resolve, reject) => {
     Papa.parse<CsvRow>(text, {
       header: true,
@@ -17,8 +24,22 @@ export async function parseCsvFile(file: File): Promise<{ headers: string[]; row
           reject(new Error('The CSV file contains no data rows.'));
           return;
         }
-        const headers = results.meta.fields ?? [];
-        resolve({ headers, rows: results.data });
+        const originalHeaders = results.meta.fields ?? [];
+        const normalizedHeaders = originalHeaders.map((h, i) => {
+          const raw = rawHeaders[i] || '';
+          if (raw.trim() === '') {
+            return `no-header-column-${i + 1}`;
+          }
+          return h;
+        });
+        const transformedRows = results.data.map((row) => {
+          const newRow: CsvRow = {};
+          originalHeaders.forEach((orig, i) => {
+            newRow[normalizedHeaders[i]] = row[orig];
+          });
+          return newRow;
+        });
+        resolve({ headers: normalizedHeaders, rows: transformedRows });
       },
       error(err: { message: string }) {
         reject(new Error(`CSV parsing failed: ${err.message}`));
