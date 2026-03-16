@@ -14,6 +14,7 @@ import { useDemoMode } from '../features/settings/useDemoMode';
 import DashboardView from '../features/dashboard/DashboardView';
 import DemoModeBanner from '../features/settings/DemoModeBanner';
 import LedgerPage from '../features/ledger/LedgerPage';
+import PartnersPage from '../features/partners/PartnersPage';
 import { Toaster } from 'sonner';
 import { computeDashboardMetrics } from '../features/dashboard/dashboardMetrics';
 import { getBulkUpdateExclusions } from '../shared/api';
@@ -24,6 +25,7 @@ const PAGE_TITLES: Record<string, string> = {
   'fx-rates': 'sidebar.fxRates',
   units: 'sidebar.units',
   settings: 'sidebar.settings',
+  partners: 'sidebar.partners',
 };
 
 function App() {
@@ -31,7 +33,7 @@ function App() {
   const { theme, themePreference, setThemePreference } = useTheme();
   const { modalState, setModalState, closeModal } = useModalManager();
   const [currentView, setCurrentView] = useState<
-    'dashboard' | 'ledger' | 'fx-rates' | 'units' | 'settings'
+    'dashboard' | 'ledger' | 'fx-rates' | 'units' | 'settings' | 'partners'
   >('dashboard');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [ledgerRefreshCounter, setLedgerRefreshCounter] = useState(0);
@@ -110,6 +112,8 @@ function App() {
 
                   {currentView === 'units' && <UnitsPage />}
 
+                  {currentView === 'partners' && <PartnersPage />}
+
                   {currentView === 'settings' && (
                     <SettingsPage
                       onConsolidationCurrencyChange={handleConsolidationCurrencyChange}
@@ -156,7 +160,13 @@ function App() {
                       onEnterDemoMode={demo.handleEnter}
                       onNavigate={(v) =>
                         setCurrentView(
-                          v as 'dashboard' | 'ledger' | 'fx-rates' | 'units' | 'settings',
+                          v as
+                            | 'dashboard'
+                            | 'ledger'
+                            | 'fx-rates'
+                            | 'units'
+                            | 'settings'
+                            | 'partners',
                         )
                       }
                     />

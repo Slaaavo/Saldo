@@ -8,7 +8,7 @@ import EditBalanceUpdateModal from '../features/transactions/EditBalanceUpdateMo
 import CreateAccountModal from '../features/accounts/CreateAccountModal';
 import CreateAssetModal from '../features/assets/CreateAssetModal';
 import UpdateAssetValueModal from '../features/assets/UpdateAssetValueModal';
-import RenameAccountModal from '../features/accounts/RenameAccountModal';
+import EditAccountModal from '../features/accounts/EditAccountModal';
 import ConfirmDialog from '../shared/ui/ConfirmDialog';
 import BulkUpdateBalanceModal from '../features/transactions/BulkUpdateBalanceModal';
 import DbLocationChoiceDialog from '../features/settings/DbLocationChoiceDialog';
@@ -57,7 +57,7 @@ export default function AppModals({
     handleEditBalanceUpdate,
     handleDeleteEvent,
     handleCreateAccount,
-    handleRenameAccount,
+    handleEditAccount,
     handleDeleteAccount,
     handleBulkUpdateSubmit,
     handleSaveOrder,
@@ -106,12 +106,14 @@ export default function AppModals({
     case 'createAsset':
       return <CreateAssetModal onSuccess={handleCreateAssetSuccess} onClose={closeModal} />;
 
-    case 'renameAccount':
+    case 'editAccount':
       return (
-        <RenameAccountModal
+        <EditAccountModal
           accountId={modalState.accountId}
           currentName={modalState.currentName}
-          onSubmit={handleRenameAccount}
+          accountType={modalState.accountType}
+          currentIban={modalState.currentIban}
+          onSubmit={handleEditAccount}
           onClose={closeModal}
         />
       );

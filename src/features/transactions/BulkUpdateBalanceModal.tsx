@@ -137,7 +137,13 @@ export default function BulkUpdateBalanceModal({
           <DialogBody className="flex flex-col gap-4">
             <div className="flex flex-col gap-2">
               <Label htmlFor="bulk-date">{t('modals.bulkUpdate.date')}</Label>
-              <DatePicker id="bulk-date" value={date} onChange={setDate} />
+              <DatePicker
+                id="bulk-date"
+                value={date}
+                onChange={setDate}
+                withTime
+                defaultTime="23:59"
+              />
             </div>
 
             <hr className="border-border" />

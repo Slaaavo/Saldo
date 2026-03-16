@@ -6,8 +6,22 @@ sidebar:
   settings: "Settings"
   fxRates: "FX Rates"
   units: "Units"
+  partners: "Partners"
   collapse: "Collapse sidebar"
   expand: "Expand sidebar"
+
+# ──── Partner accounts ────
+partners:
+  title: "Partners"
+  empty: "No partners yet. Partners will be created automatically when you import transactions."
+  addPartner: "Add Partner"
+  name: "Name"
+  iban: "IBAN"
+  search: "Search partners..."
+  deleteConfirm: 'Are you sure you want to delete partner "{{name}}"?'
+  errors:
+    duplicateIban: "This IBAN is already in use by another account or partner."
+    invalidIban: "IBAN must be 15\u201334 alphanumeric characters."
 
 # ──── Header ────
 header:
@@ -31,6 +45,7 @@ accounts:
   addAccount: Add Account
   empty: No accounts yet. Create one to get started.
   rename: Rename
+  edit: Edit
   delete: Delete
   updateBalance: Update Balance
   scrollLeft: Scroll left
@@ -40,6 +55,7 @@ accounts:
   overAllocationTooltip: "Allocated {{allocated}} of {{balance}} {{currency}} (over by {{over}}). Buckets: {{buckets}}"
   manageLinkedAssets: "Manage Linked Assets"
   linkedAssetTooltip: "Secured by: {{assets}}"
+  noIban: "No IBAN"
 
 # ──── Bucket cards ────
 buckets:
@@ -114,6 +130,8 @@ modals:
     namePlaceholder: e.g. Checking Account
     initialBalance: "Initial Balance (optional)"
     securedByAsset: "Secured by asset (optional)"
+    ibanLabel: "IBAN (optional)"
+    ibanPlaceholder: "e.g. SK31 1200 0000 0019 8742 3561"
     cancel: Cancel
     submit: Create
 
@@ -143,6 +161,30 @@ modals:
     nameLabel: New Name
     cancel: Cancel
     submit: Rename
+
+  editAccount:
+    title: Edit Account
+    nameLabel: Name
+    ibanLabel: IBAN
+    ibanPlaceholder: "e.g. SK31 1200 0000 0019 8742 3561"
+    cancel: Cancel
+    submit: Save
+
+  createPartner:
+    title: Add Partner
+    nameLabel: Name
+    namePlaceholder: "e.g. Acme Corp"
+    ibanLabel: IBAN
+    ibanPlaceholder: "e.g. SK31 1200 0000 0019 8742 3561"
+    cancel: Cancel
+    submit: Create
+
+  editPartner:
+    title: Edit Partner
+    nameLabel: Name
+    ibanLabel: IBAN
+    cancel: Cancel
+    submit: Save
 
   updateAssetValue:
     title: Update Asset Value
@@ -255,6 +297,8 @@ banner:
 # ──── Date picker ────
 datePicker:
   today: Today
+  hour: "Hour"
+  minute: "Minute"
 
 # ──── Currency ────
 currency:
@@ -293,6 +337,9 @@ errors:
   setAccountAssetLinks: "Failed to save asset links: {{error}}"
   updateAssetValue: "Failed to update asset value: {{error}}"
   bulkUpdateVisibility: "Failed to save bulk update visibility: {{error}}"
+  createPartner: "Failed to create partner: {{error}}"
+  updatePartner: "Failed to update partner: {{error}}"
+  deletePartner: "Failed to delete partner: {{error}}"
 
 # ──── Language selector ────
 language:

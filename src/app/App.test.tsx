@@ -52,6 +52,7 @@ const mockPickDbFolder = vi.fn();
 const mockChangeDbLocation = vi.fn();
 const mockResetDbLocation = vi.fn();
 const mockCheckDefaultDb = vi.fn();
+const mockGetBulkUpdateExclusions = vi.fn();
 
 vi.mock('../shared/api', () => ({
   fetchFxRates: (...args: unknown[]) => mockFetchFxRates(...args),
@@ -63,6 +64,40 @@ vi.mock('../shared/api', () => ({
   changeDbLocation: (...args: unknown[]) => mockChangeDbLocation(...args),
   resetDbLocation: (...args: unknown[]) => mockResetDbLocation(...args),
   checkDefaultDb: (...args: unknown[]) => mockCheckDefaultDb(...args),
+  createBalanceUpdate: vi.fn(),
+  getAccountsSnapshot: vi.fn(),
+  listEvents: vi.fn(),
+  createAccount: vi.fn(),
+  updateAccount: vi.fn(),
+  createPartnerAccount: vi.fn(),
+  listPartnerAccounts: vi.fn(),
+  updatePartnerAccount: vi.fn(),
+  deletePartnerAccount: vi.fn(),
+  deleteAccount: vi.fn(),
+  updateEvent: vi.fn(),
+  deleteEvent: vi.fn(),
+  bulkCreateBalanceUpdates: vi.fn(),
+  listCurrencies: vi.fn(),
+  getConsolidationCurrency: vi.fn(),
+  setConsolidationCurrency: vi.fn(),
+  setFxRateManual: vi.fn(),
+  listFxRates: vi.fn(),
+  getMissingRateDates: vi.fn(),
+  getAppSetting: vi.fn(),
+  createBucketAllocation: vi.fn(),
+  listBucketAllocations: vi.fn(),
+  getAccountAllocatedTotal: vi.fn(),
+  checkOverAllocation: vi.fn(),
+  setAppSetting: vi.fn(),
+  updateSortOrder: vi.fn(),
+  createCustomUnit: vi.fn(),
+  listCustomUnits: vi.fn(),
+  updateCustomUnit: vi.fn(),
+  updateAssetValue: vi.fn(),
+  listAccountAssetLinks: vi.fn(),
+  setAccountAssetLinks: vi.fn(),
+  getBulkUpdateExclusions: (...args: unknown[]) => mockGetBulkUpdateExclusions(...args),
+  setBulkUpdateExclusions: vi.fn(),
 }));
 
 // ── Mock hooks ──────────────────────────────────────────────────────────────
@@ -94,7 +129,7 @@ const mockHandleCreateBalanceUpdate = vi.fn();
 const mockHandleEditBalanceUpdate = vi.fn();
 const mockHandleDeleteEvent = vi.fn();
 const mockHandleCreateAccount = vi.fn();
-const mockHandleRenameAccount = vi.fn();
+const mockHandleEditAccount = vi.fn();
 const mockHandleDeleteAccount = vi.fn();
 const mockHandleBulkUpdateSubmit = vi.fn();
 const mockHandleSaveOrder = vi.fn();
@@ -132,7 +167,7 @@ vi.mock('./useModalActions', () => ({
     handleEditBalanceUpdate: mockHandleEditBalanceUpdate,
     handleDeleteEvent: mockHandleDeleteEvent,
     handleCreateAccount: mockHandleCreateAccount,
-    handleRenameAccount: mockHandleRenameAccount,
+    handleEditAccount: mockHandleEditAccount,
     handleDeleteAccount: mockHandleDeleteAccount,
     handleBulkUpdateSubmit: mockHandleBulkUpdateSubmit,
     handleSaveOrder: mockHandleSaveOrder,
@@ -295,10 +330,10 @@ vi.mock('../features/assets/UpdateAssetValueModal', () => ({
   ),
 }));
 
-vi.mock('../features/accounts/RenameAccountModal', () => ({
+vi.mock('../features/accounts/EditAccountModal', () => ({
   default: (props: { onClose: () => void }) => (
-    <div data-testid="rename-account-modal">
-      <button data-testid="rename-account-close" onClick={props.onClose}>
+    <div data-testid="edit-account-modal">
+      <button data-testid="edit-account-close" onClick={props.onClose}>
         Close
       </button>
     </div>
@@ -385,6 +420,7 @@ function makeSnapshot(overrides?: Partial<SnapshotRow>): SnapshotRow {
     linkedAllocationsFromAssetsMinor: 0,
     isLinkedToAsset: false,
     linkedAssetIds: [],
+    iban: null,
     ...overrides,
   };
 }
@@ -445,6 +481,7 @@ function setupDefaultMocks(overrides?: { snapshot?: SnapshotRow[]; events?: Even
   mockChangeDbLocation.mockResolvedValue(undefined);
   mockResetDbLocation.mockResolvedValue(undefined);
   mockCheckDefaultDb.mockResolvedValue(false);
+  mockGetBulkUpdateExclusions.mockResolvedValue([]);
 
   financeDataReturn = defaultFinanceData({
     snapshot: overrides?.snapshot ?? [makeSnapshot()],
@@ -921,10 +958,15 @@ describe('App', () => {
       expect(screen.getByTestId('create-asset-modal')).toBeInTheDocument();
     });
 
-    it('renders RenameAccountModal when modalState is renameAccount', () => {
-      modalStateValue = { type: 'renameAccount', accountId: 1, currentName: 'Test' };
+    it('renders EditAccountModal when modalState is editAccount', () => {
+      modalStateValue = {
+        type: 'editAccount',
+        accountId: 1,
+        currentName: 'Test',
+        accountType: 'account',
+      };
       render(<App />);
-      expect(screen.getByTestId('rename-account-modal')).toBeInTheDocument();
+      expect(screen.getByTestId('edit-account-modal')).toBeInTheDocument();
     });
 
     it('renders ConfirmDialog for confirmDeleteAccount', () => {

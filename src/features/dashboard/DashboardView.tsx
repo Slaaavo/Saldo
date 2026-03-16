@@ -90,8 +90,16 @@ export default function DashboardView({
       : []),
   ];
 
-  const handleRename = (accountId: number, currentName: string) =>
-    setModalState({ type: 'renameAccount', accountId, currentName });
+  const handleRename = (accountId: number, currentName: string) => {
+    const row = snapshot.find((r) => r.accountId === accountId);
+    setModalState({
+      type: 'editAccount',
+      accountId,
+      currentName,
+      accountType: row?.accountType ?? 'account',
+      currentIban: row?.iban,
+    });
+  };
 
   const handleDelete =
     (accountType: 'account' | 'bucket' | 'asset') => (accountId: number, name: string) =>

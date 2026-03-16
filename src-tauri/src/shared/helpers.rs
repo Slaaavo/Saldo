@@ -1,5 +1,5 @@
 use crate::error::AppError;
-use chrono::NaiveDate;
+use chrono::{NaiveDate, NaiveDateTime};
 use rusqlite::Connection;
 
 /// Execute `f` inside a SAVEPOINT. Rolls back on error, releases on success.
@@ -54,11 +54,18 @@ pub fn validate_event_date(date_str: &str) -> Result<(), AppError> {
             message: "event_date is required".into(),
         });
     }
-    NaiveDate::parse_from_str(date_str, "%Y-%m-%d").map_err(|_| AppError {
+    // Accept both YYYY-MM-DD and YYYY-MM-DDTHH:MM:SS
+    if NaiveDate::parse_from_str(date_str, "%Y-%m-%d").is_ok() {
+        return Ok(());
+    }
+    if NaiveDateTime::parse_from_str(date_str, "%Y-%m-%dT%H:%M:%S").is_ok() {
+        return Ok(());
+    }
+    Err(AppError {
         code: "VALIDATION".into(),
-        message: "event_date must be a valid date in YYYY-MM-DD format".into(),
-    })?;
-    Ok(())
+        message: "event_date must be a valid date in YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS format"
+            .into(),
+    })
 }
 
 /// Convert `balance_minor` (in source currency) to destination currency minor units.

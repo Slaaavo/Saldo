@@ -16,13 +16,25 @@ import { Label } from '../../shared/ui/label';
 interface Props {
   accountId: number;
   currentName: string;
-  onSubmit: (accountId: number, name: string) => void;
+  accountType: string;
+  currentIban?: string | null;
+  onSubmit: (accountId: number, name: string, iban?: string) => void;
   onClose: () => void;
 }
 
-export default function RenameAccountModal({ accountId, currentName, onSubmit, onClose }: Props) {
+export default function EditAccountModal({
+  accountId,
+  currentName,
+  accountType,
+  currentIban,
+  onSubmit,
+  onClose,
+}: Props) {
   const { t } = useTranslation();
   const [name, setName] = useState(currentName);
+  const [iban, setIban] = useState(currentIban ?? '');
+
+  const showIban = accountType === 'account';
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -30,7 +42,11 @@ export default function RenameAccountModal({ accountId, currentName, onSubmit, o
       toast.error(t('validation.nameRequired', { entity: t('common.account') }));
       return;
     }
-    onSubmit(accountId, name.trim());
+    if (showIban) {
+      onSubmit(accountId, name.trim(), iban.trim());
+    } else {
+      onSubmit(accountId, name.trim());
+    }
   };
 
   return (
@@ -42,7 +58,7 @@ export default function RenameAccountModal({ accountId, currentName, onSubmit, o
     >
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>{t('modals.renameAccount.title')}</DialogTitle>
+          <DialogTitle>{t('modals.editAccount.title')}</DialogTitle>
         </DialogHeader>
         <form
           onSubmit={handleSubmit}
@@ -50,9 +66,9 @@ export default function RenameAccountModal({ accountId, currentName, onSubmit, o
         >
           <DialogBody className="flex flex-col gap-4">
             <div className="flex flex-col gap-2">
-              <Label htmlFor="rename-name">{t('modals.renameAccount.nameLabel')}</Label>
+              <Label htmlFor="edit-account-name">{t('modals.editAccount.nameLabel')}</Label>
               <Input
-                id="rename-name"
+                id="edit-account-name"
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
@@ -60,12 +76,24 @@ export default function RenameAccountModal({ accountId, currentName, onSubmit, o
                 autoFocus
               />
             </div>
+            {showIban && (
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="edit-account-iban">{t('modals.editAccount.ibanLabel')}</Label>
+                <Input
+                  id="edit-account-iban"
+                  type="text"
+                  value={iban}
+                  onChange={(e) => setIban(e.target.value)}
+                  placeholder={t('modals.editAccount.ibanPlaceholder')}
+                />
+              </div>
+            )}
           </DialogBody>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose}>
-              {t('modals.renameAccount.cancel')}
+              {t('modals.editAccount.cancel')}
             </Button>
-            <Button type="submit">{t('modals.renameAccount.submit')}</Button>
+            <Button type="submit">{t('modals.editAccount.submit')}</Button>
           </DialogFooter>
         </form>
       </DialogContent>

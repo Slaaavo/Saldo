@@ -9,7 +9,17 @@ use rusqlite::{params, Connection, OptionalExtension};
 
 use super::models::{EventWithData, ListEventsResult, SnapshotRow};
 
-type SnapshotRawRow = (i64, String, String, i64, String, i64, i64, i64);
+type SnapshotRawRow = (
+    i64,
+    String,
+    String,
+    Option<String>,
+    i64,
+    String,
+    i64,
+    i64,
+    i64,
+);
 
 pub(crate) fn create_balance_update_inner(
     conn: &Connection,
@@ -217,6 +227,7 @@ pub fn get_accounts_snapshot(
            a.id AS account_id,
            a.name AS account_name,
            a.account_type,
+           a.iban,
            c.id AS currency_id,
            c.code AS currency_code,
            c.minor_units AS currency_minor_units,
@@ -233,6 +244,7 @@ pub fn get_accounts_snapshot(
            ), 0) AS balance_minor
          FROM account a
          JOIN currency c ON c.id = a.currency_id
+         WHERE a.account_type IN ('account', 'bucket', 'asset')
          ORDER BY a.account_type, a.sort_order, a.id",
     )?;
 
@@ -247,6 +259,7 @@ pub fn get_accounts_snapshot(
                 row.get(5)?,
                 row.get(6)?,
                 row.get(7)?,
+                row.get(8)?,
             ))
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -256,6 +269,7 @@ pub fn get_accounts_snapshot(
         account_id,
         account_name,
         account_type,
+        iban,
         currency_id,
         currency_code,
         currency_minor_units,
@@ -295,6 +309,7 @@ pub fn get_accounts_snapshot(
             account_id,
             account_name,
             account_type,
+            iban,
             balance_minor,
             currency_code,
             currency_minor_units,
@@ -419,7 +434,7 @@ mod tests {
     use crate::features::currency::repository::set_fx_rate_manual;
 
     fn mk_account(conn: &Connection) -> i64 {
-        create_account(conn, "Test Account", 1, "account", None, None)
+        create_account(conn, "Test Account", 1, "account", None, None, None)
             .expect("create account failed")
     }
 
@@ -516,7 +531,7 @@ mod tests {
     fn list_events_filters_by_account() {
         let conn = initialize_in_memory().expect("DB init failed");
         let acc1 = mk_account(&conn);
-        let acc2 = create_account(&conn, "Second", 1, "account", None, None).unwrap();
+        let acc2 = create_account(&conn, "Second", 1, "account", None, None, None).unwrap();
         create_balance_update(&conn, acc1, 1000, "2026-01-01", None).unwrap();
         create_balance_update(&conn, acc2, 2000, "2026-02-01", None).unwrap();
 
@@ -544,8 +559,16 @@ mod tests {
     #[test]
     fn create_bucket_appears_in_snapshot() {
         let conn = initialize_in_memory().expect("DB init failed");
-        let bucket_id =
-            create_account(&conn, "Emergency Fund", 1, "bucket", Some(20000), None).unwrap();
+        let bucket_id = create_account(
+            &conn,
+            "Emergency Fund",
+            1,
+            "bucket",
+            Some(20000),
+            None,
+            None,
+        )
+        .unwrap();
         let snapshot = get_accounts_snapshot(&conn, "2099-12-31T23:59:59").unwrap();
         let bucket = snapshot.iter().find(|r| r.account_id == bucket_id).unwrap();
         assert_eq!(bucket.account_type, "bucket");
@@ -564,7 +587,8 @@ mod tests {
     #[test]
     fn bucket_balance_update_works() {
         let conn = initialize_in_memory().expect("DB init failed");
-        let bucket_id = create_account(&conn, "Savings Bucket", 1, "bucket", None, None).unwrap();
+        let bucket_id =
+            create_account(&conn, "Savings Bucket", 1, "bucket", None, None, None).unwrap();
         create_balance_update(&conn, bucket_id, 15000, "2026-03-01", None).unwrap();
         let snapshot = get_accounts_snapshot(&conn, "2026-03-01T23:59:59").unwrap();
         let bucket = snapshot.iter().find(|r| r.account_id == bucket_id).unwrap();
@@ -574,14 +598,15 @@ mod tests {
     #[test]
     fn list_events_includes_account_type() {
         let conn = initialize_in_memory().expect("DB init failed");
-        let bucket_id = create_account(&conn, "Test Bucket", 1, "bucket", None, None).unwrap();
+        let bucket_id =
+            create_account(&conn, "Test Bucket", 1, "bucket", None, None, None).unwrap();
         create_balance_update(&conn, bucket_id, 5000, "2026-03-01", None).unwrap();
         let result = list_events(&conn, Some(bucket_id), None, None, None, None).unwrap();
         assert_eq!(result.events.len(), 1);
         assert_eq!(result.events[0].account_type, "bucket");
 
         let empty_account_id =
-            create_account(&conn, "Empty Account", 1, "account", None, None).unwrap();
+            create_account(&conn, "Empty Account", 1, "account", None, None, None).unwrap();
         let result_empty =
             list_events(&conn, Some(empty_account_id), None, None, None, None).unwrap();
         // Account with no balance updates has no events
@@ -591,8 +616,8 @@ mod tests {
     #[test]
     fn snapshot_orders_accounts_before_buckets() {
         let conn = initialize_in_memory().expect("DB init failed");
-        create_account(&conn, "Zebra Bucket", 1, "bucket", None, None).unwrap();
-        create_account(&conn, "Alpha Account", 1, "account", None, None).unwrap();
+        create_account(&conn, "Zebra Bucket", 1, "bucket", None, None, None).unwrap();
+        create_account(&conn, "Alpha Account", 1, "account", None, None, None).unwrap();
         let snapshot = get_accounts_snapshot(&conn, "2099-12-31T23:59:59").unwrap();
         // accounts come first (alphabetically 'account' < 'bucket'), then buckets
         let types: Vec<&str> = snapshot.iter().map(|r| r.account_type.as_str()).collect();
@@ -627,7 +652,7 @@ mod tests {
                 r.get::<_, i64>(0)
             })
             .unwrap();
-        let acc = create_account(&conn, "USD Account", usd, "account", None, None).unwrap();
+        let acc = create_account(&conn, "USD Account", usd, "account", None, None, None).unwrap();
         create_balance_update(&conn, acc, 108420, "2026-03-01", None).unwrap();
         let snapshot = get_accounts_snapshot(&conn, "2026-03-01T23:59:59").unwrap();
         let row = snapshot.iter().find(|r| r.account_id == acc).unwrap();
@@ -650,7 +675,7 @@ mod tests {
                 r.get::<_, i64>(0)
             })
             .unwrap();
-        let acc = create_account(&conn, "USD Account", usd, "account", None, None).unwrap();
+        let acc = create_account(&conn, "USD Account", usd, "account", None, None, None).unwrap();
         create_balance_update(&conn, acc, 108420, "2026-03-01", None).unwrap();
         // Store rate: 1 EUR = 1.0842 USD (mantissa=10842, exponent=-4)
         set_fx_rate_manual(&conn, eur, usd, "2026-03-01", 10842, -4).unwrap();

@@ -12,7 +12,13 @@ export type ModalState =
   | { type: 'editBalanceUpdate'; event: EventWithData }
   | { type: 'createAccount'; accountType?: 'account' | 'bucket' }
   | { type: 'createAsset' }
-  | { type: 'renameAccount'; accountId: number; currentName: string }
+  | {
+      type: 'editAccount';
+      accountId: number;
+      currentName: string;
+      accountType: string;
+      currentIban?: string | null;
+    }
   | {
       type: 'confirmDeleteAccount';
       accountId: number;
@@ -103,10 +109,19 @@ export interface OverAllocationWarning {
   allocations: AllocationDetail[];
 }
 
+export interface PartnerAccount {
+  id: number;
+  name: string;
+  iban: string | null;
+  currencyCode: string;
+  createdAt: string;
+}
+
 export interface SnapshotRow {
   accountId: number;
   accountName: string;
   accountType: string;
+  iban: string | null;
   balanceMinor: number;
   currencyCode: string;
   currencyMinorUnits: number;

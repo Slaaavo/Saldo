@@ -20,6 +20,7 @@ function makeSnapshot(overrides?: Partial<SnapshotRow>): SnapshotRow {
     linkedAllocationsFromAssetsMinor: 0,
     isLinkedToAsset: false,
     linkedAssetIds: [],
+    iban: null,
     ...overrides,
   };
 }

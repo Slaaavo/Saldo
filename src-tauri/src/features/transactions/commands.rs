@@ -56,6 +56,16 @@ pub fn create_balance_update(
 ) -> Result<i64, AppError> {
     crate::shared::validate_event_date(&input.event_date)?;
     let conn = state.conn()?;
+    if let Some(account_type) =
+        crate::features::accounts::repository::get_account_type(&conn, input.account_id)?
+    {
+        if account_type == "partner" {
+            return Err(AppError {
+                code: "VALIDATION".into(),
+                message: "Cannot create events on partner accounts".into(),
+            });
+        }
+    }
     let event_id = repository::create_balance_update(
         &conn,
         input.account_id,
@@ -132,6 +142,18 @@ pub fn bulk_create_balance_updates(
         });
     }
     let conn = state.conn()?;
+    for entry in &input.entries {
+        if let Some(account_type) =
+            crate::features::accounts::repository::get_account_type(&conn, entry.account_id)?
+        {
+            if account_type == "partner" {
+                return Err(AppError {
+                    code: "VALIDATION".into(),
+                    message: "Cannot create events on partner accounts".into(),
+                });
+            }
+        }
+    }
     let entries: Vec<(i64, i64)> = input
         .entries
         .iter()

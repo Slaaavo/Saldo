@@ -1,4 +1,5 @@
 use crate::error::AppError;
+use crate::features::accounts::models::PartnerAccountRow;
 use crate::AppState;
 use serde::Deserialize;
 use tauri::State;
@@ -14,6 +15,7 @@ pub struct CreateAccountInput {
     pub initial_balance_minor: Option<i64>,
     pub price_per_unit: Option<String>,
     pub linked_asset_ids: Option<Vec<i64>>,
+    pub iban: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -21,6 +23,7 @@ pub struct CreateAccountInput {
 pub struct UpdateAccountInput {
     pub account_id: i64,
     pub name: String,
+    pub iban: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -34,6 +37,88 @@ pub struct SortOrderEntry {
 #[serde(rename_all = "camelCase")]
 pub struct UpdateSortOrderInput {
     pub entries: Vec<SortOrderEntry>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreatePartnerAccountInput {
+    pub name: String,
+    pub iban: String,
+    pub currency_id: i64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdatePartnerAccountInput {
+    pub account_id: i64,
+    pub name: String,
+    pub iban: String,
+}
+
+#[tauri::command]
+pub fn create_partner_account(
+    state: State<'_, AppState>,
+    input: CreatePartnerAccountInput,
+) -> Result<i64, AppError> {
+    if input.name.trim().is_empty() {
+        return Err(AppError {
+            code: "VALIDATION".into(),
+            message: "Partner name is required".into(),
+        });
+    }
+    if input.iban.trim().is_empty() {
+        return Err(AppError {
+            code: "VALIDATION".into(),
+            message: "IBAN is required".into(),
+        });
+    }
+    let conn = state.conn()?;
+    repository::create_partner_account(
+        &conn,
+        input.name.trim(),
+        input.iban.trim(),
+        input.currency_id,
+    )
+}
+
+#[tauri::command]
+pub fn list_partner_accounts(
+    state: State<'_, AppState>,
+) -> Result<Vec<PartnerAccountRow>, AppError> {
+    let conn = state.conn()?;
+    repository::list_partner_accounts(&conn).map_err(AppError::from)
+}
+
+#[tauri::command]
+pub fn update_partner_account(
+    state: State<'_, AppState>,
+    input: UpdatePartnerAccountInput,
+) -> Result<(), AppError> {
+    if input.name.trim().is_empty() {
+        return Err(AppError {
+            code: "VALIDATION".into(),
+            message: "Partner name is required".into(),
+        });
+    }
+    if input.iban.trim().is_empty() {
+        return Err(AppError {
+            code: "VALIDATION".into(),
+            message: "IBAN is required".into(),
+        });
+    }
+    let conn = state.conn()?;
+    repository::update_partner_account(
+        &conn,
+        input.account_id,
+        input.name.trim(),
+        input.iban.trim(),
+    )
+}
+
+#[tauri::command]
+pub fn delete_partner_account(state: State<'_, AppState>, account_id: i64) -> Result<(), AppError> {
+    let conn = state.conn()?;
+    repository::delete_partner_account(&conn, account_id)
 }
 
 #[tauri::command]
@@ -60,6 +145,13 @@ pub fn create_account(
             message: "price_per_unit can only be used with asset accounts".into(),
         });
     }
+    // IBAN is only valid for regular accounts
+    if input.iban.as_ref().is_some_and(|v| !v.is_empty()) && account_type != "account" {
+        return Err(AppError {
+            code: "VALIDATION".into(),
+            message: "IBAN can only be set on account-type accounts".into(),
+        });
+    }
     let conn = state.conn()?;
     let id = repository::create_account(
         &conn,
@@ -68,6 +160,7 @@ pub fn create_account(
         account_type,
         input.initial_balance_minor,
         input.price_per_unit.as_deref(),
+        input.iban.as_deref(),
     )?;
 
     // Link to assets if provided and this is a regular account.
@@ -94,7 +187,12 @@ pub fn update_account(
         });
     }
     let conn = state.conn()?;
-    repository::update_account(&conn, input.account_id, input.name.trim())?;
+    repository::update_account(
+        &conn,
+        input.account_id,
+        input.name.trim(),
+        input.iban.as_deref(),
+    )?;
     Ok(())
 }
 

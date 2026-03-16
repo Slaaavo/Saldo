@@ -190,7 +190,7 @@ mod tests {
     use crate::features::transactions::repository::{create_balance_update, get_accounts_snapshot};
 
     fn mk_account(conn: &Connection) -> i64 {
-        create_account(conn, "Test Account", 1, "account", None, None)
+        create_account(conn, "Test Account", 1, "account", None, None, None)
             .expect("create account failed")
     }
 
@@ -198,7 +198,8 @@ mod tests {
     fn test_create_and_list_bucket_allocations() {
         let conn = initialize_in_memory().expect("DB init failed");
         let source_id = mk_account(&conn);
-        let bucket_id = create_account(&conn, "Emergency Fund", 1, "bucket", None, None).unwrap();
+        let bucket_id =
+            create_account(&conn, "Emergency Fund", 1, "bucket", None, None, None).unwrap();
         create_bucket_allocation(&conn, bucket_id, source_id, 5000, "2024-01-01").unwrap();
 
         let allocs = list_bucket_allocations(&conn, bucket_id, "2024-12-31").unwrap();
@@ -214,7 +215,8 @@ mod tests {
     fn test_allocation_respects_effective_date() {
         let conn = initialize_in_memory().expect("DB init failed");
         let source_id = mk_account(&conn);
-        let bucket_id = create_account(&conn, "Vacation Fund", 1, "bucket", None, None).unwrap();
+        let bucket_id =
+            create_account(&conn, "Vacation Fund", 1, "bucket", None, None, None).unwrap();
         create_bucket_allocation(&conn, bucket_id, source_id, 5000, "2024-01-01").unwrap();
         create_bucket_allocation(&conn, bucket_id, source_id, 8000, "2024-06-01").unwrap();
 
@@ -233,7 +235,7 @@ mod tests {
     fn test_unlink_allocation_via_zero_amount() {
         let conn = initialize_in_memory().expect("DB init failed");
         let source_id = mk_account(&conn);
-        let bucket_id = create_account(&conn, "Car Fund", 1, "bucket", None, None).unwrap();
+        let bucket_id = create_account(&conn, "Car Fund", 1, "bucket", None, None, None).unwrap();
         create_bucket_allocation(&conn, bucket_id, source_id, 5000, "2024-01-01").unwrap();
         // Unlink: zero-amount allocation at a later date.
         create_bucket_allocation(&conn, bucket_id, source_id, 0, "2024-06-01").unwrap();
@@ -252,8 +254,8 @@ mod tests {
     fn test_get_account_allocated_total_sums_across_buckets() {
         let conn = initialize_in_memory().expect("DB init failed");
         let source_id = mk_account(&conn);
-        let bucket1 = create_account(&conn, "Bucket A", 1, "bucket", None, None).unwrap();
-        let bucket2 = create_account(&conn, "Bucket B", 1, "bucket", None, None).unwrap();
+        let bucket1 = create_account(&conn, "Bucket A", 1, "bucket", None, None, None).unwrap();
+        let bucket2 = create_account(&conn, "Bucket B", 1, "bucket", None, None, None).unwrap();
         create_bucket_allocation(&conn, bucket1, source_id, 3000, "2024-01-01").unwrap();
         create_bucket_allocation(&conn, bucket2, source_id, 2000, "2024-01-01").unwrap();
 
@@ -267,7 +269,7 @@ mod tests {
         // EUR is the consolidation currency; source account and bucket are both EUR.
         let source_id = mk_account(&conn);
         let bucket_id =
-            create_account(&conn, "Allocation Bucket", 1, "bucket", None, None).unwrap();
+            create_account(&conn, "Allocation Bucket", 1, "bucket", None, None, None).unwrap();
         create_balance_update(&conn, source_id, 10000, "2024-01-01", None).unwrap();
         create_bucket_allocation(&conn, bucket_id, source_id, 4000, "2024-01-01").unwrap();
 
@@ -285,8 +287,8 @@ mod tests {
     fn test_snapshot_includes_allocated_total_for_accounts() {
         let conn = initialize_in_memory().expect("DB init failed");
         let source_id = mk_account(&conn);
-        let bucket1 = create_account(&conn, "Fund A", 1, "bucket", None, None).unwrap();
-        let bucket2 = create_account(&conn, "Fund B", 1, "bucket", None, None).unwrap();
+        let bucket1 = create_account(&conn, "Fund A", 1, "bucket", None, None, None).unwrap();
+        let bucket2 = create_account(&conn, "Fund B", 1, "bucket", None, None, None).unwrap();
         create_balance_update(&conn, source_id, 20000, "2024-01-01", None).unwrap();
         create_bucket_allocation(&conn, bucket1, source_id, 3000, "2024-01-01").unwrap();
         create_bucket_allocation(&conn, bucket2, source_id, 5000, "2024-01-01").unwrap();
@@ -301,7 +303,7 @@ mod tests {
         let conn = initialize_in_memory().expect("DB init failed");
         let source_id = mk_account(&conn);
         let bucket_id =
-            create_account(&conn, "Over-Alloc Bucket", 1, "bucket", None, None).unwrap();
+            create_account(&conn, "Over-Alloc Bucket", 1, "bucket", None, None, None).unwrap();
         // Account starts at 10000.
         create_balance_update(&conn, source_id, 10000, "2024-01-01", None).unwrap();
         // Allocate 10000 — exactly matching balance.
@@ -324,7 +326,8 @@ mod tests {
     fn test_over_allocation_check_returns_none_when_ok() {
         let conn = initialize_in_memory().expect("DB init failed");
         let source_id = mk_account(&conn);
-        let bucket_id = create_account(&conn, "Safe Bucket", 1, "bucket", None, None).unwrap();
+        let bucket_id =
+            create_account(&conn, "Safe Bucket", 1, "bucket", None, None, None).unwrap();
         create_balance_update(&conn, source_id, 10000, "2024-01-01", None).unwrap();
         create_bucket_allocation(&conn, bucket_id, source_id, 5000, "2024-01-01").unwrap();
 
@@ -337,8 +340,10 @@ mod tests {
         let conn = initialize_in_memory().expect("DB init failed");
         // Create a regular account, an asset, and a bucket — all EUR.
         let account_id = mk_account(&conn);
-        let asset_id = create_account(&conn, "Test Asset", 1, "asset", Some(50000), None).unwrap();
-        let bucket_id = create_account(&conn, "Test Bucket", 1, "bucket", None, None).unwrap();
+        let asset_id =
+            create_account(&conn, "Test Asset", 1, "asset", Some(50000), None, None).unwrap();
+        let bucket_id =
+            create_account(&conn, "Test Bucket", 1, "bucket", None, None, None).unwrap();
         // Give the account a balance.
         create_balance_update(&conn, account_id, 20000, "2024-01-01", None).unwrap();
         // Allocate 3000 from account and 5000 from asset to the same bucket.

@@ -200,6 +200,10 @@ pub fn run() {
             features::set_account_asset_links,
             features::get_bulk_update_exclusions,
             features::set_bulk_update_exclusions,
+            features::create_partner_account,
+            features::list_partner_accounts,
+            features::update_partner_account,
+            features::delete_partner_account,
         ])
         .run({
             let mut ctx = tauri::generate_context!();

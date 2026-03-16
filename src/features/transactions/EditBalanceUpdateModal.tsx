@@ -2,12 +2,7 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import type { EventWithData, SnapshotRow } from '../../shared/types';
-import {
-  formatDate,
-  fromMinorUnits,
-  toMinorUnits,
-  getMinorUnitsStep,
-} from '../../shared/utils/format';
+import { fromMinorUnits, toMinorUnits, getMinorUnitsStep } from '../../shared/utils/format';
 import { extractErrorMessage } from '../../shared/utils/errors';
 import {
   Dialog,
@@ -37,7 +32,7 @@ export default function EditBalanceUpdateModal({ event, accounts, onSubmit, onCl
   const minorUnits = event.currencyMinorUnits;
   const isBucket = event.accountType === 'bucket';
   const [amount, setAmount] = useState(fromMinorUnits(event.amountMinor, minorUnits));
-  const [date, setDate] = useState(formatDate(event.eventDate));
+  const [date, setDate] = useState(event.eventDate);
   const [note, setNote] = useState(event.note ?? '');
 
   const allocationSources = accounts.filter(
@@ -127,7 +122,13 @@ export default function EditBalanceUpdateModal({ event, accounts, onSubmit, onCl
             </div>
             <div className="flex flex-col gap-2">
               <Label htmlFor="ebu-date">{t('modals.editBalanceUpdate.date')}</Label>
-              <DatePicker id="ebu-date" value={date} onChange={setDate} />
+              <DatePicker
+                id="ebu-date"
+                value={date}
+                onChange={setDate}
+                withTime
+                defaultTime="23:59"
+              />
             </div>
             <div className="flex flex-col gap-2">
               <Label htmlFor="ebu-note">{t('modals.editBalanceUpdate.note')}</Label>

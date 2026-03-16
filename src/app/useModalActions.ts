@@ -88,6 +88,7 @@ export function useModalActions({
     initialBalanceMinor?: number,
     accountType?: string,
     linkedAssetIds?: number[],
+    iban?: string,
   ) => {
     try {
       await createAccount(
@@ -97,6 +98,7 @@ export function useModalActions({
         accountType,
         undefined,
         linkedAssetIds,
+        iban,
       );
       closeModal();
       await refresh();
@@ -105,9 +107,9 @@ export function useModalActions({
     }
   };
 
-  const handleRenameAccount = async (accountId: number, name: string) => {
+  const handleEditAccount = async (accountId: number, name: string, iban?: string) => {
     try {
-      await updateAccount(accountId, name);
+      await updateAccount(accountId, name, iban);
       closeModal();
       await refresh();
     } catch (err) {
@@ -187,7 +189,7 @@ export function useModalActions({
     handleEditBalanceUpdate,
     handleDeleteEvent,
     handleCreateAccount,
-    handleRenameAccount,
+    handleEditAccount,
     handleDeleteAccount,
     handleBulkUpdateSubmit,
     handleSaveOrder,

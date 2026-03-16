@@ -84,6 +84,9 @@ function defaultProps(overrides?: Partial<Parameters<typeof SettingsPage>[0]>) {
     dbLocationIsDefault: true,
     onChangeDbLocation: vi.fn(),
     onResetDbLocation: vi.fn(),
+    snapshot: [],
+    exclusions: [],
+    onExclusionsChange: vi.fn(),
     ...overrides,
   };
 }

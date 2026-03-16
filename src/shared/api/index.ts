@@ -9,6 +9,7 @@ import type {
   DbLocationInfo,
   PickDbFolderResult,
   AccountAssetLink,
+  PartnerAccount,
 } from '../types';
 
 export async function createBalanceUpdate(
@@ -58,6 +59,7 @@ export async function createAccount(
   accountType?: string,
   pricePerUnit?: string,
   linkedAssetIds?: number[],
+  iban?: string,
 ): Promise<number> {
   return invoke('create_account', {
     input: {
@@ -67,14 +69,43 @@ export async function createAccount(
       accountType: accountType ?? null,
       pricePerUnit: pricePerUnit ?? null,
       linkedAssetIds: linkedAssetIds ?? null,
+      iban: iban ?? null,
     },
   });
 }
 
-export async function updateAccount(accountId: number, name: string): Promise<void> {
+export async function updateAccount(
+  accountId: number,
+  name: string,
+  iban?: string | null,
+): Promise<void> {
   return invoke('update_account', {
-    input: { accountId, name },
+    input: { accountId, name, iban: iban ?? null },
   });
+}
+
+export async function createPartnerAccount(
+  name: string,
+  currencyId: number,
+  iban: string,
+): Promise<number> {
+  return invoke('create_partner_account', { input: { name, currencyId, iban } });
+}
+
+export async function listPartnerAccounts(): Promise<PartnerAccount[]> {
+  return invoke('list_partner_accounts');
+}
+
+export async function updatePartnerAccount(
+  accountId: number,
+  name: string,
+  iban: string,
+): Promise<void> {
+  return invoke('update_partner_account', { input: { accountId, name, iban } });
+}
+
+export async function deletePartnerAccount(accountId: number): Promise<void> {
+  return invoke('delete_partner_account', { accountId });
 }
 
 export async function deleteAccount(accountId: number): Promise<void> {

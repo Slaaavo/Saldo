@@ -28,6 +28,7 @@ interface Props {
     initialBalanceMinor?: number,
     accountType?: string,
     linkedAssetIds?: number[],
+    iban?: string,
   ) => void;
   onClose: () => void;
 }
@@ -36,6 +37,7 @@ export default function CreateAccountModal({ accountType, assets, onSubmit, onCl
   const { t } = useTranslation();
   const [name, setName] = useState('');
   const [balance, setBalance] = useState('');
+  const [iban, setIban] = useState('');
   const [linkedAssetIds, setLinkedAssetIds] = useState<number[]>([]);
   const [currencies, setCurrencies] = useState<Currency[]>([]);
   const [selectedCurrency, setSelectedCurrency] = useState<Currency | null>(null);
@@ -83,6 +85,7 @@ export default function CreateAccountModal({ accountType, assets, onSubmit, onCl
       initialBalanceMinor,
       accountType,
       linkedAssetIds.length > 0 ? linkedAssetIds : undefined,
+      !isBucket && !isAsset ? iban.trim() || undefined : undefined,
     );
   };
 
@@ -136,6 +139,19 @@ export default function CreateAccountModal({ accountType, assets, onSubmit, onCl
                 autoFocus
               />
             </div>
+
+            {!isBucket && !isAsset && (
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="create-account-iban">{t('modals.createAccount.ibanLabel')}</Label>
+                <Input
+                  id="create-account-iban"
+                  type="text"
+                  value={iban}
+                  onChange={(e) => setIban(e.target.value)}
+                  placeholder={t('modals.createAccount.ibanPlaceholder')}
+                />
+              </div>
+            )}
 
             <div className="flex flex-col gap-2">
               <Label>{t('currency.label')}</Label>

@@ -103,7 +103,8 @@ API exposed from Rust (Tauri commands):
 - When adding multi-currency, follow these principles: store original values and apply read-time conversion using time-indexed rates; store rates as high-precision scaled integers; surface provenance.
 
 ## 7. SQLite & migrations
-- Use a simple SQL-based migration folder (`/migrations/NN_description.sql`). Apply migrations from Rust at startup if needed.
+- Use a simple SQL-based migration folder (`/migrations/NNN_description.sql`). Migrations are **auto-registered** at compile time — `src-tauri/build.rs` scans the `migrations/` directory, collects all `.sql` files, sorts them lexicographically, and generates the `MIGRATIONS` constant via `include_str!`. To add a new migration, simply create a new `.sql` file in `migrations/` with a zero-padded numeric prefix (e.g., `014_my_change.sql`). No Rust source edits are needed.
+- Migrations are applied from Rust at startup (`migrations::run_pending`) and tracked in the `_migrations` table to avoid re-execution.
 - Use WAL journaling for better concurrency and performance: `PRAGMA journal_mode = WAL;` and tune `page_size` if required.
 
 ## 8. Rust implementation guidelines

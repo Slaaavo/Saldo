@@ -32,6 +32,7 @@ pub struct SnapshotRow {
     pub account_id: i64,
     pub account_name: String,
     pub account_type: String,
+    pub iban: Option<String>,
     pub balance_minor: i64,
     pub currency_code: String,
     pub currency_minor_units: i64,

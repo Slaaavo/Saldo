@@ -160,7 +160,13 @@ export default function CreateBalanceUpdateModal({
             </div>
             <div className="flex flex-col gap-2">
               <Label htmlFor="cbu-date">{t('modals.createBalanceUpdate.date')}</Label>
-              <DatePicker id="cbu-date" value={date} onChange={setDate} />
+              <DatePicker
+                id="cbu-date"
+                value={date}
+                onChange={setDate}
+                withTime
+                defaultTime="23:59"
+              />
             </div>
             <div className="flex flex-col gap-2">
               <Label htmlFor="cbu-note">{t('modals.createBalanceUpdate.note')}</Label>

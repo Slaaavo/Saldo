@@ -1,6 +1,141 @@
 use crate::error::AppError;
+use crate::features::accounts::models::PartnerAccountRow;
 use crate::shared::{local_now, with_savepoint, with_savepoint_app};
 use rusqlite::{params, Connection, OptionalExtension};
+
+/// Validate and normalise an IBAN string.
+/// Returns the uppercase, space-stripped IBAN on success.
+pub fn validate_iban(raw: &str) -> Result<String, AppError> {
+    let normalised: String = raw
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .map(|c| c.to_ascii_uppercase())
+        .collect();
+    if normalised.len() < 15 || normalised.len() > 34 {
+        return Err(AppError {
+            code: "VALIDATION".into(),
+            message: "IBAN must be 15–34 alphanumeric characters.".into(),
+        });
+    }
+    if !normalised.chars().all(|c| c.is_ascii_alphanumeric()) {
+        return Err(AppError {
+            code: "VALIDATION".into(),
+            message: "IBAN must be 15–34 alphanumeric characters.".into(),
+        });
+    }
+    Ok(normalised)
+}
+
+fn is_duplicate_iban_error(err: &rusqlite::Error) -> bool {
+    if let rusqlite::Error::SqliteFailure(ref sqlite_err, ref msg) = err {
+        // SQLITE_CONSTRAINT_UNIQUE = 2067
+        if sqlite_err.extended_code == 2067 {
+            if let Some(m) = msg {
+                return m.contains("idx_account_iban");
+            }
+        }
+    }
+    false
+}
+
+pub fn create_partner_account(
+    conn: &Connection,
+    name: &str,
+    iban: &str,
+    currency_id: i64,
+) -> Result<i64, AppError> {
+    let normalised_iban = validate_iban(iban)?;
+    with_savepoint_app(conn, || {
+        let next_sort_order: i64 = conn.query_row(
+            "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM account WHERE account_type = 'partner'",
+            [],
+            |row| row.get(0),
+        )?;
+        conn.execute(
+            "INSERT INTO account (name, currency_id, account_type, sort_order, iban) VALUES (?1, ?2, 'partner', ?3, ?4)",
+            params![name, currency_id, next_sort_order, normalised_iban],
+        ).map_err(|e| {
+            if is_duplicate_iban_error(&e) {
+                AppError {
+                    code: "DUPLICATE_IBAN".into(),
+                    message: "This IBAN is already in use by another account or partner.".into(),
+                }
+            } else {
+                AppError::from(e)
+            }
+        })?;
+        Ok(conn.last_insert_rowid())
+    })
+}
+
+pub fn list_partner_accounts(conn: &Connection) -> rusqlite::Result<Vec<PartnerAccountRow>> {
+    let mut stmt = conn.prepare(
+        "SELECT a.id, a.name, a.iban, c.code AS currency_code, a.created_at
+         FROM account a
+         JOIN currency c ON c.id = a.currency_id
+         WHERE a.account_type = 'partner'
+         ORDER BY a.name ASC",
+    )?;
+    let rows = stmt.query_map([], |row| {
+        Ok(PartnerAccountRow {
+            id: row.get(0)?,
+            name: row.get(1)?,
+            iban: row.get(2)?,
+            currency_code: row.get(3)?,
+            created_at: row.get(4)?,
+        })
+    })?;
+    rows.collect()
+}
+
+pub fn update_partner_account(
+    conn: &Connection,
+    account_id: i64,
+    name: &str,
+    iban: &str,
+) -> Result<(), AppError> {
+    let normalised_iban = validate_iban(iban)?;
+    with_savepoint_app(conn, || {
+        let affected = conn.execute(
+            "UPDATE account SET name = ?1, iban = ?2 WHERE id = ?3 AND account_type = 'partner'",
+            params![name, normalised_iban, account_id],
+        ).map_err(|e| {
+            if is_duplicate_iban_error(&e) {
+                AppError {
+                    code: "DUPLICATE_IBAN".into(),
+                    message: "This IBAN is already in use by another account or partner.".into(),
+                }
+            } else {
+                AppError::from(e)
+            }
+        })?;
+        if affected == 0 {
+            return Err(AppError {
+                code: "NOT_FOUND".into(),
+                message: "Partner account not found.".into(),
+            });
+        }
+        Ok(())
+    })
+}
+
+pub fn delete_partner_account(conn: &Connection, account_id: i64) -> Result<(), AppError> {
+    with_savepoint_app(conn, || {
+        let affected = conn
+            .execute(
+                "DELETE FROM account WHERE id = ?1 AND account_type = 'partner'",
+                params![account_id],
+            )
+            .map_err(AppError::from)?;
+        if affected == 0 {
+            return Err(AppError {
+                code: "NOT_FOUND".into(),
+                message: "Partner account not found.".into(),
+            });
+        }
+        Ok(())
+    })
+}
 
 pub fn create_account(
     conn: &Connection,
@@ -9,7 +144,17 @@ pub fn create_account(
     account_type: &str,
     initial_balance_minor: Option<i64>,
     price_per_unit: Option<&str>,
+    iban: Option<&str>,
 ) -> Result<i64, AppError> {
+    let normalised_iban: Option<String> = if let Some(raw) = iban {
+        if raw.is_empty() {
+            None
+        } else {
+            Some(validate_iban(raw)?)
+        }
+    } else {
+        None
+    };
     with_savepoint_app(conn, || {
         let next_sort_order: i64 = conn.query_row(
             "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM account WHERE account_type = ?1",
@@ -17,9 +162,18 @@ pub fn create_account(
             |row| row.get(0),
         )?;
         conn.execute(
-            "INSERT INTO account (name, currency_id, account_type, sort_order) VALUES (?1, ?2, ?3, ?4)",
-            params![name, currency_id, account_type, next_sort_order],
-        )?;
+            "INSERT INTO account (name, currency_id, account_type, sort_order, iban) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![name, currency_id, account_type, next_sort_order, normalised_iban],
+        ).map_err(|e| {
+            if is_duplicate_iban_error(&e) {
+                AppError {
+                    code: "DUPLICATE_IBAN".into(),
+                    message: "This IBAN is already in use by another account or partner.".into(),
+                }
+            } else {
+                AppError::from(e)
+            }
+        })?;
         let account_id = conn.last_insert_rowid();
 
         if let Some(amount) = initial_balance_minor {
@@ -55,13 +209,70 @@ pub fn update_sort_order(conn: &Connection, updates: &[(i64, i64)]) -> rusqlite:
     })
 }
 
-pub fn update_account(conn: &Connection, account_id: i64, name: &str) -> rusqlite::Result<()> {
-    let rows = conn.execute(
-        "UPDATE account SET name = ?1 WHERE id = ?2",
-        params![name, account_id],
-    )?;
-    if rows == 0 {
-        return Err(rusqlite::Error::QueryReturnedNoRows);
+pub fn update_account(
+    conn: &Connection,
+    account_id: i64,
+    name: &str,
+    iban: Option<&str>,
+) -> Result<(), AppError> {
+    if iban.is_some() {
+        let account_type = get_account_type(conn, account_id)
+            .map_err(AppError::from)?
+            .unwrap_or_default();
+        if account_type != "account" {
+            return Err(AppError {
+                code: "VALIDATION_ERROR".into(),
+                message: "IBAN can only be set on accounts.".into(),
+            });
+        }
+    }
+    match iban {
+        Some(raw) if !raw.is_empty() => {
+            let normalised = validate_iban(raw)?;
+            let rows = conn
+                .execute(
+                    "UPDATE account SET name = ?1, iban = ?2 WHERE id = ?3",
+                    params![name, normalised, account_id],
+                )
+                .map_err(|e| {
+                    if is_duplicate_iban_error(&e) {
+                        AppError {
+                            code: "DUPLICATE_IBAN".into(),
+                            message: "This IBAN is already in use by another account or partner."
+                                .into(),
+                        }
+                    } else {
+                        AppError::from(e)
+                    }
+                })?;
+            if rows == 0 {
+                return Err(AppError::from(rusqlite::Error::QueryReturnedNoRows));
+            }
+        }
+        Some(_empty) => {
+            // Empty string — clear the IBAN
+            let rows = conn
+                .execute(
+                    "UPDATE account SET name = ?1, iban = NULL WHERE id = ?2",
+                    params![name, account_id],
+                )
+                .map_err(AppError::from)?;
+            if rows == 0 {
+                return Err(AppError::from(rusqlite::Error::QueryReturnedNoRows));
+            }
+        }
+        None => {
+            // No IBAN update — name only
+            let rows = conn
+                .execute(
+                    "UPDATE account SET name = ?1 WHERE id = ?2",
+                    params![name, account_id],
+                )
+                .map_err(AppError::from)?;
+            if rows == 0 {
+                return Err(AppError::from(rusqlite::Error::QueryReturnedNoRows));
+            }
+        }
     }
     Ok(())
 }
@@ -231,7 +442,7 @@ mod tests {
     };
 
     fn mk_account(conn: &Connection) -> i64 {
-        create_account(conn, "Test Account", 1, "account", None, None)
+        create_account(conn, "Test Account", 1, "account", None, None, None)
             .expect("create account failed")
     }
 
@@ -263,7 +474,8 @@ mod tests {
         let unit_id = create_custom_unit(&conn, "TSLA", 4).unwrap();
 
         // Create an asset account denominated in this custom unit
-        let account_id = create_account(&conn, "TSLA Asset", unit_id, "asset", None, None).unwrap();
+        let account_id =
+            create_account(&conn, "TSLA Asset", unit_id, "asset", None, None, None).unwrap();
 
         // Store a balance event for the asset
         create_balance_update(&conn, account_id, 10_000, "2026-03-11", None).unwrap();
@@ -311,7 +523,8 @@ mod tests {
     #[test]
     fn create_account_with_initial_balance() {
         let conn = initialize_in_memory().expect("DB init failed");
-        let account_id = create_account(&conn, "Savings", 1, "account", Some(10000), None).unwrap();
+        let account_id =
+            create_account(&conn, "Savings", 1, "account", Some(10000), None, None).unwrap();
         let snapshot = get_accounts_snapshot(&conn, "2099-12-31T23:59:59").unwrap();
         let row = snapshot
             .iter()
@@ -325,7 +538,7 @@ mod tests {
         let conn = initialize_in_memory().expect("DB init failed");
         let source_id = mk_account(&conn);
         let bucket_id =
-            create_account(&conn, "Emergency Reserve", 1, "bucket", None, None).unwrap();
+            create_account(&conn, "Emergency Reserve", 1, "bucket", None, None, None).unwrap();
         create_balance_update(&conn, source_id, 10000, "2024-01-01", None).unwrap();
         create_bucket_allocation(&conn, bucket_id, source_id, 5000, "2024-01-01").unwrap();
 
@@ -344,7 +557,8 @@ mod tests {
     fn test_delete_bucket_cascades_allocations() {
         let conn = initialize_in_memory().expect("DB init failed");
         let source_id = mk_account(&conn);
-        let bucket_id = create_account(&conn, "Cascade Bucket", 1, "bucket", None, None).unwrap();
+        let bucket_id =
+            create_account(&conn, "Cascade Bucket", 1, "bucket", None, None, None).unwrap();
         create_balance_update(&conn, source_id, 10000, "2024-01-01", None).unwrap();
         create_bucket_allocation(&conn, bucket_id, source_id, 5000, "2024-01-01").unwrap();
 
@@ -368,7 +582,8 @@ mod tests {
     fn delete_account_succeeds_after_unlinking_from_bucket() {
         let conn = initialize_in_memory().expect("DB init failed");
         let source_id = mk_account(&conn);
-        let bucket_id = create_account(&conn, "Savings Pot", 1, "bucket", None, None).unwrap();
+        let bucket_id =
+            create_account(&conn, "Savings Pot", 1, "bucket", None, None, None).unwrap();
         create_balance_update(&conn, source_id, 10000, "2024-01-01", None).unwrap();
 
         // Link: positive-amount allocation row
@@ -403,7 +618,8 @@ mod tests {
     fn delete_account_fails_when_still_linked_to_bucket() {
         let conn = initialize_in_memory().expect("DB init failed");
         let source_id = mk_account(&conn);
-        let bucket_id = create_account(&conn, "Active Reserve", 1, "bucket", None, None).unwrap();
+        let bucket_id =
+            create_account(&conn, "Active Reserve", 1, "bucket", None, None, None).unwrap();
         create_balance_update(&conn, source_id, 10000, "2024-01-01", None).unwrap();
 
         // Link without unlinking
@@ -423,8 +639,8 @@ mod tests {
     fn create_account_assigns_sequential_sort_order() {
         let conn = initialize_in_memory().expect("DB init failed");
         // Use bucket type: seed DB has no buckets, so first gets sort_order=0.
-        let id1 = create_account(&conn, "First Bucket", 1, "bucket", None, None).unwrap();
-        let id2 = create_account(&conn, "Second Bucket", 1, "bucket", None, None).unwrap();
+        let id1 = create_account(&conn, "First Bucket", 1, "bucket", None, None, None).unwrap();
+        let id2 = create_account(&conn, "Second Bucket", 1, "bucket", None, None, None).unwrap();
         let so1: i64 = conn
             .query_row(
                 "SELECT sort_order FROM account WHERE id = ?1",
@@ -446,8 +662,8 @@ mod tests {
     #[test]
     fn update_sort_order_changes_snapshot_order() {
         let conn = initialize_in_memory().expect("DB init failed");
-        let alpha_id = create_account(&conn, "Alpha", 1, "bucket", None, None).unwrap();
-        let beta_id = create_account(&conn, "Beta", 1, "bucket", None, None).unwrap();
+        let alpha_id = create_account(&conn, "Alpha", 1, "bucket", None, None, None).unwrap();
+        let beta_id = create_account(&conn, "Beta", 1, "bucket", None, None, None).unwrap();
         // Alpha gets sort_order=0, Beta gets sort_order=1 — swap them.
         update_sort_order(&conn, &[(beta_id, 0), (alpha_id, 1)]).unwrap();
         let snapshot = get_accounts_snapshot(&conn, "2099-12-31T23:59:59").unwrap();

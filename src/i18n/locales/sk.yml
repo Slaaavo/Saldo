@@ -6,8 +6,22 @@ sidebar:
   settings: "Nastavenia"
   fxRates: "Výmenné kurzy"
   units: "Jednotky"
+  partners: "Partneri"
   collapse: "Zbaliť panel"
   expand: "Rozbaliť panel"
+
+# ──── Partneri ────
+partners:
+  title: "Partneri"
+  empty: "Zatia\u013e \u017eiadni partneri. Partneri bud\u00fa vytvoreni automaticky pri importe transa\u010dci\u00ed."
+  addPartner: "Prida\u0165 partnera"
+  name: "N\u00e1zov"
+  iban: "IBAN"
+  search: "H\u013eada\u0165 partnerov..."
+  deleteConfirm: 'Naozaj chcete vymaza\u0165 partnera "{{name}}"?'
+  errors:
+    duplicateIban: "Tento IBAN u\u017e pou\u017e\u00edva in\u00fd \u00fa\u010det alebo partner."
+    invalidIban: "IBAN mus\u00ed obsahova\u0165 15\u201334 alfanumerickych znakov."
 
 # ──── Hlavička ────
 header:
@@ -31,6 +45,7 @@ accounts:
   addAccount: Pridať účet
   empty: Zatiaľ žiadne účty. Vytvorte si prvý.
   rename: Premenovať
+  edit: Upraviť
   delete: Vymazať
   updateBalance: Aktualizovať zostatok
   scrollLeft: Posunúť doľava
@@ -40,6 +55,7 @@ accounts:
   overAllocationTooltip: "Alokované {{allocated}} z {{balance}} {{currency}} (prekročenie o {{over}}). Buckety: {{buckets}}"
   manageLinkedAssets: "Spravovať prepojené aktíva"
   linkedAssetTooltip: "Zabezpečené aktívom: {{assets}}"
+  noIban: "Bez IBAN"
 # ──── Obálky ────
 buckets:
   sectionTitle: Obálky
@@ -113,6 +129,8 @@ modals:
     namePlaceholder: napr. Bežný účet
     initialBalance: "Počiatočný zostatok (voliteľný)"
     securedByAsset: "Zabezpečené aktívom (voliteľné)"
+    ibanLabel: "IBAN (voliteľný)"
+    ibanPlaceholder: "napr. SK31 1200 0000 0019 8742 3561"
     cancel: Zrušiť
     submit: Vytvoriť
 
@@ -142,6 +160,30 @@ modals:
     nameLabel: Nový názov
     cancel: Zrušiť
     submit: Premenovať
+
+  editAccount:
+    title: Upraviť účet
+    nameLabel: Názov
+    ibanLabel: IBAN
+    ibanPlaceholder: "napr. SK31 1200 0000 0019 8742 3561"
+    cancel: Zrušiť
+    submit: Uložiť
+
+  createPartner:
+    title: Pridať partnera
+    nameLabel: Názov
+    namePlaceholder: "napr. Acme s.r.o."
+    ibanLabel: IBAN
+    ibanPlaceholder: "napr. SK31 1200 0000 0019 8742 3561"
+    cancel: Zrušiť
+    submit: Vytvoriť
+
+  editPartner:
+    title: Upraviť partnera
+    nameLabel: Názov
+    ibanLabel: IBAN
+    cancel: Zrušiť
+    submit: Uložiť
 
   updateAssetValue:
     title: Aktualizovať hodnotu aktíva
@@ -203,6 +245,8 @@ common:
 # ──── Výber dátumu ────
 datePicker:
   today: Dnes
+  hour: "Hodina"
+  minute: "Minúta"
 
 # ──── Mena ────
 currency:
@@ -290,6 +334,9 @@ errors:
   setAccountAssetLinks: "Nepodarilo sa uložiť prepojenia aktív: {{error}}"
   updateAssetValue: "Nepodarilo sa aktualizovať hodnotu aktíva: {{error}}"
   bulkUpdateVisibility: "Nepodarilo sa uložiť viditeľnosť hromadnej aktualizácie: {{error}}"
+  createPartner: "Nepodarilo sa vytvoriť partnera: {{error}}"
+  updatePartner: "Nepodarilo sa aktualizovať partnera: {{error}}"
+  deletePartner: "Nepodarilo sa vymazať partnera: {{error}}"
 
 # ──── Uložisko dát ────
 dataStorage:
