@@ -296,106 +296,131 @@ export default function ReviewStep({
           </label>
         </div>
 
-        <div className="max-h-[400px] overflow-y-auto border border-border rounded-[var(--radius)]">
-          <table className="w-full text-sm">
-            <thead className="sticky top-0 bg-background border-b border-border">
+        <div className="border border-border rounded-[var(--radius)] bg-background overflow-hidden">
+          {/* Static header — outside the scroll context, no sticky needed */}
+          <table className="w-full text-sm table-fixed border-separate border-spacing-0">
+            <colgroup>
+              <col className="w-8" />
+              <col className="w-24" />
+              <col className="w-32" />
+              <col />
+              <col className="w-32" />
+              <col className="w-40" />
+            </colgroup>
+            <thead>
               <tr>
-                <th className="w-8 px-2 py-2" />
-                <th className="px-2 py-2 text-left font-medium text-muted-foreground whitespace-nowrap">
+                <th className="px-2 py-2 border-b border-border" />
+                <th className="px-2 py-2 text-left font-medium text-muted-foreground whitespace-nowrap border-b border-border">
                   {t('import.mappingStep.field.date')}
                 </th>
-                <th className="px-2 py-2 text-right font-medium text-muted-foreground whitespace-nowrap">
+                <th className="px-2 py-2 text-right font-medium text-muted-foreground whitespace-nowrap border-b border-border">
                   {t('import.mappingStep.field.amount')}
                 </th>
-                <th className="px-2 py-2 text-left font-medium text-muted-foreground">
+                <th className="px-2 py-2 text-left font-medium text-muted-foreground border-b border-border">
                   {t('import.mappingStep.field.partner')}
                 </th>
-                <th className="px-2 py-2 text-left font-medium text-muted-foreground">
+                <th className="px-2 py-2 text-left font-medium text-muted-foreground border-b border-border">
                   {t('import.mappingStep.field.note')}
                 </th>
-                <th className="px-2 py-2 text-left font-medium text-muted-foreground">
+                <th className="px-2 py-2 text-left font-medium text-muted-foreground border-b border-border">
                   {t('import.reviewStep.bucket')}
                 </th>
               </tr>
             </thead>
-            <tbody>
-              {importRows.map((row) => {
-                const isFirstOccurrence = firstOccurrenceSet.has(row.index);
-                return (
-                  <tr
-                    key={row.index}
-                    className={cn(
-                      'border-b border-border last:border-0 align-top',
-                      row.isDuplicate && 'bg-amber-50 dark:bg-amber-950/20',
-                      !row.isSelected && 'opacity-50',
-                    )}
-                  >
-                    <td className="px-2 py-2">
-                      <Checkbox
-                        checked={row.isSelected}
-                        onCheckedChange={() => onToggleRow(row.index)}
-                      />
-                    </td>
-                    <td className="px-2 py-2 whitespace-nowrap">
-                      <div className="flex flex-col gap-0.5">
-                        <span>{row.date.substring(0, 10)}</span>
-                        {row.isDuplicate && (
-                          <span className="text-xs font-medium text-amber-600 dark:text-amber-400">
-                            {t('import.reviewStep.duplicate')}
-                          </span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-2 py-2 text-right whitespace-nowrap">
-                      <NumberValue
-                        value={row.amountMinor}
-                        minorUnits={selectedAccountMinorUnits}
-                        currencyCode={selectedAccountCurrencyCode}
-                      />
-                    </td>
-                    <td className="px-2 py-2 max-w-[200px]">
-                      <PartnerCell
-                        row={row}
-                        accountsWithoutIban={accountsWithoutIban}
-                        allAccounts={allAccounts}
-                        onCreatePartner={onCreatePartner}
-                        onAssignIban={onAssignIban}
-                        onCounterpartChange={onCounterpartChange}
-                        isFirstOccurrence={isFirstOccurrence}
-                      />
-                    </td>
-                    <td className="px-2 py-2 max-w-[120px]">
-                      <span className="text-muted-foreground truncate block" title={row.note ?? ''}>
-                        {row.note ?? '—'}
-                      </span>
-                    </td>
-                    <td className="px-2 py-2 min-w-[120px]">
-                      <Select
-                        value={row.bucketId !== null ? String(row.bucketId) : BUCKET_NONE}
-                        onValueChange={(v) =>
-                          onBucketChange(row.index, v === BUCKET_NONE ? null : Number(v))
-                        }
-                      >
-                        <SelectTrigger className="h-7 text-xs">
-                          <SelectValue placeholder={t('import.reviewStep.selectBucket')} />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value={BUCKET_NONE}>
-                            {t('import.reviewStep.selectBucket')}
-                          </SelectItem>
-                          {availableBuckets.map((b) => (
-                            <SelectItem key={b.accountId} value={String(b.accountId)}>
-                              {b.accountName}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
           </table>
+          {/* Scrollable body only — scrollbar-gutter:stable keeps width aligned with header */}
+          <div className="max-h-[360px] overflow-y-auto [scrollbar-gutter:stable]">
+            <table className="w-full text-sm table-fixed border-separate border-spacing-0">
+              <colgroup>
+                <col className="w-8" />
+                <col className="w-24" />
+                <col className="w-32" />
+                <col />
+                <col className="w-32" />
+                <col className="w-40" />
+              </colgroup>
+              <tbody>
+                {importRows.map((row) => {
+                  const isFirstOccurrence = firstOccurrenceSet.has(row.index);
+                  return (
+                    <tr
+                      key={row.index}
+                      className={cn(
+                        'group align-top',
+                        row.isDuplicate && 'bg-amber-50 dark:bg-amber-950/20',
+                        !row.isSelected && 'opacity-50',
+                      )}
+                    >
+                      <td className="px-2 py-2 border-b border-border group-last:border-b-0">
+                        <Checkbox
+                          checked={row.isSelected}
+                          onCheckedChange={() => onToggleRow(row.index)}
+                        />
+                      </td>
+                      <td className="px-2 py-2 whitespace-nowrap border-b border-border group-last:border-b-0">
+                        <div className="flex flex-col gap-0.5">
+                          <span>{row.date.substring(0, 10)}</span>
+                          {row.isDuplicate && (
+                            <span className="text-xs font-medium text-amber-600 dark:text-amber-400">
+                              {t('import.reviewStep.duplicate')}
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-2 py-2 text-right whitespace-nowrap border-b border-border group-last:border-b-0">
+                        <NumberValue
+                          value={row.amountMinor}
+                          minorUnits={selectedAccountMinorUnits}
+                          currencyCode={selectedAccountCurrencyCode}
+                        />
+                      </td>
+                      <td className="px-2 py-2 border-b border-border group-last:border-b-0">
+                        <PartnerCell
+                          row={row}
+                          accountsWithoutIban={accountsWithoutIban}
+                          allAccounts={allAccounts}
+                          onCreatePartner={onCreatePartner}
+                          onAssignIban={onAssignIban}
+                          onCounterpartChange={onCounterpartChange}
+                          isFirstOccurrence={isFirstOccurrence}
+                        />
+                      </td>
+                      <td className="px-2 py-2 border-b border-border group-last:border-b-0">
+                        <span
+                          className="text-muted-foreground truncate block"
+                          title={row.note ?? ''}
+                        >
+                          {row.note ?? '—'}
+                        </span>
+                      </td>
+                      <td className="px-2 py-2 border-b border-border group-last:border-b-0">
+                        <Select
+                          value={row.bucketId !== null ? String(row.bucketId) : BUCKET_NONE}
+                          onValueChange={(v) =>
+                            onBucketChange(row.index, v === BUCKET_NONE ? null : Number(v))
+                          }
+                        >
+                          <SelectTrigger className="h-7 text-xs">
+                            <SelectValue placeholder={t('import.reviewStep.selectBucket')} />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value={BUCKET_NONE}>
+                              {t('import.reviewStep.selectBucket')}
+                            </SelectItem>
+                            {availableBuckets.map((b) => (
+                              <SelectItem key={b.accountId} value={String(b.accountId)}>
+                                {b.accountName}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
 
