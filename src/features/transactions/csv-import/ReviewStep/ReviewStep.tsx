@@ -1,23 +1,21 @@
-import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { AlertTriangle } from 'lucide-react';
-import type { ImportRow } from './types';
-import type { SnapshotRow } from '../../../shared/types';
-import { cn } from '../../../shared/lib/utils';
-import { Button } from '../../../shared/ui/button';
-import { Checkbox } from '../../../shared/ui/checkbox';
-import { DialogFooter } from '../../../shared/ui/dialog';
-import { Input } from '../../../shared/ui/input';
-import NumberValue from '../../../shared/ui/NumberValue';
+import type { ImportRow } from '../types';
+import type { SnapshotRow } from '../../../../shared/types';
+import { cn } from '../../../../shared/lib/utils';
+import { Button } from '../../../../shared/ui/button';
+import { Checkbox } from '../../../../shared/ui/checkbox';
+import { DialogFooter } from '../../../../shared/ui/dialog';
+import NumberValue from '../../../../shared/ui/NumberValue';
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '../../../shared/ui/select';
+} from '../../../../shared/ui/select';
+import { PartnerCell } from './PartnerCell';
 
-interface ReviewStepProps {
+export interface ReviewStepProps {
   importRows: ImportRow[];
   selectedCount: number;
   duplicateCount: number;
@@ -41,180 +39,18 @@ interface ReviewStepProps {
 }
 
 const BUCKET_NONE = '__none__';
-const COUNTERPART_NONE = '__none__';
 
-function IbanActionCell({
-  row,
-  accountsWithoutIban,
-  onCreatePartner,
-  onAssignIban,
-  isFirstOccurrence,
-}: {
-  row: ImportRow;
-  accountsWithoutIban: SnapshotRow[];
-  onCreatePartner: (iban: string, name: string) => Promise<void>;
-  onAssignIban: (iban: string, targetAccountId: number) => Promise<void>;
-  isFirstOccurrence: boolean;
-}) {
-  const { t } = useTranslation();
-  const [partnerName, setPartnerName] = useState('');
-  const [assignAccountId, setAssignAccountId] = useState<string>('');
-  const [creating, setCreating] = useState(false);
-  const [assigning, setAssigning] = useState(false);
-
-  if (row.ibanMatch.type !== 'unmatched' || !row.rawIban) return null;
-
-  if (!isFirstOccurrence) {
-    return <span className="text-xs text-muted-foreground italic">↑ resolve above</span>;
-  }
-
+function ReviewTableColGroup() {
   return (
-    <div className="flex flex-col gap-1 mt-1">
-      <div className="flex items-center gap-1">
-        <Input
-          className="h-7 text-xs px-2 py-1"
-          placeholder={t('import.reviewStep.newPartner')}
-          value={partnerName}
-          onChange={(e) => setPartnerName(e.target.value)}
-          disabled={creating}
-        />
-        <Button
-          type="button"
-          size="sm"
-          className="h-7 text-xs px-2"
-          disabled={creating || partnerName.trim() === ''}
-          onClick={async () => {
-            setCreating(true);
-            await onCreatePartner(row.rawIban!, partnerName.trim());
-            setCreating(false);
-            setPartnerName('');
-          }}
-        >
-          {t('import.reviewStep.createPartner')}
-        </Button>
-      </div>
-      {accountsWithoutIban.length > 0 && (
-        <div className="flex items-center gap-1">
-          <Select value={assignAccountId} onValueChange={setAssignAccountId} disabled={assigning}>
-            <SelectTrigger className="h-7 text-xs">
-              <SelectValue placeholder={t('import.reviewStep.assignToAccount')} />
-            </SelectTrigger>
-            <SelectContent>
-              {accountsWithoutIban.map((a) => (
-                <SelectItem key={a.accountId} value={String(a.accountId)}>
-                  {a.accountName}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Button
-            type="button"
-            size="sm"
-            className="h-7 text-xs px-2"
-            disabled={assigning || assignAccountId === ''}
-            onClick={async () => {
-              setAssigning(true);
-              await onAssignIban(row.rawIban!, Number(assignAccountId));
-              setAssigning(false);
-              setAssignAccountId('');
-            }}
-          >
-            {t('import.reviewStep.assignToAccount')}
-          </Button>
-        </div>
-      )}
-    </div>
+    <colgroup>
+      <col className="w-8" />
+      <col className="w-24" />
+      <col className="w-32" />
+      <col />
+      <col className="w-32" />
+      <col className="w-40" />
+    </colgroup>
   );
-}
-
-function PartnerCell({
-  row,
-  accountsWithoutIban,
-  allAccounts,
-  onCreatePartner,
-  onAssignIban,
-  onCounterpartChange,
-  isFirstOccurrence,
-}: {
-  row: ImportRow;
-  accountsWithoutIban: SnapshotRow[];
-  allAccounts: SnapshotRow[];
-  onCreatePartner: (iban: string, name: string) => Promise<void>;
-  onAssignIban: (iban: string, targetAccountId: number) => Promise<void>;
-  onCounterpartChange: (index: number, accountId: number | null) => void;
-  isFirstOccurrence: boolean;
-}) {
-  const { t } = useTranslation();
-
-  switch (row.ibanMatch.type) {
-    case 'partner':
-      return (
-        <div className="flex flex-col">
-          <span className="text-sm">{row.ibanMatch.accountName}</span>
-          {row.rawIban && (
-            <span className="text-xs text-muted-foreground truncate max-w-[140px]">
-              {row.rawIban}
-            </span>
-          )}
-        </div>
-      );
-
-    case 'ownAccount':
-      return (
-        <div className="flex flex-col">
-          <div className="flex items-center gap-1">
-            <span className="text-sm">{row.ibanMatch.accountName}</span>
-            <span className="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300">
-              {t('import.reviewStep.transfer')}
-            </span>
-          </div>
-        </div>
-      );
-
-    case 'unmatched':
-      return (
-        <div className="flex flex-col">
-          <div className="flex items-center gap-1">
-            <AlertTriangle className="h-3.5 w-3.5 text-amber-500 shrink-0" />
-            <span className="text-xs text-muted-foreground truncate max-w-[120px]">
-              {row.rawIban}
-            </span>
-          </div>
-          <IbanActionCell
-            row={row}
-            accountsWithoutIban={accountsWithoutIban}
-            onCreatePartner={onCreatePartner}
-            onAssignIban={onAssignIban}
-            isFirstOccurrence={isFirstOccurrence}
-          />
-        </div>
-      );
-
-    case 'none':
-    default:
-      return (
-        <Select
-          value={
-            row.counterpartAccountId !== null ? String(row.counterpartAccountId) : COUNTERPART_NONE
-          }
-          onValueChange={(v) =>
-            onCounterpartChange(row.index, v === COUNTERPART_NONE ? null : Number(v))
-          }
-        >
-          <SelectTrigger className="h-7 text-xs max-w-[160px]">
-            <SelectValue placeholder={t('import.reviewStep.assignCounterpart')} />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={COUNTERPART_NONE}>—</SelectItem>
-            {allAccounts.map((a) => (
-              <SelectItem key={a.accountId} value={String(a.accountId)}>
-                {a.accountName}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      );
-  }
 }
 
 export default function ReviewStep({
@@ -299,14 +135,7 @@ export default function ReviewStep({
         <div className="border border-border rounded-[var(--radius)] bg-background overflow-hidden">
           {/* Static header — outside the scroll context, no sticky needed */}
           <table className="w-full text-sm table-fixed border-separate border-spacing-0">
-            <colgroup>
-              <col className="w-8" />
-              <col className="w-24" />
-              <col className="w-32" />
-              <col />
-              <col className="w-32" />
-              <col className="w-40" />
-            </colgroup>
+            <ReviewTableColGroup />
             <thead>
               <tr>
                 <th className="px-2 py-2 border-b border-border" />
@@ -331,14 +160,7 @@ export default function ReviewStep({
           {/* Scrollable body only — scrollbar-gutter:stable keeps width aligned with header */}
           <div className="max-h-[360px] overflow-y-auto [scrollbar-gutter:stable]">
             <table className="w-full text-sm table-fixed border-separate border-spacing-0">
-              <colgroup>
-                <col className="w-8" />
-                <col className="w-24" />
-                <col className="w-32" />
-                <col />
-                <col className="w-32" />
-                <col className="w-40" />
-              </colgroup>
+              <ReviewTableColGroup />
               <tbody>
                 {importRows.map((row) => {
                   const isFirstOccurrence = firstOccurrenceSet.has(row.index);

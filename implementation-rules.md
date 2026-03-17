@@ -120,6 +120,12 @@ API exposed from Rust (Tauri commands):
 - Use strict TypeScript (`strict: true`). Define interfaces for `Account`, `Event`, `EventData`, `SnapshotRow`.
 - **Application state:** Business logic and data management is encapsulated in custom hooks. `useFinanceData` (in `src/features/dashboard/useFinanceData`) owns snapshot/events state and all mutation handlers. `useModalManager` (in `src/app/useModalManager`) owns modal state via a `ModalState` discriminated union type (defined in `src/shared/types/`). `App.tsx` is a thin composition root that wires hooks to views.
 - **Feature vs Shared separation:** Page-level views live inside their feature folder (e.g. `src/features/dashboard/DashboardView.tsx`). Reusable UI components live in `src/shared/ui/`. Feature-specific components live in `src/features/<domain>/`. Components should not import across unrelated features; use `src/shared/` for cross-cutting concerns.
+- **Component folder structure:** When a component grows complex enough to warrant sub-components extracted to their own files, convert it from a flat file (`MyComponent.tsx`) into a folder (`MyComponent/`). The folder must contain:
+  - `MyComponent.tsx` — the actual component file with the default export (named the same as the folder)
+  - `index.ts` — a pure barrel file with a single re-export: `export { default } from './MyComponent'`. No logic, no JSX.
+  - Sub-component files (e.g. `IbanActionCell.tsx`, `PartnerCell.tsx`) — named exports, co-located as private implementation details
+  
+  This structure preserves TypeScript's directory import resolution (`'./csv-import/MyComponent'` resolves to `MyComponent/index.ts`) so callers are never affected by the refactor. `index.ts` must remain a pure barrel — it should never contain logic or component definitions.
 - **Error handling (UI):** Use `toast.error()` from `sonner` for user-facing error messages. Never use `window.alert()`. The `<Toaster>` component is mounted in `App.tsx` with theme-aware configuration.
 - **Shared constants:** App-wide constants (e.g., `PINNED_CURRENCY_CODES`) live in `src/shared/config/constants.ts`. Do not duplicate magic values across components.
 
