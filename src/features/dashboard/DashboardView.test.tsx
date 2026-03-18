@@ -139,6 +139,8 @@ function makeEvent(overrides?: Partial<EventWithData>): EventWithData {
     fxRateMantissa: null,
     fxRateExponent: null,
     linkedEventId: null,
+    splitGroupId: null,
+    splitGroupNote: null,
     ...overrides,
   };
 }

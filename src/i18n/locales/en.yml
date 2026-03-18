@@ -80,6 +80,9 @@ ledger:
   empty: No events to display.
   valueUpdate: Value update
   viewAll: "Showing {{shown}} of {{total}} events. View all"
+  splitGroup:
+    badge: "Split ×{{n}}"
+    splitLabel: "Split {{n}}"
 
 # ──── Ledger Page ────
 ledgerPage:
@@ -447,6 +450,16 @@ import:
     transfer: "Transfer"
     assignCounterpart: "Assign account"
     counterpartAssigned: "Account assigned"
+    split:
+      actionsColumn: "Actions"
+      splitButton: "Split"
+      cancelButton: "Cancel"
+      title: "Split: {{amount}}"
+      splitLabel: "Split {{n}}"
+      remaining: "Remaining"
+      addSplit: "+ Add split"
+      validationError: "Row {{date}}: remaining amount must be zero"
+      validationBanner: "Some split groups are incomplete"
   success: "Imported {{count}} transactions"
   error: "Failed to import transactions"
   next: "Next"

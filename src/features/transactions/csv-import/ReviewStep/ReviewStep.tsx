@@ -1,5 +1,6 @@
+import { Fragment } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { ImportRow } from '../types';
+import type { ImportRow, IbanMatchResult } from '../types';
 import type { SnapshotRow } from '../../../../shared/types';
 import { cn } from '../../../../shared/lib/utils';
 import { Button } from '../../../../shared/ui/button';
@@ -14,6 +15,7 @@ import {
   SelectValue,
 } from '../../../../shared/ui/select';
 import { PartnerCell } from './PartnerCell';
+import { SplitEditorPanel } from './SplitEditorPanel';
 
 export interface ReviewStepProps {
   importRows: ImportRow[];
@@ -36,6 +38,21 @@ export interface ReviewStepProps {
   onImport: () => Promise<void>;
   onBack: () => void;
   onCancel: () => void;
+  onSplitOpen: (rowIndex: number) => void;
+  onSplitCancel: (rowIndex: number) => void;
+  onLegAmountChange: (rowIndex: number, legIndex: number, amountMinor: number) => void;
+  onLegNoteChange: (rowIndex: number, legIndex: number, note: string | null) => void;
+  onLegPartnerChange: (
+    rowIndex: number,
+    legIndex: number,
+    rawIban: string | null,
+    ibanMatch: IbanMatchResult,
+    counterpartAccountId: number | null,
+  ) => void;
+  onLegBucketChange: (rowIndex: number, legIndex: number, bucketId: number | null) => void;
+  onAddLeg: (rowIndex: number) => void;
+  onRemoveLeg: (rowIndex: number, legIndex: number) => void;
+  splitValidationErrors: string[];
 }
 
 const BUCKET_NONE = '__none__';
@@ -45,10 +62,11 @@ function ReviewTableColGroup() {
     <colgroup>
       <col className="w-8" />
       <col className="w-24" />
-      <col className="w-32" />
+      <col className="w-40" />
       <col />
       <col className="w-32" />
       <col className="w-40" />
+      <col className="w-20" />
     </colgroup>
   );
 }
@@ -74,6 +92,15 @@ export default function ReviewStep({
   onImport,
   onBack,
   onCancel,
+  onSplitOpen,
+  onSplitCancel,
+  onLegAmountChange,
+  onLegNoteChange,
+  onLegPartnerChange,
+  onLegBucketChange,
+  onAddLeg,
+  onRemoveLeg,
+  splitValidationErrors,
 }: ReviewStepProps) {
   const { t } = useTranslation();
 
@@ -154,6 +181,9 @@ export default function ReviewStep({
                 <th className="px-2 py-2 text-left font-medium text-muted-foreground border-b border-border">
                   {t('import.reviewStep.bucket')}
                 </th>
+                <th className="px-2 py-2 text-left font-medium text-muted-foreground border-b border-border">
+                  {t('import.reviewStep.split.actionsColumn')}
+                </th>
               </tr>
             </thead>
           </table>
@@ -164,80 +194,136 @@ export default function ReviewStep({
               <tbody>
                 {importRows.map((row) => {
                   const isFirstOccurrence = firstOccurrenceSet.has(row.index);
+                  const isSplit = row.splitLegs !== null;
                   return (
-                    <tr
-                      key={row.index}
-                      className={cn(
-                        'group align-top',
-                        row.isDuplicate && 'bg-amber-50 dark:bg-amber-950/20',
-                        !row.isSelected && 'opacity-50',
-                      )}
-                    >
-                      <td className="px-2 py-2 border-b border-border group-last:border-b-0">
-                        <Checkbox
-                          checked={row.isSelected}
-                          onCheckedChange={() => onToggleRow(row.index)}
-                        />
-                      </td>
-                      <td className="px-2 py-2 whitespace-nowrap border-b border-border group-last:border-b-0">
-                        <div className="flex flex-col gap-0.5">
-                          <span>{row.date.substring(0, 10)}</span>
-                          {row.isDuplicate && (
-                            <span className="text-xs font-medium text-amber-600 dark:text-amber-400">
-                              {t('import.reviewStep.duplicate')}
-                            </span>
+                    <Fragment key={row.index}>
+                      <tr
+                        className={cn(
+                          'group align-top',
+                          row.isDuplicate && 'bg-amber-50 dark:bg-amber-950/20',
+                          !row.isSelected && 'opacity-50',
+                          isSplit && 'bg-muted/30',
+                        )}
+                      >
+                        <td className="px-2 py-2 border-b border-border group-last:border-b-0">
+                          <Checkbox
+                            checked={row.isSelected}
+                            onCheckedChange={() => onToggleRow(row.index)}
+                          />
+                        </td>
+                        <td className="px-2 py-2 whitespace-nowrap border-b border-border group-last:border-b-0">
+                          <div className="flex flex-col gap-0.5">
+                            <span>{row.date.substring(0, 10)}</span>
+                            {row.isDuplicate && (
+                              <span className="text-xs font-medium text-amber-600 dark:text-amber-400">
+                                {t('import.reviewStep.duplicate')}
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-2 py-2 text-right whitespace-nowrap border-b border-border group-last:border-b-0">
+                          <NumberValue
+                            value={row.amountMinor}
+                            minorUnits={selectedAccountMinorUnits}
+                            currencyCode={selectedAccountCurrencyCode}
+                          />
+                        </td>
+                        <td className="px-2 py-2 border-b border-border group-last:border-b-0">
+                          {isSplit ? (
+                            <span className="text-muted-foreground">—</span>
+                          ) : (
+                            <PartnerCell
+                              row={row}
+                              accountsWithoutIban={accountsWithoutIban}
+                              allAccounts={allAccounts}
+                              onCreatePartner={onCreatePartner}
+                              onAssignIban={onAssignIban}
+                              onCounterpartChange={onCounterpartChange}
+                              isFirstOccurrence={isFirstOccurrence}
+                            />
                           )}
-                        </div>
-                      </td>
-                      <td className="px-2 py-2 text-right whitespace-nowrap border-b border-border group-last:border-b-0">
-                        <NumberValue
-                          value={row.amountMinor}
-                          minorUnits={selectedAccountMinorUnits}
-                          currencyCode={selectedAccountCurrencyCode}
-                        />
-                      </td>
-                      <td className="px-2 py-2 border-b border-border group-last:border-b-0">
-                        <PartnerCell
-                          row={row}
-                          accountsWithoutIban={accountsWithoutIban}
-                          allAccounts={allAccounts}
-                          onCreatePartner={onCreatePartner}
-                          onAssignIban={onAssignIban}
-                          onCounterpartChange={onCounterpartChange}
-                          isFirstOccurrence={isFirstOccurrence}
-                        />
-                      </td>
-                      <td className="px-2 py-2 border-b border-border group-last:border-b-0">
-                        <span
-                          className="text-muted-foreground truncate block"
-                          title={row.note ?? ''}
-                        >
-                          {row.note ?? '—'}
-                        </span>
-                      </td>
-                      <td className="px-2 py-2 border-b border-border group-last:border-b-0">
-                        <Select
-                          value={row.bucketId !== null ? String(row.bucketId) : BUCKET_NONE}
-                          onValueChange={(v) =>
-                            onBucketChange(row.index, v === BUCKET_NONE ? null : Number(v))
-                          }
-                        >
-                          <SelectTrigger className="h-7 text-xs">
-                            <SelectValue placeholder={t('import.reviewStep.selectBucket')} />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value={BUCKET_NONE}>
-                              {t('import.reviewStep.selectBucket')}
-                            </SelectItem>
-                            {availableBuckets.map((b) => (
-                              <SelectItem key={b.accountId} value={String(b.accountId)}>
-                                {b.accountName}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </td>
-                    </tr>
+                        </td>
+                        <td className="px-2 py-2 border-b border-border group-last:border-b-0">
+                          <span
+                            className="text-muted-foreground truncate block"
+                            title={row.note ?? ''}
+                          >
+                            {row.note ?? '—'}
+                          </span>
+                        </td>
+                        <td className="px-2 py-2 border-b border-border group-last:border-b-0">
+                          {isSplit ? (
+                            <span className="text-muted-foreground">—</span>
+                          ) : (
+                            <Select
+                              value={row.bucketId !== null ? String(row.bucketId) : BUCKET_NONE}
+                              onValueChange={(v) =>
+                                onBucketChange(row.index, v === BUCKET_NONE ? null : Number(v))
+                              }
+                            >
+                              <SelectTrigger className="h-7 text-xs">
+                                <SelectValue placeholder={t('import.reviewStep.selectBucket')} />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value={BUCKET_NONE}>
+                                  {t('import.reviewStep.selectBucket')}
+                                </SelectItem>
+                                {availableBuckets.map((b) => (
+                                  <SelectItem key={b.accountId} value={String(b.accountId)}>
+                                    {b.accountName}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          )}
+                        </td>
+                        <td className="px-2 py-2 border-b border-border group-last:border-b-0">
+                          {isSplit ? (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 text-xs px-2"
+                              onClick={() => onSplitCancel(row.index)}
+                            >
+                              {t('import.reviewStep.split.cancelButton')}
+                            </Button>
+                          ) : (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 text-xs px-2"
+                              onClick={() => onSplitOpen(row.index)}
+                            >
+                              {t('import.reviewStep.split.splitButton')}
+                            </Button>
+                          )}
+                        </td>
+                      </tr>
+                      {isSplit && (
+                        <tr key={`split-editor-${row.index}`}>
+                          <td colSpan={7} className="p-0">
+                            <SplitEditorPanel
+                              row={row}
+                              selectedAccountCurrencyCode={selectedAccountCurrencyCode}
+                              selectedAccountMinorUnits={selectedAccountMinorUnits}
+                              availableBuckets={availableBuckets}
+                              accountsWithoutIban={accountsWithoutIban}
+                              allAccounts={allAccounts}
+                              onLegAmountChange={onLegAmountChange}
+                              onLegNoteChange={onLegNoteChange}
+                              onLegPartnerChange={onLegPartnerChange}
+                              onLegBucketChange={onLegBucketChange}
+                              onAddLeg={onAddLeg}
+                              onRemoveLeg={onRemoveLeg}
+                              onCreatePartner={onCreatePartner}
+                              onAssignIban={onAssignIban}
+                            />
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
                   );
                 })}
               </tbody>
@@ -246,6 +332,17 @@ export default function ReviewStep({
         </div>
       </div>
 
+      {splitValidationErrors.length > 0 && (
+        <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+          <p className="font-medium">{t('import.reviewStep.split.validationBanner')}</p>
+          {splitValidationErrors.map((err, i) => (
+            <p key={i} className="text-xs mt-1">
+              {err}
+            </p>
+          ))}
+        </div>
+      )}
+
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onBack} disabled={importing}>
           {t('import.back')}
@@ -253,7 +350,11 @@ export default function ReviewStep({
         <Button type="button" variant="outline" onClick={onCancel} disabled={importing}>
           {t('modals.confirm.cancel')}
         </Button>
-        <Button type="button" onClick={onImport} disabled={selectedCount === 0 || importing}>
+        <Button
+          type="button"
+          onClick={onImport}
+          disabled={selectedCount === 0 || importing || splitValidationErrors.length > 0}
+        >
           {importing ? '...' : t('import.reviewStep.importButton', { count: selectedCount })}
         </Button>
       </DialogFooter>

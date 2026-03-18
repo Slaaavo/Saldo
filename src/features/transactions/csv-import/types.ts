@@ -10,6 +10,16 @@ export type IbanMatchResult =
   | { type: 'unmatched'; rawIban: string }
   | { type: 'none' };
 
+export interface SplitLeg {
+  legIndex: number;
+  amountMinor: number;
+  note: string | null;
+  rawIban: string | null;
+  ibanMatch: IbanMatchResult;
+  bucketId: number | null;
+  counterpartAccountId: number | null;
+}
+
 export interface ImportRow {
   index: number;
   date: string;
@@ -26,6 +36,7 @@ export interface ImportRow {
   isSelected: boolean;
   bucketId: number | null;
   counterpartAccountId: number | null;
+  splitLegs: SplitLeg[] | null;
 }
 
 export type WizardStep = 'upload' | 'mapping' | 'review';

@@ -3,7 +3,9 @@ use crate::AppState;
 use serde::Deserialize;
 use tauri::State;
 
-use super::models::{ListEventsResult, SnapshotRow};
+use super::models::{
+    CreateSplitGroupInput, ListEventsResult, SnapshotRow, UpdateSplitGroupDateInput,
+};
 use super::repository;
 
 #[derive(Deserialize)]
@@ -135,6 +137,7 @@ pub fn list_events(
 pub fn update_event(state: State<'_, AppState>, input: UpdateEventInput) -> Result<(), AppError> {
     crate::shared::validate_event_date(&input.event_date)?;
     let conn = state.conn()?;
+    repository::check_event_split_group_date_conflict(&conn, input.event_id, &input.event_date)?;
     repository::update_event(
         &conn,
         input.event_id,
@@ -290,4 +293,65 @@ pub fn bulk_create_cashflows(
         .collect();
     let ids = repository::bulk_create_cashflows(&conn, &entries)?;
     Ok(ids)
+}
+
+#[tauri::command]
+pub fn create_split_group(
+    state: State<'_, AppState>,
+    input: CreateSplitGroupInput,
+) -> Result<i64, AppError> {
+    if input.legs.len() < 2 {
+        return Err(AppError {
+            code: "VALIDATION".into(),
+            message: "Split group requires at least 2 legs".into(),
+        });
+    }
+    for leg in &input.legs {
+        crate::shared::validate_event_date(&leg.event_date)?;
+    }
+    let dates: std::collections::HashSet<&str> =
+        input.legs.iter().map(|l| l.event_date.as_str()).collect();
+    if dates.len() > 1 {
+        return Err(AppError {
+            code: "VALIDATION".into(),
+            message: "All split group legs must share the same date".into(),
+        });
+    }
+    let conn = state.conn()?;
+    if let Some(account_type) =
+        crate::features::accounts::repository::get_account_type(&conn, input.account_id)?
+    {
+        if account_type == "partner" {
+            return Err(AppError {
+                code: "VALIDATION".into(),
+                message: "Cannot create events on partner accounts".into(),
+            });
+        }
+    }
+    for leg in &input.legs {
+        if leg.counterpart_account_id == Some(input.account_id) {
+            return Err(AppError {
+                code: "VALIDATION".into(),
+                message: "Cannot transfer to the same account".into(),
+            });
+        }
+    }
+    let split_group_id = repository::create_split_group_with_legs(
+        &conn,
+        input.account_id,
+        input.group_note.as_deref(),
+        &input.legs,
+    )?;
+    Ok(split_group_id)
+}
+
+#[tauri::command]
+pub fn update_split_group_date(
+    state: State<'_, AppState>,
+    input: UpdateSplitGroupDateInput,
+) -> Result<(), AppError> {
+    crate::shared::validate_event_date(&input.new_date)?;
+    let conn = state.conn()?;
+    repository::update_split_group_date(&conn, input.split_group_id, &input.new_date)?;
+    Ok(())
 }

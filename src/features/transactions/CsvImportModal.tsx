@@ -30,6 +30,7 @@ export default function CsvImportModal({ snapshot, onClose, onSuccess }: CsvImpo
     accountsWithoutIban,
     selectedAccountCurrencyCode,
     selectedAccountMinorUnits,
+    splitValidationErrors,
     handleFileSelect,
     handleAccountSelect,
     canProceedToMapping,
@@ -44,6 +45,14 @@ export default function CsvImportModal({ snapshot, onClose, onSuccess }: CsvImpo
     handleCounterpartChange,
     handleCreatePartner,
     handleAssignIban,
+    handleSplitOpen,
+    handleSplitCancel,
+    handleLegAmountChange,
+    handleLegNoteChange,
+    handleLegPartnerChange,
+    handleLegBucketChange,
+    handleAddLeg,
+    handleRemoveLeg,
     handleImport,
     goBack,
   } = useImportWizard({ snapshot, onClose, onSuccess });
@@ -112,6 +121,15 @@ export default function CsvImportModal({ snapshot, onClose, onSuccess }: CsvImpo
               onImport={handleImport}
               onBack={goBack}
               onCancel={onClose}
+              onSplitOpen={handleSplitOpen}
+              onSplitCancel={handleSplitCancel}
+              onLegAmountChange={handleLegAmountChange}
+              onLegNoteChange={handleLegNoteChange}
+              onLegPartnerChange={handleLegPartnerChange}
+              onLegBucketChange={handleLegBucketChange}
+              onAddLeg={handleAddLeg}
+              onRemoveLeg={handleRemoveLeg}
+              splitValidationErrors={splitValidationErrors}
             />
           )}
         </DialogBody>

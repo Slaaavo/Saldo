@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import type { SnapshotRow, Currency, EventWithData } from '../../../shared/types/index';
@@ -9,10 +9,18 @@ import {
   createPartnerAccount,
   updateAccount,
   bulkCreateCashflows,
+  createSplitGroup,
 } from '../../../shared/api';
 import { toMinorUnits } from '../../../shared/utils/format';
 import { extractErrorMessage } from '../../../shared/utils/errors';
-import type { WizardState, CashflowFieldKey, ImportRow, ColumnMapping } from './types';
+import type {
+  WizardState,
+  CashflowFieldKey,
+  ImportRow,
+  ColumnMapping,
+  IbanMatchResult,
+  SplitLeg,
+} from './types';
 import type { IbanLookupEntry } from './ibanMatcher';
 import { buildIbanLookup, matchIban, normalizeIban } from './ibanMatcher';
 import { parseCsvFile, autoDetectMapping, parseAmount, parseDateString } from './csvParser';
@@ -153,6 +161,26 @@ export function useImportWizard(params: {
         .map((e) => e.eventDate.substring(0, 10)),
     );
 
+    // Build map of split group totals for duplicate detection
+    const groupedEvents = new Map<number, { dateKey: string; total: number }>();
+    for (const e of cashflowEvents) {
+      if (e.splitGroupId !== null) {
+        const existing = groupedEvents.get(e.splitGroupId);
+        if (existing) {
+          existing.total += e.amountMinor;
+        } else {
+          groupedEvents.set(e.splitGroupId, {
+            dateKey: e.eventDate.substring(0, 10),
+            total: e.amountMinor,
+          });
+        }
+      }
+    }
+    const groupTotalKeys = new Map<string, boolean>();
+    for (const { dateKey, total } of groupedEvents.values()) {
+      groupTotalKeys.set(`${dateKey}::${total}`, true);
+    }
+
     const importRows: ImportRow[] = [];
 
     for (let i = 0; i < csvRows.length; i++) {
@@ -204,9 +232,13 @@ export function useImportWizard(params: {
 
       // Duplicate detection: match YYYY-MM-DD and amount against existing cashflow/transfer events
       const datePrefix = parsedDate.substring(0, 10);
-      const isDuplicate = cashflowEvents.some(
-        (e) => e.eventDate.substring(0, 10) === datePrefix && e.amountMinor === amountMinor,
-      );
+      const isDuplicate =
+        cashflowEvents.some(
+          (e) =>
+            e.splitGroupId === null &&
+            e.eventDate.substring(0, 10) === datePrefix &&
+            e.amountMinor === amountMinor,
+        ) || groupTotalKeys.has(`${datePrefix}::${amountMinor}`);
 
       importRows.push({
         index: i,
@@ -224,6 +256,7 @@ export function useImportWizard(params: {
         isSelected: !isDuplicate,
         bucketId: null,
         counterpartAccountId: null,
+        splitLegs: null,
       });
     }
 
@@ -309,11 +342,28 @@ export function useImportWizard(params: {
           iban: normalizedIban,
         };
         setIbanLookup((prev) => new Map(prev).set(normalizedIban, entry));
+        const newIbanMatch: IbanMatchResult = {
+          type: 'partner',
+          accountId: newId,
+          accountName: name,
+        };
         setWizardState((prev) => ({
           ...prev,
           importRows: prev.importRows.map((r) => {
-            if (!r.rawIban || normalizeIban(r.rawIban) !== normalizedIban) return r;
-            return { ...r, ibanMatch: { type: 'partner', accountId: newId, accountName: name } };
+            const topMatch =
+              r.rawIban && normalizeIban(r.rawIban) === normalizedIban
+                ? { ibanMatch: newIbanMatch }
+                : {};
+            const updatedLegs =
+              r.splitLegs !== null
+                ? r.splitLegs.map((l) =>
+                    l.rawIban && normalizeIban(l.rawIban) === normalizedIban
+                      ? { ...l, ibanMatch: newIbanMatch, counterpartAccountId: newId }
+                      : l,
+                  )
+                : r.splitLegs;
+            if (Object.keys(topMatch).length === 0 && updatedLegs === r.splitLegs) return r;
+            return { ...r, ...topMatch, splitLegs: updatedLegs };
           }),
         }));
         toast.success(t('import.reviewStep.partnerCreated'));
@@ -338,18 +388,28 @@ export function useImportWizard(params: {
           iban: normalizedIban,
         };
         setIbanLookup((prev) => new Map(prev).set(normalizedIban, entry));
+        const newIbanMatch: IbanMatchResult = {
+          type: 'ownAccount',
+          accountId: targetAccountId,
+          accountName: targetRow.accountName,
+        };
         setWizardState((prev) => ({
           ...prev,
           importRows: prev.importRows.map((r) => {
-            if (!r.rawIban || normalizeIban(r.rawIban) !== normalizedIban) return r;
-            return {
-              ...r,
-              ibanMatch: {
-                type: 'ownAccount',
-                accountId: targetAccountId,
-                accountName: targetRow.accountName,
-              },
-            };
+            const topMatch =
+              r.rawIban && normalizeIban(r.rawIban) === normalizedIban
+                ? { ibanMatch: newIbanMatch }
+                : {};
+            const updatedLegs =
+              r.splitLegs !== null
+                ? r.splitLegs.map((l) =>
+                    l.rawIban && normalizeIban(l.rawIban) === normalizedIban
+                      ? { ...l, ibanMatch: newIbanMatch, counterpartAccountId: targetAccountId }
+                      : l,
+                  )
+                : r.splitLegs;
+            if (Object.keys(topMatch).length === 0 && updatedLegs === r.splitLegs) return r;
+            return { ...r, ...topMatch, splitLegs: updatedLegs };
           }),
         }));
         toast.success(t('import.reviewStep.accountAssigned'));
@@ -360,39 +420,202 @@ export function useImportWizard(params: {
     [snapshot, t],
   );
 
+  const handleSplitOpen = useCallback((rowIndex: number) => {
+    setWizardState((prev) => ({
+      ...prev,
+      importRows: prev.importRows.map((r) => {
+        if (r.index !== rowIndex) return r;
+        const leg0: SplitLeg = {
+          legIndex: 0,
+          amountMinor: r.amountMinor,
+          note: null,
+          rawIban: r.rawIban,
+          ibanMatch: r.ibanMatch,
+          bucketId: r.bucketId,
+          counterpartAccountId: r.counterpartAccountId,
+        };
+        return { ...r, splitLegs: [leg0] };
+      }),
+    }));
+  }, []);
+
+  const handleSplitCancel = useCallback((rowIndex: number) => {
+    setWizardState((prev) => ({
+      ...prev,
+      importRows: prev.importRows.map((r) =>
+        r.index === rowIndex ? { ...r, splitLegs: null } : r,
+      ),
+    }));
+  }, []);
+
+  const handleLegAmountChange = useCallback(
+    (rowIndex: number, legIndex: number, amountMinor: number) => {
+      setWizardState((prev) => ({
+        ...prev,
+        importRows: prev.importRows.map((r) => {
+          if (r.index !== rowIndex || r.splitLegs === null) return r;
+          return {
+            ...r,
+            splitLegs: r.splitLegs.map((l) =>
+              l.legIndex === legIndex ? { ...l, amountMinor } : l,
+            ),
+          };
+        }),
+      }));
+    },
+    [],
+  );
+
+  const handleLegNoteChange = useCallback(
+    (rowIndex: number, legIndex: number, note: string | null) => {
+      setWizardState((prev) => ({
+        ...prev,
+        importRows: prev.importRows.map((r) => {
+          if (r.index !== rowIndex || r.splitLegs === null) return r;
+          return {
+            ...r,
+            splitLegs: r.splitLegs.map((l) => (l.legIndex === legIndex ? { ...l, note } : l)),
+          };
+        }),
+      }));
+    },
+    [],
+  );
+
+  const handleLegPartnerChange = useCallback(
+    (
+      rowIndex: number,
+      legIndex: number,
+      rawIban: string | null,
+      ibanMatch: IbanMatchResult,
+      counterpartAccountId: number | null,
+    ) => {
+      setWizardState((prev) => ({
+        ...prev,
+        importRows: prev.importRows.map((r) => {
+          if (r.index !== rowIndex || r.splitLegs === null) return r;
+          return {
+            ...r,
+            splitLegs: r.splitLegs.map((l) =>
+              l.legIndex === legIndex ? { ...l, rawIban, ibanMatch, counterpartAccountId } : l,
+            ),
+          };
+        }),
+      }));
+    },
+    [],
+  );
+
+  const handleLegBucketChange = useCallback(
+    (rowIndex: number, legIndex: number, bucketId: number | null) => {
+      setWizardState((prev) => ({
+        ...prev,
+        importRows: prev.importRows.map((r) => {
+          if (r.index !== rowIndex || r.splitLegs === null) return r;
+          return {
+            ...r,
+            splitLegs: r.splitLegs.map((l) => (l.legIndex === legIndex ? { ...l, bucketId } : l)),
+          };
+        }),
+      }));
+    },
+    [],
+  );
+
+  const handleAddLeg = useCallback((rowIndex: number) => {
+    setWizardState((prev) => ({
+      ...prev,
+      importRows: prev.importRows.map((r) => {
+        if (r.index !== rowIndex || r.splitLegs === null) return r;
+        const allocated = r.splitLegs.reduce((sum, l) => sum + l.amountMinor, 0);
+        const newLeg: SplitLeg = {
+          legIndex: r.splitLegs.length,
+          amountMinor: r.amountMinor - allocated,
+          note: null,
+          rawIban: null,
+          ibanMatch: { type: 'none' },
+          bucketId: null,
+          counterpartAccountId: null,
+        };
+        return { ...r, splitLegs: [...r.splitLegs, newLeg] };
+      }),
+    }));
+  }, []);
+
+  const handleRemoveLeg = useCallback((rowIndex: number, legIndex: number) => {
+    setWizardState((prev) => ({
+      ...prev,
+      importRows: prev.importRows.map((r) => {
+        if (r.index !== rowIndex || r.splitLegs === null || r.splitLegs.length <= 1) return r;
+        const filtered = r.splitLegs.filter((l) => l.legIndex !== legIndex);
+        return { ...r, splitLegs: filtered.map((l, i) => ({ ...l, legIndex: i })) };
+      }),
+    }));
+  }, []);
+
   const handleImport = useCallback(async () => {
     const { selectedAccountId, importRows } = wizardState;
     if (!selectedAccountId) return;
 
     setWizardState((prev) => ({ ...prev, importing: true }));
     try {
-      const selectedRows = importRows.filter((r) => r.isSelected);
-      const entries = selectedRows.map((row) => {
-        const counterpartAccountId =
-          row.ibanMatch.type === 'ownAccount' || row.ibanMatch.type === 'partner'
-            ? row.ibanMatch.accountId
+      const selectedRows = importRows.filter((r) => r.isSelected && !r.isDuplicate);
+      const regularRows = selectedRows.filter((r) => r.splitLegs === null);
+      const splitRows = selectedRows.filter((r) => r.splitLegs !== null);
+
+      if (regularRows.length > 0) {
+        const entries = regularRows.map((row) => {
+          const counterpartAccountId =
+            row.ibanMatch.type === 'ownAccount' || row.ibanMatch.type === 'partner'
+              ? row.ibanMatch.accountId
+              : undefined;
+
+          const originalCurrencyId = row.originalCurrencyCode
+            ? currencies.find((c) => c.code === row.originalCurrencyCode)?.id
             : undefined;
 
-        const originalCurrencyId = row.originalCurrencyCode
-          ? currencies.find((c) => c.code === row.originalCurrencyCode)?.id
-          : undefined;
+          return {
+            accountId: selectedAccountId,
+            amountMinor: row.amountMinor,
+            eventDate: row.date,
+            note: row.note ?? undefined,
+            counterpartAccountId,
+            bucketId: row.bucketId ?? undefined,
+            originalCurrencyId,
+            originalAmountMinor: row.originalAmountMinor ?? undefined,
+            fxRateMantissa: row.fxRateMantissa ?? undefined,
+            fxRateExponent: row.fxRateExponent ?? undefined,
+          };
+        });
 
-        return {
+        await bulkCreateCashflows({ entries });
+      }
+
+      for (const splitRow of splitRows) {
+        const originalCurrencyId = splitRow.originalCurrencyCode
+          ? (currencies.find((c) => c.code === splitRow.originalCurrencyCode)?.id ?? null)
+          : null;
+
+        await createSplitGroup({
           accountId: selectedAccountId,
-          amountMinor: row.amountMinor,
-          eventDate: row.date,
-          note: row.note ?? undefined,
-          counterpartAccountId,
-          bucketId: row.bucketId ?? undefined,
-          originalCurrencyId,
-          originalAmountMinor: row.originalAmountMinor ?? undefined,
-          fxRateMantissa: row.fxRateMantissa ?? undefined,
-          fxRateExponent: row.fxRateExponent ?? undefined,
-        };
-      });
+          groupNote: splitRow.note ?? null,
+          legs: splitRow.splitLegs!.map((leg) => ({
+            amountMinor: leg.amountMinor,
+            eventDate: splitRow.date,
+            note: leg.note ?? null,
+            counterpartAccountId: leg.counterpartAccountId ?? null,
+            bucketId: leg.bucketId ?? null,
+            originalCurrencyId: originalCurrencyId ?? null,
+            originalAmountMinor: splitRow.originalAmountMinor ?? null,
+            fxRateMantissa: splitRow.fxRateMantissa ?? null,
+            fxRateExponent: splitRow.fxRateExponent ?? null,
+          })),
+        });
+      }
 
-      await bulkCreateCashflows({ entries });
-      toast.success(t('import.success', { count: selectedRows.length }));
+      const totalImported =
+        regularRows.length + splitRows.reduce((n, r) => n + r.splitLegs!.length, 0);
+      toast.success(t('import.success', { count: totalImported }));
       await onSuccess();
       onClose();
     } catch (err) {
@@ -409,6 +632,17 @@ export function useImportWizard(params: {
     }));
   }, []);
 
+  const splitValidationErrors = useMemo(
+    () =>
+      wizardState.importRows
+        .filter((r) => r.splitLegs !== null && r.isSelected)
+        .filter((r) => r.splitLegs!.reduce((sum, l) => sum + l.amountMinor, 0) !== r.amountMinor)
+        .map((r) =>
+          t('import.reviewStep.split.validationError', { date: r.date.substring(0, 10) }),
+        ),
+    [wizardState.importRows, t],
+  );
+
   return {
     wizardState,
     ibanLookup,
@@ -420,6 +654,7 @@ export function useImportWizard(params: {
     selectedAccountCurrencyCode,
     selectedAccountCurrencyId,
     selectedAccountMinorUnits,
+    splitValidationErrors,
     handleFileSelect,
     handleAccountSelect,
     canProceedToMapping,
@@ -434,6 +669,14 @@ export function useImportWizard(params: {
     handleCounterpartChange,
     handleCreatePartner,
     handleAssignIban,
+    handleSplitOpen,
+    handleSplitCancel,
+    handleLegAmountChange,
+    handleLegNoteChange,
+    handleLegPartnerChange,
+    handleLegBucketChange,
+    handleAddLeg,
+    handleRemoveLeg,
     handleImport,
     goBack,
   };

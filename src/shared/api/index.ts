@@ -357,3 +357,27 @@ export async function bulkCreateCashflows(input: {
     },
   });
 }
+
+export interface SplitGroupLeg {
+  amountMinor: number;
+  eventDate: string;
+  note: string | null;
+  counterpartAccountId: number | null;
+  bucketId: number | null;
+  originalCurrencyId: number | null;
+  originalAmountMinor: number | null;
+  fxRateMantissa: number | null;
+  fxRateExponent: number | null;
+}
+
+export async function createSplitGroup(input: {
+  accountId: number;
+  groupNote: string | null;
+  legs: SplitGroupLeg[];
+}): Promise<number> {
+  return invoke('create_split_group', { input });
+}
+
+export async function updateSplitGroupDate(splitGroupId: number, newDate: string): Promise<void> {
+  return invoke('update_split_group_date', { input: { splitGroupId, newDate } });
+}

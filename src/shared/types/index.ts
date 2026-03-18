@@ -85,6 +85,8 @@ export interface EventWithData {
   fxRateMantissa: number | null;
   fxRateExponent: number | null;
   linkedEventId: number | null;
+  splitGroupId: number | null;
+  splitGroupNote: string | null;
 }
 
 export interface ListEventsResult {

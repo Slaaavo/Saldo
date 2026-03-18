@@ -28,6 +28,8 @@ pub struct EventWithData {
     pub fx_rate_mantissa: Option<i64>,
     pub fx_rate_exponent: Option<i64>,
     pub linked_event_id: Option<i64>,
+    pub split_group_id: Option<i64>,
+    pub split_group_note: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -67,4 +69,33 @@ pub struct SnapshotRow {
     /// For account-type rows: asset IDs this account is linked to.
     /// For asset-type rows: account IDs linked to this asset.
     pub linked_asset_ids: Vec<i64>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SplitGroupEntry {
+    pub amount_minor: i64,
+    pub event_date: String,
+    pub note: Option<String>,
+    pub counterpart_account_id: Option<i64>,
+    pub bucket_id: Option<i64>,
+    pub original_currency_id: Option<i64>,
+    pub original_amount_minor: Option<i64>,
+    pub fx_rate_mantissa: Option<i64>,
+    pub fx_rate_exponent: Option<i64>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateSplitGroupInput {
+    pub account_id: i64,
+    pub group_note: Option<String>,
+    pub legs: Vec<SplitGroupEntry>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateSplitGroupDateInput {
+    pub split_group_id: i64,
+    pub new_date: String,
 }

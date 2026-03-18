@@ -79,6 +79,9 @@ ledger:
   empty: Žiadne udalosti na zobrazenie.
   valueUpdate: Aktualizácia hodnoty
   viewAll: "Zobrazených {{shown}} z {{total}} udalostí. Zobraziť všetko"
+  splitGroup:
+    badge: "Rozdelené ×{{n}}"
+    splitLabel: "Časť {{n}}"
 
 # ──── Stránka účtovnéj knihy ────
 ledgerPage:
@@ -424,6 +427,16 @@ import:
     transfer: "Prevod"
     assignCounterpart: "Priradiť účet"
     counterpartAssigned: "Účet priradený"
+    split:
+      actionsColumn: "Akcie"
+      splitButton: "Rozdeliť"
+      cancelButton: "Zrušiť"
+      title: "Rozdeliť: {{amount}}"
+      splitLabel: "Časť {{n}}"
+      remaining: "Zostatok"
+      addSplit: "+ Pridať časť"
+      validationError: "Riadok {{date}}: zostatok musí byť nula"
+      validationBanner: "Niektoré skupiny rozdelenia sú neúplné"
   success: "Importovaných {{count}} transakcií"
   error: "Nepodarilo sa importovať transakcie"
   next: "Ďalej"
