@@ -2,6 +2,13 @@ import { useTranslation } from 'react-i18next';
 import type { SnapshotRow } from '../../shared/types';
 import type { LinkRow } from './useBucketLinks';
 import { Button } from '../../shared/ui/button';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../../shared/ui/select';
 
 interface Props {
   visibleLinks: LinkRow[];
@@ -51,22 +58,23 @@ export default function BucketAllocationEditor({
                 >
                   {link.isNew && link.sourceAccountId === null ? (
                     <>
-                      <select
-                        className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                      <Select
                         value=""
-                        onChange={(e) =>
-                          handleSourceAccountSelect(link.tempId, Number(e.target.value))
-                        }
+                        onValueChange={(val) => handleSourceAccountSelect(link.tempId, Number(val))}
                       >
-                        <option value="" disabled>
-                          {t('modals.createBalanceUpdate.selectSourceAccount')}
-                        </option>
-                        {availableToLink.map((a) => (
-                          <option key={a.accountId} value={a.accountId}>
-                            {a.accountName}
-                          </option>
-                        ))}
-                      </select>
+                        <SelectTrigger>
+                          <SelectValue
+                            placeholder={t('modals.createBalanceUpdate.selectSourceAccount')}
+                          />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {availableToLink.map((a) => (
+                            <SelectItem key={a.accountId} value={String(a.accountId)}>
+                              {a.accountName}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                       <div className="flex justify-end">
                         <Button
                           type="button"
