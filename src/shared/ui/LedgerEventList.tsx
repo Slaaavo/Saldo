@@ -302,7 +302,7 @@ export default function LedgerEventList({
                           )}
                       </div>
                       <div className="flex items-center gap-1">
-                        {ev.eventType === 'balance_update' && (
+                        {(ev.eventType === 'balance_update' || ev.eventType === 'transfer') && (
                           <Button
                             variant="ghost"
                             size="icon"

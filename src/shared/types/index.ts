@@ -10,6 +10,7 @@ export type ModalState =
   | { type: 'none' }
   | { type: 'createBalanceUpdate'; preselectedAccountId?: number }
   | { type: 'editBalanceUpdate'; event: EventWithData }
+  | { type: 'editTransfer'; fromEvent: EventWithData; toEvent: EventWithData }
   | { type: 'createAccount'; accountType?: 'account' | 'bucket' }
   | { type: 'createAsset' }
   | {

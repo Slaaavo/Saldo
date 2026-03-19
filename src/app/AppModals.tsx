@@ -15,6 +15,7 @@ import DbLocationChoiceDialog from '../features/settings/DbLocationChoiceDialog'
 import ReorderModal from '../shared/ui/ReorderModal';
 import ManageLinkedAssetsModal from '../features/assets/ManageLinkedAssetsModal';
 import CsvImportModal from '../features/transactions/CsvImportModal';
+import EditTransferModal from '../features/transactions/EditTransferModal';
 
 interface AppModalsProps {
   modalState: ModalState;
@@ -67,6 +68,7 @@ export default function AppModals({
     handleCreateAssetSuccess,
     handleCreateBucketBalanceUpdate,
     handleEditBucketBalanceUpdate,
+    handleEditTransfer,
   } = useModalActions({
     closeModal,
     refresh,
@@ -94,6 +96,16 @@ export default function AppModals({
           accounts={snapshot}
           onSubmit={handleEditBalanceUpdate}
           onBucketSubmit={handleEditBucketBalanceUpdate}
+          onClose={closeModal}
+        />
+      );
+
+    case 'editTransfer':
+      return (
+        <EditTransferModal
+          fromEvent={modalState.fromEvent}
+          toEvent={modalState.toEvent}
+          onSubmit={handleEditTransfer}
           onClose={closeModal}
         />
       );

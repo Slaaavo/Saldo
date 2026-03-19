@@ -15,6 +15,7 @@ import {
   setAccountAssetLinks,
   createBucketBalanceUpdate,
   updateBucketBalanceUpdate,
+  updateTransfer,
 } from '../shared/api';
 import { extractErrorMessage } from '../shared/utils/errors';
 
@@ -214,6 +215,27 @@ export function useModalActions({
     await refresh();
   };
 
+  const handleEditTransfer = async (payload: {
+    fromEventId: number;
+    toEventId: number;
+    fromDate: string;
+    toDate: string;
+    amountMinor: number;
+    toAmountMinor: number;
+    note: string | null;
+    originalCurrencyId: number | null;
+    fxRateMantissa: number | null;
+    fxRateExponent: number | null;
+  }) => {
+    try {
+      await updateTransfer(payload);
+      closeModal();
+      await refresh();
+    } catch (err) {
+      toast.error(t('errors.updateTransfer', { error: extractErrorMessage(err) }));
+    }
+  };
+
   return {
     handleCreateBalanceUpdate,
     handleEditBalanceUpdate,
@@ -228,5 +250,6 @@ export function useModalActions({
     handleCreateAssetSuccess,
     handleCreateBucketBalanceUpdate,
     handleEditBucketBalanceUpdate,
+    handleEditTransfer,
   };
 }

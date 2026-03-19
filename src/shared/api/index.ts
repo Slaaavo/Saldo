@@ -9,6 +9,7 @@ import type {
   PickDbFolderResult,
   AccountAssetLink,
   PartnerAccount,
+  EventWithData,
 } from '../types';
 
 export async function createBalanceUpdate(
@@ -131,6 +132,25 @@ export async function updateEvent(
 
 export async function deleteEvent(eventId: number): Promise<void> {
   return invoke('delete_event', { eventId });
+}
+
+export async function getEventById(eventId: number): Promise<EventWithData | null> {
+  return invoke('get_event_by_id', { eventId });
+}
+
+export async function updateTransfer(payload: {
+  fromEventId: number;
+  toEventId: number;
+  fromDate: string;
+  toDate: string;
+  amountMinor: number;
+  toAmountMinor: number;
+  note: string | null;
+  originalCurrencyId: number | null;
+  fxRateMantissa: number | null;
+  fxRateExponent: number | null;
+}): Promise<void> {
+  return invoke('update_transfer', { input: payload });
 }
 
 export async function bulkCreateBalanceUpdates(

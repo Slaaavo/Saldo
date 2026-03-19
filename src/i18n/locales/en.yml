@@ -255,6 +255,21 @@ modals:
     cancel: "Cancel"
     save: "Save"
 
+  editTransfer:
+    title: Edit Transfer
+    from: From
+    to: To
+    fromDate: Date
+    toDate: Date
+    amount: Amount
+    fromAmount: From Amount
+    toAmount: To Amount
+    fxRate: "1 {{fromCurrency}} = {{rate}} {{toCurrency}}"
+    note: Note
+    notePlaceholder: Optional note
+    save: Save
+    cancel: Cancel
+
 # ──── Shared ────
 common:
   account: account
@@ -358,6 +373,7 @@ errors:
   deletePartner: "Failed to delete partner: {{error}}"
   importCashflows: "Failed to import cashflows: {{error}}"
   linkConflict: "Cannot link {{accountName}} to this bucket because it is linked to {{bucketName}} on {{date}}."
+  updateTransfer: "Failed to update transfer: {{error}}"
 
 # ──── Language selector ────
 language:

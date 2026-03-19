@@ -208,6 +208,8 @@ pub fn run() {
             features::delete_partner_account,
             features::create_split_group,
             features::update_split_group_date,
+            features::get_event_by_id,
+            features::update_transfer,
         ])
         .run({
             let mut ctx = tauri::generate_context!();

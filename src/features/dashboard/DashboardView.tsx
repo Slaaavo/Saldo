@@ -1,5 +1,8 @@
 import { useTranslation } from 'react-i18next';
+import { toast } from 'sonner';
 import type { SnapshotRow, EventWithData, Currency, ModalState } from '../../shared/types';
+import { getEventById } from '../../shared/api';
+import { extractErrorMessage } from '../../shared/utils/errors';
 import { cn } from '@/shared/lib/utils';
 import NumberValue from '../../shared/ui/NumberValue';
 import AccountCards from './AccountCards';
@@ -125,6 +128,31 @@ export default function DashboardView({
     }
   };
 
+  const handleEditEvent = async (event: EventWithData) => {
+    if (event.eventType === 'balance_update') {
+      setModalState({ type: 'editBalanceUpdate', event });
+      return;
+    }
+    if (event.eventType === 'transfer') {
+      if (!event.linkedEventId) {
+        toast.error(t('errors.loadData'));
+        return;
+      }
+      try {
+        const linked = await getEventById(event.linkedEventId);
+        if (!linked) {
+          toast.error(t('errors.loadData'));
+          return;
+        }
+        const fromEvent = event.amountMinor < 0 ? event : linked;
+        const toEvent = event.amountMinor < 0 ? linked : event;
+        setModalState({ type: 'editTransfer', fromEvent, toEvent });
+      } catch (err) {
+        toast.error(extractErrorMessage(err));
+      }
+    }
+  };
+
   return (
     <>
       {/* FX rate missing warning */}
@@ -226,7 +254,7 @@ export default function DashboardView({
               events={events}
               accounts={snapshot}
               consolidationCurrency={consolidationCurrency}
-              onEditEvent={(event) => setModalState({ type: 'editBalanceUpdate', event })}
+              onEditEvent={handleEditEvent}
               onDeleteEvent={(eventId) => setModalState({ type: 'confirmDeleteEvent', eventId })}
               onDeleteTransferEvent={(eventId, linkedEventId) =>
                 setModalState({ type: 'confirmDeleteTransferEvent', eventId, linkedEventId })

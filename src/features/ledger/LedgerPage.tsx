@@ -1,5 +1,8 @@
 import { useTranslation } from 'react-i18next';
+import { toast } from 'sonner';
 import type { SnapshotRow, Currency, ModalState, EventWithData } from '../../shared/types';
+import { getEventById } from '../../shared/api';
+import { extractErrorMessage } from '../../shared/utils/errors';
 import { useLedgerData } from './useLedgerData';
 import LedgerEventList from '../../shared/ui/LedgerEventList';
 import PortfolioItemFilter from './PortfolioItemFilter';
@@ -35,8 +38,29 @@ export default function LedgerPage({
     loading,
   } = useLedgerData({ refreshTrigger });
 
-  const handleEditEvent = (event: EventWithData) => {
-    setModalState({ type: 'editBalanceUpdate', event });
+  const handleEditEvent = async (event: EventWithData) => {
+    if (event.eventType === 'balance_update') {
+      setModalState({ type: 'editBalanceUpdate', event });
+      return;
+    }
+    if (event.eventType === 'transfer') {
+      if (!event.linkedEventId) {
+        toast.error(t('errors.loadData'));
+        return;
+      }
+      try {
+        const linked = await getEventById(event.linkedEventId);
+        if (!linked) {
+          toast.error(t('errors.loadData'));
+          return;
+        }
+        const fromEvent = event.amountMinor < 0 ? event : linked;
+        const toEvent = event.amountMinor < 0 ? linked : event;
+        setModalState({ type: 'editTransfer', fromEvent, toEvent });
+      } catch (err) {
+        toast.error(extractErrorMessage(err));
+      }
+    }
   };
 
   const handleDeleteEvent = (eventId: number) => {

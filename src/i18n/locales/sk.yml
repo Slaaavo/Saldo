@@ -255,6 +255,21 @@ modals:
     cancel: "Zrušiť"
     save: "Uložiť"
 
+  editTransfer:
+    title: Upraviť prevod
+    from: Z
+    to: Na
+    fromDate: Dátum
+    toDate: Dátum
+    amount: Suma
+    fromAmount: Suma (odoslanie)
+    toAmount: Suma (príjem)
+    fxRate: "1 {{fromCurrency}} = {{rate}} {{toCurrency}}"
+    note: Poznámka
+    notePlaceholder: Voliteľná poznámka
+    save: Uložiť
+    cancel: Zrušiť
+
 # ──── Spoločné ────
 common:
   account: účet
@@ -356,6 +371,7 @@ errors:
   deletePartner: "Nepodarilo sa vymazať partnera: {{error}}"
   importCashflows: "Nepodarilo sa importovať transakcie: {{error}}"
   linkConflict: "Nie je možné prepojiť {{accountName}} s týmto košom, pretože je prepojený s košom {{bucketName}} dňa {{date}}."
+  updateTransfer: "Nepodarilo sa aktualizovať prevod: {{error}}"
 
 # ──── Uložisko dát ────
 dataStorage:
