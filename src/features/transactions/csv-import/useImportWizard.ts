@@ -76,11 +76,11 @@ export function useImportWizard(params: {
   const selectedAccountCurrencyId =
     currencies.find((c) => c.code === selectedAccountCurrencyCode)?.id ?? 0;
 
-  // Derived: bucket rows whose linkedAllocations don't include the selected account
+  // Derived: bucket rows that don't already have this account linked
   const availableBuckets = snapshot.filter(
     (r) =>
       r.accountType === 'bucket' &&
-      !r.linkedAllocations.some((a) => a.sourceAccountId === wizardState.selectedAccountId),
+      !r.bucketLinks.some((l) => l.sourceAccountId === wizardState.selectedAccountId),
   );
 
   // Derived: account-type rows that have no IBAN set

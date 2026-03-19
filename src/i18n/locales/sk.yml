@@ -64,6 +64,7 @@ buckets:
   balanceBreakdown: "Rozdelenie zostatku"
   additionalBalance: "Dodatočný zostatok"
 
+
 # ──── Aktíva ────
 assets:
   sectionTitle: Aktíva
@@ -124,11 +125,8 @@ modals:
     linkedAccounts: "Prepojené účty"
     linkAccount: "Prepojiť účet"
     unlinkAccount: "Odpojiť"
-    availableBalance: "Dostupné: {{amount}} {{currency}}"
-    allocationAmount: "Suma alokácie"
     selectSourceAccount: "Vyberte účet na prepojenie"
     extraBalance: "Dodatočný zostatok"
-    exceedsAvailable: "Prekračuje dostupný zostatok {{amount}} {{currency}}"
     noAccountsToLink: "Žiadne účty na prepojenie"
 
   editBalanceUpdate:
@@ -236,6 +234,7 @@ modals:
   allocation:
     accountsGroup: "Účty"
     assetsGroup: "Aktíva"
+    linkDescription: "Zostatok sa automaticky zrkadlí z tohto účtu."
 
   manageLinkedAssets:
     title: "Prepojené aktíva \u2014 {{name}}"
@@ -349,7 +348,6 @@ errors:
   deleteAccount: "Nepodarilo sa vymazať účet: {{error}}"
   updateBalances: "Nepodarilo sa aktualizovať zostatky: {{error}}"
   deleteAccountLinked: "Tento účet nie je možné vymazať: má aktívne alokácie. Najskôr odpojte alokácie."
-  overAllocation: "Alokácia prekračuje dostupný zostatok."
   setAccountAssetLinks: "Nepodarilo sa uložiť prepojenia aktív: {{error}}"
   updateAssetValue: "Nepodarilo sa aktualizovať hodnotu aktíva: {{error}}"
   bulkUpdateVisibility: "Nepodarilo sa uložiť viditeľnosť hromadnej aktualizácie: {{error}}"
@@ -357,6 +355,7 @@ errors:
   updatePartner: "Nepodarilo sa aktualizovať partnera: {{error}}"
   deletePartner: "Nepodarilo sa vymazať partnera: {{error}}"
   importCashflows: "Nepodarilo sa importovať transakcie: {{error}}"
+  linkConflict: "Nie je možné prepojiť {{accountName}} s týmto košom, pretože je prepojený s košom {{bucketName}} dňa {{date}}."
 
 # ──── Uložisko dát ────
 dataStorage:

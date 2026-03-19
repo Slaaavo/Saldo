@@ -94,34 +94,14 @@ export interface ListEventsResult {
   totalCount: number;
 }
 
-export interface AllocationDetail {
-  bucketId: number;
-  bucketName: string;
-  amountMinor: number;
-}
-
-export interface BucketAllocation {
+export interface BucketLink {
   id: number;
-  bucketId: number;
+  eventId: number;
   sourceAccountId: number;
   sourceAccountName: string;
-  sourceAccountType: string;
   sourceCurrencyId: number;
   sourceCurrencyCode: string;
   sourceCurrencyMinorUnits: number;
-  amountMinor: number;
-  effectiveDate: string;
-}
-
-export interface OverAllocationWarning {
-  sourceAccountId: number;
-  sourceAccountName: string;
-  currencyCode: string;
-  currencyMinorUnits: number;
-  balanceMinor: number;
-  totalAllocatedMinor: number;
-  overAllocationMinor: number;
-  allocations: AllocationDetail[];
 }
 
 export interface PartnerAccount {
@@ -143,13 +123,11 @@ export interface SnapshotRow {
   isCustom: boolean;
   convertedBalanceMinor: number;
   fxRateMissing: boolean;
-  allocatedTotalMinor: number;
-  linkedAllocationsBalanceMinor: number;
-  overAllocationBuckets: AllocationDetail[];
-  linkedAllocations: BucketAllocation[];
-  linkedAllocationsFromAssetsMinor: number;
   isLinkedToAsset: boolean;
   linkedAssetIds: number[];
+  isBucketLinked: boolean;
+  bucketLinks: BucketLink[];
+  linkedBalanceMinor: number;
 }
 
 export interface FxRateRow {

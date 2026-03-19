@@ -65,6 +65,8 @@ export default function AppModals({
     handleUpdateAssetValue,
     handleSetAccountAssetLinks,
     handleCreateAssetSuccess,
+    handleCreateBucketBalanceUpdate,
+    handleEditBucketBalanceUpdate,
   } = useModalActions({
     closeModal,
     refresh,
@@ -80,6 +82,7 @@ export default function AppModals({
           accounts={snapshot}
           preselectedAccountId={modalState.preselectedAccountId}
           onSubmit={handleCreateBalanceUpdate}
+          onBucketSubmit={handleCreateBucketBalanceUpdate}
           onClose={closeModal}
         />
       );
@@ -90,6 +93,7 @@ export default function AppModals({
           event={modalState.event}
           accounts={snapshot}
           onSubmit={handleEditBalanceUpdate}
+          onBucketSubmit={handleEditBucketBalanceUpdate}
           onClose={closeModal}
         />
       );

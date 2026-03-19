@@ -125,11 +125,8 @@ modals:
     linkedAccounts: "Linked Accounts"
     linkAccount: "Link Account"
     unlinkAccount: "Unlink"
-    availableBalance: "Available: {{amount}} {{currency}}"
-    allocationAmount: "Allocation Amount"
     selectSourceAccount: "Select account to link"
     extraBalance: "Additional Balance"
-    exceedsAvailable: "Exceeds available balance of {{amount}} {{currency}}"
     noAccountsToLink: "No accounts available to link"
 
   editBalanceUpdate:
@@ -237,6 +234,7 @@ modals:
   allocation:
     accountsGroup: "Accounts"
     assetsGroup: "Assets"
+    linkDescription: "Balance mirrors this account automatically."
 
   manageLinkedAssets:
     title: "Linked Assets \u2014 {{name}}"
@@ -352,7 +350,6 @@ errors:
   deleteAccount: "Failed to delete account: {{error}}"
   updateBalances: "Failed to update balances: {{error}}"
   deleteAccountLinked: "Cannot delete this account: it has active allocations. Unlink the allocations first."
-  overAllocation: "Allocation exceeds available balance."
   setAccountAssetLinks: "Failed to save asset links: {{error}}"
   updateAssetValue: "Failed to update asset value: {{error}}"
   bulkUpdateVisibility: "Failed to save bulk update visibility: {{error}}"
@@ -360,6 +357,7 @@ errors:
   updatePartner: "Failed to update partner: {{error}}"
   deletePartner: "Failed to delete partner: {{error}}"
   importCashflows: "Failed to import cashflows: {{error}}"
+  linkConflict: "Cannot link {{accountName}} to this bucket because it is linked to {{bucketName}} on {{date}}."
 
 # ──── Language selector ────
 language:

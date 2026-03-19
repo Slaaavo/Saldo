@@ -1,12 +1,12 @@
 use crate::error::AppError;
 use crate::features::assets::repository::get_all_account_asset_link_ids;
-use crate::features::buckets::repository::{get_account_allocated_total, list_bucket_allocations};
-use crate::features::buckets::AllocationDetail;
+use crate::features::buckets::repository::list_all_latest_bucket_links;
 use crate::features::currency::repository::{
     get_consolidation_currency, get_fx_rate_for_conversion,
 };
 use crate::shared::{convert_balance, local_now, with_savepoint, with_savepoint_app};
 use rusqlite::{params, Connection, OptionalExtension};
+use std::collections::HashMap;
 
 use super::models::{EventWithData, ListEventsResult, SnapshotRow, SplitGroupEntry};
 
@@ -66,6 +66,18 @@ pub fn bulk_create_balance_updates(
         for &(account_id, amount_minor) in entries {
             let event_id =
                 create_balance_update_inner(conn, account_id, amount_minor, event_date, note)?;
+            let account_type: Option<String> = conn
+                .query_row(
+                    "SELECT account_type FROM account WHERE id = ?1",
+                    params![account_id],
+                    |row| row.get(0),
+                )
+                .optional()?;
+            if account_type.as_deref() == Some("bucket") {
+                crate::features::buckets::repository::carry_forward_bucket_links(
+                    conn, account_id, event_id,
+                )?;
+            }
             ids.push(event_id);
         }
         Ok(ids)
@@ -697,13 +709,11 @@ pub fn get_accounts_snapshot(
             is_custom: currency_is_custom != 0,
             converted_balance_minor,
             fx_rate_missing,
-            allocated_total_minor: 0,
-            linked_allocations_balance_minor: 0,
-            over_allocation_buckets: vec![],
-            linked_allocations: vec![],
-            linked_allocations_from_assets_minor: 0,
             is_linked_to_asset: false,
             linked_asset_ids: vec![],
+            is_bucket_linked: false,
+            bucket_links: vec![],
+            linked_balance_minor: 0,
         });
     }
 
@@ -725,83 +735,61 @@ pub fn get_accounts_snapshot(
         }
     }
 
-    // Second pass: populate allocation data for buckets and accounts.
-    for row in &mut result {
-        if row.account_type == "bucket" {
-            let allocations = list_bucket_allocations(conn, row.account_id, snapshot_date)?;
-            let mut linked_sum: i64 = 0;
-            let mut asset_sum: i64 = 0;
-            for alloc in &allocations {
-                let converted = if alloc.source_currency_id == consolidation.id {
-                    alloc.amount_minor
-                } else {
-                    match get_fx_rate_for_conversion(
-                        conn,
-                        consolidation.id,
-                        alloc.source_currency_id,
-                        snapshot_date,
-                    )? {
-                        Some((mantissa, exponent)) => convert_balance(
-                            alloc.amount_minor,
-                            mantissa,
-                            exponent,
-                            alloc.source_currency_minor_units,
-                            consolidation.minor_units,
-                        ),
-                        None => {
-                            row.fx_rate_missing = true;
-                            convert_balance(
-                                alloc.amount_minor,
-                                1,
-                                0,
-                                alloc.source_currency_minor_units,
-                                consolidation.minor_units,
-                            )
-                        }
-                    }
-                };
-                linked_sum += converted;
-                if alloc.source_account_type == "asset"
-                    || linked_account_ids_set.contains(&alloc.source_account_id)
-                {
-                    asset_sum += converted;
+    // Pass 2: Event-bound bucket links
+    let all_bucket_links = list_all_latest_bucket_links(conn, snapshot_date)?;
+    let account_index_map: HashMap<i64, usize> = result
+        .iter()
+        .enumerate()
+        .map(|(idx, row)| (row.account_id, idx))
+        .collect();
+
+    for (bucket_id, link) in &all_bucket_links {
+        let bucket_idx = match account_index_map.get(bucket_id) {
+            Some(&idx) => idx,
+            None => continue,
+        };
+        let source_idx = match account_index_map.get(&link.source_account_id) {
+            Some(&idx) => idx,
+            None => continue,
+        };
+
+        let source_balance = result[source_idx].balance_minor;
+        let source_currency_id = link.source_currency_id;
+        let source_minor_units = link.source_currency_minor_units;
+
+        let converted = if source_currency_id == consolidation.id {
+            source_balance
+        } else {
+            match get_fx_rate_for_conversion(
+                conn,
+                consolidation.id,
+                source_currency_id,
+                snapshot_date,
+            )? {
+                Some((mantissa, exponent)) => convert_balance(
+                    source_balance,
+                    mantissa,
+                    exponent,
+                    source_minor_units,
+                    consolidation.minor_units,
+                ),
+                None => {
+                    result[bucket_idx].fx_rate_missing = true;
+                    convert_balance(
+                        source_balance,
+                        1,
+                        0,
+                        source_minor_units,
+                        consolidation.minor_units,
+                    )
                 }
             }
-            row.linked_allocations_balance_minor = linked_sum;
-            row.linked_allocations_from_assets_minor = asset_sum;
-            row.converted_balance_minor += linked_sum;
-            row.linked_allocations = allocations;
-        } else if row.account_type == "account" {
-            let total_allocated = get_account_allocated_total(conn, row.account_id, snapshot_date)?;
-            row.allocated_total_minor = total_allocated;
-            if total_allocated > 0 && total_allocated > row.balance_minor {
-                let mut stmt = conn.prepare(
-                    "SELECT ba.bucket_id, a.name AS bucket_name, ba.amount_minor
-                     FROM bucket_allocation ba
-                     JOIN account a ON a.id = ba.bucket_id
-                     WHERE ba.source_account_id = ?1
-                       AND ba.amount_minor != 0
-                       AND ba.id = (
-                           SELECT id FROM bucket_allocation ba2
-                           WHERE ba2.source_account_id = ?1
-                             AND ba2.bucket_id = ba.bucket_id
-                             AND ba2.effective_date <= ?2
-                           ORDER BY ba2.effective_date DESC, ba2.id DESC
-                           LIMIT 1
-                       )",
-                )?;
-                let buckets: Vec<AllocationDetail> = stmt
-                    .query_map(params![row.account_id, snapshot_date], |r| {
-                        Ok(AllocationDetail {
-                            bucket_id: r.get(0)?,
-                            bucket_name: r.get(1)?,
-                            amount_minor: r.get(2)?,
-                        })
-                    })?
-                    .collect::<rusqlite::Result<Vec<_>>>()?;
-                row.over_allocation_buckets = buckets;
-            }
-        }
+        };
+
+        result[bucket_idx].bucket_links.push(link.clone());
+        result[bucket_idx].linked_balance_minor += converted;
+        result[bucket_idx].converted_balance_minor += converted;
+        result[source_idx].is_bucket_linked = true;
     }
 
     Ok(result)

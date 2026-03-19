@@ -56,7 +56,7 @@ mod tests {
         let count: i64 = conn
             .query_row("SELECT COUNT(*) FROM _migrations", [], |row| row.get(0))
             .expect("query failed");
-        assert_eq!(count, 14, "Expected 14 applied migrations");
+        assert_eq!(count, 18, "Expected 18 applied migrations");
     }
 
     #[test]
@@ -67,7 +67,7 @@ mod tests {
         let count: i64 = conn
             .query_row("SELECT COUNT(*) FROM _migrations", [], |row| row.get(0))
             .expect("query failed");
-        assert_eq!(count, 14, "Expected 14 applied migrations after double run");
+        assert_eq!(count, 18, "Expected 18 applied migrations after double run");
     }
 
     #[test]

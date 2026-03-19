@@ -369,7 +369,6 @@ mod tests {
     use super::*;
     use crate::db::initialize_in_memory;
     use crate::features::accounts::repository::create_account;
-    use crate::features::buckets::repository::create_bucket_allocation;
     use crate::features::transactions::repository::{create_balance_update, get_accounts_snapshot};
 
     fn mk_account(conn: &Connection) -> i64 {
@@ -458,7 +457,7 @@ mod tests {
     }
 
     #[test]
-    fn test_snapshot_linked_allocations_includes_linked_accounts() {
+    fn test_snapshot_bucket_link_from_asset_linked_account() {
         let conn = initialize_in_memory().expect("DB init failed");
         let account_id = mk_account(&conn);
         let asset_id =
@@ -468,13 +467,20 @@ mod tests {
         create_balance_update(&conn, account_id, 20_000, "2024-01-01", None).unwrap();
         // Link the account to the asset.
         set_account_asset_links(&conn, account_id, &[asset_id]).unwrap();
-        // Allocate from the linked account to the bucket.
-        create_bucket_allocation(&conn, bucket_id, account_id, 5_000, "2024-01-01").unwrap();
+        // Link the account to the bucket via an event-bound bucket link.
+        let event_id = create_balance_update(&conn, bucket_id, 0, "2024-01-01", None).unwrap();
+        crate::features::buckets::repository::set_bucket_event_links(
+            &conn,
+            event_id,
+            &[account_id],
+        )
+        .unwrap();
 
         let snap = get_accounts_snapshot(&conn, "2024-12-31T23:59:59").unwrap();
         let bucket = snap.iter().find(|r| r.account_id == bucket_id).unwrap();
-        // Linked account treated same as asset — counted in linked_allocations_from_assets_minor.
-        assert_eq!(bucket.linked_allocations_from_assets_minor, 5_000);
+        // Bucket's linked_balance_minor includes the account's balance.
+        assert_eq!(bucket.linked_balance_minor, 20_000);
+        assert_eq!(bucket.bucket_links.len(), 1);
     }
 
     #[test]

@@ -1,50 +1,34 @@
 import { useTranslation } from 'react-i18next';
 import type { SnapshotRow } from '../../shared/types';
-import type { AllocationRow } from './useBucketAllocations';
-import { getMinorUnitsStep, fromMinorUnits } from '../../shared/utils/format';
+import type { LinkRow } from './useBucketLinks';
 import { Button } from '../../shared/ui/button';
-import { CurrencyInput } from '../../shared/ui/CurrencyInput';
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectLabel,
-  SelectTrigger,
-  SelectValue,
-} from '../../shared/ui/select';
 
 interface Props {
-  visibleAllocations: AllocationRow[];
+  visibleLinks: LinkRow[];
   availableToLink: SnapshotRow[];
-  allocationSources: SnapshotRow[];
-  loadingAllocations: boolean;
-  displayErrors: Record<string, string>;
-  getAvailableBalance: (row: AllocationRow) => number;
-  handleSourceAccountSelect: (tempId: string, newSourceAccountId: number) => Promise<void>;
-  handleAllocationAmountChange: (tempId: string, value: string) => void;
-  handleAddAllocation: () => void;
+  allAccounts: SnapshotRow[];
+  loadingLinks: boolean;
+  constraintError: string | null;
+  handleSourceAccountSelect: (tempId: string, sourceAccountId: number) => void;
+  handleAddLink: () => void;
   handleRemoveNew: (tempId: string) => void;
   handleUnlink: (tempId: string) => void;
 }
 
 export default function BucketAllocationEditor({
-  visibleAllocations,
+  visibleLinks,
   availableToLink,
-  allocationSources,
-  loadingAllocations,
-  displayErrors,
-  getAvailableBalance,
+  allAccounts,
+  loadingLinks,
+  constraintError,
   handleSourceAccountSelect,
-  handleAllocationAmountChange,
-  handleAddAllocation,
+  handleAddLink,
   handleRemoveNew,
   handleUnlink,
 }: Props) {
   const { t } = useTranslation();
 
-  const accountOptions = availableToLink.filter((a) => a.accountType === 'account');
-  const assetOptions = availableToLink.filter((a) => a.accountType === 'asset');
+  const hasAccounts = allAccounts.some((a) => a.accountType === 'account');
 
   return (
     <>
@@ -54,147 +38,66 @@ export default function BucketAllocationEditor({
           {t('modals.createBalanceUpdate.linkedAccounts')}
         </p>
 
-        {loadingAllocations ? (
+        {loadingLinks ? (
           <p className="text-sm text-muted-foreground">…</p>
         ) : (
           <>
-            {visibleAllocations.map((row) => {
-              const sourceAccount =
-                row.sourceAccountId !== null
-                  ? allocationSources.find((a) => a.accountId === row.sourceAccountId)
-                  : undefined;
-              const sourceMinorUnits = sourceAccount?.currencyMinorUnits ?? 2;
-              const sourceCurrencyCode = sourceAccount?.currencyCode ?? '';
-              const available = getAvailableBalance(row);
-              const displayError = displayErrors[row.tempId];
-              const showAmountRow = !row.isNew || row.sourceAccountId !== null;
-
-              // When a new row has an account selected, that account is excluded from
-              // availableToLink (to prevent double-linking). Ensure it still appears in
-              // the dropdown so Radix Select can display its label.
-              let extraAccountForRow: (typeof allocationSources)[0] | undefined;
-              let extraAssetForRow: (typeof allocationSources)[0] | undefined;
-              if (row.isNew && row.sourceAccountId !== null) {
-                const selected = allocationSources.find((a) => a.accountId === row.sourceAccountId);
-                if (
-                  selected &&
-                  !accountOptions.some((a) => a.accountId === row.sourceAccountId) &&
-                  !assetOptions.some((a) => a.accountId === row.sourceAccountId)
-                ) {
-                  if (selected.accountType === 'account') {
-                    extraAccountForRow = selected;
-                  } else {
-                    extraAssetForRow = selected;
-                  }
-                }
-              }
-
+            {visibleLinks.map((link) => {
+              const sourceAccount = allAccounts.find((a) => a.accountId === link.sourceAccountId);
               return (
                 <div
-                  key={row.tempId}
+                  key={link.tempId}
                   className="flex flex-col gap-2 rounded-md border border-border bg-muted/30 p-3"
                 >
-                  {row.isNew ? (
-                    <Select
-                      value={row.sourceAccountId !== null ? String(row.sourceAccountId) : ''}
-                      onValueChange={(val) =>
-                        void handleSourceAccountSelect(row.tempId, Number(val))
-                      }
-                    >
-                      <SelectTrigger>
-                        <SelectValue
-                          placeholder={t('modals.createBalanceUpdate.selectSourceAccount')}
-                        />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectGroup>
-                          <SelectLabel>{t('modals.allocation.accountsGroup')}</SelectLabel>
-                          {accountOptions.map((a) => (
-                            <SelectItem key={a.accountId} value={String(a.accountId)}>
-                              {a.accountName}
-                            </SelectItem>
-                          ))}
-                          {extraAccountForRow && (
-                            <SelectItem
-                              key={extraAccountForRow.accountId}
-                              value={String(extraAccountForRow.accountId)}
-                            >
-                              {extraAccountForRow.accountName}
-                            </SelectItem>
-                          )}
-                        </SelectGroup>
-                        {(assetOptions.length > 0 || extraAssetForRow) && (
-                          <SelectGroup>
-                            <SelectLabel>{t('modals.allocation.assetsGroup')}</SelectLabel>
-                            {assetOptions.map((a) => (
-                              <SelectItem key={a.accountId} value={String(a.accountId)}>
-                                {a.accountName}
-                              </SelectItem>
-                            ))}
-                            {extraAssetForRow && (
-                              <SelectItem
-                                key={extraAssetForRow.accountId}
-                                value={String(extraAssetForRow.accountId)}
-                              >
-                                {extraAssetForRow.accountName}
-                              </SelectItem>
-                            )}
-                          </SelectGroup>
-                        )}
-                      </SelectContent>
-                    </Select>
-                  ) : (
-                    <p className="text-sm font-medium">{sourceAccount?.accountName ?? ''}</p>
-                  )}
-
-                  {showAmountRow && (
-                    <div className="flex items-center gap-2">
-                      <div className="flex-1">
-                        <CurrencyInput
-                          type="number"
-                          step={getMinorUnitsStep(sourceMinorUnits)}
-                          value={row.amountStr}
-                          onChange={(e) => handleAllocationAmountChange(row.tempId, e.target.value)}
-                          currencyCode={sourceCurrencyCode || undefined}
-                          placeholder={t('modals.createBalanceUpdate.allocationAmount')}
-                        />
-                      </div>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() =>
-                          row.isNew ? handleRemoveNew(row.tempId) : handleUnlink(row.tempId)
+                  {link.isNew && link.sourceAccountId === null ? (
+                    <>
+                      <select
+                        className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                        value=""
+                        onChange={(e) =>
+                          handleSourceAccountSelect(link.tempId, Number(e.target.value))
                         }
                       >
-                        {t('modals.createBalanceUpdate.unlinkAccount')}
-                      </Button>
-                    </div>
+                        <option value="" disabled>
+                          {t('modals.createBalanceUpdate.selectSourceAccount')}
+                        </option>
+                        {availableToLink.map((a) => (
+                          <option key={a.accountId} value={a.accountId}>
+                            {a.accountName}
+                          </option>
+                        ))}
+                      </select>
+                      <div className="flex justify-end">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleRemoveNew(link.tempId)}
+                        >
+                          ×
+                        </Button>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-sm font-medium">
+                        {sourceAccount?.accountName ?? String(link.sourceAccountId)}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {t('modals.allocation.linkDescription')}
+                      </p>
+                      <div className="flex justify-end">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleUnlink(link.tempId)}
+                        >
+                          {t('modals.createBalanceUpdate.unlinkAccount')}
+                        </Button>
+                      </div>
+                    </>
                   )}
-
-                  {showAmountRow && (
-                    <p className="text-xs text-muted-foreground">
-                      {t('modals.createBalanceUpdate.availableBalance', {
-                        amount: fromMinorUnits(available, sourceMinorUnits),
-                        currency: sourceCurrencyCode,
-                      })}
-                    </p>
-                  )}
-
-                  {row.isNew && row.sourceAccountId === null && (
-                    <div className="flex justify-end">
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleRemoveNew(row.tempId)}
-                      >
-                        {t('modals.createBalanceUpdate.unlinkAccount')}
-                      </Button>
-                    </div>
-                  )}
-
-                  {displayError && <p className="text-xs text-destructive">{displayError}</p>}
                 </div>
               );
             })}
@@ -204,17 +107,21 @@ export default function BucketAllocationEditor({
                 type="button"
                 variant="outline"
                 size="sm"
-                onClick={handleAddAllocation}
+                onClick={handleAddLink}
                 className="self-start"
               >
                 {t('modals.createBalanceUpdate.linkAccount')}
               </Button>
             ) : (
-              allocationSources.length === 0 && (
+              !hasAccounts && (
                 <p className="text-sm text-muted-foreground">
                   {t('modals.createBalanceUpdate.noAccountsToLink')}
                 </p>
               )
+            )}
+
+            {constraintError !== null && (
+              <p className="text-xs text-destructive mt-2">{constraintError}</p>
             )}
           </>
         )}

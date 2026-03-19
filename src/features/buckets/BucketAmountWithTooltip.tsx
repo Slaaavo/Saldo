@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next';
-import type { BucketAllocation } from '../../shared/types';
+import type { BucketLink, SnapshotRow } from '../../shared/types';
 import NumberValue from '../../shared/ui/NumberValue';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../../shared/ui/tooltip';
 import { cn } from '@/shared/lib/utils';
@@ -7,23 +7,27 @@ import { cn } from '@/shared/lib/utils';
 interface Props {
   totalMinor: number;
   manualBalanceMinor: number;
-  allocations: BucketAllocation[];
+  bucketLinks: BucketLink[];
   currencyCode: string;
   minorUnits: number;
   manualCurrencyCode: string;
   manualMinorUnits: number;
   className?: string;
+  allAccounts?: SnapshotRow[];
+  consolidationCurrencyCode?: string;
 }
 
 export default function BucketAmountWithTooltip({
   totalMinor,
   manualBalanceMinor,
-  allocations,
+  bucketLinks,
   currencyCode,
   minorUnits,
   manualCurrencyCode,
   manualMinorUnits,
   className,
+  allAccounts,
+  consolidationCurrencyCode,
 }: Props) {
   const { t } = useTranslation();
 
@@ -36,7 +40,7 @@ export default function BucketAmountWithTooltip({
     />
   );
 
-  if (allocations.length === 0) {
+  if (bucketLinks.length === 0) {
     return amount;
   }
 
@@ -58,19 +62,21 @@ export default function BucketAmountWithTooltip({
             {t('buckets.balanceBreakdown')}
           </p>
           <div className="flex flex-col gap-1">
-            {allocations.map((alloc) => (
-              <div key={alloc.id} className="flex items-center justify-between gap-4 text-xs">
-                <span className="text-muted-foreground truncate max-w-[120px]">
-                  {alloc.sourceAccountName}
-                </span>
-                <NumberValue
-                  value={alloc.amountMinor}
-                  currencyCode={alloc.sourceCurrencyCode}
-                  minorUnits={alloc.sourceCurrencyMinorUnits}
-                  className="shrink-0"
-                />
-              </div>
-            ))}
+            {bucketLinks.map((link) => {
+              const sourceAccount = allAccounts?.find((a) => a.accountId === link.sourceAccountId);
+              return (
+                <div key={link.id} className="flex justify-between gap-4">
+                  <span className="text-muted-foreground italic text-xs">
+                    {link.sourceAccountName}
+                  </span>
+                  <NumberValue
+                    value={sourceAccount?.convertedBalanceMinor ?? 0}
+                    currencyCode={consolidationCurrencyCode}
+                    minorUnits={minorUnits}
+                  />
+                </div>
+              );
+            })}
             <div className="my-1 border-t border-border" />
             <div className="flex items-center justify-between gap-4 text-xs">
               <span className="text-muted-foreground">{t('buckets.additionalBalance')}</span>

@@ -17,45 +17,55 @@ import { CurrencyInput } from '../../shared/ui/CurrencyInput';
 import { Input } from '../../shared/ui/input';
 import { Label } from '../../shared/ui/label';
 import { DatePicker } from '../../shared/ui/date-picker';
-import { useBucketAllocations } from '../buckets/useBucketAllocations';
+import { useBucketLinks } from '../buckets/useBucketLinks';
 import BucketAllocationEditor from '../buckets/BucketAllocationEditor';
 
 interface Props {
   event: EventWithData;
   accounts: SnapshotRow[];
   onSubmit: (eventId: number, amountMinor: number, eventDate: string, note: string) => void;
+  onBucketSubmit?: (
+    eventId: number,
+    amountMinor: number,
+    eventDate: string,
+    note: string | null,
+    linkedAccountIds: number[],
+  ) => Promise<void>;
   onClose: () => void;
 }
 
-export default function EditBalanceUpdateModal({ event, accounts, onSubmit, onClose }: Props) {
+export default function EditBalanceUpdateModal({
+  event,
+  accounts,
+  onSubmit,
+  onBucketSubmit,
+  onClose,
+}: Props) {
   const { t } = useTranslation();
   const minorUnits = event.currencyMinorUnits;
   const isBucket = event.accountType === 'bucket';
   const [amount, setAmount] = useState(fromMinorUnits(event.amountMinor, minorUnits));
   const [date, setDate] = useState(event.eventDate);
   const [note, setNote] = useState(event.note ?? '');
+  const [constraintError, setConstraintError] = useState<string | null>(null);
 
   const allocationSources = accounts.filter(
     (a) => a.accountType === 'account' || a.accountType === 'asset',
   );
 
   const {
-    loadingAllocations,
-    visibleAllocations,
+    loadingLinks,
+    visibleLinks,
     availableToLink,
-    displayErrors,
-    hasErrors,
-    getAvailableBalance,
     handleSourceAccountSelect,
-    handleAddAllocation,
+    handleAddLink,
     handleUnlink,
     handleRemoveNew,
-    handleAllocationAmountChange,
-    saveAllocations,
-  } = useBucketAllocations({
-    bucketId: isBucket ? event.accountId : null,
-    date,
-    allocationSources,
+    getLinkedAccountIds,
+  } = useBucketLinks({
+    isBucket,
+    eventId: isBucket ? event.id : null,
+    allAccounts: allocationSources,
   });
   const [submitting, setSubmitting] = useState(false);
 
@@ -67,15 +77,40 @@ export default function EditBalanceUpdateModal({ event, accounts, onSubmit, onCl
       return;
     }
     setSubmitting(true);
-    try {
-      if (isBucket) {
-        const saved = await saveAllocations();
-        if (!saved) {
-          setSubmitting(false);
-          return;
+    const amountMinor = toMinorUnits(amount, minorUnits);
+
+    if (isBucket && onBucketSubmit) {
+      try {
+        await onBucketSubmit(event.id, amountMinor, date, note || null, getLinkedAccountIds());
+        onClose();
+      } catch (err) {
+        const appErr = err as { code?: string; message?: string } | null;
+        if (appErr?.code === 'LINK_CONFLICT') {
+          try {
+            const payload = JSON.parse(appErr.message ?? '{}') as {
+              sourceAccountName: string;
+              otherBucketName: string;
+              conflictDate: string;
+            };
+            setConstraintError(
+              t('errors.linkConflict', {
+                accountName: payload.sourceAccountName,
+                bucketName: payload.otherBucketName,
+                date: payload.conflictDate,
+              }),
+            );
+          } catch {
+            setConstraintError(String(appErr.message));
+          }
+        } else {
+          toast.error(extractErrorMessage(err));
         }
+        setSubmitting(false);
       }
-      const amountMinor = toMinorUnits(amount, minorUnits);
+      return;
+    }
+
+    try {
       onSubmit(event.id, amountMinor, date, note);
     } catch (err) {
       toast.error(extractErrorMessage(err));
@@ -125,7 +160,10 @@ export default function EditBalanceUpdateModal({ event, accounts, onSubmit, onCl
               <DatePicker
                 id="ebu-date"
                 value={date}
-                onChange={setDate}
+                onChange={(v) => {
+                  setDate(v);
+                  setConstraintError(null);
+                }}
                 withTime
                 defaultTime="23:59"
               />
@@ -143,15 +181,13 @@ export default function EditBalanceUpdateModal({ event, accounts, onSubmit, onCl
 
             {isBucket && (
               <BucketAllocationEditor
-                visibleAllocations={visibleAllocations}
+                visibleLinks={visibleLinks}
                 availableToLink={availableToLink}
-                allocationSources={allocationSources}
-                loadingAllocations={loadingAllocations}
-                displayErrors={displayErrors}
-                getAvailableBalance={getAvailableBalance}
+                allAccounts={allocationSources}
+                loadingLinks={loadingLinks}
+                constraintError={constraintError}
                 handleSourceAccountSelect={handleSourceAccountSelect}
-                handleAllocationAmountChange={handleAllocationAmountChange}
-                handleAddAllocation={handleAddAllocation}
+                handleAddLink={handleAddLink}
                 handleRemoveNew={handleRemoveNew}
                 handleUnlink={handleUnlink}
               />
@@ -162,7 +198,7 @@ export default function EditBalanceUpdateModal({ event, accounts, onSubmit, onCl
             <Button type="button" variant="outline" onClick={onClose}>
               {t('modals.editBalanceUpdate.cancel')}
             </Button>
-            <Button type="submit" disabled={submitting || hasErrors}>
+            <Button type="submit" disabled={submitting}>
               {t('modals.editBalanceUpdate.submit')}
             </Button>
           </DialogFooter>

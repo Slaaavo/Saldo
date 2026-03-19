@@ -288,47 +288,29 @@ pub fn delete_account(conn: &Connection, account_id: i64) -> Result<(), AppError
             )
             .map_err(AppError::from)?;
 
-        // Delete ALL allocation rows for pairs where the latest row (by effective_date DESC,
-        // id DESC) has amount_minor = 0 — these are truly unlinked. Using only
-        // `amount_minor = 0` would miss the earlier positive-amount rows for the same pair,
-        // which would then be seen as active and block deletion.
-        conn.execute(
-            "DELETE FROM bucket_allocation
-             WHERE source_account_id = ?1
-               AND bucket_id IN (
-                 SELECT ba.bucket_id
-                 FROM bucket_allocation ba
-                 WHERE ba.source_account_id = ?1
-                   AND ba.id = (
-                     SELECT id FROM bucket_allocation ba2
-                     WHERE ba2.bucket_id = ba.bucket_id
-                       AND ba2.source_account_id = ba.source_account_id
-                     ORDER BY ba2.effective_date DESC, ba2.id DESC
-                     LIMIT 1
-                   )
-                   AND ba.amount_minor = 0
-               )",
-            params![account_id],
-        )
-        .map_err(AppError::from)?;
-
-        // Check whether any active allocations remain — i.e. pairs whose latest row has
-        // amount_minor != 0. If so, return a descriptive error. Uses the same
-        // latest-row-per-pair logic as list_bucket_allocations.
+        // Check if this account is currently actively linked to any bucket.
+        // "Currently linked" means it appears in the latest non-deleted balance_update
+        // event for at least one bucket.
         let mut check_stmt = conn
             .prepare(
                 "SELECT DISTINCT a.name
-                 FROM bucket_allocation ba
-                 JOIN account a ON a.id = ba.bucket_id
-                 WHERE ba.source_account_id = ?1
-                   AND ba.id = (
-                     SELECT id FROM bucket_allocation ba2
-                     WHERE ba2.bucket_id = ba.bucket_id
-                       AND ba2.source_account_id = ba.source_account_id
-                     ORDER BY ba2.effective_date DESC, ba2.id DESC
-                     LIMIT 1
-                   )
-                   AND ba.amount_minor != 0",
+                 FROM bucket_event_link bel
+                 JOIN event      e   ON e.id  = bel.event_id
+                 JOIN event_data ed  ON ed.id = e.latest_data_id
+                 JOIN account    a   ON a.id  = e.account_id
+                 WHERE bel.source_account_id = ?1
+                   AND e.deleted_at          IS NULL
+                   AND e.event_type          = 'balance_update'
+                   AND e.id = (
+                       SELECT e2.id
+                       FROM   event e2
+                       JOIN   event_data ed2 ON ed2.id = e2.latest_data_id
+                       WHERE  e2.account_id  = e.account_id
+                         AND  e2.event_type  = 'balance_update'
+                         AND  e2.deleted_at  IS NULL
+                       ORDER BY ed2.event_date DESC, e2.created_at DESC
+                       LIMIT 1
+                   )",
             )
             .map_err(AppError::from)?;
         let active_bucket_names: Vec<String> = check_stmt
@@ -340,11 +322,20 @@ pub fn delete_account(conn: &Connection, account_id: i64) -> Result<(), AppError
             return Err(AppError {
                 code: "VALIDATION".into(),
                 message: format!(
-                    "Cannot delete account: it has active allocations in buckets: {}. Unlink them first.",
+                    "Cannot delete account: it is currently linked to buckets: {}. Unlink it first.",
                     active_bucket_names.join(", ")
                 ),
             });
         }
+
+        // Remove any historical bucket_event_link rows referencing this account
+        // (from past events where it was once a source). These are cleaned before
+        // hard-deleting the account to avoid the RESTRICT FK violation.
+        conn.execute(
+            "DELETE FROM bucket_event_link WHERE source_account_id = ?1",
+            params![account_id],
+        )
+        .map_err(AppError::from)?;
 
         // Delete all events for this account.
         // ON DELETE CASCADE on event_data.event_id removes event_data rows.
@@ -406,36 +397,12 @@ pub fn get_account_type(conn: &Connection, account_id: i64) -> rusqlite::Result<
     .optional()
 }
 
-/// Return the balance of `account_id` as of `selected_datetime` (ISO 8601 datetime).
-/// Applies the same snapshot algorithm as `get_accounts_snapshot`: latest non-deleted
-/// event_data where event_date <= selected_datetime. Returns 0 if no events found.
-pub fn get_account_balance_at_date(
-    conn: &Connection,
-    account_id: i64,
-    selected_datetime: &str,
-) -> rusqlite::Result<i64> {
-    conn.query_row(
-        "SELECT COALESCE((
-           SELECT ed.amount_minor
-           FROM event e
-           JOIN event_data ed ON ed.id = e.latest_data_id
-           WHERE e.account_id = ?1
-             AND e.deleted_at IS NULL
-             AND ed.event_date <= ?2
-           ORDER BY ed.event_date DESC, e.created_at DESC
-           LIMIT 1
-         ), 0)",
-        params![account_id, selected_datetime],
-        |row| row.get(0),
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::db::initialize_in_memory;
     use crate::features::assets::repository::create_custom_unit;
-    use crate::features::buckets::repository::create_bucket_allocation;
+    use crate::features::buckets::repository::set_bucket_event_links;
     use crate::features::currency::repository::set_fx_rate_manual;
     use crate::features::transactions::repository::{
         create_balance_update, get_accounts_snapshot, list_events,
@@ -534,13 +501,15 @@ mod tests {
     }
 
     #[test]
-    fn test_delete_account_blocked_by_allocation() {
+    fn test_delete_account_blocked_by_bucket_link() {
         let conn = initialize_in_memory().expect("DB init failed");
         let source_id = mk_account(&conn);
         let bucket_id =
             create_account(&conn, "Emergency Reserve", 1, "bucket", None, None, None).unwrap();
         create_balance_update(&conn, source_id, 10000, "2024-01-01", None).unwrap();
-        create_bucket_allocation(&conn, bucket_id, source_id, 5000, "2024-01-01").unwrap();
+        // Create a bucket balance update event that links the source account.
+        let event_id = create_balance_update(&conn, bucket_id, 0, "2024-01-01", None).unwrap();
+        set_bucket_event_links(&conn, event_id, &[source_id]).unwrap();
 
         // Attempting to delete the source account should fail.
         let result = delete_account(&conn, source_id);
@@ -554,27 +523,29 @@ mod tests {
     }
 
     #[test]
-    fn test_delete_bucket_cascades_allocations() {
+    fn test_delete_bucket_cascades_links() {
         let conn = initialize_in_memory().expect("DB init failed");
         let source_id = mk_account(&conn);
         let bucket_id =
             create_account(&conn, "Cascade Bucket", 1, "bucket", None, None, None).unwrap();
         create_balance_update(&conn, source_id, 10000, "2024-01-01", None).unwrap();
-        create_bucket_allocation(&conn, bucket_id, source_id, 5000, "2024-01-01").unwrap();
+        // Create a bucket balance update event that links the source account.
+        let event_id = create_balance_update(&conn, bucket_id, 0, "2024-01-01", None).unwrap();
+        set_bucket_event_links(&conn, event_id, &[source_id]).unwrap();
 
-        // Deleting the bucket should cascade-remove allocation rows.
+        // Deleting the bucket hard-deletes its events, which cascade to bucket_event_link rows.
         delete_account(&conn, bucket_id).unwrap();
 
         let count: i64 = conn
             .query_row(
-                "SELECT COUNT(*) FROM bucket_allocation WHERE bucket_id = ?1",
-                params![bucket_id],
+                "SELECT COUNT(*) FROM bucket_event_link WHERE event_id = ?1",
+                params![event_id],
                 |row| row.get(0),
             )
             .unwrap();
         assert_eq!(
             count, 0,
-            "bucket_allocation rows should be removed by CASCADE"
+            "bucket_event_link rows should be removed by CASCADE on event deletion"
         );
     }
 
@@ -586,12 +557,15 @@ mod tests {
             create_account(&conn, "Savings Pot", 1, "bucket", None, None, None).unwrap();
         create_balance_update(&conn, source_id, 10000, "2024-01-01", None).unwrap();
 
-        // Link: positive-amount allocation row
-        create_bucket_allocation(&conn, bucket_id, source_id, 5000, "2024-01-01").unwrap();
-        // Unlink: zero-amount row supersedes the link
-        create_bucket_allocation(&conn, bucket_id, source_id, 0, "2024-06-01").unwrap();
+        // Event 1: link the source account.
+        let event1 = create_balance_update(&conn, bucket_id, 0, "2024-01-01", None).unwrap();
+        set_bucket_event_links(&conn, event1, &[source_id]).unwrap();
 
-        // After unlinking, delete should succeed
+        // Event 2 (newer): no links — this is the "unlink".
+        let event2 = create_balance_update(&conn, bucket_id, 0, "2024-06-01", None).unwrap();
+        set_bucket_event_links(&conn, event2, &[]).unwrap();
+
+        // After unlinking via a newer event, delete should succeed.
         let result = delete_account(&conn, source_id);
         assert!(
             result.is_ok(),
@@ -599,17 +573,17 @@ mod tests {
             result.unwrap_err()
         );
 
-        // All allocation rows for this source must be gone
+        // All bucket_event_link rows for this source must be gone.
         let count: i64 = conn
             .query_row(
-                "SELECT COUNT(*) FROM bucket_allocation WHERE source_account_id = ?1",
+                "SELECT COUNT(*) FROM bucket_event_link WHERE source_account_id = ?1",
                 params![source_id],
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(count, 0, "all allocation rows should have been deleted");
+        assert_eq!(count, 0, "all link rows should have been deleted");
 
-        // The account itself must be gone
+        // The account itself must be gone.
         let snap = get_accounts_snapshot(&conn, "2099-12-31T23:59:59").unwrap();
         assert!(snap.iter().all(|r| r.account_id != source_id));
     }
@@ -622,8 +596,9 @@ mod tests {
             create_account(&conn, "Active Reserve", 1, "bucket", None, None, None).unwrap();
         create_balance_update(&conn, source_id, 10000, "2024-01-01", None).unwrap();
 
-        // Link without unlinking
-        create_bucket_allocation(&conn, bucket_id, source_id, 5000, "2024-01-01").unwrap();
+        // Link account without creating a newer event to unlink.
+        let event_id = create_balance_update(&conn, bucket_id, 0, "2024-01-01", None).unwrap();
+        set_bucket_event_links(&conn, event_id, &[source_id]).unwrap();
 
         let result = delete_account(&conn, source_id);
         assert!(result.is_err());

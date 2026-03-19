@@ -266,7 +266,7 @@ export default function LedgerEventList({
                           <BucketAmountWithTooltip
                             totalMinor={bucketSnap.convertedBalanceMinor}
                             manualBalanceMinor={bucketSnap.balanceMinor}
-                            allocations={bucketSnap.linkedAllocations}
+                            bucketLinks={bucketSnap.bucketLinks}
                             currencyCode={consolidationCurrency?.code ?? bucketSnap.currencyCode}
                             minorUnits={
                               consolidationCurrency?.minorUnits ?? bucketSnap.currencyMinorUnits

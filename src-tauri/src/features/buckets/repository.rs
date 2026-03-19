@@ -1,185 +1,322 @@
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, Connection};
+use std::collections::HashMap;
 
-use super::models::{AllocationDetail, BucketAllocation, OverAllocationWarning};
+use super::models::{BucketLink, LinkConflict};
+use crate::shared::with_savepoint;
 
-/// Return the latest allocation amount from `source_account_id` to `bucket_id`
-/// at or before `effective_date`. Returns 0 if no allocation exists.
-pub fn get_existing_allocation_to_bucket(
+pub fn set_bucket_event_links(
     conn: &Connection,
-    source_account_id: i64,
-    bucket_id: i64,
-    effective_date: &str,
-) -> rusqlite::Result<i64> {
-    conn.query_row(
-        "SELECT amount_minor FROM bucket_allocation
-             WHERE source_account_id = ?1
-               AND bucket_id = ?2
-               AND effective_date <= ?3
-             ORDER BY effective_date DESC, id DESC
-             LIMIT 1",
-        params![source_account_id, bucket_id, effective_date],
-        |row| row.get(0),
-    )
-    .optional()
-    .map(|opt| opt.unwrap_or(0))
+    event_id: i64,
+    account_ids: &[i64],
+) -> rusqlite::Result<()> {
+    with_savepoint(conn, || {
+        conn.execute(
+            "DELETE FROM bucket_event_link WHERE event_id = ?1",
+            params![event_id],
+        )?;
+        for &account_id in account_ids {
+            conn.execute(
+                "INSERT OR IGNORE INTO bucket_event_link (event_id, source_account_id) VALUES (?1, ?2)",
+                params![event_id, account_id],
+            )?;
+        }
+        Ok(())
+    })
 }
 
-pub fn create_bucket_allocation(
-    conn: &Connection,
-    bucket_id: i64,
-    source_account_id: i64,
-    amount_minor: i64,
-    effective_date: &str,
-) -> rusqlite::Result<i64> {
-    conn.execute(
-        "INSERT INTO bucket_allocation (bucket_id, source_account_id, amount_minor, effective_date)
-         VALUES (?1, ?2, ?3, ?4)",
-        params![bucket_id, source_account_id, amount_minor, effective_date],
-    )?;
-    Ok(conn.last_insert_rowid())
-}
-
-/// For each distinct `source_account_id` linked to this bucket, return the latest
-/// allocation row where `effective_date <= as_of_date`. Excludes zero-amount rows
-/// (amount_minor = 0 represents an unlink event).
-pub fn list_bucket_allocations(
-    conn: &Connection,
-    bucket_id: i64,
-    as_of_date: &str,
-) -> rusqlite::Result<Vec<BucketAllocation>> {
+pub fn list_links_for_event(conn: &Connection, event_id: i64) -> rusqlite::Result<Vec<BucketLink>> {
     let mut stmt = conn.prepare(
-        "SELECT
-           ba.id,
-           ba.bucket_id,
-           ba.source_account_id,
-           a.name  AS source_account_name,
-           a.account_type AS source_account_type,
-           c.id    AS source_currency_id,
-           c.code  AS source_currency_code,
-           c.minor_units AS source_currency_minor_units,
-           ba.amount_minor,
-           ba.effective_date
-         FROM bucket_allocation ba
-         JOIN account  a ON a.id = ba.source_account_id
+        "SELECT bel.id, bel.event_id, bel.source_account_id,
+                a.name         AS source_account_name,
+                c.id           AS source_currency_id,
+                c.code         AS source_currency_code,
+                c.minor_units  AS source_currency_minor_units
+         FROM bucket_event_link bel
+         JOIN account  a ON a.id = bel.source_account_id
          JOIN currency c ON c.id = a.currency_id
-         WHERE ba.bucket_id = ?1
-           AND ba.id = (
-               SELECT id FROM bucket_allocation
-               WHERE bucket_id = ?1
-                 AND source_account_id = ba.source_account_id
-                 AND effective_date <= ?2
-               ORDER BY effective_date DESC, id DESC
-               LIMIT 1
-           )
-           AND ba.amount_minor != 0",
+         WHERE bel.event_id = ?1
+         ORDER BY bel.id",
     )?;
-    let rows = stmt.query_map(params![bucket_id, as_of_date], |row| {
-        Ok(BucketAllocation {
+    let rows = stmt.query_map(params![event_id], |row| {
+        Ok(BucketLink {
             id: row.get(0)?,
-            bucket_id: row.get(1)?,
+            event_id: row.get(1)?,
             source_account_id: row.get(2)?,
             source_account_name: row.get(3)?,
-            source_account_type: row.get(4)?,
-            source_currency_id: row.get(5)?,
-            source_currency_code: row.get(6)?,
-            source_currency_minor_units: row.get(7)?,
-            amount_minor: row.get(8)?,
-            effective_date: row.get(9)?,
+            source_currency_id: row.get(4)?,
+            source_currency_code: row.get(5)?,
+            source_currency_minor_units: row.get(6)?,
         })
     })?;
     rows.collect()
 }
 
-/// Sum the latest allocation amount from `source_account_id` across all buckets
-/// where `effective_date <= as_of_date`. Zero-amount (unlinked) rows are excluded.
-pub fn get_account_allocated_total(
+pub fn list_latest_links_for_bucket(
     conn: &Connection,
-    source_account_id: i64,
+    bucket_account_id: i64,
     as_of_date: &str,
-) -> rusqlite::Result<i64> {
-    conn.query_row(
-        "SELECT COALESCE(SUM(ba.amount_minor), 0)
-         FROM bucket_allocation ba
-         WHERE ba.source_account_id = ?1
-           AND ba.amount_minor != 0
-           AND ba.id = (
-               SELECT id FROM bucket_allocation ba2
-               WHERE ba2.source_account_id = ?1
-                 AND ba2.bucket_id = ba.bucket_id
-                 AND ba2.effective_date <= ?2
-               ORDER BY ba2.effective_date DESC, ba2.id DESC
+) -> rusqlite::Result<Vec<BucketLink>> {
+    let mut stmt = conn.prepare(
+        "SELECT bel.id, bel.event_id, bel.source_account_id,
+                a.name         AS source_account_name,
+                c.id           AS source_currency_id,
+                c.code         AS source_currency_code,
+                c.minor_units  AS source_currency_minor_units
+         FROM bucket_event_link bel
+         JOIN event      e  ON e.id  = bel.event_id
+         JOIN account    a  ON a.id  = bel.source_account_id
+         JOIN currency   c  ON c.id  = a.currency_id
+         WHERE e.account_id  = ?1
+           AND e.event_type  = 'balance_update'
+           AND e.deleted_at  IS NULL
+           AND e.id = (
+               SELECT e2.id
+               FROM   event e2
+               JOIN   event_data ed2 ON ed2.id = e2.latest_data_id
+               WHERE  e2.account_id   = ?1
+                 AND  e2.event_type   = 'balance_update'
+                 AND  e2.deleted_at   IS NULL
+                 AND  ed2.event_date <= ?2
+               ORDER BY ed2.event_date DESC, e2.created_at DESC
                LIMIT 1
-           )",
-        params![source_account_id, as_of_date],
-        |row| row.get(0),
-    )
+           )
+         ORDER BY bel.id",
+    )?;
+    let rows = stmt.query_map(params![bucket_account_id, as_of_date], |row| {
+        Ok(BucketLink {
+            id: row.get(0)?,
+            event_id: row.get(1)?,
+            source_account_id: row.get(2)?,
+            source_account_name: row.get(3)?,
+            source_currency_id: row.get(4)?,
+            source_currency_code: row.get(5)?,
+            source_currency_minor_units: row.get(6)?,
+        })
+    })?;
+    rows.collect()
 }
 
-/// Check whether `source_account_id` is over-allocated as of `as_of_date` (YYYY-MM-DD).
-/// Returns `Some(OverAllocationWarning)` if total allocations exceed the account balance,
-/// or `None` if the account is within its balance.
-pub fn check_over_allocation(
+pub fn list_all_latest_bucket_links(
+    conn: &Connection,
+    snapshot_date: &str,
+) -> rusqlite::Result<Vec<(i64, BucketLink)>> {
+    let mut stmt = conn.prepare(
+        "SELECT e.account_id AS bucket_id,
+                bel.id,
+                bel.event_id,
+                bel.source_account_id,
+                a.name         AS source_account_name,
+                c.id           AS source_currency_id,
+                c.code         AS source_currency_code,
+                c.minor_units  AS source_currency_minor_units
+         FROM bucket_event_link bel
+         JOIN event        e   ON e.id  = bel.event_id
+         JOIN event_data   ed  ON ed.id = e.latest_data_id
+         JOIN account      a   ON a.id  = bel.source_account_id
+         JOIN currency     c   ON c.id  = a.currency_id
+         WHERE e.event_type  = 'balance_update'
+           AND e.deleted_at  IS NULL
+           AND ed.event_date <= ?1
+           AND e.id = (
+               SELECT e2.id
+               FROM   event e2
+               JOIN   event_data ed2 ON ed2.id = e2.latest_data_id
+               WHERE  e2.account_id     = e.account_id
+                 AND  e2.event_type     = 'balance_update'
+                 AND  e2.deleted_at     IS NULL
+                 AND  ed2.event_date   <= ?1
+               ORDER BY ed2.event_date DESC, e2.created_at DESC
+               LIMIT 1
+           )
+         ORDER BY e.account_id, bel.id",
+    )?;
+    let rows = stmt.query_map(params![snapshot_date], |row| {
+        let bucket_id: i64 = row.get(0)?;
+        let link = BucketLink {
+            id: row.get(1)?,
+            event_id: row.get(2)?,
+            source_account_id: row.get(3)?,
+            source_account_name: row.get(4)?,
+            source_currency_id: row.get(5)?,
+            source_currency_code: row.get(6)?,
+            source_currency_minor_units: row.get(7)?,
+        };
+        Ok((bucket_id, link))
+    })?;
+    rows.collect()
+}
+
+pub fn carry_forward_bucket_links(
+    conn: &Connection,
+    bucket_id: i64,
+    new_event_id: i64,
+) -> rusqlite::Result<()> {
+    conn.execute(
+        "INSERT OR IGNORE INTO bucket_event_link (event_id, source_account_id)
+         SELECT ?1, bel.source_account_id
+         FROM   bucket_event_link bel
+         WHERE  bel.event_id = (
+             SELECT e.id
+             FROM   event e
+             JOIN   event_data ed ON ed.id = e.latest_data_id
+             WHERE  e.account_id    = ?2
+               AND  e.event_type    = 'balance_update'
+               AND  e.deleted_at    IS NULL
+               AND  e.id           != ?1
+             ORDER BY ed.event_date DESC, e.created_at DESC
+             LIMIT 1
+         )",
+        params![new_event_id, bucket_id],
+    )?;
+    Ok(())
+}
+
+pub fn check_single_link_conflict(
     conn: &Connection,
     source_account_id: i64,
-    as_of_date: &str,
-) -> rusqlite::Result<Option<OverAllocationWarning>> {
-    let selected_datetime = format!("{}T23:59:59", as_of_date);
-    let balance = crate::features::accounts::repository::get_account_balance_at_date(
-        conn,
-        source_account_id,
-        &selected_datetime,
+    target_bucket_id: i64,
+    new_event_id: i64,
+    new_event_date: &str,
+) -> rusqlite::Result<Option<LinkConflict>> {
+    // Query A: all non-deleted balance_update events linking source_account_id
+    // across any bucket, excluding the new event being created/updated.
+    let mut stmt_a = conn.prepare(
+        "SELECT e.account_id AS bucket_id, a.name AS bucket_name, ed.event_date
+         FROM   bucket_event_link bel
+         JOIN   event      e  ON e.id  = bel.event_id
+         JOIN   event_data ed ON ed.id = e.latest_data_id
+         JOIN   account    a  ON a.id  = e.account_id
+         WHERE  bel.source_account_id = ?1
+           AND  e.deleted_at          IS NULL
+           AND  e.event_type          = 'balance_update'
+           AND  e.id                 != ?2
+         ORDER BY ed.event_date",
     )?;
-    let total_allocated = get_account_allocated_total(conn, source_account_id, as_of_date)?;
+    let a_rows: Vec<(i64, String, String)> = stmt_a
+        .query_map(params![source_account_id, new_event_id], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })?
+        .collect::<rusqlite::Result<_>>()?;
 
-    if total_allocated <= balance {
+    if a_rows.is_empty() {
         return Ok(None);
     }
 
-    let (account_name, currency_code, currency_minor_units): (String, String, i64) = conn
-        .query_row(
-            "SELECT a.name, c.code, c.minor_units
-             FROM account a
-             JOIN currency c ON c.id = a.currency_id
-             WHERE a.id = ?1",
-            params![source_account_id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-        )?;
+    // Collect unique bucket_ids for Query B: target first, then all from Query A.
+    let mut bucket_ids: Vec<i64> = vec![target_bucket_id];
+    for (bid, _, _) in &a_rows {
+        if !bucket_ids.contains(bid) {
+            bucket_ids.push(*bid);
+        }
+    }
 
-    let mut stmt = conn.prepare(
-        "SELECT ba.bucket_id, a.name AS bucket_name, ba.amount_minor
-         FROM bucket_allocation ba
-         JOIN account a ON a.id = ba.bucket_id
-         WHERE ba.source_account_id = ?1
-           AND ba.amount_minor != 0
-           AND ba.id = (
-               SELECT id FROM bucket_allocation ba2
-               WHERE ba2.source_account_id = ?1
-                 AND ba2.bucket_id = ba.bucket_id
-                 AND ba2.effective_date <= ?2
-               ORDER BY ba2.effective_date DESC, ba2.id DESC
-               LIMIT 1
-           )",
-    )?;
-    let allocations: Vec<AllocationDetail> = stmt
-        .query_map(params![source_account_id, as_of_date], |row| {
-            Ok(AllocationDetail {
-                bucket_id: row.get(0)?,
-                bucket_name: row.get(1)?,
-                amount_minor: row.get(2)?,
-            })
+    // Query B: all balance_update events for the relevant buckets (excluding new_event_id).
+    // Build dynamic IN clause with positional parameters.
+    let placeholders = std::iter::repeat_n("?", bucket_ids.len())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let query_b_sql = format!(
+        "SELECT e.account_id AS bucket_id, ed.event_date
+         FROM   event      e
+         JOIN   event_data ed ON ed.id = e.latest_data_id
+         WHERE  e.account_id IN ({})
+           AND  e.event_type  = 'balance_update'
+           AND  e.deleted_at  IS NULL
+           AND  e.id         != ?
+         ORDER BY e.account_id, ed.event_date ASC, e.created_at ASC",
+        placeholders
+    );
+    // params: all bucket_ids first, then new_event_id at the end.
+    let mut b_params: Vec<i64> = bucket_ids.clone();
+    b_params.push(new_event_id);
+
+    let mut stmt_b = conn.prepare(&query_b_sql)?;
+    let b_rows: Vec<(i64, String)> = stmt_b
+        .query_map(rusqlite::params_from_iter(b_params.iter()), |row| {
+            Ok((row.get(0)?, row.get(1)?))
         })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
+        .collect::<rusqlite::Result<_>>()?;
 
-    Ok(Some(OverAllocationWarning {
-        source_account_id,
-        source_account_name: account_name,
-        currency_code,
-        currency_minor_units,
-        balance_minor: balance,
-        total_allocated_minor: total_allocated,
-        over_allocation_minor: total_allocated - balance,
-        allocations,
-    }))
+    // Build HashMap<bucket_id, sorted Vec<event_date>> (already sorted ASC by query).
+    let mut bucket_timeline: HashMap<i64, Vec<String>> = HashMap::new();
+    for (bid, edate) in &b_rows {
+        bucket_timeline.entry(*bid).or_default().push(edate.clone());
+    }
+
+    // The new event's active range: [new_event_date, target_active_end).
+    let infinity = "9999-12-31T23:59:59".to_string();
+    let target_active_end: String = bucket_timeline
+        .get(&target_bucket_id)
+        .and_then(|dates| dates.iter().find(|d| d.as_str() > new_event_date))
+        .cloned()
+        .unwrap_or_else(|| infinity.clone());
+
+    for (other_bucket_id, other_bucket_name, other_event_date) in &a_rows {
+        if *other_bucket_id == target_bucket_id {
+            // Same bucket — not a cross-bucket conflict.
+            continue;
+        }
+
+        // The other link's active range: [other_event_date, other_active_end).
+        let other_active_end: String = bucket_timeline
+            .get(other_bucket_id)
+            .and_then(|dates| {
+                dates
+                    .iter()
+                    .find(|d| d.as_str() > other_event_date.as_str())
+            })
+            .cloned()
+            .unwrap_or_else(|| infinity.clone());
+
+        // Overlap condition: ranges [A, B) and [C, D) overlap iff A < D && C < B.
+        if other_event_date.as_str() < target_active_end.as_str()
+            && other_active_end.as_str() > new_event_date
+        {
+            let source_account_name: String = conn.query_row(
+                "SELECT name FROM account WHERE id = ?1",
+                params![source_account_id],
+                |row| row.get(0),
+            )?;
+
+            let conflict_date_raw = if other_event_date.as_str() > new_event_date {
+                other_event_date.as_str()
+            } else {
+                new_event_date
+            };
+            let conflict_date = conflict_date_raw[..10.min(conflict_date_raw.len())].to_string();
+
+            return Ok(Some(LinkConflict {
+                source_account_id,
+                source_account_name,
+                conflict_date,
+                other_bucket_id: *other_bucket_id,
+                other_bucket_name: other_bucket_name.clone(),
+            }));
+        }
+    }
+
+    Ok(None)
+}
+
+pub fn check_link_conflicts(
+    conn: &Connection,
+    target_bucket_id: i64,
+    new_event_id: i64,
+    new_event_date: &str,
+    proposed_account_ids: &[i64],
+) -> rusqlite::Result<Option<LinkConflict>> {
+    for &source_account_id in proposed_account_ids {
+        if let Some(conflict) = check_single_link_conflict(
+            conn,
+            source_account_id,
+            target_bucket_id,
+            new_event_id,
+            new_event_date,
+        )? {
+            return Ok(Some(conflict));
+        }
+    }
+    Ok(None)
 }
 
 #[cfg(test)]
@@ -187,175 +324,107 @@ mod tests {
     use super::*;
     use crate::db::initialize_in_memory;
     use crate::features::accounts::repository::create_account;
-    use crate::features::transactions::repository::{create_balance_update, get_accounts_snapshot};
+    use crate::features::transactions::repository::create_balance_update;
 
     fn mk_account(conn: &Connection) -> i64 {
         create_account(conn, "Test Account", 1, "account", None, None, None)
             .expect("create account failed")
     }
 
-    #[test]
-    fn test_create_and_list_bucket_allocations() {
-        let conn = initialize_in_memory().expect("DB init failed");
-        let source_id = mk_account(&conn);
-        let bucket_id =
-            create_account(&conn, "Emergency Fund", 1, "bucket", None, None, None).unwrap();
-        create_bucket_allocation(&conn, bucket_id, source_id, 5000, "2024-01-01").unwrap();
-
-        let allocs = list_bucket_allocations(&conn, bucket_id, "2024-12-31").unwrap();
-        assert_eq!(allocs.len(), 1);
-        assert_eq!(allocs[0].bucket_id, bucket_id);
-        assert_eq!(allocs[0].source_account_id, source_id);
-        assert_eq!(allocs[0].amount_minor, 5000);
-        assert_eq!(allocs[0].source_currency_code, "EUR");
-        assert_eq!(allocs[0].effective_date, "2024-01-01");
+    fn mk_bucket(conn: &Connection) -> i64 {
+        create_account(conn, "Test Bucket", 1, "bucket", None, None, None)
+            .expect("create bucket failed")
     }
 
     #[test]
-    fn test_allocation_respects_effective_date() {
+    fn test_no_conflict_for_single_bucket_link() {
         let conn = initialize_in_memory().expect("DB init failed");
-        let source_id = mk_account(&conn);
-        let bucket_id =
-            create_account(&conn, "Vacation Fund", 1, "bucket", None, None, None).unwrap();
-        create_bucket_allocation(&conn, bucket_id, source_id, 5000, "2024-01-01").unwrap();
-        create_bucket_allocation(&conn, bucket_id, source_id, 8000, "2024-06-01").unwrap();
-
-        // At 2024-03-01: only the first allocation is effective.
-        let early = list_bucket_allocations(&conn, bucket_id, "2024-03-01").unwrap();
-        assert_eq!(early.len(), 1);
-        assert_eq!(early[0].amount_minor, 5000);
-
-        // At 2024-07-01: the second allocation supersedes the first.
-        let late = list_bucket_allocations(&conn, bucket_id, "2024-07-01").unwrap();
-        assert_eq!(late.len(), 1);
-        assert_eq!(late[0].amount_minor, 8000);
-    }
-
-    #[test]
-    fn test_unlink_allocation_via_zero_amount() {
-        let conn = initialize_in_memory().expect("DB init failed");
-        let source_id = mk_account(&conn);
-        let bucket_id = create_account(&conn, "Car Fund", 1, "bucket", None, None, None).unwrap();
-        create_bucket_allocation(&conn, bucket_id, source_id, 5000, "2024-01-01").unwrap();
-        // Unlink: zero-amount allocation at a later date.
-        create_bucket_allocation(&conn, bucket_id, source_id, 0, "2024-06-01").unwrap();
-
-        // Before unlink date: original allocation is still visible.
-        let before = list_bucket_allocations(&conn, bucket_id, "2024-03-01").unwrap();
-        assert_eq!(before.len(), 1);
-        assert_eq!(before[0].amount_minor, 5000);
-
-        // After unlink date: zero-amount row is excluded → empty.
-        let after = list_bucket_allocations(&conn, bucket_id, "2024-07-01").unwrap();
-        assert_eq!(after.len(), 0);
-    }
-
-    #[test]
-    fn test_get_account_allocated_total_sums_across_buckets() {
-        let conn = initialize_in_memory().expect("DB init failed");
-        let source_id = mk_account(&conn);
-        let bucket1 = create_account(&conn, "Bucket A", 1, "bucket", None, None, None).unwrap();
-        let bucket2 = create_account(&conn, "Bucket B", 1, "bucket", None, None, None).unwrap();
-        create_bucket_allocation(&conn, bucket1, source_id, 3000, "2024-01-01").unwrap();
-        create_bucket_allocation(&conn, bucket2, source_id, 2000, "2024-01-01").unwrap();
-
-        let total = get_account_allocated_total(&conn, source_id, "2024-12-31").unwrap();
-        assert_eq!(total, 5000);
-    }
-
-    #[test]
-    fn test_snapshot_includes_allocation_in_bucket_balance() {
-        let conn = initialize_in_memory().expect("DB init failed");
-        // EUR is the consolidation currency; source account and bucket are both EUR.
-        let source_id = mk_account(&conn);
-        let bucket_id =
-            create_account(&conn, "Allocation Bucket", 1, "bucket", None, None, None).unwrap();
-        create_balance_update(&conn, source_id, 10000, "2024-01-01", None).unwrap();
-        create_bucket_allocation(&conn, bucket_id, source_id, 4000, "2024-01-01").unwrap();
-
-        let snapshot = get_accounts_snapshot(&conn, "2024-12-31T23:59:59").unwrap();
-        let bucket = snapshot.iter().find(|r| r.account_id == bucket_id).unwrap();
-
-        // Bucket has no manual balance events, so base balance = 0.
-        // linked_allocations_balance_minor should be 4000.
-        assert_eq!(bucket.linked_allocations_balance_minor, 4000);
-        // converted_balance_minor = base (0) + linked (4000) = 4000.
-        assert_eq!(bucket.converted_balance_minor, 4000);
-    }
-
-    #[test]
-    fn test_snapshot_includes_allocated_total_for_accounts() {
-        let conn = initialize_in_memory().expect("DB init failed");
-        let source_id = mk_account(&conn);
-        let bucket1 = create_account(&conn, "Fund A", 1, "bucket", None, None, None).unwrap();
-        let bucket2 = create_account(&conn, "Fund B", 1, "bucket", None, None, None).unwrap();
-        create_balance_update(&conn, source_id, 20000, "2024-01-01", None).unwrap();
-        create_bucket_allocation(&conn, bucket1, source_id, 3000, "2024-01-01").unwrap();
-        create_bucket_allocation(&conn, bucket2, source_id, 5000, "2024-01-01").unwrap();
-
-        let snapshot = get_accounts_snapshot(&conn, "2024-12-31T23:59:59").unwrap();
-        let account = snapshot.iter().find(|r| r.account_id == source_id).unwrap();
-        assert_eq!(account.allocated_total_minor, 8000);
-    }
-
-    #[test]
-    fn test_over_allocation_check_detects_excess() {
-        let conn = initialize_in_memory().expect("DB init failed");
-        let source_id = mk_account(&conn);
-        let bucket_id =
-            create_account(&conn, "Over-Alloc Bucket", 1, "bucket", None, None, None).unwrap();
-        // Account starts at 10000.
-        create_balance_update(&conn, source_id, 10000, "2024-01-01", None).unwrap();
-        // Allocate 10000 — exactly matching balance.
-        create_bucket_allocation(&conn, bucket_id, source_id, 10000, "2024-01-01").unwrap();
-        // Later, balance drops to 5000.
-        create_balance_update(&conn, source_id, 5000, "2024-06-01", None).unwrap();
-
-        // As of 2024-12-31: balance=5000, allocated=10000 → over by 5000.
-        let warning = check_over_allocation(&conn, source_id, "2024-12-31").unwrap();
-        assert!(warning.is_some());
-        let w = warning.unwrap();
-        assert_eq!(w.source_account_id, source_id);
-        assert_eq!(w.balance_minor, 5000);
-        assert_eq!(w.total_allocated_minor, 10000);
-        assert_eq!(w.over_allocation_minor, 5000);
-        assert_eq!(w.allocations.len(), 1);
-    }
-
-    #[test]
-    fn test_over_allocation_check_returns_none_when_ok() {
-        let conn = initialize_in_memory().expect("DB init failed");
-        let source_id = mk_account(&conn);
-        let bucket_id =
-            create_account(&conn, "Safe Bucket", 1, "bucket", None, None, None).unwrap();
-        create_balance_update(&conn, source_id, 10000, "2024-01-01", None).unwrap();
-        create_bucket_allocation(&conn, bucket_id, source_id, 5000, "2024-01-01").unwrap();
-
-        let warning = check_over_allocation(&conn, source_id, "2024-12-31").unwrap();
-        assert!(warning.is_none());
-    }
-
-    #[test]
-    fn test_linked_allocations_from_assets_minor_populates_correctly() {
-        let conn = initialize_in_memory().expect("DB init failed");
-        // Create a regular account, an asset, and a bucket — all EUR.
         let account_id = mk_account(&conn);
-        let asset_id =
-            create_account(&conn, "Test Asset", 1, "asset", Some(50000), None, None).unwrap();
-        let bucket_id =
-            create_account(&conn, "Test Bucket", 1, "bucket", None, None, None).unwrap();
-        // Give the account a balance.
-        create_balance_update(&conn, account_id, 20000, "2024-01-01", None).unwrap();
-        // Allocate 3000 from account and 5000 from asset to the same bucket.
-        create_bucket_allocation(&conn, bucket_id, account_id, 3000, "2024-01-01").unwrap();
-        create_bucket_allocation(&conn, bucket_id, asset_id, 5000, "2024-01-01").unwrap();
+        let bucket_id = mk_bucket(&conn);
 
-        let snapshot = get_accounts_snapshot(&conn, "2024-12-31T23:59:59").unwrap();
-        let bucket = snapshot.iter().find(|r| r.account_id == bucket_id).unwrap();
+        // Create first event for the bucket and link the account.
+        let event1 = create_balance_update(&conn, bucket_id, 0, "2025-01-01", None).unwrap();
+        set_bucket_event_links(&conn, event1, &[account_id]).unwrap();
 
-        // Only the asset-sourced allocation appears in linked_allocations_from_assets_minor.
-        assert_eq!(bucket.linked_allocations_from_assets_minor, 5000);
-        // Total linked balance = account(3000) + asset(5000) = 8000.
-        assert_eq!(bucket.linked_allocations_balance_minor, 8000);
+        // Create a second event to check: same bucket, same account — not a conflict.
+        let event2 = create_balance_update(&conn, bucket_id, 0, "2025-06-01", None).unwrap();
+        let result =
+            check_single_link_conflict(&conn, account_id, bucket_id, event2, "2025-06-01").unwrap();
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_conflict_when_two_buckets_same_date() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let account_id = mk_account(&conn);
+        let bucket1 = mk_bucket(&conn);
+        let bucket2 = create_account(&conn, "Bucket 2", 1, "bucket", None, None, None).unwrap();
+
+        let event_b1 = create_balance_update(&conn, bucket1, 0, "2025-01-01", None).unwrap();
+        set_bucket_event_links(&conn, event_b1, &[account_id]).unwrap();
+
+        // Propose linking account to bucket2 on the same date.
+        let event_b2 = create_balance_update(&conn, bucket2, 0, "2025-01-01", None).unwrap();
+        let result =
+            check_single_link_conflict(&conn, account_id, bucket2, event_b2, "2025-01-01").unwrap();
+        assert!(result.is_some());
+        let conflict = result.unwrap();
+        assert_eq!(conflict.source_account_id, account_id);
+        assert_eq!(conflict.other_bucket_id, bucket1);
+    }
+
+    #[test]
+    fn test_no_conflict_when_buckets_use_different_date_ranges() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let account_id = mk_account(&conn);
+        let bucket1 = mk_bucket(&conn);
+        let bucket2 = create_account(&conn, "Bucket 2", 1, "bucket", None, None, None).unwrap();
+
+        // Link account to bucket1 starting 2025-01-01.
+        let event_b1_jan = create_balance_update(&conn, bucket1, 0, "2025-01-01", None).unwrap();
+        set_bucket_event_links(&conn, event_b1_jan, &[account_id]).unwrap();
+
+        // Bucket1 gets a new event on 2025-06-01 WITHOUT the account (terminates the link).
+        let event_b1_jun = create_balance_update(&conn, bucket1, 0, "2025-06-01", None).unwrap();
+        set_bucket_event_links(&conn, event_b1_jun, &[]).unwrap();
+
+        // Propose linking account to bucket2 starting 2025-06-01.
+        let event_b2 = create_balance_update(&conn, bucket2, 0, "2025-06-01", None).unwrap();
+        let result =
+            check_single_link_conflict(&conn, account_id, bucket2, event_b2, "2025-06-01").unwrap();
+        assert!(
+            result.is_none(),
+            "expected no conflict but got {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_carry_forward_copies_links() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let account_id = mk_account(&conn);
+        let bucket_id = mk_bucket(&conn);
+
+        let event1 = create_balance_update(&conn, bucket_id, 0, "2025-01-01", None).unwrap();
+        set_bucket_event_links(&conn, event1, &[account_id]).unwrap();
+
+        let event2 = create_balance_update(&conn, bucket_id, 0, "2025-06-01", None).unwrap();
+        carry_forward_bucket_links(&conn, bucket_id, event2).unwrap();
+
+        let links = list_links_for_event(&conn, event2).unwrap();
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].source_account_id, account_id);
+    }
+
+    #[test]
+    fn test_carry_forward_noop_when_no_previous_event() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let bucket_id = mk_bucket(&conn);
+
+        let event1 = create_balance_update(&conn, bucket_id, 0, "2025-01-01", None).unwrap();
+        carry_forward_bucket_links(&conn, bucket_id, event1).unwrap();
+
+        let links = list_links_for_event(&conn, event1).unwrap();
+        assert!(links.is_empty());
     }
 }

@@ -84,10 +84,9 @@ vi.mock('../shared/api', () => ({
   listFxRates: vi.fn(),
   getMissingRateDates: vi.fn(),
   getAppSetting: vi.fn(),
-  createBucketAllocation: vi.fn(),
-  listBucketAllocations: vi.fn(),
-  getAccountAllocatedTotal: vi.fn(),
-  checkOverAllocation: vi.fn(),
+  createBucketBalanceUpdate: vi.fn(),
+  updateBucketBalanceUpdate: vi.fn(),
+  listLinksForEvent: vi.fn().mockResolvedValue([]),
   setAppSetting: vi.fn(),
   updateSortOrder: vi.fn(),
   createCustomUnit: vi.fn(),
@@ -413,14 +412,12 @@ function makeSnapshot(overrides?: Partial<SnapshotRow>): SnapshotRow {
     isCustom: false,
     convertedBalanceMinor: 100000,
     fxRateMissing: false,
-    allocatedTotalMinor: 0,
-    linkedAllocationsBalanceMinor: 0,
-    overAllocationBuckets: [],
-    linkedAllocations: [],
-    linkedAllocationsFromAssetsMinor: 0,
     isLinkedToAsset: false,
     linkedAssetIds: [],
     iban: null,
+    isBucketLinked: false,
+    bucketLinks: [],
+    linkedBalanceMinor: 0,
     ...overrides,
   };
 }
@@ -903,7 +900,7 @@ describe('App', () => {
       const bucket = makeBucket({
         accountId: 10,
         convertedBalanceMinor: 80000,
-        linkedAllocationsFromAssetsMinor: 20000,
+        linkedBalanceMinor: 20000,
       });
 
       setupDefaultMocks({ snapshot: [acct, bucket] });

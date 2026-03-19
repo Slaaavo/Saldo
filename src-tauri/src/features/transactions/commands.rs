@@ -89,6 +89,12 @@ pub fn create_balance_update(
                 message: "Cannot create events on partner accounts".into(),
             });
         }
+        if account_type == "bucket" {
+            return Err(AppError {
+                code: "VALIDATION".into(),
+                message: "Use create_bucket_balance_update for bucket accounts".into(),
+            });
+        }
     }
     let event_id = repository::create_balance_update(
         &conn,

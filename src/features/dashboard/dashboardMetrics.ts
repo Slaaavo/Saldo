@@ -21,11 +21,7 @@ export function computeDashboardMetrics(snapshot: SnapshotRow[]): DashboardMetri
   const allAccountsMinor = accounts.reduce((sum, r) => sum + r.convertedBalanceMinor, 0);
   const bucketsMinor = buckets.reduce((sum, r) => sum + r.convertedBalanceMinor, 0);
   const assetTotalMinor = assets.reduce((sum, r) => sum + r.convertedBalanceMinor, 0);
-  const assetAllocationsInBuckets = buckets.reduce(
-    (sum, r) => sum + r.linkedAllocationsFromAssetsMinor,
-    0,
-  );
-  const leftToSpendMinor = liquidMinor - bucketsMinor + assetAllocationsInBuckets;
+  const leftToSpendMinor = liquidMinor - bucketsMinor;
   const netWorthMinor = allAccountsMinor + assetTotalMinor;
 
   return { accounts, buckets, assets, hasAssets, liquidMinor, leftToSpendMinor, netWorthMinor };

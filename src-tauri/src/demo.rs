@@ -175,7 +175,7 @@ fn seed_impl(
     insert_balance_update(conn, mortgage_id, -19_850_000, m2_event)?;
     insert_balance_update(conn, mortgage_id, -19_700_000, m3_event)?;
 
-    // F. Insert 6 bucket balance update events (2 buckets × 3 months).
+    // F. Insert 9 bucket balance update events (3 buckets × 3 months).
     // Emergency Fund (EUR cents)
     insert_balance_update(conn, emergency_id, 273_000, m1_event)?;
     insert_balance_update(conn, emergency_id, 309_500, m2_event)?;
@@ -184,6 +184,10 @@ fn seed_impl(
     insert_balance_update(conn, holiday_id, 0, m1_event)?;
     insert_balance_update(conn, holiday_id, 20_000, m2_event)?;
     insert_balance_update(conn, holiday_id, 45_000, m3_event)?;
+    // Retirement Fund — linked to BTC Wallet below; bucket's own balance is 0
+    let ret_m1_id = insert_balance_update(conn, retirement_id, 0, m1_event)?;
+    let ret_m2_id = insert_balance_update(conn, retirement_id, 0, m2_event)?;
+    let ret_m3_id = insert_balance_update(conn, retirement_id, 0, m3_event)?;
 
     // House asset (EUR cents — €400,000)
     insert_balance_update(conn, house_id, 40_000_000, m1_event)?;
@@ -194,21 +198,18 @@ fn seed_impl(
         params![mortgage_id, house_id],
     )?;
 
-    // G. Insert 3 bucket allocations: Retirement Fund ← BTC Wallet (satoshis).
+    // G. Link BTC Wallet to each Retirement Fund balance update event.
     conn.execute(
-        "INSERT INTO bucket_allocation (bucket_id, source_account_id, amount_minor, effective_date)
-         VALUES (?1, ?2, ?3, ?4)",
-        params![retirement_id, btc_wallet_id, 8_500_000_i64, m1_date],
+        "INSERT INTO bucket_event_link (event_id, source_account_id) VALUES (?1, ?2)",
+        params![ret_m1_id, btc_wallet_id],
     )?;
     conn.execute(
-        "INSERT INTO bucket_allocation (bucket_id, source_account_id, amount_minor, effective_date)
-         VALUES (?1, ?2, ?3, ?4)",
-        params![retirement_id, btc_wallet_id, 8_500_000_i64, m2_date],
+        "INSERT INTO bucket_event_link (event_id, source_account_id) VALUES (?1, ?2)",
+        params![ret_m2_id, btc_wallet_id],
     )?;
     conn.execute(
-        "INSERT INTO bucket_allocation (bucket_id, source_account_id, amount_minor, effective_date)
-         VALUES (?1, ?2, ?3, ?4)",
-        params![retirement_id, btc_wallet_id, 9_200_000_i64, m3_date],
+        "INSERT INTO bucket_event_link (event_id, source_account_id) VALUES (?1, ?2)",
+        params![ret_m3_id, btc_wallet_id],
     )?;
 
     // H. Insert 3 FX rates (EUR → BTC, is_manual = 1).
@@ -256,7 +257,7 @@ fn insert_balance_update(
     account_id: i64,
     amount_minor: i64,
     event_date: &str,
-) -> Result<(), AppError> {
+) -> Result<i64, AppError> {
     conn.execute(
         "INSERT INTO event (account_id, event_type) VALUES (?1, 'balance_update')",
         params![account_id],
@@ -266,7 +267,7 @@ fn insert_balance_update(
         "INSERT INTO event_data (event_id, amount_minor, event_date) VALUES (?1, ?2, ?3)",
         params![event_id, amount_minor, event_date],
     )?;
-    Ok(())
+    Ok(event_id)
 }
 
 #[cfg(test)]
@@ -315,17 +316,17 @@ mod tests {
             .unwrap();
         assert_eq!(asset_count, 1);
 
-        // 19 events: Checking(3) + CreditCard(3) + BTC(3) + Mortgage(3) + EmergencyFund(3) + Holiday(3) + House(1)
+        // 22 events: Checking(3) + CreditCard(3) + BTC(3) + Mortgage(3) + EmergencyFund(3) + Holiday(3) + Retirement(3) + House(1)
         let event_count: i64 = conn
             .query_row("SELECT COUNT(*) FROM event", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(event_count, 19);
+        assert_eq!(event_count, 22);
 
-        // 3 bucket allocations (Retirement Fund ← BTC Wallet, one per month)
-        let alloc_count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM bucket_allocation", [], |r| r.get(0))
+        // 3 bucket_event_link rows (Retirement Fund ← BTC Wallet, one per month)
+        let bucket_link_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM bucket_event_link", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(alloc_count, 3);
+        assert_eq!(bucket_link_count, 3);
 
         // 3 FX rates (EUR → BTC, one per month)
         let rate_count: i64 = conn

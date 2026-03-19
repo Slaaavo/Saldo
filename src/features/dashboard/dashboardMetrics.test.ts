@@ -13,14 +13,12 @@ function makeSnapshot(overrides?: Partial<SnapshotRow>): SnapshotRow {
     isCustom: false,
     convertedBalanceMinor: 100000,
     fxRateMissing: false,
-    allocatedTotalMinor: 0,
-    linkedAllocationsBalanceMinor: 0,
-    overAllocationBuckets: [],
-    linkedAllocations: [],
-    linkedAllocationsFromAssetsMinor: 0,
     isLinkedToAsset: false,
     linkedAssetIds: [],
     iban: null,
+    isBucketLinked: false,
+    bucketLinks: [],
+    linkedBalanceMinor: 0,
     ...overrides,
   };
 }
@@ -96,7 +94,7 @@ describe('computeDashboardMetrics', () => {
     expect(result.liquidMinor).toBe(100000);
   });
 
-  it('computes leftToSpendMinor = liquid - buckets + assetAllocationsInBuckets', () => {
+  it('computes leftToSpendMinor = liquid - buckets', () => {
     const acct = makeSnapshot({
       accountId: 1,
       convertedBalanceMinor: 200000,
@@ -105,11 +103,11 @@ describe('computeDashboardMetrics', () => {
     const bucket = makeBucket({
       accountId: 10,
       convertedBalanceMinor: 80000,
-      linkedAllocationsFromAssetsMinor: 20000,
+      linkedBalanceMinor: 20000,
     });
 
     const result = computeDashboardMetrics([acct, bucket]);
-    expect(result.leftToSpendMinor).toBe(140000); // 200000 - 80000 + 20000
+    expect(result.leftToSpendMinor).toBe(120000); // 200000 - 80000
   });
 
   it('computes netWorthMinor as all accounts + assets', () => {
@@ -146,12 +144,12 @@ describe('computeDashboardMetrics', () => {
     const bucket1 = makeBucket({
       accountId: 10,
       convertedBalanceMinor: 30000,
-      linkedAllocationsFromAssetsMinor: 0,
+      linkedBalanceMinor: 0,
     });
     const bucket2 = makeBucket({
       accountId: 11,
       convertedBalanceMinor: 20000,
-      linkedAllocationsFromAssetsMinor: 5000,
+      linkedBalanceMinor: 5000,
     });
     const asset = makeAsset({ accountId: 20, convertedBalanceMinor: 1000000 });
 
@@ -162,7 +160,7 @@ describe('computeDashboardMetrics', () => {
     expect(result.assets).toHaveLength(1);
     expect(result.hasAssets).toBe(true);
     expect(result.liquidMinor).toBe(300000); // 100000 + 200000
-    expect(result.leftToSpendMinor).toBe(255000); // 300000 - 50000 + 5000
+    expect(result.leftToSpendMinor).toBe(250000); // 300000 - 50000
     expect(result.netWorthMinor).toBe(1300000); // 300000 + 1000000
   });
 });

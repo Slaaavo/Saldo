@@ -4,8 +4,7 @@ import type {
   ListEventsResult,
   Currency,
   FxRateRow,
-  BucketAllocation,
-  OverAllocationWarning,
+  BucketLink,
   DbLocationInfo,
   PickDbFolderResult,
   AccountAssetLink,
@@ -184,40 +183,43 @@ export async function getAppSetting(key: string): Promise<string | null> {
   return invoke('get_app_setting', { key });
 }
 
-export async function createBucketAllocation(
-  bucketId: number,
-  sourceAccountId: number,
+export async function setAppSetting(key: string, value: string): Promise<void> {
+  return invoke('set_app_setting', { key, value });
+}
+
+export async function createBucketBalanceUpdate(
+  accountId: number,
   amountMinor: number,
-  effectiveDate: string,
+  eventDate: string,
+  note: string | null,
+  linkedAccountIds: number[],
 ): Promise<number> {
-  return invoke('create_bucket_allocation', {
-    input: { bucketId, sourceAccountId, amountMinor, effectiveDate },
+  return invoke<number>('create_bucket_balance_update', {
+    input: { accountId, amountMinor, eventDate, note, linkedAccountIds },
   });
 }
 
-export async function listBucketAllocations(
-  bucketId: number,
-  asOfDate: string,
-): Promise<BucketAllocation[]> {
-  return invoke('list_bucket_allocations', { bucketId, asOfDate });
+export async function updateBucketBalanceUpdate(
+  eventId: number,
+  amountMinor: number,
+  eventDate: string,
+  note: string | null,
+  linkedAccountIds: number[],
+): Promise<void> {
+  return invoke<void>('update_bucket_balance_update', {
+    input: { eventId, amountMinor, eventDate, note, linkedAccountIds },
+  });
 }
 
-export async function getAccountAllocatedTotal(
-  sourceAccountId: number,
-  asOfDate: string,
-): Promise<number> {
-  return invoke('get_account_allocated_total', { sourceAccountId, asOfDate });
+export async function listLinksForEvent(eventId: number): Promise<BucketLink[]> {
+  return invoke<BucketLink[]>('list_links_for_event', { eventId });
 }
 
-export async function checkOverAllocation(
-  sourceAccountId: number,
+export async function getLatestBucketLinks(
+  bucketAccountId: number,
   asOfDate: string,
-): Promise<OverAllocationWarning | null> {
-  return invoke('check_over_allocation', { sourceAccountId, asOfDate });
-}
-
-export async function setAppSetting(key: string, value: string): Promise<void> {
-  return invoke('set_app_setting', { key, value });
+): Promise<BucketLink[]> {
+  return invoke<BucketLink[]>('get_latest_bucket_links', { bucketAccountId, asOfDate });
 }
 
 export async function updateSortOrder(

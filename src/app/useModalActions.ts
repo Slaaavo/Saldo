@@ -13,6 +13,8 @@ import {
   updateSortOrder,
   updateAssetValue,
   setAccountAssetLinks,
+  createBucketBalanceUpdate,
+  updateBucketBalanceUpdate,
 } from '../shared/api';
 import { extractErrorMessage } from '../shared/utils/errors';
 
@@ -124,7 +126,7 @@ export function useModalActions({
       await refresh();
     } catch (err) {
       const msg = extractErrorMessage(err);
-      if (msg.includes('active allocations in buckets')) {
+      if (msg.includes('currently linked to buckets')) {
         toast.error(t('errors.deleteAccountLinked'));
       } else {
         toast.error(t('errors.deleteAccount', { error: msg }));
@@ -184,6 +186,34 @@ export function useModalActions({
     await refresh();
   };
 
+  const handleCreateBucketBalanceUpdate = async (
+    accountId: number,
+    amountMinor: number,
+    eventDate: string,
+    note: string | null,
+    linkedAccountIds: number[],
+  ): Promise<void> => {
+    const account = snapshot.find((r) => r.accountId === accountId);
+    await createBucketBalanceUpdate(accountId, amountMinor, eventDate, note, linkedAccountIds);
+    await refresh();
+    if (account && consolidationCurrency && account.currencyCode !== consolidationCurrency.code) {
+      const rates = await listFxRates(eventDate);
+      const hasRate = rates.some((r) => r.toCurrencyCode === account.currencyCode);
+      if (!hasRate) onFxRatePrompt(eventDate);
+    }
+  };
+
+  const handleEditBucketBalanceUpdate = async (
+    eventId: number,
+    amountMinor: number,
+    eventDate: string,
+    note: string | null,
+    linkedAccountIds: number[],
+  ): Promise<void> => {
+    await updateBucketBalanceUpdate(eventId, amountMinor, eventDate, note, linkedAccountIds);
+    await refresh();
+  };
+
   return {
     handleCreateBalanceUpdate,
     handleEditBalanceUpdate,
@@ -196,5 +226,7 @@ export function useModalActions({
     handleUpdateAssetValue,
     handleSetAccountAssetLinks,
     handleCreateAssetSuccess,
+    handleCreateBucketBalanceUpdate,
+    handleEditBucketBalanceUpdate,
   };
 }

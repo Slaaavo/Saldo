@@ -14,7 +14,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '../../shared/ui/dropdown-menu';
-import { MoreVertical, Pencil, Trash2, AlertTriangle, Link2 } from 'lucide-react';
+import { MoreVertical, Pencil, Trash2, Link2 } from 'lucide-react';
 import { formatIbanSegments } from '../../shared/utils/formatIban';
 
 interface AccountCardProps {
@@ -46,19 +46,6 @@ export default function AccountCard({
   const fmtNum = (amountMinor: number, minorUnits: number) =>
     formatAmount(amountMinor, minorUnits, numConfig).trim();
 
-  const isOverAllocated =
-    row.accountType === 'account' &&
-    row.allocatedTotalMinor > 0 &&
-    row.allocatedTotalMinor > row.balanceMinor;
-  const overAllocationTitle = isOverAllocated
-    ? t('accounts.overAllocationTooltip', {
-        allocated: fmtNum(row.allocatedTotalMinor, row.currencyMinorUnits),
-        balance: fmtNum(row.balanceMinor, row.currencyMinorUnits),
-        currency: row.currencyCode,
-        over: fmtNum(row.allocatedTotalMinor - row.balanceMinor, row.currencyMinorUnits),
-        buckets: row.overAllocationBuckets.map((b) => b.bucketName).join(', '),
-      })
-    : undefined;
   const hasEquityTooltip =
     row.accountType === 'asset' &&
     row.linkedAssetIds.length > 0 &&
@@ -73,12 +60,7 @@ export default function AccountCard({
     : 0;
 
   return (
-    <Card
-      className={cn(
-        'relative w-[250px] min-w-[250px] shrink-0',
-        isOverAllocated && 'border-amber-500',
-      )}
-    >
+    <Card className={cn('relative w-[250px] min-w-[250px] shrink-0')}>
       <CardContent className="flex flex-col gap-1 p-4">
         <div className="flex items-start justify-between min-w-0">
           <div className="flex items-center gap-1 min-w-0">
@@ -108,11 +90,6 @@ export default function AccountCard({
             </span>
           </div>
           <div className="flex items-center">
-            {isOverAllocated && (
-              <span title={overAllocationTitle}>
-                <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0" />
-              </span>
-            )}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="icon" className="h-7 w-7 -mr-2 -mt-1">
@@ -162,11 +139,13 @@ export default function AccountCard({
           <BucketAmountWithTooltip
             totalMinor={row.convertedBalanceMinor}
             manualBalanceMinor={row.balanceMinor}
-            allocations={row.linkedAllocations}
+            bucketLinks={row.bucketLinks}
             currencyCode={consolidationCurrency?.code ?? row.currencyCode}
             minorUnits={consolidationCurrency?.minorUnits ?? row.currencyMinorUnits}
             manualCurrencyCode={row.currencyCode}
             manualMinorUnits={row.currencyMinorUnits}
+            allAccounts={allAccounts}
+            consolidationCurrencyCode={consolidationCurrency?.code ?? row.currencyCode}
             className={cn(
               'text-2xl font-bold',
               row.convertedBalanceMinor < 0 && 'text-destructive',

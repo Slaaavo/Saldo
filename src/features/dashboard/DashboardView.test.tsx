@@ -81,14 +81,12 @@ function makeSnapshot(overrides?: Partial<SnapshotRow>): SnapshotRow {
     isCustom: false,
     convertedBalanceMinor: 100000,
     fxRateMissing: false,
-    allocatedTotalMinor: 0,
-    linkedAllocationsBalanceMinor: 0,
-    overAllocationBuckets: [],
-    linkedAllocations: [],
-    linkedAllocationsFromAssetsMinor: 0,
     isLinkedToAsset: false,
     linkedAssetIds: [],
     iban: null,
+    isBucketLinked: false,
+    bucketLinks: [],
+    linkedBalanceMinor: 0,
     ...overrides,
   };
 }
