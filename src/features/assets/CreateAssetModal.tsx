@@ -348,7 +348,7 @@ export default function CreateAssetModal({ onSuccess, onClose }: Props) {
                 <CurrencyInput
                   id="create-asset-price"
                   type="number"
-                  step="0.01"
+                  step="any"
                   min={0}
                   value={pricePerUnit}
                   onChange={(e) => setPricePerUnit(e.target.value)}
