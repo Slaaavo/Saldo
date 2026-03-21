@@ -331,6 +331,30 @@ describe('UnitsPage', () => {
     });
   });
 
+  it('calls onPriceUpdated after successful save', async () => {
+    const rates = [makeRate(1, '2025-01-15', 'GOLD', 5, -1)];
+    setupMocks({ units: [GOLD], rates });
+    const onPriceUpdated = vi.fn().mockResolvedValue(undefined);
+    const user = userEvent.setup();
+    render(<UnitsPage onPriceUpdated={onPriceUpdated} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('2')).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByText('2'));
+    const input = await screen.findByRole('textbox');
+    await user.clear(input);
+    await user.type(input, '4');
+    await user.keyboard('{Enter}');
+
+    await waitFor(() => {
+      expect(setFxRateManual).toHaveBeenCalled();
+    });
+
+    expect(onPriceUpdated).toHaveBeenCalledOnce();
+  });
+
   it('cancels editing on Escape', async () => {
     const rates = [makeRate(1, '2025-01-15', 'GOLD', 5, -1)];
     setupMocks({ units: [GOLD], rates });

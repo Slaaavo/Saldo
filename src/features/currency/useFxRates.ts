@@ -12,7 +12,7 @@ import { extractErrorMessage } from '../../shared/utils/errors';
 import { formatRate, parseRateInput, buildRatePivot } from './fxRate';
 import { todayIso } from '../../shared/utils/format';
 
-export function useFxRates() {
+export function useFxRates(onRateUpdated?: () => Promise<void>) {
   const [rates, setRates] = useState<FxRateRow[]>([]);
   const [currencies, setCurrencies] = useState<Currency[]>([]);
   const [consolidationCode, setConsolidationCode] = useState('');
@@ -116,6 +116,7 @@ export function useFxRates() {
     try {
       await setFxRateManual(fromId, toId, date, parsed.mantissa, parsed.exponent);
       await loadRates();
+      await onRateUpdated?.();
     } catch (err) {
       setError(extractErrorMessage(err));
     }

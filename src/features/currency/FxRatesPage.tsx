@@ -5,7 +5,11 @@ import { Label } from '../../shared/ui/label';
 import { EditableRateCell } from './EditableRateCell';
 import { useFxRates } from './useFxRates';
 
-export default function FxRatesPage() {
+interface Props {
+  onRateUpdated?: () => Promise<void>;
+}
+
+export default function FxRatesPage({ onRateUpdated }: Props = {}) {
   const { t } = useTranslation();
   const {
     dates,
@@ -26,7 +30,7 @@ export default function FxRatesPage() {
     handleCellClick,
     handleCellSave,
     cancelEdit,
-  } = useFxRates();
+  } = useFxRates(onRateUpdated);
 
   return (
     <div className="px-4 md:px-10 py-8">

@@ -11,7 +11,11 @@ import { extractErrorMessage } from '../../shared/utils/errors';
 import { formatPrice, parsePriceAsRate } from './unitPricing';
 import { cn } from '@/shared/lib/utils';
 
-export default function UnitsPage() {
+interface Props {
+  onPriceUpdated?: () => Promise<void>;
+}
+
+export default function UnitsPage({ onPriceUpdated }: Props = {}) {
   const { t } = useTranslation();
   const [units, setUnits] = useState<Currency[]>([]);
   const [rates, setRates] = useState<FxRateRow[]>([]);
@@ -86,6 +90,7 @@ export default function UnitsPage() {
     try {
       await setFxRateManual(fromId, toId, date, parsed.mantissa, parsed.exponent);
       await loadData();
+      await onPriceUpdated?.();
     } catch (err) {
       setError(extractErrorMessage(err));
     }

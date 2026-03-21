@@ -108,9 +108,9 @@ function App() {
                     showDatePicker={currentView === 'dashboard'}
                   />
 
-                  {currentView === 'fx-rates' && <FxRatesPage />}
+                  {currentView === 'fx-rates' && <FxRatesPage onRateUpdated={refresh} />}
 
-                  {currentView === 'units' && <UnitsPage />}
+                  {currentView === 'units' && <UnitsPage onPriceUpdated={refresh} />}
 
                   {currentView === 'partners' && <PartnersPage />}
 

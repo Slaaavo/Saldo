@@ -81,8 +81,7 @@ export default function UpdateAssetValueModal({
             const price = new Decimal(1).div(
               new Decimal(`${rate.rateMantissa}e${rate.rateExponent}`),
             );
-            const decimals = consolidationCurrency?.minorUnits ?? 2;
-            const priceStr = price.toFixed(decimals);
+            const priceStr = price.toDecimalPlaces(8).toString();
             setPricePerUnit(priceStr);
             setOriginalPriceStr(priceStr);
           } catch {
@@ -91,7 +90,7 @@ export default function UpdateAssetValueModal({
         }
       })
       .catch((err) => console.error('Failed to load FX rates:', err));
-  }, [currencyCode, consolidationCurrency?.minorUnits]);
+  }, [currencyCode]);
 
   const quantityMinor = quantity.trim() ? toMinorUnits(quantity, currencyMinorUnits) : null;
   const priceDecimal = parseFloat(pricePerUnit);

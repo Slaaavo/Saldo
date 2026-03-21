@@ -413,4 +413,28 @@ describe('FxRatesPage', () => {
       expect(screen.getByText('DB write failed')).toBeInTheDocument();
     });
   });
+
+  it('calls onRateUpdated after successful rate save', async () => {
+    setupMocks();
+    const onRateUpdated = vi.fn().mockResolvedValue(undefined);
+    const user = userEvent.setup();
+    render(<FxRatesPage onRateUpdated={onRateUpdated} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('1.09')).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByText('1.09'));
+    const input = screen.getByDisplayValue('1.09');
+
+    await user.clear(input);
+    await user.type(input, '1.15');
+    await user.keyboard('{Enter}');
+
+    await waitFor(() => {
+      expect(setFxRateManual).toHaveBeenCalled();
+    });
+
+    expect(onRateUpdated).toHaveBeenCalledOnce();
+  });
 });
