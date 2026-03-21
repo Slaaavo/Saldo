@@ -8,6 +8,7 @@ import {
   listCurrencies,
   createPartnerAccount,
   updateAccount,
+  updateEvent,
   bulkCreateCashflows,
   createSplitGroup,
 } from '../../../shared/api';
@@ -44,6 +45,9 @@ const INITIAL_WIZARD_STATE: WizardState = {
   importRows: [],
   importing: false,
 };
+
+const MS_PER_DAY = 86_400_000;
+const NEAR_DATE_WINDOW_DAYS = 5;
 
 function rateToMantissaExponent(rate: number): { mantissa: number; exponent: number } {
   const str = rate.toString();
@@ -88,7 +92,12 @@ export function useImportWizard(params: {
 
   // Derived: selection counts
   const selectedCount = wizardState.importRows.filter((r) => r.isSelected).length;
-  const duplicateCount = wizardState.importRows.filter((r) => r.isDuplicate).length;
+  const duplicateCount = wizardState.importRows.filter(
+    (r) => r.isDuplicate || r.nearDateDuplicateEventId !== null,
+  ).length;
+  const nearDateSkippedCount = wizardState.importRows.filter(
+    (r) => r.nearDateDuplicateEventId !== null && !r.isSelected,
+  ).length;
 
   // ── Step 1 actions ──────────────────────────────────────────────────────────
 
@@ -183,6 +192,10 @@ export function useImportWizard(params: {
 
     const importRows: ImportRow[] = [];
 
+    const nearDateTransferCandidates = cashflowEvents.filter(
+      (e) => e.eventType === 'transfer' && e.splitGroupId === null,
+    );
+
     for (let i = 0; i < csvRows.length; i++) {
       const csvRow = csvRows[i];
       const rawDate = columnMapping.date ? (csvRow[columnMapping.date] ?? '') : '';
@@ -240,6 +253,30 @@ export function useImportWizard(params: {
             e.amountMinor === amountMinor,
         ) || groupTotalKeys.has(`${datePrefix}::${amountMinor}`);
 
+      let nearDateDuplicateEventId: number | null = null;
+      if (!isDuplicate) {
+        const rowDateMs = new Date(datePrefix).getTime();
+        const nearDateMatches = nearDateTransferCandidates
+          .map((e) => {
+            const dateOnly = e.eventDate.substring(0, 10);
+            const diffDays = Math.abs(new Date(dateOnly).getTime() - rowDateMs) / MS_PER_DAY;
+            return { event: e, dateOnly, diffDays };
+          })
+          .filter(
+            ({ dateOnly, diffDays, event: e }) =>
+              dateOnly !== datePrefix &&
+              e.amountMinor === amountMinor &&
+              diffDays <= NEAR_DATE_WINDOW_DAYS,
+          )
+          .sort((a, b) =>
+            a.diffDays !== b.diffDays
+              ? a.diffDays - b.diffDays
+              : b.event.createdAt.localeCompare(a.event.createdAt),
+          )
+          .map(({ event }) => event);
+        nearDateDuplicateEventId = nearDateMatches[0]?.id ?? null;
+      }
+
       importRows.push({
         index: i,
         date: parsedDate,
@@ -253,7 +290,8 @@ export function useImportWizard(params: {
         rawIban,
         ibanMatch,
         isDuplicate,
-        isSelected: !isDuplicate,
+        nearDateDuplicateEventId,
+        isSelected: !isDuplicate && nearDateDuplicateEventId === null,
         bucketId: null,
         counterpartAccountId: null,
         splitLegs: null,
@@ -563,6 +601,22 @@ export function useImportWizard(params: {
       const regularRows = selectedRows.filter((r) => r.splitLegs === null);
       const splitRows = selectedRows.filter((r) => r.splitLegs !== null);
 
+      // Phase 0: Update dates for skipped near-date duplicates
+      const nearDateSkipped = importRows.filter(
+        (r) => r.nearDateDuplicateEventId !== null && !r.isSelected,
+      );
+      for (const row of nearDateSkipped) {
+        const matchedEvent = existingEvents.find((e) => e.id === row.nearDateDuplicateEventId);
+        if (matchedEvent) {
+          await updateEvent(
+            matchedEvent.id,
+            matchedEvent.amountMinor,
+            row.date,
+            matchedEvent.note ?? undefined,
+          );
+        }
+      }
+
       if (regularRows.length > 0) {
         const entries = regularRows.map((row) => {
           const counterpartAccountId =
@@ -623,7 +677,7 @@ export function useImportWizard(params: {
     } finally {
       setWizardState((prev) => ({ ...prev, importing: false }));
     }
-  }, [wizardState, currencies, t, onSuccess, onClose]);
+  }, [wizardState, existingEvents, currencies, t, onSuccess, onClose]);
 
   const goBack = useCallback(() => {
     setWizardState((prev) => ({
@@ -649,6 +703,7 @@ export function useImportWizard(params: {
     availableBuckets,
     selectedCount,
     duplicateCount,
+    nearDateSkippedCount,
     balanceWarningDates,
     accountsWithoutIban,
     selectedAccountCurrencyCode,

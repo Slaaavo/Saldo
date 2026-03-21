@@ -33,6 +33,7 @@ export interface ImportRow {
   rawIban: string | null;
   ibanMatch: IbanMatchResult;
   isDuplicate: boolean;
+  nearDateDuplicateEventId: number | null;
   isSelected: boolean;
   bucketId: number | null;
   counterpartAccountId: number | null;

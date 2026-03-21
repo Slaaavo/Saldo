@@ -1,0 +1,12 @@
+{
+    "hooks": {
+        "PostToolUse": [
+            {
+                "type": "command",
+                "windows": "powershell -ExecutionPolicy Bypass -File .github/hooks/scripts/post-edit-format.ps1",
+                "command": "echo 'Post-edit formatting skipped (Windows-only hook)'",
+                "timeout": 60
+            }
+        ]
+    }
+}

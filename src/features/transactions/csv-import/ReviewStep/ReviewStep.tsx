@@ -21,6 +21,7 @@ export interface ReviewStepProps {
   importRows: ImportRow[];
   selectedCount: number;
   duplicateCount: number;
+  nearDateSkippedCount: number;
   balanceWarningDates: string[];
   availableBuckets: SnapshotRow[];
   accountsWithoutIban: SnapshotRow[];
@@ -75,6 +76,7 @@ export default function ReviewStep({
   importRows,
   selectedCount,
   duplicateCount,
+  nearDateSkippedCount,
   balanceWarningDates,
   availableBuckets,
   accountsWithoutIban,
@@ -200,7 +202,8 @@ export default function ReviewStep({
                       <tr
                         className={cn(
                           'group align-top',
-                          row.isDuplicate && 'bg-amber-50 dark:bg-amber-950/20',
+                          (row.isDuplicate || row.nearDateDuplicateEventId !== null) &&
+                            'bg-amber-50 dark:bg-amber-950/20',
                           !row.isSelected && 'opacity-50',
                           isSplit && 'bg-muted/30',
                         )}
@@ -217,6 +220,11 @@ export default function ReviewStep({
                             {row.isDuplicate && (
                               <span className="text-xs font-medium text-amber-600 dark:text-amber-400">
                                 {t('import.reviewStep.duplicate')}
+                              </span>
+                            )}
+                            {row.nearDateDuplicateEventId !== null && (
+                              <span className="text-xs font-medium text-amber-600 dark:text-amber-400">
+                                {t('import.reviewStep.duplicateNearDate')}
                               </span>
                             )}
                           </div>
@@ -350,13 +358,24 @@ export default function ReviewStep({
         <Button type="button" variant="outline" onClick={onCancel} disabled={importing}>
           {t('modals.confirm.cancel')}
         </Button>
-        <Button
-          type="button"
-          onClick={onImport}
-          disabled={selectedCount === 0 || importing || splitValidationErrors.length > 0}
-        >
-          {importing ? '...' : t('import.reviewStep.importButton', { count: selectedCount })}
-        </Button>
+        <div className="flex flex-col items-end gap-1">
+          <Button
+            type="button"
+            onClick={onImport}
+            disabled={
+              (selectedCount === 0 && nearDateSkippedCount === 0) ||
+              importing ||
+              splitValidationErrors.length > 0
+            }
+          >
+            {importing ? '...' : t('import.reviewStep.importButton', { count: selectedCount })}
+          </Button>
+          {nearDateSkippedCount > 0 && (
+            <p className="text-xs text-muted-foreground">
+              {t('import.reviewStep.updateTransfersNote', { count: nearDateSkippedCount })}
+            </p>
+          )}
+        </div>
       </DialogFooter>
     </>
   );

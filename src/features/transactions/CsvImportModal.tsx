@@ -26,6 +26,7 @@ export default function CsvImportModal({ snapshot, onClose, onSuccess }: CsvImpo
     availableBuckets,
     selectedCount,
     duplicateCount,
+    nearDateSkippedCount,
     balanceWarningDates,
     accountsWithoutIban,
     selectedAccountCurrencyCode,
@@ -104,6 +105,7 @@ export default function CsvImportModal({ snapshot, onClose, onSuccess }: CsvImpo
               importRows={wizardState.importRows}
               selectedCount={selectedCount}
               duplicateCount={duplicateCount}
+              nearDateSkippedCount={nearDateSkippedCount}
               balanceWarningDates={balanceWarningDates}
               availableBuckets={availableBuckets}
               accountsWithoutIban={accountsWithoutIban}

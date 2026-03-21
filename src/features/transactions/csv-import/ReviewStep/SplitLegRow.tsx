@@ -78,6 +78,7 @@ export function SplitLegRow({
     rawIban: leg.rawIban,
     ibanMatch: leg.ibanMatch,
     isDuplicate: false,
+    nearDateDuplicateEventId: null,
     isSelected: true,
     bucketId: leg.bucketId,
     counterpartAccountId: leg.counterpartAccountId,
