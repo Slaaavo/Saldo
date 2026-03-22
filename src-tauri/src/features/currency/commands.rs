@@ -20,6 +20,7 @@ pub struct SetFxRateManualInput {
     pub date: String,
     pub rate_mantissa: i64,
     pub rate_exponent: i64,
+    pub is_direct: bool,
 }
 
 #[tauri::command]
@@ -69,6 +70,7 @@ pub fn set_fx_rate_manual(
         &input.date,
         input.rate_mantissa,
         input.rate_exponent,
+        input.is_direct,
     )?;
     Ok(())
 }

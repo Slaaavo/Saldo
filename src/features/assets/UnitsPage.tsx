@@ -88,7 +88,7 @@ export default function UnitsPage({ onPriceUpdated }: Props = {}) {
       return;
     }
     try {
-      await setFxRateManual(fromId, toId, date, parsed.mantissa, parsed.exponent);
+      await setFxRateManual(fromId, toId, date, parsed.mantissa, parsed.exponent, true);
       await loadData();
       await onPriceUpdated?.();
     } catch (err) {

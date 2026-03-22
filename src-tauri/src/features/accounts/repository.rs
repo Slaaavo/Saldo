@@ -453,7 +453,7 @@ mod tests {
                 row.get(0)
             })
             .unwrap();
-        set_fx_rate_manual(&conn, eur_id, unit_id, "2026-03-11", 1, -2).unwrap();
+        set_fx_rate_manual(&conn, eur_id, unit_id, "2026-03-11", 1, -2, true).unwrap();
 
         // Delete the account
         delete_account(&conn, account_id).unwrap();

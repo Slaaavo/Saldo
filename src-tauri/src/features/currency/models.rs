@@ -21,4 +21,5 @@ pub struct FxRateRow {
     pub rate_exponent: i64,
     pub is_manual: bool,
     pub fetched_at: String,
+    pub is_direct: bool,
 }

@@ -2,32 +2,33 @@ import Decimal from 'decimal.js';
 import type { FxRateRow } from '../../shared/types';
 
 /**
- * Display the stored rate as a price (inverted): price = 1 / rate.
- * rate is stored as mantissa × 10^exponent.
+ * Display the stored rate as a price.
+ * If isDirect, the rate value IS the price. Otherwise invert: price = 1 / rate.
  */
 export function formatPrice(r: FxRateRow): string {
   try {
-    return new Decimal(1)
-      .div(new Decimal(`${r.rateMantissa}e${r.rateExponent}`))
-      .toSignificantDigits(6)
-      .toString();
+    const rateDecimal = new Decimal(`${r.rateMantissa}e${r.rateExponent}`);
+    if (r.isDirect) {
+      return rateDecimal.toSignificantDigits(6).toString();
+    }
+    return new Decimal(1).div(rateDecimal).toSignificantDigits(6).toString();
   } catch {
     return '—';
   }
 }
 
 /**
- * Parse a price string entered by the user and return the inverted rate
- * as {mantissa, exponent} for storage.
+ * Parse a price string entered by the user and return it as {mantissa, exponent} for storage.
+ * Stored directly (no inversion) — the stored rate IS the price.
  */
 export function parsePriceAsRate(input: string): { mantissa: number; exponent: number } | null {
   try {
     const price = new Decimal(input);
     if (price.isZero() || price.isNegative()) return null;
-    // rate = 1 / price — limit to 15 significant digits so the mantissa fits in
-    // a JS safe integer and a Rust i64 (toFixed() on a full Decimal can produce 20+ digits).
-    const rate = new Decimal(1).div(price).toSignificantDigits(15);
-    let str = rate.toFixed();
+    // Store the price directly — limit to 15 significant digits so the mantissa fits in
+    // a JS safe integer and a Rust i64.
+    const priceDecimal = price.toSignificantDigits(15);
+    let str = priceDecimal.toFixed();
     if (str.includes('.')) {
       str = str.replace(/0+$/, '').replace(/\.$/, '');
     }

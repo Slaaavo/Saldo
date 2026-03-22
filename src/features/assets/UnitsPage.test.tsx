@@ -62,6 +62,7 @@ const makeRate = (
   rateExponent: exponent,
   isManual,
   fetchedAt: `${date}T12:00:00`,
+  isDirect: true,
 });
 
 const EUR = makeCurrency(1, 'EUR');
@@ -88,15 +89,15 @@ function setupMocks(overrides?: {
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe('formatPrice', () => {
-  it('returns inverted rate for simple rate (rate=2 → price=0.5)', () => {
+  it('returns rate directly (isDirect=true, rate=2 → price=2)', () => {
     const row = makeRate(1, '2025-01-01', 'GOLD', 2, 0);
-    expect(formatPrice(row)).toBe('0.5');
+    expect(formatPrice(row)).toBe('2');
   });
 
-  it('returns inverted rate with exponent (rate=0.5 → price=2)', () => {
+  it('returns rate directly with exponent (isDirect=true, rate=0.5 → price=0.5)', () => {
     // 0.5 = 5 × 10^-1
     const row = makeRate(1, '2025-01-01', 'GOLD', 5, -1);
-    expect(formatPrice(row)).toBe('2');
+    expect(formatPrice(row)).toBe('0.5');
   });
 
   it('handles 1:1 rate (rate=1 → price=1)', () => {
@@ -104,28 +105,27 @@ describe('formatPrice', () => {
     expect(formatPrice(row)).toBe('1');
   });
 
-  it('handles large rate (rate=100000 → price=0.00001)', () => {
+  it('handles large rate (isDirect=true, rate=100000 → price=100000)', () => {
     const row = makeRate(1, '2025-01-01', 'GOLD', 1, 5);
-    expect(formatPrice(row)).toBe('0.00001');
+    expect(formatPrice(row)).toBe('100000');
   });
 
-  it('handles small rate (rate=0.001 → price=1000)', () => {
+  it('handles small rate (isDirect=true, rate=0.001 → price=0.001)', () => {
     // 0.001 = 1 × 10^-3
     const row = makeRate(1, '2025-01-01', 'GOLD', 1, -3);
-    expect(formatPrice(row)).toBe('1000');
+    expect(formatPrice(row)).toBe('0.001');
   });
 
-  it('returns Infinity for zero mantissa (division by zero)', () => {
+  it('returns 0 for zero mantissa', () => {
     const row = makeRate(1, '2025-01-01', 'GOLD', 0, 0);
-    expect(formatPrice(row)).toBe('Infinity');
+    expect(formatPrice(row)).toBe('0');
   });
 });
 
 describe('parsePriceAsRate', () => {
-  it('parses a simple price and inverts it', () => {
-    // price=2 → rate=0.5 → mantissa=5, exponent=-1
+  it('stores price directly (price=2 → mantissa=2, exponent=0)', () => {
     const result = parsePriceAsRate('2');
-    expect(result).toEqual({ mantissa: 5, exponent: -1 });
+    expect(result).toEqual({ mantissa: 2, exponent: 0 });
   });
 
   it('parses price=1 → rate=1', () => {
@@ -133,16 +133,14 @@ describe('parsePriceAsRate', () => {
     expect(result).toEqual({ mantissa: 1, exponent: 0 });
   });
 
-  it('parses decimal price', () => {
-    // price=0.5 → rate=2 → mantissa=2, exponent=0
+  it('parses decimal price (price=0.5 → mantissa=5, exponent=-1)', () => {
     const result = parsePriceAsRate('0.5');
-    expect(result).toEqual({ mantissa: 2, exponent: 0 });
+    expect(result).toEqual({ mantissa: 5, exponent: -1 });
   });
 
-  it('parses large price', () => {
-    // price=1000 → rate=0.001 → mantissa=1, exponent=-3
+  it('parses large price (price=1000 → mantissa=1000, exponent=0)', () => {
     const result = parsePriceAsRate('1000');
-    expect(result).toEqual({ mantissa: 1, exponent: -3 });
+    expect(result).toEqual({ mantissa: 1000, exponent: 0 });
   });
 
   it('returns null for zero', () => {
@@ -209,8 +207,8 @@ describe('UnitsPage', () => {
 
   it('renders table with rate data', async () => {
     const rates = [
-      makeRate(1, '2025-01-15', 'GOLD', 5, -1), // rate=0.5 → price=2
-      makeRate(2, '2025-01-14', 'GOLD', 2, 0), // rate=2 → price=0.5
+      makeRate(1, '2025-01-15', 'GOLD', 5, -1), // isDirect=true, rate=0.5 → price=0.5
+      makeRate(2, '2025-01-14', 'GOLD', 2, 0), // isDirect=true, rate=2 → price=2
     ];
     setupMocks({ units: [GOLD], rates });
     render(<UnitsPage />);
@@ -291,15 +289,15 @@ describe('UnitsPage', () => {
     render(<UnitsPage />);
 
     await waitFor(() => {
-      expect(screen.getByText('2')).toBeInTheDocument();
+      expect(screen.getByText('0.5')).toBeInTheDocument();
     });
 
-    await user.click(screen.getByText('2'));
+    await user.click(screen.getByText('0.5'));
 
     await waitFor(() => {
       const input = screen.getByRole('textbox');
       expect(input).toBeInTheDocument();
-      expect(input).toHaveValue('2');
+      expect(input).toHaveValue('0.5');
     });
   });
 
@@ -310,10 +308,10 @@ describe('UnitsPage', () => {
     render(<UnitsPage />);
 
     await waitFor(() => {
-      expect(screen.getByText('2')).toBeInTheDocument();
+      expect(screen.getByText('0.5')).toBeInTheDocument();
     });
 
-    await user.click(screen.getByText('2'));
+    await user.click(screen.getByText('0.5'));
 
     const input = await screen.findByRole('textbox');
     await user.clear(input);
@@ -327,6 +325,7 @@ describe('UnitsPage', () => {
         '2025-01-15',
         expect.any(Number),
         expect.any(Number),
+        true,
       );
     });
   });
@@ -339,10 +338,10 @@ describe('UnitsPage', () => {
     render(<UnitsPage onPriceUpdated={onPriceUpdated} />);
 
     await waitFor(() => {
-      expect(screen.getByText('2')).toBeInTheDocument();
+      expect(screen.getByText('0.5')).toBeInTheDocument();
     });
 
-    await user.click(screen.getByText('2'));
+    await user.click(screen.getByText('0.5'));
     const input = await screen.findByRole('textbox');
     await user.clear(input);
     await user.type(input, '4');
@@ -362,10 +361,10 @@ describe('UnitsPage', () => {
     render(<UnitsPage />);
 
     await waitFor(() => {
-      expect(screen.getByText('2')).toBeInTheDocument();
+      expect(screen.getByText('0.5')).toBeInTheDocument();
     });
 
-    await user.click(screen.getByText('2'));
+    await user.click(screen.getByText('0.5'));
     expect(screen.getByRole('textbox')).toBeInTheDocument();
 
     await user.keyboard('{Escape}');
@@ -382,10 +381,10 @@ describe('UnitsPage', () => {
     render(<UnitsPage />);
 
     await waitFor(() => {
-      expect(screen.getByText('2')).toBeInTheDocument();
+      expect(screen.getByText('0.5')).toBeInTheDocument();
     });
 
-    await user.click(screen.getByText('2'));
+    await user.click(screen.getByText('0.5'));
     const input = await screen.findByRole('textbox');
     await user.clear(input);
     await user.keyboard('{Enter}');
@@ -400,10 +399,10 @@ describe('UnitsPage', () => {
     render(<UnitsPage />);
 
     await waitFor(() => {
-      expect(screen.getByText('2')).toBeInTheDocument();
+      expect(screen.getByText('0.5')).toBeInTheDocument();
     });
 
-    await user.click(screen.getByText('2'));
+    await user.click(screen.getByText('0.5'));
     const input = await screen.findByRole('textbox');
     await user.clear(input);
     await user.type(input, '-5');
@@ -423,10 +422,10 @@ describe('UnitsPage', () => {
     render(<UnitsPage />);
 
     await waitFor(() => {
-      expect(screen.getByText('2')).toBeInTheDocument();
+      expect(screen.getByText('0.5')).toBeInTheDocument();
     });
 
-    await user.click(screen.getByText('2'));
+    await user.click(screen.getByText('0.5'));
     const input = await screen.findByRole('textbox');
     await user.clear(input);
     await user.type(input, '4');

@@ -140,6 +140,7 @@ export interface FxRateRow {
   rateExponent: number;
   isManual: boolean;
   fetchedAt: string;
+  isDirect: boolean;
 }
 
 export interface DbLocationInfo {

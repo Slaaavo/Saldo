@@ -72,6 +72,7 @@ const makeRate = (
   rateExponent: exponent,
   isManual,
   fetchedAt: `${date}T12:00:00`,
+  isDirect: false,
 });
 
 const EUR = makeCurrency(1, 'EUR');
@@ -328,8 +329,8 @@ describe('FxRatesPage', () => {
     await user.keyboard('{Enter}');
 
     await waitFor(() => {
-      // setFxRateManual(fromId=1, toId=2, date, mantissa=115, exponent=-2)
-      expect(setFxRateManual).toHaveBeenCalledWith(1, 2, '2026-01-02', 115, -2);
+      // setFxRateManual(fromId=1, toId=2, date, mantissa=115, exponent=-2, isDirect=false)
+      expect(setFxRateManual).toHaveBeenCalledWith(1, 2, '2026-01-02', 115, -2, false);
     });
   });
 

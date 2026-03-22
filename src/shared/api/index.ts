@@ -181,9 +181,10 @@ export async function setFxRateManual(
   date: string,
   rateMantissa: number,
   rateExponent: number,
+  isDirect: boolean,
 ): Promise<void> {
   return invoke('set_fx_rate_manual', {
-    input: { fromCurrencyId, toCurrencyId, date, rateMantissa, rateExponent },
+    input: { fromCurrencyId, toCurrencyId, date, rateMantissa, rateExponent, isDirect },
   });
 }
 

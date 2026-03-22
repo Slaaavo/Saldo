@@ -114,7 +114,7 @@ export function useFxRates(onRateUpdated?: () => Promise<void>) {
       return;
     }
     try {
-      await setFxRateManual(fromId, toId, date, parsed.mantissa, parsed.exponent);
+      await setFxRateManual(fromId, toId, date, parsed.mantissa, parsed.exponent, false);
       await loadRates();
       await onRateUpdated?.();
     } catch (err) {

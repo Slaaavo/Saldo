@@ -78,9 +78,8 @@ export default function UpdateAssetValueModal({
         const rate = rates.find((r) => r.toCurrencyCode === currencyCode);
         if (rate) {
           try {
-            const price = new Decimal(1).div(
-              new Decimal(`${rate.rateMantissa}e${rate.rateExponent}`),
-            );
+            const raw = new Decimal(`${rate.rateMantissa}e${rate.rateExponent}`);
+            const price = rate.isDirect ? raw : new Decimal(1).div(raw);
             const priceStr = price.toDecimalPlaces(8).toString();
             setPricePerUnit(priceStr);
             setOriginalPriceStr(priceStr);

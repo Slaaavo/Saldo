@@ -65,17 +65,19 @@ pub fn set_fx_rate_manual(
     date: &str,
     rate_mantissa: i64,
     rate_exponent: i64,
+    is_direct: bool,
 ) -> rusqlite::Result<()> {
     conn.execute(
-        "INSERT INTO fx_rate (date, from_currency_id, to_currency_id, rate_mantissa, rate_exponent, is_manual)
-         VALUES (?1, ?2, ?3, ?4, ?5, 1)
+        "INSERT INTO fx_rate (date, from_currency_id, to_currency_id, rate_mantissa, rate_exponent, is_manual, is_direct)
+         VALUES (?1, ?2, ?3, ?4, ?5, 1, ?6)
          ON CONFLICT (date, from_currency_id, to_currency_id)
          DO UPDATE SET
            rate_mantissa = excluded.rate_mantissa,
            rate_exponent = excluded.rate_exponent,
            is_manual = 1,
+           is_direct = excluded.is_direct,
            fetched_at = strftime('%Y-%m-%dT%H:%M:%f','now')",
-        params![date, from_currency_id, to_currency_id, rate_mantissa, rate_exponent],
+        params![date, from_currency_id, to_currency_id, rate_mantissa, rate_exponent, is_direct as i64],
     )?;
     Ok(())
 }
@@ -93,7 +95,8 @@ pub fn list_fx_rates(
            fx.rate_mantissa,
            fx.rate_exponent,
            fx.is_manual,
-           fx.fetched_at
+           fx.fetched_at,
+           fx.is_direct
          FROM fx_rate fx
          JOIN currency cf ON cf.id = fx.from_currency_id
          JOIN currency ct ON ct.id = fx.to_currency_id
@@ -110,6 +113,7 @@ pub fn list_fx_rates(
             rate_exponent: row.get(5)?,
             is_manual: row.get::<_, i64>(6)? != 0,
             fetched_at: row.get(7)?,
+            is_direct: row.get::<_, i64>(8)? != 0,
         })
     })?;
     rows.collect()
@@ -120,9 +124,9 @@ pub fn get_fx_rate_for_conversion(
     from_currency_id: i64,
     to_currency_id: i64,
     date: &str,
-) -> rusqlite::Result<Option<(i64, i64)>> {
+) -> rusqlite::Result<Option<(i64, i64, bool)>> {
     conn.query_row(
-        "SELECT rate_mantissa, rate_exponent
+        "SELECT rate_mantissa, rate_exponent, is_direct
          FROM fx_rate
          WHERE from_currency_id = ?1
            AND to_currency_id = ?2
@@ -130,7 +134,13 @@ pub fn get_fx_rate_for_conversion(
          ORDER BY date DESC
          LIMIT 1",
         params![from_currency_id, to_currency_id, date],
-        |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
+        |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, i64>(2)? != 0,
+            ))
+        },
     )
     .optional()
 }
@@ -324,13 +334,13 @@ mod tests {
             })
             .unwrap();
 
-        set_fx_rate_manual(&conn, eur, usd, "2026-01-01", 10800, -4).unwrap();
-        set_fx_rate_manual(&conn, eur, usd, "2026-02-01", 10842, -4).unwrap();
-        set_fx_rate_manual(&conn, eur, usd, "2026-03-15", 10900, -4).unwrap();
+        set_fx_rate_manual(&conn, eur, usd, "2026-01-01", 10800, -4, false).unwrap();
+        set_fx_rate_manual(&conn, eur, usd, "2026-02-01", 10842, -4, false).unwrap();
+        set_fx_rate_manual(&conn, eur, usd, "2026-03-15", 10900, -4, false).unwrap();
 
         // On 2026-03-01, most recent on-or-before is 2026-02-01
         let rate = get_fx_rate_for_conversion(&conn, eur, usd, "2026-03-01").unwrap();
-        assert_eq!(rate, Some((10842, -4)));
+        assert_eq!(rate, Some((10842, -4, false)));
 
         // Before any rates → None
         let none = get_fx_rate_for_conversion(&conn, eur, usd, "2025-12-31").unwrap();
@@ -355,7 +365,7 @@ mod tests {
         upsert_fx_rates(&conn, &rates).unwrap();
 
         let rate = get_fx_rate_for_conversion(&conn, eur, usd, "2026-03-01").unwrap();
-        assert_eq!(rate, Some((10842, -4)));
+        assert_eq!(rate, Some((10842, -4, false)));
     }
 
     #[test]
@@ -379,7 +389,7 @@ mod tests {
         upsert_fx_rates(&conn, &updated).unwrap();
 
         let rate = get_fx_rate_for_conversion(&conn, eur, usd, "2026-03-01").unwrap();
-        assert_eq!(rate, Some((10900, -4)));
+        assert_eq!(rate, Some((10900, -4, false)));
     }
 
     #[test]
@@ -397,7 +407,7 @@ mod tests {
             .unwrap();
 
         // Insert a manual rate
-        set_fx_rate_manual(&conn, eur, usd, "2026-03-01", 10842, -4).unwrap();
+        set_fx_rate_manual(&conn, eur, usd, "2026-03-01", 10842, -4, false).unwrap();
 
         // Attempt to overwrite with an auto-fetched rate
         let rates = vec![("2026-03-01".to_string(), eur, usd, 99999_i64, -4_i64)];
@@ -405,7 +415,7 @@ mod tests {
 
         // Manual rate should be unchanged
         let rate = get_fx_rate_for_conversion(&conn, eur, usd, "2026-03-01").unwrap();
-        assert_eq!(rate, Some((10842, -4)));
+        assert_eq!(rate, Some((10842, -4, false)));
 
         let is_manual: i64 = conn
             .query_row(

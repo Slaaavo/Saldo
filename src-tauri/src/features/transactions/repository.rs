@@ -885,13 +885,14 @@ pub fn get_accounts_snapshot(
             (balance_minor, false)
         } else {
             match get_fx_rate_for_conversion(conn, consolidation.id, currency_id, snapshot_date)? {
-                Some((mantissa, exponent)) => {
+                Some((mantissa, exponent, is_direct)) => {
                     let converted = convert_balance(
                         balance_minor,
                         mantissa,
                         exponent,
                         currency_minor_units,
                         consolidation.minor_units,
+                        is_direct,
                     );
                     (converted, false)
                 }
@@ -903,6 +904,7 @@ pub fn get_accounts_snapshot(
                         0,
                         currency_minor_units,
                         consolidation.minor_units,
+                        false,
                     );
                     (converted, true)
                 }
@@ -977,12 +979,13 @@ pub fn get_accounts_snapshot(
                 source_currency_id,
                 snapshot_date,
             )? {
-                Some((mantissa, exponent)) => convert_balance(
+                Some((mantissa, exponent, is_direct)) => convert_balance(
                     source_balance,
                     mantissa,
                     exponent,
                     source_minor_units,
                     consolidation.minor_units,
+                    is_direct,
                 ),
                 None => {
                     result[bucket_idx].fx_rate_missing = true;
@@ -992,6 +995,7 @@ pub fn get_accounts_snapshot(
                         0,
                         source_minor_units,
                         consolidation.minor_units,
+                        false,
                     )
                 }
             }
@@ -1266,7 +1270,7 @@ mod tests {
         let acc = create_account(&conn, "USD Account", usd, "account", None, None, None).unwrap();
         create_balance_update(&conn, acc, 108420, "2026-03-01", None).unwrap();
         // Store rate: 1 EUR = 1.0842 USD (mantissa=10842, exponent=-4)
-        set_fx_rate_manual(&conn, eur, usd, "2026-03-01", 10842, -4).unwrap();
+        set_fx_rate_manual(&conn, eur, usd, "2026-03-01", 10842, -4, false).unwrap();
         let snapshot = get_accounts_snapshot(&conn, "2026-03-01T23:59:59").unwrap();
         let row = snapshot.iter().find(|r| r.account_id == acc).unwrap();
         assert_eq!(row.balance_minor, 108420);

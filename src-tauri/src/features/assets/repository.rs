@@ -5,46 +5,8 @@ use std::collections::{HashMap, HashSet};
 use super::models::AccountAssetLink;
 use crate::features::currency::Currency;
 
-/// Parse a decimal price string P and return the inverse rate (1/P) as (mantissa, exponent).
-/// Uses 12-digit precision arithmetic to avoid floating-point loss.
-fn invert_price_str(price_str: &str) -> Result<(i64, i64), AppError> {
-    let (m_p, e_p) = crate::oxr::parse_decimal_str(price_str)?;
-    if m_p == 0 {
-        return Err(AppError {
-            code: "VALIDATION".into(),
-            message: "Price must be greater than zero".into(),
-        });
-    }
-    const PRECISION: i64 = 12;
-    let precision_factor = 10_i128.pow(PRECISION as u32);
-    let mut mantissa = precision_factor / (m_p as i128);
-    let mut exponent = -e_p - PRECISION;
-
-    if mantissa == 0 {
-        return Err(AppError {
-            code: "VALIDATION".into(),
-            message: "Computed rate is zero (price too large)".into(),
-        });
-    }
-
-    // Normalize: strip trailing zeros.
-    while mantissa != 0 && mantissa % 10 == 0 {
-        mantissa /= 10;
-        exponent += 1;
-    }
-
-    if mantissa > i64::MAX as i128 || mantissa < i64::MIN as i128 {
-        return Err(AppError {
-            code: "OVERFLOW".into(),
-            message: "Computed rate mantissa overflows i64".into(),
-        });
-    }
-
-    Ok((mantissa as i64, exponent))
-}
-
 /// Convert a price-per-unit string to an FX rate and upsert it.
-/// Stores rate from `consolidation → asset_currency` on `date`.
+/// Stores rate from `consolidation → asset_currency` on `date` with `is_direct = true`.
 /// Used by both `update_asset_value` and `create_account` (with initial price).
 pub(crate) fn store_asset_price(
     conn: &Connection,
@@ -62,7 +24,14 @@ pub(crate) fn store_asset_price(
 
     let consolidation = crate::features::currency::repository::get_consolidation_currency(conn)
         .map_err(AppError::from)?;
-    let (rate_mantissa, rate_exponent) = invert_price_str(price_str)?;
+    let (rate_mantissa, rate_exponent) = crate::oxr::parse_decimal_str(price_str)?;
+
+    if rate_mantissa == 0 {
+        return Err(AppError {
+            code: "VALIDATION".into(),
+            message: "Price must be greater than zero".into(),
+        });
+    }
 
     crate::features::currency::repository::set_fx_rate_manual(
         conn,
@@ -71,6 +40,7 @@ pub(crate) fn store_asset_price(
         date,
         rate_mantissa,
         rate_exponent,
+        true,
     )
     .map_err(AppError::from)?;
 

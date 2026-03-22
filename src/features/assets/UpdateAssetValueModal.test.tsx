@@ -50,9 +50,7 @@ const EUR: Currency = {
   isCustom: false,
 };
 
-// rateMantissa=1000, rateExponent=0 → rateValue = 1000
-// price = 1 / 1000 = 0.001
-// Old bug: toFixed(2) = "0.00"  |  Fix: toDecimalPlaces(8).toString() = "0.001"
+// isDirect=true: rateMantissa=1, rateExponent=-3 → rateValue = 0.001 = price directly
 function setupMocks() {
   (listFxRates as Mock).mockResolvedValue([
     {
@@ -60,10 +58,11 @@ function setupMocks() {
       date: '2026-01-02',
       fromCurrencyCode: 'EUR',
       toCurrencyCode: 'GOLD',
-      rateMantissa: 1000,
-      rateExponent: 0,
+      rateMantissa: 1,
+      rateExponent: -3,
       isManual: false,
       fetchedAt: '2026-01-02T12:00:00',
+      isDirect: true,
     },
   ]);
 }
