@@ -9,6 +9,7 @@ import {
   Layers,
   BookOpen,
   Users,
+  FileText,
 } from 'lucide-react';
 import { cn } from '@/shared/lib/utils';
 import SaldoLogo from './SaldoLogo';
@@ -16,9 +17,23 @@ import saldoLogotype from '@/assets/Saldo logotype transparent.svg';
 import saldoLogotypeDark from '@/assets/Saldo logotype transparent dark.svg';
 
 interface SidebarProps {
-  currentView: 'dashboard' | 'ledger' | 'fx-rates' | 'units' | 'settings' | 'partners';
+  currentView:
+    | 'dashboard'
+    | 'ledger'
+    | 'fx-rates'
+    | 'units'
+    | 'settings'
+    | 'partners'
+    | 'import-profiles';
   onNavigate: (
-    view: 'dashboard' | 'ledger' | 'fx-rates' | 'units' | 'settings' | 'partners',
+    view:
+      | 'dashboard'
+      | 'ledger'
+      | 'fx-rates'
+      | 'units'
+      | 'settings'
+      | 'partners'
+      | 'import-profiles',
   ) => void;
   collapsed: boolean;
   onToggleCollapse: () => void;
@@ -39,6 +54,7 @@ export default function Sidebar({
     { view: 'dashboard' as const, icon: LayoutDashboard, label: t('sidebar.dashboard') },
     { view: 'ledger' as const, icon: BookOpen, label: t('sidebar.ledger') },
     { view: 'partners' as const, icon: Users, label: t('sidebar.partners') },
+    { view: 'import-profiles' as const, icon: FileText, label: t('sidebar.importProfiles') },
     { view: 'settings' as const, icon: Settings, label: t('sidebar.settings') },
     { view: 'fx-rates' as const, icon: ArrowLeftRight, label: t('sidebar.fxRates') },
     { view: 'units' as const, icon: Layers, label: t('sidebar.units') },

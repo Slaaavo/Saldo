@@ -124,6 +124,11 @@ const DATE_PATTERNS: Array<{
   parse: (m: RegExpMatchArray) => [number, number, number];
 }> = [
   {
+    // YYYYMMDD (exactly 8 digits, no separators) — must precede YYYY-MM-DD to avoid ambiguity
+    regex: /^(\d{4})(\d{2})(\d{2})$/,
+    parse: (m) => [parseInt(m[1]), parseInt(m[2]), parseInt(m[3])],
+  },
+  {
     // YYYY-MM-DD
     regex: /^(\d{4})-(\d{1,2})-(\d{1,2})$/,
     parse: (m) => [parseInt(m[1]), parseInt(m[2]), parseInt(m[3])],

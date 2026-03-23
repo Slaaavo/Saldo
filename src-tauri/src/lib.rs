@@ -210,6 +210,12 @@ pub fn run() {
             features::update_split_group_date,
             features::get_event_by_id,
             features::update_transfer,
+            features::list_import_profiles,
+            features::create_import_profile,
+            features::update_import_profile,
+            features::delete_import_profile,
+            features::get_preferred_profile,
+            features::set_preferred_profile,
         ])
         .run({
             let mut ctx = tauri::generate_context!();

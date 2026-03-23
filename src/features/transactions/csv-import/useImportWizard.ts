@@ -1,7 +1,13 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
-import type { SnapshotRow, Currency, EventWithData } from '../../../shared/types/index';
+import type {
+  SnapshotRow,
+  Currency,
+  EventWithData,
+  ImportProfileRow,
+  ImportRule,
+} from '../../../shared/types/index';
 import {
   listEvents,
   listPartnerAccounts,
@@ -11,6 +17,11 @@ import {
   updateEvent,
   bulkCreateCashflows,
   createSplitGroup,
+  listImportProfiles,
+  getPreferredProfile,
+  setPreferredProfile,
+  createImportProfile,
+  updateImportProfile,
 } from '../../../shared/api';
 import { toMinorUnits } from '../../../shared/utils/format';
 import { extractErrorMessage } from '../../../shared/utils/errors';
@@ -25,6 +36,7 @@ import type {
 import type { IbanLookupEntry } from './ibanMatcher';
 import { buildIbanLookup, matchIban, normalizeIban } from './ibanMatcher';
 import { parseCsvFile, autoDetectMapping, parseAmount, parseDateString } from './csvParser';
+import { applyRules } from './transformRules';
 
 const INITIAL_COLUMN_MAPPING: ColumnMapping = {
   date: null,
@@ -44,10 +56,48 @@ const INITIAL_WIZARD_STATE: WizardState = {
   columnMapping: { ...INITIAL_COLUMN_MAPPING },
   importRows: [],
   importing: false,
+  rules: [],
+  loadedProfileId: null,
+  originalProfileColumnMapping: null,
+  originalProfileRules: null,
+  importedCount: null,
 };
 
 const MS_PER_DAY = 86_400_000;
 const NEAR_DATE_WINDOW_DAYS = 5;
+
+function matchProfileMapping(savedMapping: ColumnMapping, csvHeaders: string[]): ColumnMapping {
+  const result: ColumnMapping = { ...savedMapping };
+  const fields: CashflowFieldKey[] = ['date', 'amount', 'partner', 'note', 'currency', 'fxRate'];
+  for (const field of fields) {
+    const saved = savedMapping[field];
+    if (saved === null) {
+      result[field] = null;
+      continue;
+    }
+    const match = csvHeaders.find((h) => h.trim().toLowerCase() === saved.trim().toLowerCase());
+    result[field] = match ?? null;
+  }
+  return result;
+}
+
+function matchProfileRules(savedRules: ImportRule[], csvHeaders: string[]): ImportRule[] {
+  return savedRules.map((rule) => {
+    if (rule.type === 'sign_from_column') {
+      const match = csvHeaders.find(
+        (h) => h.trim().toLowerCase() === rule.typeColumn.trim().toLowerCase(),
+      );
+      return { ...rule, typeColumn: match ?? '' };
+    }
+    if (rule.type === 'override_date_from_description') {
+      const match = csvHeaders.find(
+        (h) => h.trim().toLowerCase() === rule.descriptionColumn.trim().toLowerCase(),
+      );
+      return { ...rule, descriptionColumn: match ?? '' };
+    }
+    return rule;
+  });
+}
 
 function rateToMantissaExponent(rate: number): { mantissa: number; exponent: number } {
   const str = rate.toString();
@@ -71,6 +121,7 @@ export function useImportWizard(params: {
   const [existingEvents, setExistingEvents] = useState<EventWithData[]>([]);
   const [currencies, setCurrencies] = useState<Currency[]>([]);
   const [balanceWarningDates, setBalanceWarningDates] = useState<string[]>([]);
+  const [availableProfiles, setAvailableProfiles] = useState<ImportProfileRow[]>([]);
 
   // Derived: selected account row from snapshot
   const selectedAccount =
@@ -98,6 +149,12 @@ export function useImportWizard(params: {
   const nearDateSkippedCount = wizardState.importRows.filter(
     (r) => r.nearDateDuplicateEventId !== null && !r.isSelected,
   ).length;
+
+  useEffect(() => {
+    listImportProfiles()
+      .then(setAvailableProfiles)
+      .catch(() => {});
+  }, []);
 
   // ── Step 1 actions ──────────────────────────────────────────────────────────
 
@@ -132,6 +189,31 @@ export function useImportWizard(params: {
       } catch (err) {
         toast.error(t('errors.loadData', { error: extractErrorMessage(err) }));
       }
+      try {
+        const profile = await getPreferredProfile(accountId);
+        if (profile) {
+          setWizardState((prev) => {
+            const savedMapping = JSON.parse(profile.columnMappingJson) as ColumnMapping;
+            const resolvedMapping = matchProfileMapping(savedMapping, prev.csvHeaders);
+            const parsedRules = profile.rules.map((r) => ({
+              type: r.ruleType,
+              sortOrder: r.sortOrder,
+              ...JSON.parse(r.paramsJson),
+            })) as ImportRule[];
+            const resolvedRules = matchProfileRules(parsedRules, prev.csvHeaders);
+            return {
+              ...prev,
+              loadedProfileId: profile.id,
+              columnMapping: resolvedMapping,
+              rules: resolvedRules,
+              originalProfileColumnMapping: resolvedMapping,
+              originalProfileRules: resolvedRules,
+            };
+          });
+        }
+      } catch {
+        // swallow silently — profiles are a non-critical enhancement
+      }
     },
     [snapshot, t],
   );
@@ -140,9 +222,12 @@ export function useImportWizard(params: {
     wizardState.csvHeaders.length > 0 && wizardState.selectedAccountId !== null;
 
   const goToMapping = useCallback(() => {
-    const detected = autoDetectMapping(wizardState.csvHeaders);
-    setWizardState((prev) => ({ ...prev, step: 'mapping', columnMapping: detected }));
-  }, [wizardState.csvHeaders]);
+    setWizardState((prev) => {
+      const newMapping =
+        prev.loadedProfileId !== null ? prev.columnMapping : autoDetectMapping(prev.csvHeaders);
+      return { ...prev, step: 'mapping', columnMapping: newMapping };
+    });
+  }, []);
 
   // ── Step 2 actions ──────────────────────────────────────────────────────────
 
@@ -156,8 +241,55 @@ export function useImportWizard(params: {
   const canProceedToReview =
     wizardState.columnMapping.date !== null && wizardState.columnMapping.amount !== null;
 
+  const goToRules = useCallback(() => {
+    if (!wizardState.columnMapping.date || !wizardState.columnMapping.amount) return;
+    setWizardState((prev) => ({ ...prev, step: 'rules' }));
+  }, [wizardState.columnMapping.date, wizardState.columnMapping.amount]);
+
+  const setRules = useCallback((rules: ImportRule[]) => {
+    const renormalized = rules.map((r, i) => ({ ...r, sortOrder: i }));
+    setWizardState((prev) => ({ ...prev, rules: renormalized }));
+  }, []);
+
+  const handleProfileSelect = useCallback(
+    (profileId: number | null) => {
+      if (profileId === null) {
+        setWizardState((prev) => ({
+          ...prev,
+          loadedProfileId: null,
+          originalProfileColumnMapping: null,
+          originalProfileRules: null,
+          columnMapping: autoDetectMapping(prev.csvHeaders),
+          rules: [],
+        }));
+        return;
+      }
+      const profile = availableProfiles.find((p) => p.id === profileId);
+      if (!profile) return;
+      setWizardState((prev) => {
+        const savedMapping = JSON.parse(profile.columnMappingJson) as ColumnMapping;
+        const resolvedMapping = matchProfileMapping(savedMapping, prev.csvHeaders);
+        const parsedRules = profile.rules.map((r) => ({
+          type: r.ruleType,
+          sortOrder: r.sortOrder,
+          ...JSON.parse(r.paramsJson),
+        })) as ImportRule[];
+        const resolvedRules = matchProfileRules(parsedRules, prev.csvHeaders);
+        return {
+          ...prev,
+          loadedProfileId: profile.id,
+          columnMapping: resolvedMapping,
+          rules: resolvedRules,
+          originalProfileColumnMapping: resolvedMapping,
+          originalProfileRules: resolvedRules,
+        };
+      });
+    },
+    [availableProfiles],
+  );
+
   const goToReview = useCallback(() => {
-    const { csvRows, columnMapping, selectedAccountId } = wizardState;
+    const { csvRows, columnMapping, selectedAccountId, rules } = wizardState;
     if (!selectedAccountId) return;
 
     // Split existing events by type for duplicate detection vs balance warning
@@ -191,13 +323,14 @@ export function useImportWizard(params: {
     }
 
     const importRows: ImportRow[] = [];
+    const transformedRows = applyRules(csvRows, rules, columnMapping);
 
     const nearDateTransferCandidates = cashflowEvents.filter(
       (e) => e.eventType === 'transfer' && e.splitGroupId === null,
     );
 
-    for (let i = 0; i < csvRows.length; i++) {
-      const csvRow = csvRows[i];
+    for (let i = 0; i < transformedRows.length; i++) {
+      const csvRow = transformedRows[i];
       const rawDate = columnMapping.date ? (csvRow[columnMapping.date] ?? '') : '';
       const rawAmount = columnMapping.amount ? (csvRow[columnMapping.amount] ?? '') : '';
       const rawPartner = columnMapping.partner ? (csvRow[columnMapping.partner] ?? '') : '';
@@ -205,11 +338,12 @@ export function useImportWizard(params: {
       const rawFxRate = columnMapping.fxRate ? (csvRow[columnMapping.fxRate] ?? '') : '';
       const rawNote = columnMapping.note ? (csvRow[columnMapping.note] ?? '') : '';
 
-      const parsedDate = parseDateString(rawDate);
+      const parsedDate = csvRow.__overrideDateString ?? parseDateString(rawDate);
       const parsedAmount = parseAmount(rawAmount);
       if (!parsedDate || parsedAmount === null) continue;
 
-      const amountMinor = toMinorUnits(String(parsedAmount), selectedAccountMinorUnits);
+      let amountMinor = toMinorUnits(String(parsedAmount), selectedAccountMinorUnits);
+      if (csvRow.__negateAmount) amountMinor = -amountMinor;
 
       // IBAN matching
       let rawIban: string | null = null;
@@ -669,9 +803,29 @@ export function useImportWizard(params: {
 
       const totalImported =
         regularRows.length + splitRows.reduce((n, r) => n + r.splitLegs!.length, 0);
-      toast.success(t('import.success', { count: totalImported }));
-      await onSuccess();
-      onClose();
+
+      const {
+        columnMapping,
+        rules,
+        loadedProfileId,
+        originalProfileColumnMapping,
+        originalProfileRules,
+      } = wizardState;
+      const profileChanged =
+        JSON.stringify(columnMapping) !== JSON.stringify(originalProfileColumnMapping) ||
+        JSON.stringify(rules) !== JSON.stringify(originalProfileRules);
+
+      if (loadedProfileId !== null) {
+        setPreferredProfile(selectedAccountId, loadedProfileId).catch(() => {});
+      }
+
+      if (loadedProfileId === null || profileChanged) {
+        setWizardState((prev) => ({ ...prev, step: 'save-profile', importedCount: totalImported }));
+      } else {
+        toast.success(t('import.success', { count: totalImported }));
+        await onSuccess();
+        onClose();
+      }
     } catch (err) {
       toast.error(t('errors.importCashflows', { error: extractErrorMessage(err) }));
     } finally {
@@ -680,11 +834,64 @@ export function useImportWizard(params: {
   }, [wizardState, existingEvents, currencies, t, onSuccess, onClose]);
 
   const goBack = useCallback(() => {
-    setWizardState((prev) => ({
-      ...prev,
-      step: prev.step === 'review' ? 'mapping' : 'upload',
-    }));
+    setWizardState((prev) => {
+      if (prev.step === 'review') return { ...prev, step: 'rules' };
+      if (prev.step === 'rules') return { ...prev, step: 'mapping' };
+      if (prev.step === 'mapping') return { ...prev, step: 'upload' };
+      return prev;
+    });
   }, []);
+
+  const handleSaveNewProfile = useCallback(
+    async (profileName: string) => {
+      const { columnMapping, rules, selectedAccountId: accountId } = wizardState;
+      const columnMappingJson = JSON.stringify(columnMapping);
+      const ruleInputs = rules.map((rule) => {
+        const { type, sortOrder, ...params } = rule;
+        return { ruleType: type, sortOrder, paramsJson: JSON.stringify(params) };
+      });
+      try {
+        const newId = await createImportProfile(profileName, columnMappingJson, ruleInputs);
+        if (accountId !== null) {
+          setPreferredProfile(accountId, newId).catch(() => {});
+        }
+        toast.success(t('import.saveStep.profileSaved'));
+        await onSuccess();
+        onClose();
+      } catch (err) {
+        toast.error(extractErrorMessage(err));
+      }
+    },
+    [wizardState, t, onSuccess, onClose],
+  );
+
+  const handleUpdateProfile = useCallback(async () => {
+    const { columnMapping, rules, loadedProfileId } = wizardState;
+    if (loadedProfileId === null) return;
+    const originalProfileName = availableProfiles.find((p) => p.id === loadedProfileId)?.name ?? '';
+    const columnMappingJson = JSON.stringify(columnMapping);
+    const ruleInputs = rules.map((rule) => {
+      const { type, sortOrder, ...params } = rule;
+      return { ruleType: type, sortOrder, paramsJson: JSON.stringify(params) };
+    });
+    try {
+      await updateImportProfile(
+        loadedProfileId,
+        originalProfileName,
+        columnMappingJson,
+        ruleInputs,
+      );
+      await onSuccess();
+      onClose();
+    } catch (err) {
+      toast.error(extractErrorMessage(err));
+    }
+  }, [wizardState, availableProfiles, onSuccess, onClose]);
+
+  const handleSkipSaveProfile = useCallback(async () => {
+    await onSuccess();
+    onClose();
+  }, [onSuccess, onClose]);
 
   const splitValidationErrors = useMemo(
     () =>
@@ -701,6 +908,7 @@ export function useImportWizard(params: {
     wizardState,
     ibanLookup,
     availableBuckets,
+    availableProfiles,
     selectedCount,
     duplicateCount,
     nearDateSkippedCount,
@@ -716,7 +924,10 @@ export function useImportWizard(params: {
     goToMapping,
     handleMappingChange,
     canProceedToReview,
+    goToRules,
     goToReview,
+    setRules,
+    handleProfileSelect,
     handleToggleRow,
     handleSelectAll,
     handleDeselectAll,
@@ -733,6 +944,9 @@ export function useImportWizard(params: {
     handleAddLeg,
     handleRemoveLeg,
     handleImport,
+    handleSaveNewProfile,
+    handleUpdateProfile,
+    handleSkipSaveProfile,
     goBack,
   };
 }

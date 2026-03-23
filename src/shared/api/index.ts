@@ -10,6 +10,7 @@ import type {
   AccountAssetLink,
   PartnerAccount,
   EventWithData,
+  ImportProfileRow,
 } from '../types';
 
 export async function createBalanceUpdate(
@@ -403,4 +404,40 @@ export async function createSplitGroup(input: {
 
 export async function updateSplitGroupDate(splitGroupId: number, newDate: string): Promise<void> {
   return invoke('update_split_group_date', { input: { splitGroupId, newDate } });
+}
+
+export async function listImportProfiles(): Promise<ImportProfileRow[]> {
+  return invoke('list_import_profiles');
+}
+
+export async function createImportProfile(
+  name: string,
+  columnMappingJson: string,
+  rules: Array<{ ruleType: string; sortOrder: number; paramsJson: string }>,
+): Promise<number> {
+  return invoke('create_import_profile', { name, columnMappingJson, rules });
+}
+
+export async function updateImportProfile(
+  profileId: number,
+  name: string,
+  columnMappingJson: string,
+  rules: Array<{ ruleType: string; sortOrder: number; paramsJson: string }>,
+): Promise<void> {
+  return invoke('update_import_profile', { profileId, name, columnMappingJson, rules });
+}
+
+export async function deleteImportProfile(profileId: number): Promise<void> {
+  return invoke('delete_import_profile', { profileId });
+}
+
+export async function getPreferredProfile(accountId: number): Promise<ImportProfileRow | null> {
+  return invoke('get_preferred_profile', { accountId });
+}
+
+export async function setPreferredProfile(
+  accountId: number,
+  profileId: number | null,
+): Promise<void> {
+  return invoke('set_preferred_profile', { accountId, profileId });
 }

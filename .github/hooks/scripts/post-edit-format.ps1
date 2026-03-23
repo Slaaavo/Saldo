@@ -35,6 +35,7 @@ if ($filePaths.Count -eq 0) { exit 0 }
 
 $issues = [System.Collections.Generic.List[string]]::new()
 $hasRustFile = $false
+$hasTsFile = $false
 
 function Invoke-Tool {
     param([string]$Label, [scriptblock]$Cmd)
@@ -55,6 +56,9 @@ foreach ($filePath in $filePaths) {
         if ($ext -in @('.ts', '.tsx', '.js', '.jsx')) {
             Invoke-Tool "eslint: $filePath" { pnpm exec eslint --fix $filePath }
         }
+        if ($ext -in @('.ts', '.tsx')) {
+            $hasTsFile = $true
+        }
     } elseif ($ext -eq '.rs') {
         $hasRustFile = $true
     }
@@ -66,6 +70,10 @@ if ($hasRustFile) {
     Invoke-Tool "cargo fmt" { cargo fmt }
     Invoke-Tool "cargo clippy" { cargo clippy -- -D warnings }
     Pop-Location
+}
+
+if ($hasTsFile) {
+    Invoke-Tool "tsc" { pnpm exec tsc --noEmit }
 }
 
 if ($issues.Count -gt 0) {

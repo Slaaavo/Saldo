@@ -159,3 +159,38 @@ export interface AppError {
   code: string;
   message: string;
 }
+
+export interface ImportProfileRuleRow {
+  id: number;
+  profileId: number;
+  ruleType: string;
+  sortOrder: number;
+  paramsJson: string;
+}
+
+export interface ImportProfileRow {
+  id: number;
+  name: string;
+  columnMappingJson: string;
+  rules: ImportProfileRuleRow[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SignFromColumnParams {
+  typeColumn: string;
+  negativeType: string;
+}
+
+export interface OverrideDateFromDescriptionParams {
+  descriptionColumn: string;
+  conditionRegex: string;
+  dateRegex: string;
+}
+
+export type ImportRule =
+  | ({ type: 'sign_from_column'; sortOrder: number } & SignFromColumnParams)
+  | ({
+      type: 'override_date_from_description';
+      sortOrder: number;
+    } & OverrideDateFromDescriptionParams);

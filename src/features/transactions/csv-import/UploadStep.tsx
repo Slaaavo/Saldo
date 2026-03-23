@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
-import type { SnapshotRow } from '../../../shared/types';
+import type { SnapshotRow, ImportProfileRow } from '../../../shared/types';
 import { cn } from '../../../shared/lib/utils';
 import { Button } from '../../../shared/ui/button';
 import { DialogFooter } from '../../../shared/ui/dialog';
@@ -17,6 +17,9 @@ interface UploadStepProps {
   fileName: string | null;
   selectedAccountId: number | null;
   accounts: SnapshotRow[];
+  profiles: ImportProfileRow[];
+  selectedProfileId: number | null;
+  onProfileSelect: (profileId: number | null) => void;
   onFileSelect: (file: File) => Promise<void>;
   onAccountSelect: (accountId: number) => Promise<void>;
   onNext: () => void;
@@ -28,6 +31,9 @@ export default function UploadStep({
   fileName,
   selectedAccountId,
   accounts,
+  profiles,
+  selectedProfileId,
+  onProfileSelect,
   onFileSelect,
   onAccountSelect,
   onNext,
@@ -127,6 +133,29 @@ export default function UploadStep({
               {accounts.map((a) => (
                 <SelectItem key={a.accountId} value={String(a.accountId)}>
                   {a.accountName}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <span className="text-sm font-medium">{t('import.uploadStep.profile')}</span>
+          <Select
+            value={selectedProfileId !== null ? String(selectedProfileId) : '__none__'}
+            onValueChange={(value) => {
+              onProfileSelect(value === '__none__' ? null : Number(value));
+            }}
+            disabled={selectedAccountId === null}
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__none__">{t('import.uploadStep.profileNone')}</SelectItem>
+              {profiles.map((p) => (
+                <SelectItem key={p.id} value={String(p.id)}>
+                  {p.name}
                 </SelectItem>
               ))}
             </SelectContent>

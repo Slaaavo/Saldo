@@ -1,3 +1,5 @@
+import type { ImportRule } from '../../../shared/types';
+
 export type CsvRow = Record<string, string>;
 
 export type CashflowFieldKey = 'date' | 'amount' | 'partner' | 'currency' | 'fxRate' | 'note';
@@ -40,7 +42,7 @@ export interface ImportRow {
   splitLegs: SplitLeg[] | null;
 }
 
-export type WizardStep = 'upload' | 'mapping' | 'review';
+export type WizardStep = 'upload' | 'mapping' | 'review' | 'rules' | 'save-profile';
 
 export interface WizardState {
   step: WizardStep;
@@ -51,4 +53,14 @@ export interface WizardState {
   columnMapping: ColumnMapping;
   importRows: ImportRow[];
   importing: boolean;
+  rules: ImportRule[];
+  loadedProfileId: number | null;
+  originalProfileColumnMapping: ColumnMapping | null;
+  originalProfileRules: ImportRule[] | null;
+  importedCount: number | null;
 }
+
+export type TransformedCsvRow = CsvRow & {
+  __negateAmount: boolean;
+  __overrideDateString: string | null;
+};

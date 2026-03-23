@@ -4,6 +4,8 @@ import { useImportWizard } from './csv-import/useImportWizard';
 import UploadStep from './csv-import/UploadStep';
 import MappingStep from './csv-import/MappingStep';
 import ReviewStep from './csv-import/ReviewStep';
+import RulesStep from './csv-import/RulesStep';
+import SaveProfileStep from './csv-import/SaveProfileStep';
 import {
   Dialog,
   DialogContent,
@@ -24,6 +26,7 @@ export default function CsvImportModal({ snapshot, onClose, onSuccess }: CsvImpo
   const {
     wizardState,
     availableBuckets,
+    availableProfiles,
     selectedCount,
     duplicateCount,
     nearDateSkippedCount,
@@ -38,7 +41,10 @@ export default function CsvImportModal({ snapshot, onClose, onSuccess }: CsvImpo
     goToMapping,
     handleMappingChange,
     canProceedToReview,
+    goToRules,
     goToReview,
+    setRules,
+    handleProfileSelect,
     handleToggleRow,
     handleSelectAll,
     handleDeselectAll,
@@ -55,6 +61,9 @@ export default function CsvImportModal({ snapshot, onClose, onSuccess }: CsvImpo
     handleAddLeg,
     handleRemoveLeg,
     handleImport,
+    handleSaveNewProfile,
+    handleUpdateProfile,
+    handleSkipSaveProfile,
     goBack,
   } = useImportWizard({ snapshot, onClose, onSuccess });
 
@@ -80,6 +89,9 @@ export default function CsvImportModal({ snapshot, onClose, onSuccess }: CsvImpo
               fileName={wizardState.file?.name ?? null}
               selectedAccountId={wizardState.selectedAccountId}
               accounts={accountOnlyRows}
+              profiles={availableProfiles}
+              selectedProfileId={wizardState.loadedProfileId}
+              onProfileSelect={handleProfileSelect}
               onFileSelect={handleFileSelect}
               onAccountSelect={handleAccountSelect}
               onNext={goToMapping}
@@ -93,10 +105,21 @@ export default function CsvImportModal({ snapshot, onClose, onSuccess }: CsvImpo
               csvHeaders={wizardState.csvHeaders}
               columnMapping={wizardState.columnMapping}
               onMappingChange={handleMappingChange}
-              onNext={goToReview}
+              onNext={goToRules}
               onBack={goBack}
               onCancel={onClose}
               canProceed={canProceedToReview}
+            />
+          )}
+
+          {wizardState.step === 'rules' && (
+            <RulesStep
+              rules={wizardState.rules}
+              csvHeaders={wizardState.csvHeaders}
+              onRulesChange={setRules}
+              onNext={goToReview}
+              onBack={goBack}
+              onCancel={onClose}
             />
           )}
 
@@ -132,6 +155,21 @@ export default function CsvImportModal({ snapshot, onClose, onSuccess }: CsvImpo
               onAddLeg={handleAddLeg}
               onRemoveLeg={handleRemoveLeg}
               splitValidationErrors={splitValidationErrors}
+            />
+          )}
+
+          {wizardState.step === 'save-profile' && (
+            <SaveProfileStep
+              importedCount={wizardState.importedCount ?? 0}
+              loadedProfileName={
+                wizardState.loadedProfileId !== null
+                  ? (availableProfiles.find((p) => p.id === wizardState.loadedProfileId)?.name ??
+                    null)
+                  : null
+              }
+              onSaveNew={handleSaveNewProfile}
+              onUpdate={handleUpdateProfile}
+              onClose={handleSkipSaveProfile}
             />
           )}
         </DialogBody>

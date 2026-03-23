@@ -246,4 +246,20 @@ describe('parseDateString', () => {
   it('returns null for invalid day', () => {
     expect(parseDateString('2026-01-32')).toBeNull();
   });
+
+  it('parses YYYYMMDD format', () => {
+    expect(parseDateString('20260314')).toBe('2026-03-14T12:00:00');
+  });
+
+  it('parses YYYYMMDD with leading zero month and day', () => {
+    expect(parseDateString('20260103')).toBe('2026-01-03T12:00:00');
+  });
+
+  it('returns null for YYYYMMDD with invalid month', () => {
+    expect(parseDateString('20261301')).toBeNull();
+  });
+
+  it('returns null for YYYYMMDD with invalid day', () => {
+    expect(parseDateString('20260132')).toBeNull();
+  });
 });

@@ -15,6 +15,7 @@ import DashboardView from '../features/dashboard/DashboardView';
 import DemoModeBanner from '../features/settings/DemoModeBanner';
 import LedgerPage from '../features/ledger/LedgerPage';
 import PartnersPage from '../features/partners/PartnersPage';
+import ImportProfilesPage from '../features/csv-profiles/ImportProfilesPage';
 import { Toaster } from 'sonner';
 import { computeDashboardMetrics } from '../features/dashboard/dashboardMetrics';
 import { getBulkUpdateExclusions } from '../shared/api';
@@ -26,6 +27,7 @@ const PAGE_TITLES: Record<string, string> = {
   units: 'sidebar.units',
   settings: 'sidebar.settings',
   partners: 'sidebar.partners',
+  'import-profiles': 'sidebar.importProfiles',
 };
 
 function App() {
@@ -33,7 +35,7 @@ function App() {
   const { theme, themePreference, setThemePreference } = useTheme();
   const { modalState, setModalState, closeModal } = useModalManager();
   const [currentView, setCurrentView] = useState<
-    'dashboard' | 'ledger' | 'fx-rates' | 'units' | 'settings' | 'partners'
+    'dashboard' | 'ledger' | 'fx-rates' | 'units' | 'settings' | 'partners' | 'import-profiles'
   >('dashboard');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [ledgerRefreshCounter, setLedgerRefreshCounter] = useState(0);
@@ -114,6 +116,8 @@ function App() {
 
                   {currentView === 'partners' && <PartnersPage />}
 
+                  {currentView === 'import-profiles' && <ImportProfilesPage />}
+
                   {currentView === 'settings' && (
                     <SettingsPage
                       onConsolidationCurrencyChange={handleConsolidationCurrencyChange}
@@ -166,7 +170,8 @@ function App() {
                             | 'fx-rates'
                             | 'units'
                             | 'settings'
-                            | 'partners',
+                            | 'partners'
+                            | 'import-profiles',
                         )
                       }
                     />

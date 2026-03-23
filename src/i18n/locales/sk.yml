@@ -7,6 +7,7 @@ sidebar:
   fxRates: "Výmenné kurzy"
   units: "Jednotky"
   partners: "Partneri"
+  importProfiles: "Importné profily"
   collapse: "Zbaliť panel"
   expand: "Rozbaliť panel"
 
@@ -408,6 +409,8 @@ import:
     browse: "Prehľadávať"
     selectAccount: "Vyberte účet na import"
     invalidFile: "Vyberte platný CSV súbor"
+    profile: "Profil"
+    profileNone: "— žiadny —"
   mappingStep:
     title: "Mapovanie stĺpcov"
     description: "Priraďte stĺpce CSV k poliam transakcie"
@@ -458,6 +461,47 @@ import:
   error: "Nepodarilo sa importovať transakcie"
   next: "Ďalej"
   back: "Späť"
+  rulesStep:
+    title: "Transformačné pravidlá"
+    description: "Pravidlá upravujú spracované dáta pred kontrolou. Tento krok je voliteľný."
+    selectType: "Vybrať typ pravidla"
+    add: "Pridať"
+    empty: "Žiadne pravidlá. Kliknite Ďalej pre preskočenie."
+  saveStep:
+    title: "Import úspešný"
+    success: "Importovaných {{count}} transakcií"
+    savePrompt: "Uložiť túto konfiguráciu ako profil?"
+    changedPrompt: "Zmenili ste profil „{{name}}\""
+    profileName: "Názov profilu"
+    save: "Uložiť profil"
+    profileSaved: "Profil uložený"
+    saveAsNew: "Uložiť ako nový"
+    orSaveNew: "— alebo uložiť ako nový profil —"
+    update: "Aktualizovať „{{name}}\""
+    close: "Zavrieť"
+  profiles:
+    title: "Importné profily"
+    description: "Profily vytvárajte a upravujte cez sprievodcu importom CSV."
+    columns: "Stĺpce"
+    rules: "Pravidlá"
+    delete: "Zmazať"
+    deleteConfirm: "Zmazať profil „{{name}}\"? Importované dáta zostanú nezmenené."
+    empty: "Žiadne profily."
+  rules:
+    signFromColumnLabel: "Znamienko podľa stĺpca"
+    signFromColumn:
+      typeColumn: "Stĺpec s typom"
+      negativeType: "Hodnota označujúca debet (záporné)"
+    overrideDateFromDescriptionLabel: "Prepísať dátum z popisu"
+    overrideDateFromDescription:
+      descriptionColumn: "Stĺpec s popisom"
+      conditionRegex: "Podmienočný regulárny výraz (prázdne = aplikovať na všetky riadky)"
+      conditionExample: "Príklad: ^\\d{4}\\*{4}\\d{4} zodpovedá popisom začínajúcim maskovaným číslom karty"
+      dateRegex: "Regulárny výraz pre dátum"
+      dateExample: "Príklad: (\\d{2}\\.\\d{2}\\.\\d{4}) extrahuje 15.03.2026"
+      regexHint: "Referencia regulárnych výrazov"
+    invalidRegex: "Neplatný regulárny výraz"
+    unmatchedColumn: "Stĺpec „{{name}}\" sa nenašiel v CSV"
 
 # ──── Výber jazyka ────
 language:
