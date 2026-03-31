@@ -87,6 +87,7 @@ function makeSnapshot(overrides?: Partial<SnapshotRow>): SnapshotRow {
     isBucketLinked: false,
     bucketLinks: [],
     linkedBalanceMinor: 0,
+    cashflowTaggedMinor: 0,
     ...overrides,
   };
 }

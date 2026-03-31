@@ -65,6 +65,7 @@ buckets:
   empty: No buckets yet. Create one to allocate your capital.
   balanceBreakdown: "Balance breakdown"
   additionalBalance: "Additional balance"
+  cashflowTaggedBalance: "Tagged cashflows"
 
 # ──── Asset cards ────
 assets:

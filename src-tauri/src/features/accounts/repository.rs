@@ -405,7 +405,7 @@ mod tests {
     use crate::features::buckets::repository::set_bucket_event_links;
     use crate::features::currency::repository::set_fx_rate_manual;
     use crate::features::transactions::repository::{
-        create_balance_update, get_accounts_snapshot, list_events,
+        create_balance_update, get_accounts_snapshot, list_events, ListEventsQuery,
     };
 
     fn mk_account(conn: &Connection) -> i64 {
@@ -421,7 +421,14 @@ mod tests {
         delete_account(&conn, account_id).unwrap();
         let snapshot = get_accounts_snapshot(&conn, "2099-12-31T23:59:59").unwrap();
         assert!(snapshot.iter().all(|r| r.account_id != account_id));
-        let result = list_events(&conn, Some(account_id), None, None, None, None, None).unwrap();
+        let result = list_events(
+            &conn,
+            ListEventsQuery {
+                account_id: Some(account_id),
+                ..Default::default()
+            },
+        )
+        .unwrap();
         assert_eq!(result.events.len(), 0);
     }
 
@@ -463,7 +470,14 @@ mod tests {
         assert!(snapshot.iter().all(|r| r.account_id != account_id));
 
         // Events must be gone
-        let result = list_events(&conn, Some(account_id), None, None, None, None, None).unwrap();
+        let result = list_events(
+            &conn,
+            ListEventsQuery {
+                account_id: Some(account_id),
+                ..Default::default()
+            },
+        )
+        .unwrap();
         assert_eq!(result.events.len(), 0);
 
         // fx_rate rows for the custom unit must be cleaned up

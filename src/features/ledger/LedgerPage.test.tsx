@@ -104,6 +104,7 @@ function makeSnapshot(overrides?: Partial<SnapshotRow>): SnapshotRow {
     isBucketLinked: false,
     bucketLinks: [],
     linkedBalanceMinor: 0,
+    cashflowTaggedMinor: 0,
     isLinkedToAsset: false,
     linkedAssetIds: [],
     iban: null,

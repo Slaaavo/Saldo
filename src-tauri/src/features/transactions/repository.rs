@@ -580,15 +580,28 @@ pub fn check_event_split_group_date_conflict(
     Ok(())
 }
 
+#[derive(Default)]
+pub struct ListEventsQuery {
+    pub account_id: Option<i64>,
+    pub account_ids: Option<Vec<i64>>,
+    pub before_date: Option<String>,
+    pub from_date: Option<String>,
+    pub event_types: Option<Vec<String>>,
+    pub limit: Option<i64>,
+    pub bucket_ids: Option<Vec<i64>>,
+}
+
 pub fn list_events(
     conn: &Connection,
-    account_id: Option<i64>,
-    account_ids: Option<&[i64]>,
-    before_date: Option<&str>,
-    from_date: Option<&str>,
-    event_types: Option<&[String]>,
-    limit: Option<i64>,
+    query: ListEventsQuery,
 ) -> rusqlite::Result<ListEventsResult> {
+    let account_id = query.account_id;
+    let account_ids = query.account_ids.as_deref();
+    let before_date = query.before_date.as_deref();
+    let from_date = query.from_date.as_deref();
+    let event_types = query.event_types.as_deref();
+    let limit = query.limit;
+    let bucket_ids = query.bucket_ids.as_deref();
     let base = "FROM event e
         JOIN account a ON a.id = e.account_id
         JOIN currency c ON c.id = a.currency_id
@@ -604,12 +617,41 @@ pub fn list_events(
 
     // account_ids multi-select filter: non-empty slice takes precedence over account_id
     let use_multi = account_ids.is_some_and(|ids| !ids.is_empty());
-    if use_multi {
+    let use_bucket_ids = bucket_ids.is_some_and(|ids| !ids.is_empty());
+    if use_multi && use_bucket_ids {
+        // Both filters present: match either account or tagged bucket
+        let acct_ids = account_ids.unwrap();
+        let bkt_ids = bucket_ids.unwrap();
+        let acct_placeholders = std::iter::repeat_n("?", acct_ids.len())
+            .collect::<Vec<_>>()
+            .join(", ");
+        let bkt_placeholders = std::iter::repeat_n("?", bkt_ids.len())
+            .collect::<Vec<_>>()
+            .join(", ");
+        where_suffix.push_str(&format!(
+            " AND (e.account_id IN ({acct_placeholders}) OR ed.bucket_id IN ({bkt_placeholders}))"
+        ));
+        for &id in acct_ids {
+            params.push(Box::new(id));
+        }
+        for &id in bkt_ids {
+            params.push(Box::new(id));
+        }
+    } else if use_multi {
         let ids = account_ids.unwrap();
         let placeholders = std::iter::repeat_n("?", ids.len())
             .collect::<Vec<_>>()
             .join(", ");
         where_suffix.push_str(&format!(" AND e.account_id IN ({placeholders})"));
+        for &id in ids {
+            params.push(Box::new(id));
+        }
+    } else if use_bucket_ids {
+        let ids = bucket_ids.unwrap();
+        let placeholders = std::iter::repeat_n("?", ids.len())
+            .collect::<Vec<_>>()
+            .join(", ");
+        where_suffix.push_str(&format!(" AND ed.bucket_id IN ({placeholders})"));
         for &id in ids {
             params.push(Box::new(id));
         }
@@ -927,6 +969,7 @@ pub fn get_accounts_snapshot(
             is_bucket_linked: false,
             bucket_links: vec![],
             linked_balance_minor: 0,
+            cashflow_tagged_minor: 0,
         });
     }
 
@@ -1005,6 +1048,77 @@ pub fn get_accounts_snapshot(
         result[bucket_idx].linked_balance_minor += converted;
         result[bucket_idx].converted_balance_minor += converted;
         result[source_idx].is_bucket_linked = true;
+    }
+
+    // Pass 3: Cashflow-tagged amounts per bucket.
+    // Aggregate cashflows where event_data.bucket_id is set, grouped by bucket and source
+    // currency. This lets the bucket card show how much of its balance comes from tagged
+    // cashflow entries (e.g. CSV-imported rows).
+    {
+        let mut stmt = conn.prepare(
+            "SELECT
+               ed.bucket_id AS bucket_account_id,
+               a.currency_id,
+               c.minor_units,
+               SUM(ed.amount_minor) AS tagged_total
+             FROM event e
+             JOIN event_data ed ON ed.id = e.latest_data_id
+             JOIN account a ON a.id = e.account_id
+             JOIN currency c ON c.id = a.currency_id
+             WHERE e.deleted_at IS NULL
+               AND ed.bucket_id IS NOT NULL
+               AND ed.event_date <= ?1
+             GROUP BY ed.bucket_id, a.currency_id",
+        )?;
+
+        let tagged_rows: Vec<(i64, i64, i64, i64)> = stmt
+            .query_map(params![selected_datetime], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+
+        for (bucket_account_id, currency_id, minor_units, tagged_total) in tagged_rows {
+            let bucket_idx = match account_index_map.get(&bucket_account_id) {
+                Some(&idx) => idx,
+                None => continue,
+            };
+
+            let converted = if currency_id == consolidation.id {
+                tagged_total
+            } else {
+                match get_fx_rate_for_conversion(
+                    conn,
+                    consolidation.id,
+                    currency_id,
+                    snapshot_date,
+                )? {
+                    Some((mantissa, exponent, is_direct)) => convert_balance(
+                        tagged_total,
+                        mantissa,
+                        exponent,
+                        minor_units,
+                        consolidation.minor_units,
+                        is_direct,
+                    ),
+                    None => {
+                        result[bucket_idx].fx_rate_missing = true;
+                        convert_balance(
+                            tagged_total,
+                            1,
+                            0,
+                            minor_units,
+                            consolidation.minor_units,
+                            false,
+                        )
+                    }
+                }
+            };
+
+            // TODO: This double-counts if the same source account is also contributing via
+            // bucket_event_link (Pass 2). The UI wizard should prevent this scenario.
+            result[bucket_idx].converted_balance_minor += converted;
+            result[bucket_idx].cashflow_tagged_minor += converted;
+        }
     }
 
     Ok(result)
@@ -1107,7 +1221,7 @@ mod tests {
         let account_id = mk_account(&conn);
         create_balance_update(&conn, account_id, 1000, "2026-01-01", None).unwrap();
         create_balance_update(&conn, account_id, 2000, "2026-02-01", None).unwrap();
-        let result = list_events(&conn, None, None, None, None, None, None).unwrap();
+        let result = list_events(&conn, ListEventsQuery::default()).unwrap();
         assert_eq!(result.events.len(), 2);
     }
 
@@ -1119,11 +1233,25 @@ mod tests {
         create_balance_update(&conn, acc1, 1000, "2026-01-01", None).unwrap();
         create_balance_update(&conn, acc2, 2000, "2026-02-01", None).unwrap();
 
-        let result_acc1 = list_events(&conn, Some(acc1), None, None, None, None, None).unwrap();
+        let result_acc1 = list_events(
+            &conn,
+            ListEventsQuery {
+                account_id: Some(acc1),
+                ..Default::default()
+            },
+        )
+        .unwrap();
         assert_eq!(result_acc1.events.len(), 1);
         assert_eq!(result_acc1.events[0].account_id, acc1);
 
-        let result_acc2 = list_events(&conn, Some(acc2), None, None, None, None, None).unwrap();
+        let result_acc2 = list_events(
+            &conn,
+            ListEventsQuery {
+                account_id: Some(acc2),
+                ..Default::default()
+            },
+        )
+        .unwrap();
         assert_eq!(result_acc2.events.len(), 1);
         assert_eq!(result_acc2.events[0].account_id, acc2);
     }
@@ -1136,12 +1264,10 @@ mod tests {
         create_balance_update(&conn, account_id, 2000, "2026-03-15", None).unwrap();
         let result = list_events(
             &conn,
-            None,
-            None,
-            Some("2026-02-01T23:59:59"),
-            None,
-            None,
-            None,
+            ListEventsQuery {
+                before_date: Some("2026-02-01T23:59:59".to_string()),
+                ..Default::default()
+            },
         )
         .unwrap();
         assert_eq!(result.events.len(), 1);
@@ -1193,14 +1319,27 @@ mod tests {
         let bucket_id =
             create_account(&conn, "Test Bucket", 1, "bucket", None, None, None).unwrap();
         create_balance_update(&conn, bucket_id, 5000, "2026-03-01", None).unwrap();
-        let result = list_events(&conn, Some(bucket_id), None, None, None, None, None).unwrap();
+        let result = list_events(
+            &conn,
+            ListEventsQuery {
+                account_id: Some(bucket_id),
+                ..Default::default()
+            },
+        )
+        .unwrap();
         assert_eq!(result.events.len(), 1);
         assert_eq!(result.events[0].account_type, "bucket");
 
         let empty_account_id =
             create_account(&conn, "Empty Account", 1, "account", None, None, None).unwrap();
-        let result_empty =
-            list_events(&conn, Some(empty_account_id), None, None, None, None, None).unwrap();
+        let result_empty = list_events(
+            &conn,
+            ListEventsQuery {
+                account_id: Some(empty_account_id),
+                ..Default::default()
+            },
+        )
+        .unwrap();
         // Account with no balance updates has no events
         assert_eq!(result_empty.events.len(), 0);
     }
@@ -1283,7 +1422,14 @@ mod tests {
         let conn = initialize_in_memory().expect("DB init failed");
         let account_id = mk_account(&conn);
         create_balance_update(&conn, account_id, 5000, "2026-03-01", None).unwrap();
-        let result = list_events(&conn, Some(account_id), None, None, None, None, None).unwrap();
+        let result = list_events(
+            &conn,
+            ListEventsQuery {
+                account_id: Some(account_id),
+                ..Default::default()
+            },
+        )
+        .unwrap();
         assert_eq!(result.events[0].currency_code, "EUR");
         assert_eq!(result.events[0].currency_minor_units, 2);
     }
@@ -1297,7 +1443,14 @@ mod tests {
         create_balance_update(&conn, account_id, 3000, "2026-03-01", None).unwrap();
         create_balance_update(&conn, account_id, 4000, "2026-04-01", None).unwrap();
         create_balance_update(&conn, account_id, 5000, "2026-05-01", None).unwrap();
-        let result = list_events(&conn, None, None, None, None, None, Some(2)).unwrap();
+        let result = list_events(
+            &conn,
+            ListEventsQuery {
+                limit: Some(2),
+                ..Default::default()
+            },
+        )
+        .unwrap();
         assert_eq!(result.events.len(), 2);
         assert_eq!(result.total_count, 5);
     }
@@ -1834,5 +1987,134 @@ mod tests {
 
         let none = get_event_by_id(&conn, 999999).unwrap();
         assert!(none.is_none());
+    }
+
+    #[test]
+    fn cashflow_with_bucket_id_contributes_to_bucket_snapshot() {
+        let conn = initialize_in_memory().expect("DB init failed");
+
+        let source_id = mk_account(&conn);
+        let bucket_id =
+            create_account(&conn, "Tagged Bucket", 1, "bucket", None, None, None).unwrap();
+
+        // Cashflow on source account tagged to bucket
+        create_cashflow(
+            &conn,
+            &CashflowEntry {
+                account_id: source_id,
+                amount_minor: 3000,
+                event_date: "2026-06-01T12:00:00".to_string(),
+                note: None,
+                counterpart_account_id: None,
+                bucket_id: Some(bucket_id),
+                original_currency_id: None,
+                original_amount_minor: None,
+                fx_rate_mantissa: None,
+                fx_rate_exponent: None,
+            },
+        )
+        .unwrap();
+
+        let snapshot = get_accounts_snapshot(&conn, "2026-12-31T23:59:59").unwrap();
+        let bucket_row = snapshot.iter().find(|r| r.account_id == bucket_id).unwrap();
+
+        // EUR is the consolidation currency → direct 1:1 conversion
+        assert_eq!(bucket_row.cashflow_tagged_minor, 3000);
+        assert_eq!(bucket_row.converted_balance_minor, 3000);
+    }
+
+    #[test]
+    fn cashflow_after_snapshot_date_not_counted_in_bucket() {
+        let conn = initialize_in_memory().expect("DB init failed");
+
+        let source_id = mk_account(&conn);
+        let bucket_id =
+            create_account(&conn, "Tagged Bucket", 1, "bucket", None, None, None).unwrap();
+
+        // Cashflow dated AFTER the snapshot date
+        create_cashflow(
+            &conn,
+            &CashflowEntry {
+                account_id: source_id,
+                amount_minor: 5000,
+                event_date: "2026-12-01T12:00:00".to_string(),
+                note: None,
+                counterpart_account_id: None,
+                bucket_id: Some(bucket_id),
+                original_currency_id: None,
+                original_amount_minor: None,
+                fx_rate_mantissa: None,
+                fx_rate_exponent: None,
+            },
+        )
+        .unwrap();
+
+        // Snapshot is for a date BEFORE the cashflow
+        let snapshot = get_accounts_snapshot(&conn, "2026-06-30T23:59:59").unwrap();
+        let bucket_row = snapshot.iter().find(|r| r.account_id == bucket_id).unwrap();
+
+        assert_eq!(bucket_row.cashflow_tagged_minor, 0);
+        assert_eq!(bucket_row.converted_balance_minor, 0);
+    }
+
+    #[test]
+    fn list_events_filters_by_bucket_id() {
+        let conn = initialize_in_memory().expect("DB init failed");
+
+        let source_id = mk_account(&conn);
+        let bucket_id =
+            create_account(&conn, "Some Bucket", 1, "bucket", None, None, None).unwrap();
+
+        // Cashflow on source account tagged to bucket
+        create_cashflow(
+            &conn,
+            &CashflowEntry {
+                account_id: source_id,
+                amount_minor: 2500,
+                event_date: "2026-04-01T10:00:00".to_string(),
+                note: None,
+                counterpart_account_id: None,
+                bucket_id: Some(bucket_id),
+                original_currency_id: None,
+                original_amount_minor: None,
+                fx_rate_mantissa: None,
+                fx_rate_exponent: None,
+            },
+        )
+        .unwrap();
+
+        // Another cashflow on source account with no bucket tag
+        create_cashflow(
+            &conn,
+            &CashflowEntry {
+                account_id: source_id,
+                amount_minor: 1000,
+                event_date: "2026-04-02T10:00:00".to_string(),
+                note: None,
+                counterpart_account_id: None,
+                bucket_id: None,
+                original_currency_id: None,
+                original_amount_minor: None,
+                fx_rate_mantissa: None,
+                fx_rate_exponent: None,
+            },
+        )
+        .unwrap();
+
+        // Filter by bucket_id only — should return only the tagged cashflow even though
+        // event.account_id is the source account (not the bucket)
+        let result = list_events(
+            &conn,
+            ListEventsQuery {
+                bucket_ids: Some(vec![bucket_id]),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(result.total_count, 1);
+        assert_eq!(result.events.len(), 1);
+        assert_eq!(result.events[0].account_id, source_id);
+        assert_eq!(result.events[0].bucket_id, Some(bucket_id));
+        assert_eq!(result.events[0].amount_minor, 2500);
     }
 }

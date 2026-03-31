@@ -418,6 +418,7 @@ function makeSnapshot(overrides?: Partial<SnapshotRow>): SnapshotRow {
     isBucketLinked: false,
     bucketLinks: [],
     linkedBalanceMinor: 0,
+    cashflowTaggedMinor: 0,
     ...overrides,
   };
 }
@@ -906,8 +907,8 @@ describe('App', () => {
       setupDefaultMocks({ snapshot: [acct, bucket] });
       render(<App />);
 
-      // leftToSpend = liquidMinor(200000) - bucketsMinor(80000) + assetAllocationsInBuckets(20000)
-      expect(capturedDashboardProps.leftToSpendMinor).toBe(140000);
+      // leftToSpend = liquidMinor(200000) - bucketsMinor(80000)
+      expect(capturedDashboardProps.leftToSpendMinor).toBe(120000);
     });
 
     it('computes netWorthMinor as accounts + assets', () => {

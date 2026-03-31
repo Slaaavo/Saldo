@@ -46,6 +46,7 @@ pub struct UpdateTransferInput {
 pub struct ListEventsFilter {
     pub account_id: Option<i64>,
     pub account_ids: Option<Vec<i64>>,
+    pub bucket_ids: Option<Vec<i64>>,
     pub before_date: Option<String>,
     pub from_date: Option<String>,
     pub event_types: Option<Vec<String>>,
@@ -144,12 +145,15 @@ pub fn list_events(
     let conn = state.conn()?;
     let result = repository::list_events(
         &conn,
-        filter.account_id,
-        filter.account_ids.as_deref(),
-        filter.before_date.as_deref(),
-        filter.from_date.as_deref(),
-        filter.event_types.as_deref(),
-        filter.limit,
+        repository::ListEventsQuery {
+            account_id: filter.account_id,
+            account_ids: filter.account_ids,
+            before_date: filter.before_date,
+            from_date: filter.from_date,
+            event_types: filter.event_types,
+            limit: filter.limit,
+            bucket_ids: filter.bucket_ids,
+        },
     )?;
     Ok(result)
 }

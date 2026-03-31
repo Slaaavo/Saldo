@@ -36,6 +36,7 @@ export async function getAccountsSnapshot(dateIso: string): Promise<SnapshotRow[
 export interface ListEventsFilter {
   accountId?: number;
   accountIds?: number[];
+  bucketIds?: number[];
   beforeDate?: string;
   fromDate?: string;
   limit?: number;
@@ -47,6 +48,7 @@ export async function listEvents(filter?: ListEventsFilter): Promise<ListEventsR
     filter: {
       accountId: filter?.accountId ?? null,
       accountIds: filter?.accountIds ?? null,
+      bucketIds: filter?.bucketIds ?? null,
       beforeDate: filter?.beforeDate ?? null,
       fromDate: filter?.fromDate ?? null,
       limit: filter?.limit ?? null,

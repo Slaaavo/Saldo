@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 import { renderHook, waitFor, act } from '@testing-library/react';
 import { useLedgerData } from './useLedgerData';
-import type { EventWithData } from '../../shared/types';
+import type { EventWithData, SnapshotRow } from '../../shared/types';
 
 // ── Mock the API layer ──────────────────────────────────────────────────────
 vi.mock('../../shared/api', () => ({
@@ -28,6 +28,28 @@ vi.mock('react-i18next', () => {
 import { listEvents } from '../../shared/api';
 
 // ── Test data ───────────────────────────────────────────────────────────────
+function makeSnapshot(overrides?: Partial<SnapshotRow>): SnapshotRow {
+  return {
+    accountId: 1,
+    accountName: 'Checking',
+    accountType: 'account',
+    iban: null,
+    balanceMinor: 100000,
+    currencyCode: 'EUR',
+    currencyMinorUnits: 2,
+    isCustom: false,
+    convertedBalanceMinor: 100000,
+    fxRateMissing: false,
+    isBucketLinked: false,
+    bucketLinks: [],
+    linkedBalanceMinor: 0,
+    cashflowTaggedMinor: 0,
+    isLinkedToAsset: false,
+    linkedAssetIds: [],
+    ...overrides,
+  };
+}
+
 function makeEvent(overrides?: Partial<EventWithData>): EventWithData {
   return {
     id: 1,
@@ -171,5 +193,27 @@ describe('useLedgerData', () => {
 
     // Only 1 call from initial mount
     expect(listEvents).toHaveBeenCalledTimes(1);
+  });
+
+  // ── Bucket ID splitting ───────────────────────────────────────────────────
+
+  it('routes bucket IDs to both accountIds and bucketIds', async () => {
+    const bucketId = 42;
+    const snapshot = [makeSnapshot({ accountId: bucketId, accountType: 'bucket' })];
+    const { result } = renderHook(() => useLedgerData({ snapshot }));
+
+    await waitFor(() => expect(result.current.events).toHaveLength(1));
+    vi.clearAllMocks();
+    (listEvents as Mock).mockResolvedValue({ events: [], totalCount: 0 });
+
+    act(() => {
+      result.current.setSelectedAccountIds([bucketId]);
+    });
+
+    await waitFor(() => {
+      expect(listEvents).toHaveBeenCalledWith(
+        expect.objectContaining({ accountIds: [bucketId], bucketIds: [bucketId] }),
+      );
+    });
   });
 });

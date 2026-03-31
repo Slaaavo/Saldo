@@ -36,7 +36,7 @@ export default function LedgerPage({
     setEventTypeFilter,
     events,
     loading,
-  } = useLedgerData({ refreshTrigger });
+  } = useLedgerData({ refreshTrigger, snapshot });
 
   const handleEditEvent = async (event: EventWithData) => {
     if (event.eventType === 'balance_update') {

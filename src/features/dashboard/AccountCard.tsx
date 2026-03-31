@@ -146,6 +146,7 @@ export default function AccountCard({
             manualMinorUnits={row.currencyMinorUnits}
             allAccounts={allAccounts}
             consolidationCurrencyCode={consolidationCurrency?.code ?? row.currencyCode}
+            cashflowTaggedMinor={row.cashflowTaggedMinor}
             className={cn(
               'text-2xl font-bold',
               row.convertedBalanceMinor < 0 && 'text-destructive',

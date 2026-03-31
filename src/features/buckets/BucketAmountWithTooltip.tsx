@@ -15,6 +15,7 @@ interface Props {
   className?: string;
   allAccounts?: SnapshotRow[];
   consolidationCurrencyCode?: string;
+  cashflowTaggedMinor?: number;
 }
 
 export default function BucketAmountWithTooltip({
@@ -28,6 +29,7 @@ export default function BucketAmountWithTooltip({
   className,
   allAccounts,
   consolidationCurrencyCode,
+  cashflowTaggedMinor,
 }: Props) {
   const { t } = useTranslation();
 
@@ -40,7 +42,7 @@ export default function BucketAmountWithTooltip({
     />
   );
 
-  if (bucketLinks.length === 0) {
+  if (bucketLinks.length === 0 && !cashflowTaggedMinor) {
     return amount;
   }
 
@@ -87,6 +89,17 @@ export default function BucketAmountWithTooltip({
                 className="shrink-0"
               />
             </div>
+            {!!cashflowTaggedMinor && (
+              <div className="flex items-center justify-between gap-4 text-xs">
+                <span className="text-muted-foreground">{t('buckets.cashflowTaggedBalance')}</span>
+                <NumberValue
+                  value={cashflowTaggedMinor}
+                  currencyCode={consolidationCurrencyCode}
+                  minorUnits={minorUnits}
+                  className="shrink-0"
+                />
+              </div>
+            )}
           </div>
         </TooltipContent>
       </Tooltip>

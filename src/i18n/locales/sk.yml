@@ -64,6 +64,7 @@ buckets:
   empty: Zatiaľ žiadne obálky. Vytvorte si prvú na rozdelenie kapitálu.
   balanceBreakdown: "Rozdelenie zostatku"
   additionalBalance: "Dodatočný zostatok"
+  cashflowTaggedBalance: "Označené cashflow"
 
 
 # ──── Aktíva ────

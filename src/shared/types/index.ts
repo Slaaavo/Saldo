@@ -129,6 +129,7 @@ export interface SnapshotRow {
   isBucketLinked: boolean;
   bucketLinks: BucketLink[];
   linkedBalanceMinor: number;
+  cashflowTaggedMinor: number;
 }
 
 export interface FxRateRow {
