@@ -1,66 +1,66 @@
-import type { ImportRule } from '../../../shared/types';
+import type { ImportRule } from '../../../shared/types'
 
-export type CsvRow = Record<string, string>;
+export type CsvRow = Record<string, string>
 
-export type CashflowFieldKey = 'date' | 'amount' | 'partner' | 'currency' | 'fxRate' | 'note';
+export type CashflowFieldKey = 'date' | 'amount' | 'partner' | 'currency' | 'fxRate' | 'note'
 
-export type ColumnMapping = Record<CashflowFieldKey, string | null>;
+export type ColumnMapping = Record<CashflowFieldKey, string | null>
 
 export type IbanMatchResult =
   | { type: 'ownAccount'; accountId: number; accountName: string }
   | { type: 'partner'; accountId: number; accountName: string }
   | { type: 'unmatched'; rawIban: string }
-  | { type: 'none' };
+  | { type: 'none' }
 
 export interface SplitLeg {
-  legIndex: number;
-  amountMinor: number;
-  note: string | null;
-  rawIban: string | null;
-  ibanMatch: IbanMatchResult;
-  bucketId: number | null;
-  counterpartAccountId: number | null;
+  legIndex: number
+  amountMinor: number
+  note: string | null
+  rawIban: string | null
+  ibanMatch: IbanMatchResult
+  bucketId: number | null
+  counterpartAccountId: number | null
 }
 
 export interface ImportRow {
-  index: number;
-  date: string;
-  amountMinor: number;
-  currencyCode: string;
-  originalAmountMinor: number | null;
-  originalCurrencyCode: string | null;
-  fxRateMantissa: number | null;
-  fxRateExponent: number | null;
-  note: string | null;
-  rawIban: string | null;
-  ibanMatch: IbanMatchResult;
-  isDuplicate: boolean;
-  nearDateDuplicateEventId: number | null;
-  isSelected: boolean;
-  bucketId: number | null;
-  counterpartAccountId: number | null;
-  splitLegs: SplitLeg[] | null;
+  index: number
+  date: string
+  amountMinor: number
+  currencyCode: string
+  originalAmountMinor: number | null
+  originalCurrencyCode: string | null
+  fxRateMantissa: number | null
+  fxRateExponent: number | null
+  note: string | null
+  rawIban: string | null
+  ibanMatch: IbanMatchResult
+  isDuplicate: boolean
+  nearDateDuplicateEventId: number | null
+  isSelected: boolean
+  bucketId: number | null
+  counterpartAccountId: number | null
+  splitLegs: SplitLeg[] | null
 }
 
-export type WizardStep = 'upload' | 'mapping' | 'review' | 'rules' | 'save-profile';
+export type WizardStep = 'upload' | 'mapping' | 'review' | 'rules' | 'save-profile'
 
 export interface WizardState {
-  step: WizardStep;
-  file: File | null;
-  csvHeaders: string[];
-  csvRows: CsvRow[];
-  selectedAccountId: number | null;
-  columnMapping: ColumnMapping;
-  importRows: ImportRow[];
-  importing: boolean;
-  rules: ImportRule[];
-  loadedProfileId: number | null;
-  originalProfileColumnMapping: ColumnMapping | null;
-  originalProfileRules: ImportRule[] | null;
-  importedCount: number | null;
+  step: WizardStep
+  file: File | null
+  csvHeaders: string[]
+  csvRows: CsvRow[]
+  selectedAccountId: number | null
+  columnMapping: ColumnMapping
+  importRows: ImportRow[]
+  importing: boolean
+  rules: ImportRule[]
+  loadedProfileId: number | null
+  originalProfileColumnMapping: ColumnMapping | null
+  originalProfileRules: ImportRule[] | null
+  importedCount: number | null
 }
 
 export type TransformedCsvRow = CsvRow & {
-  __negateAmount: boolean;
-  __overrideDateString: string | null;
-};
+  __negateAmount: boolean
+  __overrideDateString: string | null
+}

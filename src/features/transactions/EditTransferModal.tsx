@@ -1,96 +1,80 @@
-import { useState } from 'react';
-import { useTranslation } from 'react-i18next';
-import { toast } from 'sonner';
-import Decimal from 'decimal.js';
-import type { EventWithData } from '../../shared/types';
-import { fromMinorUnits, toMinorUnits, getMinorUnitsStep } from '../../shared/utils/format';
-import { parseRateInput } from '../currency/fxRate';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogBody,
-  DialogFooter,
-} from '../../shared/ui/dialog';
-import { Button } from '../../shared/ui/button';
-import { CurrencyInput } from '../../shared/ui/CurrencyInput';
-import { Input } from '../../shared/ui/input';
-import { Label } from '../../shared/ui/label';
-import { DatePicker } from '../../shared/ui/date-picker';
+import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
+import Decimal from 'decimal.js'
+import type { EventWithData } from '../../shared/types'
+import { fromMinorUnits, toMinorUnits, getMinorUnitsStep } from '../../shared/utils/format'
+import { parseRateInput } from '../currency/fxRate'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogBody, DialogFooter } from '../../shared/ui/dialog'
+import { Button } from '../../shared/ui/button'
+import { CurrencyInput } from '../../shared/ui/CurrencyInput'
+import { Input } from '../../shared/ui/input'
+import { Label } from '../../shared/ui/label'
+import { DatePicker } from '../../shared/ui/date-picker'
 
 type UpdateTransferPayload = {
-  fromEventId: number;
-  toEventId: number;
-  fromDate: string;
-  toDate: string;
-  amountMinor: number;
-  toAmountMinor: number;
-  note: string | null;
-  originalCurrencyId: number | null;
-  fxRateMantissa: number | null;
-  fxRateExponent: number | null;
-};
-
-interface EditTransferModalProps {
-  fromEvent: EventWithData;
-  toEvent: EventWithData;
-  onSubmit: (payload: UpdateTransferPayload) => Promise<void>;
-  onClose: () => void;
+  fromEventId: number
+  toEventId: number
+  fromDate: string
+  toDate: string
+  amountMinor: number
+  toAmountMinor: number
+  note: string | null
+  originalCurrencyId: number | null
+  fxRateMantissa: number | null
+  fxRateExponent: number | null
 }
 
-export default function EditTransferModal({
-  fromEvent,
-  toEvent,
-  onSubmit,
-  onClose,
-}: EditTransferModalProps) {
-  const { t } = useTranslation();
-  const [fromDate, setFromDate] = useState(fromEvent.eventDate);
-  const [toDate, setToDate] = useState(toEvent.eventDate);
-  const [fromAmountStr, setFromAmountStr] = useState(
-    fromMinorUnits(Math.abs(fromEvent.amountMinor), fromEvent.currencyMinorUnits),
-  );
-  const [toAmountStr, setToAmountStr] = useState(
-    fromMinorUnits(toEvent.amountMinor, toEvent.currencyMinorUnits),
-  );
-  const [note, setNote] = useState(fromEvent.note ?? '');
-  const [submitting, setSubmitting] = useState(false);
+interface EditTransferModalProps {
+  fromEvent: EventWithData
+  toEvent: EventWithData
+  onSubmit: (payload: UpdateTransferPayload) => Promise<void>
+  onClose: () => void
+}
 
-  const isCrossCurrency = fromEvent.originalCurrencyId !== null;
-  const fromCurrencyCode = fromEvent.currencyCode;
-  const toCurrencyCode = toEvent.currencyCode;
+export default function EditTransferModal({ fromEvent, toEvent, onSubmit, onClose }: EditTransferModalProps) {
+  const { t } = useTranslation()
+  const [fromDate, setFromDate] = useState(fromEvent.eventDate)
+  const [toDate, setToDate] = useState(toEvent.eventDate)
+  const [fromAmountStr, setFromAmountStr] = useState(fromMinorUnits(Math.abs(fromEvent.amountMinor), fromEvent.currencyMinorUnits))
+  const [toAmountStr, setToAmountStr] = useState(fromMinorUnits(toEvent.amountMinor, toEvent.currencyMinorUnits))
+  const [note, setNote] = useState(fromEvent.note ?? '')
+  const [submitting, setSubmitting] = useState(false)
 
-  let fxRateDisplay: string | null = null;
+  const isCrossCurrency = fromEvent.originalCurrencyId !== null
+  const fromCurrencyCode = fromEvent.currencyCode
+  const toCurrencyCode = toEvent.currencyCode
+
+  let fxRateDisplay: string | null = null
   if (isCrossCurrency) {
     try {
-      const fromVal = new Decimal(fromAmountStr);
+      const fromVal = new Decimal(fromAmountStr)
       if (!fromVal.isZero()) {
-        fxRateDisplay = new Decimal(toAmountStr).div(fromVal).toSignificantDigits(6).toString();
+        fxRateDisplay = new Decimal(toAmountStr).div(fromVal).toSignificantDigits(6).toString()
       }
     } catch {
-      fxRateDisplay = null;
+      fxRateDisplay = null
     }
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const parsedFrom = parseFloat(fromAmountStr);
+    e.preventDefault()
+    const parsedFrom = parseFloat(fromAmountStr)
     if (isNaN(parsedFrom) || parsedFrom <= 0) {
-      toast.error(t('validation.invalidAmount'));
-      return;
+      toast.error(t('validation.invalidAmount'))
+      return
     }
 
     if (isCrossCurrency) {
-      const parsedTo = parseFloat(toAmountStr);
+      const parsedTo = parseFloat(toAmountStr)
       if (isNaN(parsedTo) || parsedTo <= 0) {
-        toast.error(t('validation.invalidAmount'));
-        return;
+        toast.error(t('validation.invalidAmount'))
+        return
       }
-      const parsedRate = parseRateInput(fxRateDisplay ?? '');
+      const parsedRate = parseRateInput(fxRateDisplay ?? '')
       if (!parsedRate) {
-        toast.error(t('fxRates.invalidRate'));
-        return;
+        toast.error(t('fxRates.invalidRate'))
+        return
       }
       const payload: UpdateTransferPayload = {
         fromEventId: fromEvent.id,
@@ -103,12 +87,12 @@ export default function EditTransferModal({
         originalCurrencyId: fromEvent.originalCurrencyId,
         fxRateMantissa: parsedRate.mantissa,
         fxRateExponent: parsedRate.exponent,
-      };
-      setSubmitting(true);
+      }
+      setSubmitting(true)
       try {
-        await onSubmit(payload);
+        await onSubmit(payload)
       } finally {
-        setSubmitting(false);
+        setSubmitting(false)
       }
     } else {
       const payload: UpdateTransferPayload = {
@@ -122,31 +106,28 @@ export default function EditTransferModal({
         originalCurrencyId: null,
         fxRateMantissa: null,
         fxRateExponent: null,
-      };
-      setSubmitting(true);
+      }
+      setSubmitting(true)
       try {
-        await onSubmit(payload);
+        await onSubmit(payload)
       } finally {
-        setSubmitting(false);
+        setSubmitting(false)
       }
     }
-  };
+  }
 
   return (
     <Dialog
       open={true}
       onOpenChange={(open) => {
-        if (!open) onClose();
+        if (!open) onClose()
       }}
     >
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{t('modals.editTransfer.title')}</DialogTitle>
         </DialogHeader>
-        <form
-          onSubmit={handleSubmit}
-          className="flex flex-col flex-1 overflow-hidden min-h-0 gap-4"
-        >
+        <form onSubmit={handleSubmit} className="flex flex-col flex-1 overflow-hidden min-h-0 gap-4">
           <DialogBody className="flex flex-col gap-4">
             {/* From / To columns */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -154,25 +135,13 @@ export default function EditTransferModal({
                 <Label>{t('modals.editTransfer.from')}</Label>
                 <Input type="text" value={fromEvent.accountName} disabled className="bg-muted" />
                 <Label htmlFor="et-from-date">{t('modals.editTransfer.fromDate')}</Label>
-                <DatePicker
-                  id="et-from-date"
-                  value={fromDate}
-                  onChange={setFromDate}
-                  withTime
-                  defaultTime="23:59"
-                />
+                <DatePicker id="et-from-date" value={fromDate} onChange={setFromDate} withTime defaultTime="23:59" />
               </div>
               <div className="flex flex-col gap-2">
                 <Label>{t('modals.editTransfer.to')}</Label>
                 <Input type="text" value={toEvent.accountName} disabled className="bg-muted" />
                 <Label htmlFor="et-to-date">{t('modals.editTransfer.toDate')}</Label>
-                <DatePicker
-                  id="et-to-date"
-                  value={toDate}
-                  onChange={setToDate}
-                  withTime
-                  defaultTime="23:59"
-                />
+                <DatePicker id="et-to-date" value={toDate} onChange={setToDate} withTime defaultTime="23:59" />
               </div>
             </div>
 
@@ -235,13 +204,7 @@ export default function EditTransferModal({
             {/* Note */}
             <div className="flex flex-col gap-2">
               <Label htmlFor="et-note">{t('modals.editTransfer.note')}</Label>
-              <Input
-                id="et-note"
-                type="text"
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-                placeholder={t('modals.editTransfer.notePlaceholder')}
-              />
+              <Input id="et-note" type="text" value={note} onChange={(e) => setNote(e.target.value)} placeholder={t('modals.editTransfer.notePlaceholder')} />
             </div>
           </DialogBody>
 
@@ -256,5 +219,5 @@ export default function EditTransferModal({
         </form>
       </DialogContent>
     </Dialog>
-  );
+  )
 }

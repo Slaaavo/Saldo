@@ -1,15 +1,15 @@
-import Papa from 'papaparse';
-import type { CsvRow, ColumnMapping, CashflowFieldKey } from './types';
+import Papa from 'papaparse'
+import type { CsvRow, ColumnMapping, CashflowFieldKey } from './types'
 
 export async function parseCsvFile(file: File): Promise<{ headers: string[]; rows: CsvRow[] }> {
-  const text = await readFileAsText(file);
-  const lines = text.split('\n');
+  const text = await readFileAsText(file)
+  const lines = text.split('\n')
   if (lines.length < 2) {
-    throw new Error('The CSV file must have at least a header row and one data row.');
+    throw new Error('The CSV file must have at least a header row and one data row.')
   }
-  const firstLine = lines[0];
-  const rawParse = Papa.parse(firstLine, { header: false, skipEmptyLines: false });
-  const rawHeaders = rawParse.data[0] as string[];
+  const firstLine = lines[0]
+  const rawParse = Papa.parse(firstLine, { header: false, skipEmptyLines: false })
+  const rawHeaders = rawParse.data[0] as string[]
   return new Promise((resolve, reject) => {
     Papa.parse<CsvRow>(text, {
       header: true,
@@ -17,47 +17,47 @@ export async function parseCsvFile(file: File): Promise<{ headers: string[]; row
       dynamicTyping: false,
       complete(results) {
         if (results.errors.length > 0 && results.data.length === 0) {
-          reject(new Error(`CSV parsing failed: ${results.errors[0].message}`));
-          return;
+          reject(new Error(`CSV parsing failed: ${results.errors[0].message}`))
+          return
         }
         if (results.data.length === 0) {
-          reject(new Error('The CSV file contains no data rows.'));
-          return;
+          reject(new Error('The CSV file contains no data rows.'))
+          return
         }
-        const originalHeaders = results.meta.fields ?? [];
+        const originalHeaders = results.meta.fields ?? []
         const normalizedHeaders = originalHeaders.map((h, i) => {
-          const raw = rawHeaders[i] || '';
+          const raw = rawHeaders[i] || ''
           if (raw.trim() === '') {
-            return `no-header-column-${i + 1}`;
+            return `no-header-column-${i + 1}`
           }
-          return h;
-        });
+          return h
+        })
         const transformedRows = results.data.map((row) => {
-          const newRow: CsvRow = {};
+          const newRow: CsvRow = {}
           originalHeaders.forEach((orig, i) => {
-            newRow[normalizedHeaders[i]] = row[orig];
-          });
-          return newRow;
-        });
-        resolve({ headers: normalizedHeaders, rows: transformedRows });
+            newRow[normalizedHeaders[i]] = row[orig]
+          })
+          return newRow
+        })
+        resolve({ headers: normalizedHeaders, rows: transformedRows })
       },
       error(err: { message: string }) {
-        reject(new Error(`CSV parsing failed: ${err.message}`));
+        reject(new Error(`CSV parsing failed: ${err.message}`))
       },
-    });
-  });
+    })
+  })
 }
 
 async function readFileAsText(file: File): Promise<string> {
   // Try UTF-8 first
-  let text = await file.text();
+  let text = await file.text()
   // If result contains replacement characters, try Windows-1250 (common for Slovak/Czech bank exports)
   if (text.includes('\uFFFD')) {
-    const buffer = await file.arrayBuffer();
-    const decoder = new TextDecoder('windows-1250');
-    text = decoder.decode(buffer);
+    const buffer = await file.arrayBuffer()
+    const decoder = new TextDecoder('windows-1250')
+    text = decoder.decode(buffer)
   }
-  return text;
+  return text
 }
 
 const FIELD_PATTERNS: Array<{ field: CashflowFieldKey; patterns: string[] }> = [
@@ -67,7 +67,7 @@ const FIELD_PATTERNS: Array<{ field: CashflowFieldKey; patterns: string[] }> = [
   { field: 'note', patterns: ['note', 'poznámka', 'poznamka', 'popis', 'description'] },
   { field: 'currency', patterns: ['currency', 'mena'] },
   { field: 'fxRate', patterns: ['rate', 'kurz'] },
-];
+]
 
 export function autoDetectMapping(headers: string[]): ColumnMapping {
   const mapping: ColumnMapping = {
@@ -77,51 +77,51 @@ export function autoDetectMapping(headers: string[]): ColumnMapping {
     note: null,
     currency: null,
     fxRate: null,
-  };
+  }
 
   for (const header of headers) {
-    const lower = header.toLowerCase();
+    const lower = header.toLowerCase()
     for (const { field, patterns } of FIELD_PATTERNS) {
-      if (mapping[field] !== null) continue;
+      if (mapping[field] !== null) continue
       if (patterns.some((p) => lower.includes(p))) {
-        mapping[field] = header;
-        break;
+        mapping[field] = header
+        break
       }
     }
   }
 
-  return mapping;
+  return mapping
 }
 
 export function parseAmount(raw: string): number | null {
   // Strip currency symbols, spaces, and leading plus signs
-  const cleaned = raw.replace(/[€$£¥₹\s+]/g, '');
+  const cleaned = raw.replace(/[€$£¥₹\s+]/g, '')
 
-  if (cleaned === '' || cleaned === '-') return null;
+  if (cleaned === '' || cleaned === '-') return null
 
-  const lastComma = cleaned.lastIndexOf(',');
-  const lastDot = cleaned.lastIndexOf('.');
+  const lastComma = cleaned.lastIndexOf(',')
+  const lastDot = cleaned.lastIndexOf('.')
 
-  let normalized: string;
+  let normalized: string
 
   if (lastComma > lastDot) {
     // European format: 1.234,56 — comma is decimal separator
-    normalized = cleaned.replace(/\./g, '').replace(',', '.');
+    normalized = cleaned.replace(/\./g, '').replace(',', '.')
   } else if (lastDot > lastComma) {
     // US format: 1,234.56 — dot is decimal separator
-    normalized = cleaned.replace(/,/g, '');
+    normalized = cleaned.replace(/,/g, '')
   } else {
     // No separators at all (e.g., "1234" or "-45")
-    normalized = cleaned;
+    normalized = cleaned
   }
 
-  const value = parseFloat(normalized);
-  return isNaN(value) ? null : value;
+  const value = parseFloat(normalized)
+  return isNaN(value) ? null : value
 }
 
 const DATE_PATTERNS: Array<{
-  regex: RegExp;
-  parse: (m: RegExpMatchArray) => [number, number, number];
+  regex: RegExp
+  parse: (m: RegExpMatchArray) => [number, number, number]
 }> = [
   {
     // YYYYMMDD (exactly 8 digits, no separators) — must precede YYYY-MM-DD to avoid ambiguity
@@ -148,28 +148,28 @@ const DATE_PATTERNS: Array<{
     regex: /^(\d{2})-(\d{2})-(\d{4})$/,
     parse: (m) => [parseInt(m[3]), parseInt(m[2]), parseInt(m[1])],
   },
-];
+]
 
 export function parseDateString(raw: string): string | null {
-  if (!raw || raw.trim() === '') return null;
+  if (!raw || raw.trim() === '') return null
 
-  const trimmed = raw.trim();
+  const trimmed = raw.trim()
 
   for (const { regex, parse } of DATE_PATTERNS) {
-    const match = trimmed.match(regex);
-    if (!match) continue;
+    const match = trimmed.match(regex)
+    if (!match) continue
 
-    const [year, month, day] = parse(match);
+    const [year, month, day] = parse(match)
 
-    if (month < 1 || month > 12) return null;
-    if (day < 1 || day > 31) return null;
+    if (month < 1 || month > 12) return null
+    if (day < 1 || day > 31) return null
 
-    const yyyy = String(year).padStart(4, '0');
-    const mm = String(month).padStart(2, '0');
-    const dd = String(day).padStart(2, '0');
+    const yyyy = String(year).padStart(4, '0')
+    const mm = String(month).padStart(2, '0')
+    const dd = String(day).padStart(2, '0')
 
-    return `${yyyy}-${mm}-${dd}T12:00:00`;
+    return `${yyyy}-${mm}-${dd}T12:00:00`
   }
 
-  return null;
+  return null
 }

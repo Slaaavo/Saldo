@@ -1,83 +1,70 @@
-import { useTranslation } from 'react-i18next';
-import { toast } from 'sonner';
-import type { SnapshotRow, Currency, ModalState, EventWithData } from '../../shared/types';
-import { getEventById } from '../../shared/api';
-import { extractErrorMessage } from '../../shared/utils/errors';
-import { useLedgerData } from './useLedgerData';
-import LedgerEventList from '../../shared/ui/LedgerEventList';
-import PortfolioItemFilter from './PortfolioItemFilter';
-import { DatePicker } from '../../shared/ui/date-picker';
-import { Button } from '../../shared/ui/button';
-import { RefreshCw, Upload } from 'lucide-react';
+import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
+import type { SnapshotRow, Currency, ModalState, EventWithData } from '../../shared/types'
+import { getEventById } from '../../shared/api'
+import { extractErrorMessage } from '../../shared/utils/errors'
+import { useLedgerData } from './useLedgerData'
+import LedgerEventList from '../../shared/ui/LedgerEventList'
+import PortfolioItemFilter from './PortfolioItemFilter'
+import { DatePicker } from '../../shared/ui/date-picker'
+import { Button } from '../../shared/ui/button'
+import { RefreshCw, Upload } from 'lucide-react'
 
 interface Props {
-  snapshot: SnapshotRow[];
-  consolidationCurrency: Currency | null;
-  setModalState: (state: ModalState) => void;
-  refreshTrigger: number;
+  snapshot: SnapshotRow[]
+  consolidationCurrency: Currency | null
+  setModalState: (state: ModalState) => void
+  refreshTrigger: number
 }
 
-export default function LedgerPage({
-  snapshot,
-  consolidationCurrency,
-  setModalState,
-  refreshTrigger,
-}: Props) {
-  const { t } = useTranslation();
+export default function LedgerPage({ snapshot, consolidationCurrency, setModalState, refreshTrigger }: Props) {
+  const { t } = useTranslation()
 
-  const {
-    fromDate,
-    setFromDate,
-    toDate,
-    setToDate,
-    selectedAccountIds,
-    setSelectedAccountIds,
-    eventTypeFilter,
-    setEventTypeFilter,
-    events,
-    loading,
-  } = useLedgerData({ refreshTrigger, snapshot });
+  const { fromDate, setFromDate, toDate, setToDate, selectedAccountIds, setSelectedAccountIds, eventTypeFilter, setEventTypeFilter, events, loading } = useLedgerData({
+    refreshTrigger,
+    snapshot,
+  })
 
   const handleEditEvent = async (event: EventWithData) => {
     if (event.eventType === 'balance_update') {
-      setModalState({ type: 'editBalanceUpdate', event });
-      return;
+      setModalState({ type: 'editBalanceUpdate', event })
+      return
     }
     if (event.eventType === 'transfer') {
       if (!event.linkedEventId) {
-        toast.error(t('errors.loadData'));
-        return;
+        toast.error(t('errors.loadData'))
+        return
       }
       try {
-        const linked = await getEventById(event.linkedEventId);
+        const linked = await getEventById(event.linkedEventId)
         if (!linked) {
-          toast.error(t('errors.loadData'));
-          return;
+          toast.error(t('errors.loadData'))
+          return
         }
-        const fromEvent = event.amountMinor < 0 ? event : linked;
-        const toEvent = event.amountMinor < 0 ? linked : event;
-        setModalState({ type: 'editTransfer', fromEvent, toEvent });
+        const fromEvent = event.amountMinor < 0 ? event : linked
+        const toEvent = event.amountMinor < 0 ? linked : event
+        setModalState({ type: 'editTransfer', fromEvent, toEvent })
       } catch (err) {
-        toast.error(extractErrorMessage(err));
+        toast.error(extractErrorMessage(err))
       }
     }
-  };
+  }
 
   const handleDeleteEvent = (eventId: number) => {
-    setModalState({ type: 'confirmDeleteEvent', eventId });
-  };
+    setModalState({ type: 'confirmDeleteEvent', eventId })
+  }
 
   const handleDeleteTransferEvent = (eventId: number, linkedEventId: number) => {
-    setModalState({ type: 'confirmDeleteTransferEvent', eventId, linkedEventId });
-  };
+    setModalState({ type: 'confirmDeleteTransferEvent', eventId, linkedEventId })
+  }
 
   const handleUpdateBalances = () => {
-    setModalState({ type: 'bulkUpdateBalance' });
-  };
+    setModalState({ type: 'bulkUpdateBalance' })
+  }
 
   const handleImportCsv = () => {
-    setModalState({ type: 'csvImport' });
-  };
+    setModalState({ type: 'csvImport' })
+  }
 
   return (
     <section className="px-4 md:px-10 py-8">
@@ -99,27 +86,13 @@ export default function LedgerPage({
       <div className="flex flex-wrap items-center gap-3 mb-4">
         <div className="flex items-center gap-2">
           <span className="text-sm text-muted-foreground">{t('ledgerPage.filterFrom')}</span>
-          <DatePicker
-            value={fromDate || undefined}
-            onChange={(d) => setFromDate(d)}
-            clearable
-            placeholder={t('ledgerPage.filterFrom')}
-          />
+          <DatePicker value={fromDate || undefined} onChange={(d) => setFromDate(d)} clearable placeholder={t('ledgerPage.filterFrom')} />
         </div>
         <div className="flex items-center gap-2">
           <span className="text-sm text-muted-foreground">{t('ledgerPage.filterTo')}</span>
-          <DatePicker
-            value={toDate || undefined}
-            onChange={(d) => setToDate(d)}
-            clearable
-            placeholder={t('ledgerPage.filterTo')}
-          />
+          <DatePicker value={toDate || undefined} onChange={(d) => setToDate(d)} clearable placeholder={t('ledgerPage.filterTo')} />
         </div>
-        <PortfolioItemFilter
-          accounts={snapshot}
-          selectedIds={selectedAccountIds}
-          onChange={setSelectedAccountIds}
-        />
+        <PortfolioItemFilter accounts={snapshot} selectedIds={selectedAccountIds} onChange={setSelectedAccountIds} />
       </div>
 
       {/* Event type filter */}
@@ -132,12 +105,7 @@ export default function LedgerPage({
             { value: 'transfer', label: t('ledgerPage.filterType.transfers') },
           ] as const
         ).map(({ value, label }) => (
-          <Button
-            key={value}
-            variant={eventTypeFilter === value ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => setEventTypeFilter(value)}
-          >
+          <Button key={value} variant={eventTypeFilter === value ? 'default' : 'outline'} size="sm" onClick={() => setEventTypeFilter(value)}>
             {label}
           </Button>
         ))}
@@ -156,5 +124,5 @@ export default function LedgerPage({
         />
       )}
     </section>
-  );
+  )
 }

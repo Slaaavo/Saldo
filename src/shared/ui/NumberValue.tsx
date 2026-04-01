@@ -1,26 +1,19 @@
-import type { HTMLAttributes } from 'react';
-import { formatAmount } from '../utils/format';
-import type { NumberFormatConfig } from '../config/numberFormat';
-import { defaultNumberFormat } from '../config/numberFormat';
+import type { HTMLAttributes } from 'react'
+import { formatAmount } from '../utils/format'
+import type { NumberFormatConfig } from '../config/numberFormat'
+import { defaultNumberFormat } from '../config/numberFormat'
 
 interface NumberValueProps extends HTMLAttributes<HTMLSpanElement> {
-  value: number;
-  minorUnits?: number;
-  config?: NumberFormatConfig;
-  currencyCode?: string;
+  value: number
+  minorUnits?: number
+  config?: NumberFormatConfig
+  currencyCode?: string
 }
 
-export default function NumberValue({
-  value,
-  minorUnits = 2,
-  config = defaultNumberFormat,
-  currencyCode,
-  className,
-  ...rest
-}: NumberValueProps) {
+export default function NumberValue({ value, minorUnits = 2, config = defaultNumberFormat, currencyCode, className, ...rest }: NumberValueProps) {
   return (
     <span className={className} {...rest}>
       {formatAmount(value, minorUnits, config, currencyCode)}
     </span>
-  );
+  )
 }

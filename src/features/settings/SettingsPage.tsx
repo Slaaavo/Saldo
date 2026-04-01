@@ -1,40 +1,34 @@
-import { useState } from 'react';
-import { useTranslation } from 'react-i18next';
-import { toast } from 'sonner';
-import { PINNED_CURRENCY_CODES } from '../../shared/config/constants';
-import type { ThemePreference } from './useTheme';
-import type { SnapshotRow } from '../../shared/types';
-import { useSettings } from './useSettings';
-import { Button } from '../../shared/ui/button';
-import { Input } from '../../shared/ui/input';
-import { Label } from '../../shared/ui/label';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '../../shared/ui/select';
-import CurrencySelect from '../currency/CurrencySelect';
-import LanguageSelector from './LanguageSelector';
-import BulkUpdateVisibilityModal from './BulkUpdateVisibilityModal';
-import { setBulkUpdateExclusions } from '../../shared/api';
-import { extractErrorMessage } from '../../shared/utils/errors';
+import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
+import { PINNED_CURRENCY_CODES } from '../../shared/config/constants'
+import type { ThemePreference } from './useTheme'
+import type { SnapshotRow } from '../../shared/types'
+import { useSettings } from './useSettings'
+import { Button } from '../../shared/ui/button'
+import { Input } from '../../shared/ui/input'
+import { Label } from '../../shared/ui/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../shared/ui/select'
+import CurrencySelect from '../currency/CurrencySelect'
+import LanguageSelector from './LanguageSelector'
+import BulkUpdateVisibilityModal from './BulkUpdateVisibilityModal'
+import { setBulkUpdateExclusions } from '../../shared/api'
+import { extractErrorMessage } from '../../shared/utils/errors'
 
 interface Props {
-  onConsolidationCurrencyChange: () => void;
-  themePreference: ThemePreference;
-  onThemeChange: (pref: ThemePreference) => void;
-  isDemoMode: boolean;
-  onEnterDemoMode: () => void;
-  onExitDemoMode: () => void;
-  dbLocationPath: string;
-  dbLocationIsDefault: boolean;
-  onChangeDbLocation: () => void;
-  onResetDbLocation: () => void;
-  snapshot: SnapshotRow[];
-  exclusions: number[];
-  onExclusionsChange: () => void;
+  onConsolidationCurrencyChange: () => void
+  themePreference: ThemePreference
+  onThemeChange: (pref: ThemePreference) => void
+  isDemoMode: boolean
+  onEnterDemoMode: () => void
+  onExitDemoMode: () => void
+  dbLocationPath: string
+  dbLocationIsDefault: boolean
+  onChangeDbLocation: () => void
+  onResetDbLocation: () => void
+  snapshot: SnapshotRow[]
+  exclusions: number[]
+  onExclusionsChange: () => void
 }
 
 export default function SettingsPage({
@@ -52,18 +46,9 @@ export default function SettingsPage({
   exclusions,
   onExclusionsChange,
 }: Props) {
-  const { t } = useTranslation();
-  const [visibilityModalOpen, setVisibilityModalOpen] = useState(false);
-  const {
-    currencies,
-    selectedCurrency,
-    apiKey,
-    setApiKey,
-    apiKeySaved,
-    currencySaved,
-    handleCurrencySelect,
-    handleSaveApiKey,
-  } = useSettings({ onConsolidationCurrencyChange });
+  const { t } = useTranslation()
+  const [visibilityModalOpen, setVisibilityModalOpen] = useState(false)
+  const { currencies, selectedCurrency, apiKey, setApiKey, apiKeySaved, currencySaved, handleCurrencySelect, handleSaveApiKey } = useSettings({ onConsolidationCurrencyChange })
 
   return (
     <div className="px-4 md:px-10 py-8">
@@ -97,28 +82,16 @@ export default function SettingsPage({
         <div className="flex flex-col gap-2">
           <div className="flex items-center gap-3">
             <Label>{t('settings.consolidationCurrency')}</Label>
-            {currencySaved && (
-              <span className="text-sm text-green-600 dark:text-green-400">
-                {t('settings.saved')}
-              </span>
-            )}
+            {currencySaved && <span className="text-sm text-green-600 dark:text-green-400">{t('settings.saved')}</span>}
           </div>
-          <CurrencySelect
-            currencies={currencies}
-            value={selectedCurrency}
-            onChange={handleCurrencySelect}
-            pinnedCurrencyCodes={PINNED_CURRENCY_CODES}
-            className="w-64"
-          />
+          <CurrencySelect currencies={currencies} value={selectedCurrency} onChange={handleCurrencySelect} pinnedCurrencyCodes={PINNED_CURRENCY_CODES} className="w-64" />
         </div>
       </div>
 
       {/* Section 2: Integrations */}
       <div className="border-b border-border pb-8 mb-8">
         <h3 className="text-lg font-semibold mb-1">{t('settings.sectionIntegrations')}</h3>
-        <p className="text-sm text-muted-foreground mb-6">
-          {t('settings.sectionIntegrationsDesc')}
-        </p>
+        <p className="text-sm text-muted-foreground mb-6">{t('settings.sectionIntegrationsDesc')}</p>
 
         {/* OXR API Key field */}
         <div className="flex flex-col gap-2">
@@ -132,11 +105,7 @@ export default function SettingsPage({
               placeholder={t('settings.oxrApiKeyPlaceholder')}
               className="flex-1"
             />
-            <Button
-              type="button"
-              onClick={handleSaveApiKey}
-              variant={apiKeySaved ? 'default' : 'outline'}
-            >
+            <Button type="button" onClick={handleSaveApiKey} variant={apiKeySaved ? 'default' : 'outline'}>
               {apiKeySaved ? t('settings.saved') : t('settings.saveApiKey')}
             </Button>
           </div>
@@ -152,33 +121,17 @@ export default function SettingsPage({
           <Label>{t('dataStorage.currentPath')}</Label>
           <p className="select-text break-all rounded-md bg-muted px-3 py-2 font-mono text-sm">
             {dbLocationPath}
-            {dbLocationIsDefault && (
-              <span className="ml-2 text-xs text-muted-foreground">
-                {t('dataStorage.isDefault')}
-              </span>
-            )}
+            {dbLocationIsDefault && <span className="ml-2 text-xs text-muted-foreground">{t('dataStorage.isDefault')}</span>}
           </p>
 
-          {isDemoMode && (
-            <p className="text-sm text-muted-foreground">{t('dataStorage.disabledInDemoMode')}</p>
-          )}
+          {isDemoMode && <p className="text-sm text-muted-foreground">{t('dataStorage.disabledInDemoMode')}</p>}
 
           <div className="flex gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={onChangeDbLocation}
-              disabled={isDemoMode}
-            >
+            <Button type="button" variant="outline" onClick={onChangeDbLocation} disabled={isDemoMode}>
               {t('dataStorage.changeButton')}
             </Button>
             {!dbLocationIsDefault && (
-              <Button
-                type="button"
-                variant="outline"
-                onClick={onResetDbLocation}
-                disabled={isDemoMode}
-              >
+              <Button type="button" variant="outline" onClick={onResetDbLocation} disabled={isDemoMode}>
                 {t('dataStorage.resetButton')}
               </Button>
             )}
@@ -189,19 +142,17 @@ export default function SettingsPage({
       {/* Section 4: Bulk Update Visibility */}
       <div className="border-b border-border pb-8 mb-8">
         <h3 className="text-lg font-semibold mb-1">{t('settings.bulkUpdateVisibility.title')}</h3>
-        <p className="text-sm text-muted-foreground mb-6">
-          {t('settings.bulkUpdateVisibility.desc')}
-        </p>
+        <p className="text-sm text-muted-foreground mb-6">{t('settings.bulkUpdateVisibility.desc')}</p>
         <div className="flex flex-col gap-3">
           <p className="text-sm text-muted-foreground">
             {exclusions.length === 0
               ? t('settings.bulkUpdateVisibility.allIncluded')
               : (() => {
-                  const exclusionSet = new Set(exclusions);
+                  const exclusionSet = new Set(exclusions)
                   return snapshot
                     .filter((r) => !exclusionSet.has(r.accountId))
                     .map((r) => r.accountName)
-                    .join(', ');
+                    .join(', ')
                 })()}
           </p>
           <div>
@@ -218,11 +169,11 @@ export default function SettingsPage({
           currentExclusions={exclusions}
           onSave={async (excludedIds) => {
             try {
-              await setBulkUpdateExclusions(excludedIds);
-              onExclusionsChange();
-              setVisibilityModalOpen(false);
+              await setBulkUpdateExclusions(excludedIds)
+              onExclusionsChange()
+              setVisibilityModalOpen(false)
             } catch (err) {
-              toast.error(t('errors.bulkUpdateVisibility', { error: extractErrorMessage(err) }));
+              toast.error(t('errors.bulkUpdateVisibility', { error: extractErrorMessage(err) }))
             }
           }}
           onClose={() => setVisibilityModalOpen(false)}
@@ -247,5 +198,5 @@ export default function SettingsPage({
         )}
       </div>
     </div>
-  );
+  )
 }

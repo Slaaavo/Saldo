@@ -1,5 +1,5 @@
-import Decimal from 'decimal.js';
-import type { FxRateRow } from '../../shared/types';
+import Decimal from 'decimal.js'
+import type { FxRateRow } from '../../shared/types'
 
 /**
  * Display the stored rate as a price.
@@ -7,13 +7,13 @@ import type { FxRateRow } from '../../shared/types';
  */
 export function formatPrice(r: FxRateRow): string {
   try {
-    const rateDecimal = new Decimal(`${r.rateMantissa}e${r.rateExponent}`);
+    const rateDecimal = new Decimal(`${r.rateMantissa}e${r.rateExponent}`)
     if (r.isDirect) {
-      return rateDecimal.toSignificantDigits(6).toString();
+      return rateDecimal.toSignificantDigits(6).toString()
     }
-    return new Decimal(1).div(rateDecimal).toSignificantDigits(6).toString();
+    return new Decimal(1).div(rateDecimal).toSignificantDigits(6).toString()
   } catch {
-    return '—';
+    return '—'
   }
 }
 
@@ -23,21 +23,21 @@ export function formatPrice(r: FxRateRow): string {
  */
 export function parsePriceAsRate(input: string): { mantissa: number; exponent: number } | null {
   try {
-    const price = new Decimal(input);
-    if (price.isZero() || price.isNegative()) return null;
+    const price = new Decimal(input)
+    if (price.isZero() || price.isNegative()) return null
     // Store the price directly — limit to 15 significant digits so the mantissa fits in
     // a JS safe integer and a Rust i64.
-    const priceDecimal = price.toSignificantDigits(15);
-    let str = priceDecimal.toFixed();
+    const priceDecimal = price.toSignificantDigits(15)
+    let str = priceDecimal.toFixed()
     if (str.includes('.')) {
-      str = str.replace(/0+$/, '').replace(/\.$/, '');
+      str = str.replace(/0+$/, '').replace(/\.$/, '')
     }
-    const parts = str.split('.');
-    const mantissa = parseInt(parts.join(''), 10);
-    const exponent = parts[1] ? -parts[1].length : 0;
-    if (!Number.isFinite(mantissa) || mantissa === 0) return null;
-    return { mantissa, exponent };
+    const parts = str.split('.')
+    const mantissa = parseInt(parts.join(''), 10)
+    const exponent = parts[1] ? -parts[1].length : 0
+    if (!Number.isFinite(mantissa) || mantissa === 0) return null
+    return { mantissa, exponent }
   } catch {
-    return null;
+    return null
   }
 }

@@ -1,46 +1,41 @@
-import { defaultNumberFormat, type NumberFormatConfig } from '../config/numberFormat';
+import { defaultNumberFormat, type NumberFormatConfig } from '../config/numberFormat'
 
 /**
  * Format a minor-unit integer amount as a display string.
  * Example: 123456 (minorUnits=2) → "1 234.56 €"
  * When currencyCode is provided, it overrides the symbol from config.
  */
-export function formatAmount(
-  amountMinor: number,
-  minorUnits: number = 2,
-  config: NumberFormatConfig = defaultNumberFormat,
-  currencyCode?: string,
-): string {
-  const isNegative = amountMinor < 0;
-  const abs = Math.abs(amountMinor);
-  const divisor = Math.pow(10, minorUnits);
-  const integerPart = Math.floor(abs / divisor);
-  const fractionalPart = abs % divisor;
+export function formatAmount(amountMinor: number, minorUnits: number = 2, config: NumberFormatConfig = defaultNumberFormat, currencyCode?: string): string {
+  const isNegative = amountMinor < 0
+  const abs = Math.abs(amountMinor)
+  const divisor = Math.pow(10, minorUnits)
+  const integerPart = Math.floor(abs / divisor)
+  const fractionalPart = abs % divisor
 
   // Insert thousands separator
-  const intStr = integerPart.toString();
-  let withSeparators = '';
+  const intStr = integerPart.toString()
+  let withSeparators = ''
   for (let i = 0; i < intStr.length; i++) {
     if (i > 0 && (intStr.length - i) % 3 === 0) {
-      withSeparators += config.thousandsSeparator;
+      withSeparators += config.thousandsSeparator
     }
-    withSeparators += intStr[i];
+    withSeparators += intStr[i]
   }
 
-  let numberStr = withSeparators;
+  let numberStr = withSeparators
   if (minorUnits > 0) {
-    numberStr += config.decimalSeparator + fractionalPart.toString().padStart(minorUnits, '0');
+    numberStr += config.decimalSeparator + fractionalPart.toString().padStart(minorUnits, '0')
   }
 
-  let result: string;
-  const symbol = currencyCode ?? config.currencySymbol;
+  let result: string
+  const symbol = currencyCode ?? config.currencySymbol
   if (config.currencyPosition === 'left') {
-    result = `${symbol} ${numberStr}`;
+    result = `${symbol} ${numberStr}`
   } else {
-    result = `${numberStr} ${symbol}`;
+    result = `${numberStr} ${symbol}`
   }
 
-  return isNegative ? `-${result}` : result;
+  return isNegative ? `-${result}` : result
 }
 
 /**
@@ -48,25 +43,25 @@ export function formatAmount(
  * Example: "2026-03-01T12:00:00" → "2026-03-01"
  */
 export function formatDate(isoDatetime: string): string {
-  return isoDatetime.substring(0, 10);
+  return isoDatetime.substring(0, 10)
 }
 
 /**
  * Convert a date string (YYYY-MM-DD) to end-of-day datetime.
  */
 export function toEndOfDay(dateStr: string): string {
-  return `${dateStr}T23:59:59`;
+  return `${dateStr}T23:59:59`
 }
 
 /**
  * Get today's date as YYYY-MM-DD.
  */
 export function todayIso(): string {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, '0');
-  const d = String(now.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
+  const now = new Date()
+  const y = now.getFullYear()
+  const m = String(now.getMonth() + 1).padStart(2, '0')
+  const d = String(now.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
 }
 
 /**
@@ -74,7 +69,7 @@ export function todayIso(): string {
  * Example: toMinorUnits('12.34', 2) → 1234
  */
 export function toMinorUnits(decimalStr: string, minorUnits: number): number {
-  return Math.round(parseFloat(decimalStr) * Math.pow(10, minorUnits));
+  return Math.round(parseFloat(decimalStr) * Math.pow(10, minorUnits))
 }
 
 /**
@@ -82,7 +77,7 @@ export function toMinorUnits(decimalStr: string, minorUnits: number): number {
  * Example: fromMinorUnits(1234, 2) → '12.34'
  */
 export function fromMinorUnits(amountMinor: number, minorUnits: number): string {
-  return (amountMinor / Math.pow(10, minorUnits)).toFixed(minorUnits);
+  return (amountMinor / Math.pow(10, minorUnits)).toFixed(minorUnits)
 }
 
 /**
@@ -90,7 +85,7 @@ export function fromMinorUnits(amountMinor: number, minorUnits: number): string 
  * Example: getMinorUnitsStep(2) → '0.01', getMinorUnitsStep(0) → '1'
  */
 export function getMinorUnitsStep(minorUnits: number): string {
-  return minorUnits === 0 ? '1' : '0.' + '0'.repeat(minorUnits - 1) + '1';
+  return minorUnits === 0 ? '1' : '0.' + '0'.repeat(minorUnits - 1) + '1'
 }
 
 /**
@@ -98,11 +93,11 @@ export function getMinorUnitsStep(minorUnits: number): string {
  * Example: "2026-03-05" → "5 March 2026"
  */
 export function formatDisplayDate(dateStr: string, locale = 'en-GB'): string {
-  const [y, m, d] = dateStr.split('-').map(Number);
-  const date = new Date(y, m - 1, d);
+  const [y, m, d] = dateStr.split('-').map(Number)
+  const date = new Date(y, m - 1, d)
   return date.toLocaleDateString(locale, {
     year: 'numeric',
     month: 'long',
     day: 'numeric',
-  });
+  })
 }

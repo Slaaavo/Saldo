@@ -1,1 +1,1 @@
-export const PINNED_CURRENCY_CODES: string[] = ['EUR', 'USD', 'BTC'];
+export const PINNED_CURRENCY_CODES: string[] = ['EUR', 'USD', 'BTC']

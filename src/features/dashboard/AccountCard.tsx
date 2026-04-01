@@ -1,32 +1,27 @@
-import { useTranslation } from 'react-i18next';
-import type { SnapshotRow, Currency } from '../../shared/types';
-import NumberValue from '../../shared/ui/NumberValue';
-import BucketAmountWithTooltip from '../buckets/BucketAmountWithTooltip';
-import { formatAmount } from '../../shared/utils/format';
-import { defaultNumberFormat } from '../../shared/config/numberFormat';
-import { cn } from '@/shared/lib/utils';
-import { Button } from '../../shared/ui/button';
-import { Card, CardContent } from '../../shared/ui/card';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../../shared/ui/tooltip';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '../../shared/ui/dropdown-menu';
-import { MoreVertical, Pencil, Trash2, Link2 } from 'lucide-react';
-import { formatIbanSegments } from '../../shared/utils/formatIban';
+import { useTranslation } from 'react-i18next'
+import type { SnapshotRow, Currency } from '../../shared/types'
+import NumberValue from '../../shared/ui/NumberValue'
+import BucketAmountWithTooltip from '../buckets/BucketAmountWithTooltip'
+import { formatAmount } from '../../shared/utils/format'
+import { defaultNumberFormat } from '../../shared/config/numberFormat'
+import { cn } from '@/shared/lib/utils'
+import { Button } from '../../shared/ui/button'
+import { Card, CardContent } from '../../shared/ui/card'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../../shared/ui/tooltip'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '../../shared/ui/dropdown-menu'
+import { MoreVertical, Pencil, Trash2, Link2 } from 'lucide-react'
+import { formatIbanSegments } from '../../shared/utils/formatIban'
 
 interface AccountCardProps {
-  row: SnapshotRow;
-  consolidationCurrency?: Currency | null;
-  updateButtonLabel?: string;
-  onUpdateBalance: (accountId: number) => void;
-  onRenameAccount: (accountId: number, currentName: string) => void;
-  onDeleteAccount: (accountId: number, name: string) => void;
-  onManageLinkedAssets?: (accountId: number, accountName: string) => void;
-  allAssets?: SnapshotRow[];
-  allAccounts?: SnapshotRow[];
+  row: SnapshotRow
+  consolidationCurrency?: Currency | null
+  updateButtonLabel?: string
+  onUpdateBalance: (accountId: number) => void
+  onRenameAccount: (accountId: number, currentName: string) => void
+  onDeleteAccount: (accountId: number, name: string) => void
+  onManageLinkedAssets?: (accountId: number, accountName: string) => void
+  allAssets?: SnapshotRow[]
+  allAccounts?: SnapshotRow[]
 }
 
 export default function AccountCard({
@@ -40,24 +35,14 @@ export default function AccountCard({
   allAssets,
   allAccounts,
 }: AccountCardProps) {
-  const { t } = useTranslation();
+  const { t } = useTranslation()
 
-  const numConfig = { ...defaultNumberFormat, currencySymbol: '' };
-  const fmtNum = (amountMinor: number, minorUnits: number) =>
-    formatAmount(amountMinor, minorUnits, numConfig).trim();
+  const numConfig = { ...defaultNumberFormat, currencySymbol: '' }
+  const fmtNum = (amountMinor: number, minorUnits: number) => formatAmount(amountMinor, minorUnits, numConfig).trim()
 
-  const hasEquityTooltip =
-    row.accountType === 'asset' &&
-    row.linkedAssetIds.length > 0 &&
-    !!allAccounts &&
-    !!consolidationCurrency;
-  const equityLinkedRows = hasEquityTooltip
-    ? allAccounts!.filter((a) => row.linkedAssetIds.includes(a.accountId))
-    : [];
-  const equityMinor = hasEquityTooltip
-    ? row.convertedBalanceMinor +
-      equityLinkedRows.reduce((sum, a) => sum + a.convertedBalanceMinor, 0)
-    : 0;
+  const hasEquityTooltip = row.accountType === 'asset' && row.linkedAssetIds.length > 0 && !!allAccounts && !!consolidationCurrency
+  const equityLinkedRows = hasEquityTooltip ? allAccounts!.filter((a) => row.linkedAssetIds.includes(a.accountId)) : []
+  const equityMinor = hasEquityTooltip ? row.convertedBalanceMinor + equityLinkedRows.reduce((sum, a) => sum + a.convertedBalanceMinor, 0) : 0
 
   return (
     <Card className={cn('relative w-[250px] min-w-[250px] shrink-0')}>
@@ -102,17 +87,12 @@ export default function AccountCard({
                   {row.accountType === 'account' ? t('accounts.edit') : t('accounts.rename')}
                 </DropdownMenuItem>
                 {onManageLinkedAssets && row.accountType === 'account' && (
-                  <DropdownMenuItem
-                    onClick={() => onManageLinkedAssets(row.accountId, row.accountName)}
-                  >
+                  <DropdownMenuItem onClick={() => onManageLinkedAssets(row.accountId, row.accountName)}>
                     <Link2 className="h-4 w-4" />
                     {t('accounts.manageLinkedAssets')}
                   </DropdownMenuItem>
                 )}
-                <DropdownMenuItem
-                  className="text-destructive focus:text-destructive"
-                  onClick={() => onDeleteAccount(row.accountId, row.accountName)}
-                >
+                <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => onDeleteAccount(row.accountId, row.accountName)}>
                   <Trash2 className="h-4 w-4" />
                   {t('accounts.delete')}
                 </DropdownMenuItem>
@@ -122,10 +102,7 @@ export default function AccountCard({
         </div>
         {row.accountType === 'account' &&
           (row.iban?.trim() ? (
-            <p
-              className="text-xs text-muted-foreground truncate"
-              title={row.iban.replace(/(.{4})/g, '$1 ').trim()}
-            >
+            <p className="text-xs text-muted-foreground truncate" title={row.iban.replace(/(.{4})/g, '$1 ').trim()}>
               {formatIbanSegments(row.iban).map((seg, i) => (
                 <span key={i} className={seg.weight}>
                   {seg.text}
@@ -147,10 +124,7 @@ export default function AccountCard({
             allAccounts={allAccounts}
             consolidationCurrencyCode={consolidationCurrency?.code ?? row.currencyCode}
             cashflowTaggedMinor={row.cashflowTaggedMinor}
-            className={cn(
-              'text-2xl font-bold',
-              row.convertedBalanceMinor < 0 && 'text-destructive',
-            )}
+            className={cn('text-2xl font-bold', row.convertedBalanceMinor < 0 && 'text-destructive')}
           />
         ) : row.isCustom && consolidationCurrency ? (
           // Unit-denominated asset: show consolidated value as primary, tooltip with breakdown
@@ -162,10 +136,7 @@ export default function AccountCard({
                     value={row.convertedBalanceMinor}
                     currencyCode={consolidationCurrency.code}
                     minorUnits={consolidationCurrency.minorUnits}
-                    className={cn(
-                      'text-2xl font-bold',
-                      row.convertedBalanceMinor < 0 && 'text-destructive',
-                    )}
+                    className={cn('text-2xl font-bold', row.convertedBalanceMinor < 0 && 'text-destructive')}
                   />
                 </span>
               </TooltipTrigger>
@@ -173,11 +144,7 @@ export default function AccountCard({
                 <p className="text-xs">
                   {`${fmtNum(row.balanceMinor, row.currencyMinorUnits)} ${row.currencyCode} = ${formatAmount(row.convertedBalanceMinor, consolidationCurrency.minorUnits, defaultNumberFormat, consolidationCurrency.code)}`}
                 </p>
-                {row.fxRateMissing && (
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {t('accounts.fxRateMissingTooltip')}
-                  </p>
-                )}
+                {row.fxRateMissing && <p className="text-xs text-muted-foreground mt-1">{t('accounts.fxRateMissingTooltip')}</p>}
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
@@ -195,14 +162,8 @@ export default function AccountCard({
                 </span>
               </TooltipTrigger>
               <TooltipContent>
-                <p className="text-xs">
-                  {`≈ ${formatAmount(row.convertedBalanceMinor, consolidationCurrency.minorUnits, defaultNumberFormat, consolidationCurrency.code)}`}
-                </p>
-                {row.fxRateMissing && (
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {t('accounts.fxRateMissingTooltip')}
-                  </p>
-                )}
+                <p className="text-xs">{`≈ ${formatAmount(row.convertedBalanceMinor, consolidationCurrency.minorUnits, defaultNumberFormat, consolidationCurrency.code)}`}</p>
+                {row.fxRateMissing && <p className="text-xs text-muted-foreground mt-1">{t('accounts.fxRateMissingTooltip')}</p>}
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
@@ -232,29 +193,17 @@ export default function AccountCard({
                 <div className="text-xs space-y-1 min-w-[160px]">
                   <div className="flex justify-between gap-4">
                     <span>{row.accountName}</span>
-                    <NumberValue
-                      value={row.convertedBalanceMinor}
-                      currencyCode={consolidationCurrency!.code}
-                      minorUnits={consolidationCurrency!.minorUnits}
-                    />
+                    <NumberValue value={row.convertedBalanceMinor} currencyCode={consolidationCurrency!.code} minorUnits={consolidationCurrency!.minorUnits} />
                   </div>
                   {equityLinkedRows.map((a) => (
                     <div key={a.accountId} className="flex justify-between gap-4">
                       <span className="text-muted-foreground">{a.accountName}</span>
-                      <NumberValue
-                        value={a.convertedBalanceMinor}
-                        currencyCode={consolidationCurrency!.code}
-                        minorUnits={consolidationCurrency!.minorUnits}
-                      />
+                      <NumberValue value={a.convertedBalanceMinor} currencyCode={consolidationCurrency!.code} minorUnits={consolidationCurrency!.minorUnits} />
                     </div>
                   ))}
                   <div className="flex justify-between gap-4 border-t border-border pt-1 font-medium">
                     <span>{t('assets.equity')}</span>
-                    <NumberValue
-                      value={equityMinor}
-                      currencyCode={consolidationCurrency!.code}
-                      minorUnits={consolidationCurrency!.minorUnits}
-                    />
+                    <NumberValue value={equityMinor} currencyCode={consolidationCurrency!.code} minorUnits={consolidationCurrency!.minorUnits} />
                   </div>
                 </div>
               </TooltipContent>
@@ -270,5 +219,5 @@ export default function AccountCard({
         </button>
       </CardContent>
     </Card>
-  );
+  )
 }

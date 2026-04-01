@@ -1,20 +1,20 @@
-import { useTranslation } from 'react-i18next';
-import type { EventWithData, SnapshotRow, Currency } from '../../shared/types';
-import LedgerEventList from '../../shared/ui/LedgerEventList';
-import { Button } from '../../shared/ui/button';
-import { RefreshCw, Upload } from 'lucide-react';
+import { useTranslation } from 'react-i18next'
+import type { EventWithData, SnapshotRow, Currency } from '../../shared/types'
+import LedgerEventList from '../../shared/ui/LedgerEventList'
+import { Button } from '../../shared/ui/button'
+import { RefreshCw, Upload } from 'lucide-react'
 
 interface Props {
-  events: EventWithData[];
-  accounts: SnapshotRow[];
-  consolidationCurrency?: Currency | null;
-  onEditEvent: (event: EventWithData) => void;
-  onDeleteEvent: (eventId: number) => void;
-  onDeleteTransferEvent?: (eventId: number, linkedEventId: number) => void;
-  onUpdateBalances: () => void;
-  totalEvents?: number;
-  onViewAll?: () => void;
-  onImportCsv?: () => void;
+  events: EventWithData[]
+  accounts: SnapshotRow[]
+  consolidationCurrency?: Currency | null
+  onEditEvent: (event: EventWithData) => void
+  onDeleteEvent: (eventId: number) => void
+  onDeleteTransferEvent?: (eventId: number, linkedEventId: number) => void
+  onUpdateBalances: () => void
+  totalEvents?: number
+  onViewAll?: () => void
+  onImportCsv?: () => void
 }
 
 export default function Ledger({
@@ -29,10 +29,9 @@ export default function Ledger({
   onViewAll,
   onImportCsv,
 }: Props) {
-  const { t } = useTranslation();
+  const { t } = useTranslation()
 
-  const showViewAll =
-    totalEvents !== undefined && events.length < totalEvents && onViewAll !== undefined;
+  const showViewAll = totalEvents !== undefined && events.length < totalEvents && onViewAll !== undefined
 
   return (
     <section>
@@ -63,14 +62,11 @@ export default function Ledger({
 
       {showViewAll && (
         <div className="mt-4 text-center">
-          <button
-            onClick={onViewAll}
-            className="text-sm text-muted-foreground hover:text-foreground underline underline-offset-2 transition-colors"
-          >
+          <button onClick={onViewAll} className="text-sm text-muted-foreground hover:text-foreground underline underline-offset-2 transition-colors">
             {t('ledger.viewAll', { shown: events.length, total: totalEvents })}
           </button>
         </div>
       )}
     </section>
-  );
+  )
 }

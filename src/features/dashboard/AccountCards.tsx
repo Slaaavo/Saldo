@@ -1,27 +1,27 @@
-import { useRef, useState, useCallback, useEffect } from 'react';
-import { useTranslation } from 'react-i18next';
-import type { SnapshotRow, Currency } from '../../shared/types';
-import { Button } from '../../shared/ui/button';
-import { Plus, ChevronLeft, ChevronRight, ArrowUpDown } from 'lucide-react';
-import AccountCard from './AccountCard';
+import { useRef, useState, useCallback, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
+import type { SnapshotRow, Currency } from '../../shared/types'
+import { Button } from '../../shared/ui/button'
+import { Plus, ChevronLeft, ChevronRight, ArrowUpDown } from 'lucide-react'
+import AccountCard from './AccountCard'
 
 interface Props {
-  snapshot: SnapshotRow[];
-  consolidationCurrency?: Currency | null;
-  sectionTitle?: string;
-  addButtonLabel?: string;
-  updateButtonLabel?: string;
-  emptyMessage?: string;
-  onUpdateBalance: (accountId: number) => void;
-  onRenameAccount: (accountId: number, currentName: string) => void;
-  onDeleteAccount: (accountId: number, name: string) => void;
-  onCreateAccount: () => void;
-  onReorder?: () => void;
-  onManageLinkedAssets?: (accountId: number, accountName: string) => void;
+  snapshot: SnapshotRow[]
+  consolidationCurrency?: Currency | null
+  sectionTitle?: string
+  addButtonLabel?: string
+  updateButtonLabel?: string
+  emptyMessage?: string
+  onUpdateBalance: (accountId: number) => void
+  onRenameAccount: (accountId: number, currentName: string) => void
+  onDeleteAccount: (accountId: number, name: string) => void
+  onCreateAccount: () => void
+  onReorder?: () => void
+  onManageLinkedAssets?: (accountId: number, accountName: string) => void
   /** All asset rows — used to resolve asset names for the link indicator tooltip on account cards */
-  allAssets?: SnapshotRow[];
+  allAssets?: SnapshotRow[]
   /** All account rows — used to resolve linked account balances for equity tooltip on asset cards */
-  allAccounts?: SnapshotRow[];
+  allAccounts?: SnapshotRow[]
 }
 
 export default function AccountCards({
@@ -40,37 +40,37 @@ export default function AccountCards({
   allAssets,
   allAccounts,
 }: Props) {
-  const { t } = useTranslation();
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const [canScrollLeft, setCanScrollLeft] = useState(false);
-  const [canScrollRight, setCanScrollRight] = useState(false);
+  const { t } = useTranslation()
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const [canScrollLeft, setCanScrollLeft] = useState(false)
+  const [canScrollRight, setCanScrollRight] = useState(false)
 
   const updateScrollButtons = useCallback(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    setCanScrollLeft(el.scrollLeft > 0);
-    setCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 1);
-  }, []);
+    const el = scrollRef.current
+    if (!el) return
+    setCanScrollLeft(el.scrollLeft > 0)
+    setCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 1)
+  }, [])
 
   useEffect(() => {
-    updateScrollButtons();
-    const el = scrollRef.current;
-    if (!el) return;
-    el.addEventListener('scroll', updateScrollButtons, { passive: true });
-    const ro = new ResizeObserver(updateScrollButtons);
-    ro.observe(el);
+    updateScrollButtons()
+    const el = scrollRef.current
+    if (!el) return
+    el.addEventListener('scroll', updateScrollButtons, { passive: true })
+    const ro = new ResizeObserver(updateScrollButtons)
+    ro.observe(el)
     return () => {
-      el.removeEventListener('scroll', updateScrollButtons);
-      ro.disconnect();
-    };
-  }, [updateScrollButtons, snapshot]);
+      el.removeEventListener('scroll', updateScrollButtons)
+      ro.disconnect()
+    }
+  }, [updateScrollButtons, snapshot])
 
   const scroll = useCallback((direction: 'left' | 'right') => {
-    const el = scrollRef.current;
-    if (!el) return;
-    const amount = direction === 'left' ? -270 : 270;
-    el.scrollBy({ left: amount, behavior: 'smooth' });
-  }, []);
+    const el = scrollRef.current
+    if (!el) return
+    const amount = direction === 'left' ? -270 : 270
+    el.scrollBy({ left: amount, behavior: 'smooth' })
+  }, [])
 
   return (
     <section>
@@ -103,11 +103,7 @@ export default function AccountCards({
             </button>
           )}
 
-          <div
-            ref={scrollRef}
-            className="flex gap-4 overflow-x-auto no-scrollbar"
-            style={{ scrollbarWidth: 'none' }}
-          >
+          <div ref={scrollRef} className="flex gap-4 overflow-x-auto no-scrollbar" style={{ scrollbarWidth: 'none' }}>
             {snapshot.map((row) => (
               <AccountCard
                 key={row.accountId}
@@ -136,5 +132,5 @@ export default function AccountCards({
         </div>
       )}
     </section>
-  );
+  )
 }

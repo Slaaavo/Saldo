@@ -1,38 +1,24 @@
-import { useTranslation } from 'react-i18next';
-import { Loader2 } from 'lucide-react';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogBody,
-  DialogFooter,
-} from './dialog';
-import { Button } from './button';
+import { useTranslation } from 'react-i18next'
+import { Loader2 } from 'lucide-react'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogBody, DialogFooter } from './dialog'
+import { Button } from './button'
 
 interface Props {
-  message: string;
-  onConfirm: () => void;
-  onCancel: () => void;
-  confirmVariant?: 'default' | 'destructive' | 'outline' | 'secondary' | 'ghost' | 'link';
-  loading?: boolean;
+  message: string
+  onConfirm: () => void
+  onCancel: () => void
+  confirmVariant?: 'default' | 'destructive' | 'outline' | 'secondary' | 'ghost' | 'link'
+  loading?: boolean
 }
 
-export default function ConfirmDialog({
-  message,
-  onConfirm,
-  onCancel,
-  confirmVariant = 'destructive',
-  loading = false,
-}: Props) {
-  const { t } = useTranslation();
+export default function ConfirmDialog({ message, onConfirm, onCancel, confirmVariant = 'destructive', loading = false }: Props) {
+  const { t } = useTranslation()
 
   return (
     <Dialog
       open={true}
       onOpenChange={(open) => {
-        if (!open && !loading) onCancel();
+        if (!open && !loading) onCancel()
       }}
     >
       <DialogContent>
@@ -53,5 +39,5 @@ export default function ConfirmDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
-  );
+  )
 }

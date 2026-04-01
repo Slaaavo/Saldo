@@ -1,6 +1,6 @@
-import { useTranslation } from 'react-i18next';
-import { toast } from 'sonner';
-import type { SnapshotRow, Currency } from '../shared/types';
+import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
+import type { SnapshotRow, Currency } from '../shared/types'
 import {
   createBalanceUpdate,
   createAccount,
@@ -16,225 +16,172 @@ import {
   createBucketBalanceUpdate,
   updateBucketBalanceUpdate,
   updateTransfer,
-} from '../shared/api';
-import { extractErrorMessage } from '../shared/utils/errors';
+} from '../shared/api'
+import { extractErrorMessage } from '../shared/utils/errors'
 
 interface UseModalActionsOptions {
-  closeModal: () => void;
-  refresh: () => Promise<void>;
-  snapshot: SnapshotRow[];
-  consolidationCurrency: Currency | null;
-  onFxRatePrompt: (date: string) => void;
+  closeModal: () => void
+  refresh: () => Promise<void>
+  snapshot: SnapshotRow[]
+  consolidationCurrency: Currency | null
+  onFxRatePrompt: (date: string) => void
 }
 
-export function useModalActions({
-  closeModal,
-  refresh,
-  snapshot,
-  consolidationCurrency,
-  onFxRatePrompt,
-}: UseModalActionsOptions) {
-  const { t } = useTranslation();
+export function useModalActions({ closeModal, refresh, snapshot, consolidationCurrency, onFxRatePrompt }: UseModalActionsOptions) {
+  const { t } = useTranslation()
 
-  const handleCreateBalanceUpdate = async (
-    accountId: number,
-    amountMinor: number,
-    eventDate: string,
-    note: string,
-  ) => {
-    const account = snapshot.find((r) => r.accountId === accountId);
+  const handleCreateBalanceUpdate = async (accountId: number, amountMinor: number, eventDate: string, note: string) => {
+    const account = snapshot.find((r) => r.accountId === accountId)
     try {
-      await createBalanceUpdate(accountId, amountMinor, eventDate, note || undefined);
-      closeModal();
-      await refresh();
+      await createBalanceUpdate(accountId, amountMinor, eventDate, note || undefined)
+      closeModal()
+      await refresh()
       // Prompt to fetch FX rates when saving a non-consolidation-currency balance update
       if (account && consolidationCurrency && account.currencyCode !== consolidationCurrency.code) {
-        const rates = await listFxRates(eventDate);
-        const hasRate = rates.some((r) => r.toCurrencyCode === account.currencyCode);
+        const rates = await listFxRates(eventDate)
+        const hasRate = rates.some((r) => r.toCurrencyCode === account.currencyCode)
         if (!hasRate) {
-          onFxRatePrompt(eventDate);
+          onFxRatePrompt(eventDate)
         }
       }
     } catch (err) {
-      toast.error(t('errors.createBalanceUpdate', { error: extractErrorMessage(err) }));
+      toast.error(t('errors.createBalanceUpdate', { error: extractErrorMessage(err) }))
     }
-  };
+  }
 
-  const handleEditBalanceUpdate = async (
-    eventId: number,
-    amountMinor: number,
-    eventDate: string,
-    note: string,
-  ) => {
+  const handleEditBalanceUpdate = async (eventId: number, amountMinor: number, eventDate: string, note: string) => {
     try {
-      await updateEvent(eventId, amountMinor, eventDate, note || undefined);
-      closeModal();
-      await refresh();
+      await updateEvent(eventId, amountMinor, eventDate, note || undefined)
+      closeModal()
+      await refresh()
     } catch (err) {
-      toast.error(t('errors.updateEvent', { error: extractErrorMessage(err) }));
+      toast.error(t('errors.updateEvent', { error: extractErrorMessage(err) }))
     }
-  };
+  }
 
   const handleDeleteEvent = async (eventId: number) => {
     try {
-      await deleteEvent(eventId);
-      closeModal();
-      await refresh();
+      await deleteEvent(eventId)
+      closeModal()
+      await refresh()
     } catch (err) {
-      toast.error(t('errors.deleteEvent', { error: extractErrorMessage(err) }));
+      toast.error(t('errors.deleteEvent', { error: extractErrorMessage(err) }))
     }
-  };
+  }
 
-  const handleCreateAccount = async (
-    name: string,
-    currencyId: number,
-    initialBalanceMinor?: number,
-    accountType?: string,
-    linkedAssetIds?: number[],
-    iban?: string,
-  ) => {
+  const handleCreateAccount = async (name: string, currencyId: number, initialBalanceMinor?: number, accountType?: string, linkedAssetIds?: number[], iban?: string) => {
     try {
-      await createAccount(
-        name,
-        currencyId,
-        initialBalanceMinor,
-        accountType,
-        undefined,
-        linkedAssetIds,
-        iban,
-      );
-      closeModal();
-      await refresh();
+      await createAccount(name, currencyId, initialBalanceMinor, accountType, undefined, linkedAssetIds, iban)
+      closeModal()
+      await refresh()
     } catch (err) {
-      toast.error(t('errors.createAccount', { error: extractErrorMessage(err) }));
+      toast.error(t('errors.createAccount', { error: extractErrorMessage(err) }))
     }
-  };
+  }
 
   const handleEditAccount = async (accountId: number, name: string, iban?: string) => {
     try {
-      await updateAccount(accountId, name, iban);
-      closeModal();
-      await refresh();
+      await updateAccount(accountId, name, iban)
+      closeModal()
+      await refresh()
     } catch (err) {
-      toast.error(t('errors.renameAccount', { error: extractErrorMessage(err) }));
+      toast.error(t('errors.renameAccount', { error: extractErrorMessage(err) }))
     }
-  };
+  }
 
   const handleDeleteAccount = async (accountId: number) => {
     try {
-      await deleteAccount(accountId);
-      closeModal();
-      await refresh();
+      await deleteAccount(accountId)
+      closeModal()
+      await refresh()
     } catch (err) {
-      const msg = extractErrorMessage(err);
+      const msg = extractErrorMessage(err)
       if (msg.includes('currently linked to buckets')) {
-        toast.error(t('errors.deleteAccountLinked'));
+        toast.error(t('errors.deleteAccountLinked'))
       } else {
-        toast.error(t('errors.deleteAccount', { error: msg }));
+        toast.error(t('errors.deleteAccount', { error: msg }))
       }
     }
-  };
+  }
 
-  const handleBulkUpdateSubmit = async (
-    updates: { accountId: number; amountMinor: number }[],
-    eventDate: string,
-    note: string,
-  ) => {
-    await bulkCreateBalanceUpdates(updates, eventDate, note || undefined);
-    closeModal();
-    await refresh();
-  };
+  const handleBulkUpdateSubmit = async (updates: { accountId: number; amountMinor: number }[], eventDate: string, note: string) => {
+    await bulkCreateBalanceUpdates(updates, eventDate, note || undefined)
+    closeModal()
+    await refresh()
+  }
 
   const handleSaveOrder = async (orderedIds: number[]) => {
     try {
-      const entries = orderedIds.map((accountId, index) => ({ accountId, sortOrder: index }));
-      await updateSortOrder(entries);
-      closeModal();
-      await refresh();
+      const entries = orderedIds.map((accountId, index) => ({ accountId, sortOrder: index }))
+      await updateSortOrder(entries)
+      closeModal()
+      await refresh()
     } catch (err) {
-      toast.error(extractErrorMessage(err));
+      toast.error(extractErrorMessage(err))
     }
-  };
+  }
 
-  const handleUpdateAssetValue = async (
-    accountId: number,
-    amountMinor: number | null,
-    pricePerUnit: string | null,
-    eventDate: string,
-    note: string | null,
-  ) => {
+  const handleUpdateAssetValue = async (accountId: number, amountMinor: number | null, pricePerUnit: string | null, eventDate: string, note: string | null) => {
     try {
-      await updateAssetValue(accountId, amountMinor, pricePerUnit, eventDate, note);
-      closeModal();
-      await refresh();
+      await updateAssetValue(accountId, amountMinor, pricePerUnit, eventDate, note)
+      closeModal()
+      await refresh()
     } catch (err) {
-      toast.error(t('errors.updateAssetValue', { error: extractErrorMessage(err) }));
+      toast.error(t('errors.updateAssetValue', { error: extractErrorMessage(err) }))
     }
-  };
+  }
 
   const handleSetAccountAssetLinks = async (accountId: number, assetIds: number[]) => {
     try {
-      await setAccountAssetLinks(accountId, assetIds);
-      closeModal();
-      await refresh();
+      await setAccountAssetLinks(accountId, assetIds)
+      closeModal()
+      await refresh()
     } catch (err) {
-      toast.error(extractErrorMessage(err));
+      toast.error(extractErrorMessage(err))
     }
-  };
+  }
 
   const handleCreateAssetSuccess = async () => {
-    closeModal();
-    await refresh();
-  };
+    closeModal()
+    await refresh()
+  }
 
-  const handleCreateBucketBalanceUpdate = async (
-    accountId: number,
-    amountMinor: number,
-    eventDate: string,
-    note: string | null,
-    linkedAccountIds: number[],
-  ): Promise<void> => {
-    const account = snapshot.find((r) => r.accountId === accountId);
-    await createBucketBalanceUpdate(accountId, amountMinor, eventDate, note, linkedAccountIds);
-    await refresh();
+  const handleCreateBucketBalanceUpdate = async (accountId: number, amountMinor: number, eventDate: string, note: string | null, linkedAccountIds: number[]): Promise<void> => {
+    const account = snapshot.find((r) => r.accountId === accountId)
+    await createBucketBalanceUpdate(accountId, amountMinor, eventDate, note, linkedAccountIds)
+    await refresh()
     if (account && consolidationCurrency && account.currencyCode !== consolidationCurrency.code) {
-      const rates = await listFxRates(eventDate);
-      const hasRate = rates.some((r) => r.toCurrencyCode === account.currencyCode);
-      if (!hasRate) onFxRatePrompt(eventDate);
+      const rates = await listFxRates(eventDate)
+      const hasRate = rates.some((r) => r.toCurrencyCode === account.currencyCode)
+      if (!hasRate) onFxRatePrompt(eventDate)
     }
-  };
+  }
 
-  const handleEditBucketBalanceUpdate = async (
-    eventId: number,
-    amountMinor: number,
-    eventDate: string,
-    note: string | null,
-    linkedAccountIds: number[],
-  ): Promise<void> => {
-    await updateBucketBalanceUpdate(eventId, amountMinor, eventDate, note, linkedAccountIds);
-    await refresh();
-  };
+  const handleEditBucketBalanceUpdate = async (eventId: number, amountMinor: number, eventDate: string, note: string | null, linkedAccountIds: number[]): Promise<void> => {
+    await updateBucketBalanceUpdate(eventId, amountMinor, eventDate, note, linkedAccountIds)
+    await refresh()
+  }
 
   const handleEditTransfer = async (payload: {
-    fromEventId: number;
-    toEventId: number;
-    fromDate: string;
-    toDate: string;
-    amountMinor: number;
-    toAmountMinor: number;
-    note: string | null;
-    originalCurrencyId: number | null;
-    fxRateMantissa: number | null;
-    fxRateExponent: number | null;
+    fromEventId: number
+    toEventId: number
+    fromDate: string
+    toDate: string
+    amountMinor: number
+    toAmountMinor: number
+    note: string | null
+    originalCurrencyId: number | null
+    fxRateMantissa: number | null
+    fxRateExponent: number | null
   }) => {
     try {
-      await updateTransfer(payload);
-      closeModal();
-      await refresh();
+      await updateTransfer(payload)
+      closeModal()
+      await refresh()
     } catch (err) {
-      toast.error(t('errors.updateTransfer', { error: extractErrorMessage(err) }));
+      toast.error(t('errors.updateTransfer', { error: extractErrorMessage(err) }))
     }
-  };
+  }
 
   return {
     handleCreateBalanceUpdate,
@@ -251,5 +198,5 @@ export function useModalActions({
     handleCreateBucketBalanceUpdate,
     handleEditBucketBalanceUpdate,
     handleEditTransfer,
-  };
+  }
 }

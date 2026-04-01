@@ -1,14 +1,8 @@
-import type { ComponentProps } from 'react';
+import type { ComponentProps } from 'react'
 
 export default function SaldoLogo({ className, ...props }: ComponentProps<'svg'>) {
   return (
-    <svg
-      viewBox="0 0 150 150"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      className={className}
-      {...props}
-    >
+    <svg viewBox="0 0 150 150" fill="none" xmlns="http://www.w3.org/2000/svg" className={className} {...props}>
       <path
         d="M94.537 58.3101C104.081 67.3211 110.419 75.788 110.9 89.584C111.269 99.345 107.707 108.846 101.011 115.958C92.982 124.472 82.683 127.962 71.219 128.039C60.138 128.113 49.07 127.992 38 128.036C38.364 114.231 40.786 103.324 51.279 93.366C52.301 92.411 53.335 91.469 54.382 90.54C67.239 80.063 81.375 68.1181 94.537 58.3101Z"
         fill="#2C35CC"
@@ -18,5 +12,5 @@ export default function SaldoLogo({ className, ...props }: ComponentProps<'svg'>
         fill="#FB7445"
       />
     </svg>
-  );
+  )
 }

@@ -1,183 +1,166 @@
-import { useState, useEffect } from 'react';
-import { useTranslation } from 'react-i18next';
-import { toast } from 'sonner';
-import { PINNED_CURRENCY_CODES } from '../../shared/config/constants';
-import { toMinorUnits, getMinorUnitsStep } from '../../shared/utils/format';
-import type { Currency } from '../../shared/types';
-import {
-  listCurrencies,
-  getConsolidationCurrency,
-  listCustomUnits,
-  createCustomUnit,
-  createAccount,
-} from '../../shared/api';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogBody,
-  DialogFooter,
-} from '../../shared/ui/dialog';
-import { Button } from '../../shared/ui/button';
-import { CurrencyInput } from '../../shared/ui/CurrencyInput';
-import { Input } from '../../shared/ui/input';
-import { Label } from '../../shared/ui/label';
-import CurrencySelect from '../currency/CurrencySelect';
-import NumberValue from '../../shared/ui/NumberValue';
-import { extractErrorMessage } from '../../shared/utils/errors';
+import { useState, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
+import { PINNED_CURRENCY_CODES } from '../../shared/config/constants'
+import { toMinorUnits, getMinorUnitsStep } from '../../shared/utils/format'
+import type { Currency } from '../../shared/types'
+import { listCurrencies, getConsolidationCurrency, listCustomUnits, createCustomUnit, createAccount } from '../../shared/api'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogBody, DialogFooter } from '../../shared/ui/dialog'
+import { Button } from '../../shared/ui/button'
+import { CurrencyInput } from '../../shared/ui/CurrencyInput'
+import { Input } from '../../shared/ui/input'
+import { Label } from '../../shared/ui/label'
+import CurrencySelect from '../currency/CurrencySelect'
+import NumberValue from '../../shared/ui/NumberValue'
+import { extractErrorMessage } from '../../shared/utils/errors'
 
 interface Props {
-  onSuccess: () => void;
-  onClose: () => void;
+  onSuccess: () => void
+  onClose: () => void
 }
 
-type Denomination = 'currency' | 'unit';
-const NEW_UNIT_VALUE = '__new__';
+type Denomination = 'currency' | 'unit'
+const NEW_UNIT_VALUE = '__new__'
 
 export default function CreateAssetModal({ onSuccess, onClose }: Props) {
-  const { t } = useTranslation();
+  const { t } = useTranslation()
 
-  const [denomination, setDenomination] = useState<Denomination>('currency');
+  const [denomination, setDenomination] = useState<Denomination>('currency')
 
   // Currency path state
-  const [currencies, setCurrencies] = useState<Currency[]>([]);
-  const [selectedCurrency, setSelectedCurrency] = useState<Currency | null>(null);
-  const [initialValue, setInitialValue] = useState('');
+  const [currencies, setCurrencies] = useState<Currency[]>([])
+  const [selectedCurrency, setSelectedCurrency] = useState<Currency | null>(null)
+  const [initialValue, setInitialValue] = useState('')
 
   // Shared asset name (used by both currency and unit paths)
-  const [assetName, setAssetName] = useState('');
+  const [assetName, setAssetName] = useState('')
 
   // Unit path state
-  const [customUnits, setCustomUnits] = useState<Currency[]>([]);
-  const [selectedUnitId, setSelectedUnitId] = useState<string>('');
-  const [newUnitName, setNewUnitName] = useState('');
-  const [newUnitDecimals, setNewUnitDecimals] = useState('0');
-  const [quantity, setQuantity] = useState('');
-  const [pricePerUnit, setPricePerUnit] = useState('');
-  const [consolidationCurrency, setConsolidationCurrency] = useState<Currency | null>(null);
+  const [customUnits, setCustomUnits] = useState<Currency[]>([])
+  const [selectedUnitId, setSelectedUnitId] = useState<string>('')
+  const [newUnitName, setNewUnitName] = useState('')
+  const [newUnitDecimals, setNewUnitDecimals] = useState('0')
+  const [quantity, setQuantity] = useState('')
+  const [pricePerUnit, setPricePerUnit] = useState('')
+  const [consolidationCurrency, setConsolidationCurrency] = useState<Currency | null>(null)
 
-  const [submitting, setSubmitting] = useState(false);
+  const [submitting, setSubmitting] = useState(false)
 
-  const isCreatingNewUnit = selectedUnitId === NEW_UNIT_VALUE;
-  const selectedUnit = customUnits.find((u) => String(u.id) === selectedUnitId) ?? null;
-  const effectiveUnit = isCreatingNewUnit ? null : selectedUnit;
-  const effectiveMinorUnits = effectiveUnit?.minorUnits ?? (parseInt(newUnitDecimals) || 0);
+  const isCreatingNewUnit = selectedUnitId === NEW_UNIT_VALUE
+  const selectedUnit = customUnits.find((u) => String(u.id) === selectedUnitId) ?? null
+  const effectiveUnit = isCreatingNewUnit ? null : selectedUnit
+  const effectiveMinorUnits = effectiveUnit?.minorUnits ?? (parseInt(newUnitDecimals) || 0)
 
   // Compute total for unit path
-  const quantityMinor = quantity.trim() ? toMinorUnits(quantity, effectiveMinorUnits) : null;
-  const priceDecimal = parseFloat(pricePerUnit);
+  const quantityMinor = quantity.trim() ? toMinorUnits(quantity, effectiveMinorUnits) : null
+  const priceDecimal = parseFloat(pricePerUnit)
   const totalMinor =
     quantityMinor !== null && !isNaN(priceDecimal) && priceDecimal > 0 && consolidationCurrency
-      ? Math.round(
-          (quantityMinor / Math.pow(10, effectiveMinorUnits)) *
-            priceDecimal *
-            Math.pow(10, consolidationCurrency.minorUnits),
-        )
-      : null;
+      ? Math.round((quantityMinor / Math.pow(10, effectiveMinorUnits)) * priceDecimal * Math.pow(10, consolidationCurrency.minorUnits))
+      : null
 
   useEffect(() => {
     Promise.all([listCurrencies(false), getConsolidationCurrency(), listCustomUnits()])
       .then(([all, consolidation, units]) => {
-        setCurrencies(all);
-        setSelectedCurrency(consolidation);
-        setConsolidationCurrency(consolidation);
-        setCustomUnits(units);
+        setCurrencies(all)
+        setSelectedCurrency(consolidation)
+        setConsolidationCurrency(consolidation)
+        setCustomUnits(units)
         if (units.length > 0) {
-          setSelectedUnitId(String(units[0].id));
+          setSelectedUnitId(String(units[0].id))
         } else {
-          setSelectedUnitId(NEW_UNIT_VALUE);
+          setSelectedUnitId(NEW_UNIT_VALUE)
         }
       })
-      .catch((err) => console.error('Failed to load data:', err));
-  }, []);
+      .catch((err) => console.error('Failed to load data:', err))
+  }, [])
 
   const handleSubmitCurrency = async (e: React.FormEvent) => {
-    e.preventDefault();
+    e.preventDefault()
     if (!assetName.trim()) {
-      toast.error(t('validation.nameRequired', { entity: t('common.asset') }));
-      return;
+      toast.error(t('validation.nameRequired', { entity: t('common.asset') }))
+      return
     }
     if (!selectedCurrency) {
-      toast.error(t('validation.currencyRequired'));
-      return;
+      toast.error(t('validation.currencyRequired'))
+      return
     }
-    let initialBalanceMinor: number | undefined;
+    let initialBalanceMinor: number | undefined
     if (initialValue.trim()) {
-      const parsed = parseFloat(initialValue);
+      const parsed = parseFloat(initialValue)
       if (isNaN(parsed)) {
-        toast.error(t('validation.invalidBalance'));
-        return;
+        toast.error(t('validation.invalidBalance'))
+        return
       }
-      initialBalanceMinor = toMinorUnits(initialValue, selectedCurrency.minorUnits);
+      initialBalanceMinor = toMinorUnits(initialValue, selectedCurrency.minorUnits)
     }
-    setSubmitting(true);
+    setSubmitting(true)
     try {
-      await createAccount(assetName.trim(), selectedCurrency.id, initialBalanceMinor, 'asset');
-      onSuccess();
+      await createAccount(assetName.trim(), selectedCurrency.id, initialBalanceMinor, 'asset')
+      onSuccess()
     } catch (err) {
-      toast.error(t('errors.createAccount', { error: extractErrorMessage(err) }));
+      toast.error(t('errors.createAccount', { error: extractErrorMessage(err) }))
     } finally {
-      setSubmitting(false);
+      setSubmitting(false)
     }
-  };
+  }
 
   const handleSubmitUnit = async (e: React.FormEvent) => {
-    e.preventDefault();
+    e.preventDefault()
     if (!assetName.trim()) {
-      toast.error(t('validation.nameRequired', { entity: t('common.asset') }));
-      return;
+      toast.error(t('validation.nameRequired', { entity: t('common.asset') }))
+      return
     }
     if (!selectedUnitId) {
-      toast.error(t('modals.createAsset.selectUnit'));
-      return;
+      toast.error(t('modals.createAsset.selectUnit'))
+      return
     }
     if (isCreatingNewUnit && !newUnitName.trim()) {
-      toast.error(t('modals.createAsset.unitNameRequired'));
-      return;
+      toast.error(t('modals.createAsset.unitNameRequired'))
+      return
     }
 
-    setSubmitting(true);
+    setSubmitting(true)
     try {
-      let currencyId: number;
-      let unitMinorUnits: number;
+      let currencyId: number
+      let unitMinorUnits: number
 
       if (isCreatingNewUnit) {
-        const decimals = parseInt(newUnitDecimals) || 0;
-        currencyId = await createCustomUnit(newUnitName.trim(), decimals);
-        unitMinorUnits = decimals;
+        const decimals = parseInt(newUnitDecimals) || 0
+        currencyId = await createCustomUnit(newUnitName.trim(), decimals)
+        unitMinorUnits = decimals
       } else {
-        currencyId = effectiveUnit!.id;
-        unitMinorUnits = effectiveUnit!.minorUnits;
+        currencyId = effectiveUnit!.id
+        unitMinorUnits = effectiveUnit!.minorUnits
       }
 
-      let initialQuantityMinor: number | undefined;
+      let initialQuantityMinor: number | undefined
       if (quantity.trim()) {
-        const parsed = parseFloat(quantity);
+        const parsed = parseFloat(quantity)
         if (isNaN(parsed)) {
-          toast.error(t('validation.invalidBalance'));
-          setSubmitting(false);
-          return;
+          toast.error(t('validation.invalidBalance'))
+          setSubmitting(false)
+          return
         }
-        initialQuantityMinor = toMinorUnits(quantity, unitMinorUnits);
+        initialQuantityMinor = toMinorUnits(quantity, unitMinorUnits)
       }
 
-      const price = pricePerUnit.trim() || undefined;
+      const price = pricePerUnit.trim() || undefined
 
-      await createAccount(assetName.trim(), currencyId, initialQuantityMinor, 'asset', price);
-      onSuccess();
+      await createAccount(assetName.trim(), currencyId, initialQuantityMinor, 'asset', price)
+      onSuccess()
     } catch (err) {
-      toast.error(t('errors.createAccount', { error: extractErrorMessage(err) }));
+      toast.error(t('errors.createAccount', { error: extractErrorMessage(err) }))
     } finally {
-      setSubmitting(false);
+      setSubmitting(false)
     }
-  };
+  }
 
   return (
     <Dialog
       open={true}
       onOpenChange={(open) => {
-        if (!open) onClose();
+        if (!open) onClose()
       }}
     >
       <DialogContent>
@@ -191,9 +174,7 @@ export default function CreateAssetModal({ onSuccess, onClose }: Props) {
             type="button"
             onClick={() => setDenomination('currency')}
             className={`flex-1 py-2 rounded-md text-sm font-medium border transition-colors ${
-              denomination === 'currency'
-                ? 'bg-primary text-primary-foreground border-primary'
-                : 'bg-background text-muted-foreground border-border hover:bg-muted'
+              denomination === 'currency' ? 'bg-primary text-primary-foreground border-primary' : 'bg-background text-muted-foreground border-border hover:bg-muted'
             }`}
           >
             {t('modals.createAsset.denominationCurrency')}
@@ -202,9 +183,7 @@ export default function CreateAssetModal({ onSuccess, onClose }: Props) {
             type="button"
             onClick={() => setDenomination('unit')}
             className={`flex-1 py-2 rounded-md text-sm font-medium border transition-colors ${
-              denomination === 'unit'
-                ? 'bg-primary text-primary-foreground border-primary'
-                : 'bg-background text-muted-foreground border-border hover:bg-muted'
+              denomination === 'unit' ? 'bg-primary text-primary-foreground border-primary' : 'bg-background text-muted-foreground border-border hover:bg-muted'
             }`}
           >
             {t('modals.createAsset.denominationUnit')}
@@ -212,10 +191,7 @@ export default function CreateAssetModal({ onSuccess, onClose }: Props) {
         </div>
 
         {denomination === 'currency' ? (
-          <form
-            onSubmit={handleSubmitCurrency}
-            className="flex flex-col flex-1 overflow-hidden min-h-0 gap-4"
-          >
+          <form onSubmit={handleSubmitCurrency} className="flex flex-col flex-1 overflow-hidden min-h-0 gap-4">
             <DialogBody className="flex flex-col gap-4">
               <div className="flex flex-col gap-2">
                 <Label htmlFor="create-asset-name">{t('modals.createAsset.nameLabel')}</Label>
@@ -231,12 +207,7 @@ export default function CreateAssetModal({ onSuccess, onClose }: Props) {
               </div>
               <div className="flex flex-col gap-2">
                 <Label>{t('currency.label')}</Label>
-                <CurrencySelect
-                  currencies={currencies}
-                  value={selectedCurrency}
-                  onChange={setSelectedCurrency}
-                  pinnedCurrencyCodes={PINNED_CURRENCY_CODES}
-                />
+                <CurrencySelect currencies={currencies} value={selectedCurrency} onChange={setSelectedCurrency} pinnedCurrencyCodes={PINNED_CURRENCY_CODES} />
               </div>
               <div className="flex flex-col gap-2">
                 <Label htmlFor="create-asset-value">{t('modals.createAsset.initialValue')}</Label>
@@ -261,10 +232,7 @@ export default function CreateAssetModal({ onSuccess, onClose }: Props) {
             </DialogFooter>
           </form>
         ) : (
-          <form
-            onSubmit={handleSubmitUnit}
-            className="flex flex-col flex-1 overflow-hidden min-h-0 gap-4"
-          >
+          <form onSubmit={handleSubmitUnit} className="flex flex-col flex-1 overflow-hidden min-h-0 gap-4">
             <DialogBody className="flex flex-col gap-4">
               {/* Asset name */}
               <div className="flex flex-col gap-2">
@@ -302,27 +270,11 @@ export default function CreateAssetModal({ onSuccess, onClose }: Props) {
                 <>
                   <div className="flex flex-col gap-2">
                     <Label htmlFor="new-unit-name">{t('modals.createAsset.unitName')}</Label>
-                    <Input
-                      id="new-unit-name"
-                      type="text"
-                      value={newUnitName}
-                      onChange={(e) => setNewUnitName(e.target.value)}
-                      placeholder="e.g. VWCE"
-                      autoFocus
-                    />
+                    <Input id="new-unit-name" type="text" value={newUnitName} onChange={(e) => setNewUnitName(e.target.value)} placeholder="e.g. VWCE" autoFocus />
                   </div>
                   <div className="flex flex-col gap-2">
-                    <Label htmlFor="new-unit-decimals">
-                      {t('modals.createAsset.decimalPlaces')}
-                    </Label>
-                    <Input
-                      id="new-unit-decimals"
-                      type="number"
-                      min={0}
-                      max={8}
-                      value={newUnitDecimals}
-                      onChange={(e) => setNewUnitDecimals(e.target.value)}
-                    />
+                    <Label htmlFor="new-unit-decimals">{t('modals.createAsset.decimalPlaces')}</Label>
+                    <Input id="new-unit-decimals" type="number" min={0} max={8} value={newUnitDecimals} onChange={(e) => setNewUnitDecimals(e.target.value)} />
                   </div>
                 </>
               )}
@@ -360,15 +312,8 @@ export default function CreateAssetModal({ onSuccess, onClose }: Props) {
               {/* Computed total */}
               {totalMinor !== null && consolidationCurrency && (
                 <div className="flex items-center justify-between py-2 px-3 rounded-md bg-muted text-sm">
-                  <span className="text-muted-foreground">
-                    {t('modals.createAsset.computedTotal')}
-                  </span>
-                  <NumberValue
-                    value={totalMinor}
-                    currencyCode={consolidationCurrency.code}
-                    minorUnits={consolidationCurrency.minorUnits}
-                    className="font-semibold"
-                  />
+                  <span className="text-muted-foreground">{t('modals.createAsset.computedTotal')}</span>
+                  <NumberValue value={totalMinor} currencyCode={consolidationCurrency.code} minorUnits={consolidationCurrency.minorUnits} className="font-semibold" />
                 </div>
               )}
             </DialogBody>
@@ -384,5 +329,5 @@ export default function CreateAssetModal({ onSuccess, onClose }: Props) {
         )}
       </DialogContent>
     </Dialog>
-  );
+  )
 }

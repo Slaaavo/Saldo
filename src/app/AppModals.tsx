@@ -1,40 +1,40 @@
-import { useState } from 'react';
-import { useTranslation } from 'react-i18next';
-import { fetchFxRates } from '../shared/api';
-import type { ModalState, SnapshotRow, Currency } from '../shared/types';
-import { useModalActions } from './useModalActions';
-import CreateBalanceUpdateModal from '../features/transactions/CreateBalanceUpdateModal';
-import EditBalanceUpdateModal from '../features/transactions/EditBalanceUpdateModal';
-import CreateAccountModal from '../features/accounts/CreateAccountModal';
-import CreateAssetModal from '../features/assets/CreateAssetModal';
-import UpdateAssetValueModal from '../features/assets/UpdateAssetValueModal';
-import EditAccountModal from '../features/accounts/EditAccountModal';
-import ConfirmDialog from '../shared/ui/ConfirmDialog';
-import BulkUpdateBalanceModal from '../features/transactions/BulkUpdateBalanceModal';
-import DbLocationChoiceDialog from '../features/settings/DbLocationChoiceDialog';
-import ReorderModal from '../shared/ui/ReorderModal';
-import ManageLinkedAssetsModal from '../features/assets/ManageLinkedAssetsModal';
-import CsvImportModal from '../features/transactions/CsvImportModal';
-import EditTransferModal from '../features/transactions/EditTransferModal';
+import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import { fetchFxRates } from '../shared/api'
+import type { ModalState, SnapshotRow, Currency } from '../shared/types'
+import { useModalActions } from './useModalActions'
+import CreateBalanceUpdateModal from '../features/transactions/CreateBalanceUpdateModal'
+import EditBalanceUpdateModal from '../features/transactions/EditBalanceUpdateModal'
+import CreateAccountModal from '../features/accounts/CreateAccountModal'
+import CreateAssetModal from '../features/assets/CreateAssetModal'
+import UpdateAssetValueModal from '../features/assets/UpdateAssetValueModal'
+import EditAccountModal from '../features/accounts/EditAccountModal'
+import ConfirmDialog from '../shared/ui/ConfirmDialog'
+import BulkUpdateBalanceModal from '../features/transactions/BulkUpdateBalanceModal'
+import DbLocationChoiceDialog from '../features/settings/DbLocationChoiceDialog'
+import ReorderModal from '../shared/ui/ReorderModal'
+import ManageLinkedAssetsModal from '../features/assets/ManageLinkedAssetsModal'
+import CsvImportModal from '../features/transactions/CsvImportModal'
+import EditTransferModal from '../features/transactions/EditTransferModal'
 
 interface AppModalsProps {
-  modalState: ModalState;
-  closeModal: () => void;
-  setModalState: (state: ModalState) => void;
-  snapshot: SnapshotRow[];
-  accounts: SnapshotRow[];
-  buckets: SnapshotRow[];
-  assets: SnapshotRow[];
-  selectedDate: string;
-  consolidationCurrency: Currency | null;
-  refresh: () => Promise<void>;
+  modalState: ModalState
+  closeModal: () => void
+  setModalState: (state: ModalState) => void
+  snapshot: SnapshotRow[]
+  accounts: SnapshotRow[]
+  buckets: SnapshotRow[]
+  assets: SnapshotRow[]
+  selectedDate: string
+  consolidationCurrency: Currency | null
+  refresh: () => Promise<void>
   dbLocation: {
-    actionLoading: boolean;
-    handleConfirmSwitch: (folder: string) => Promise<void>;
-    handleLocationChoiceAction: (action: string, folder: string, isReset: boolean) => Promise<void>;
-    handleConfirmReset: () => Promise<void>;
-  };
-  exclusions: number[];
+    actionLoading: boolean
+    handleConfirmSwitch: (folder: string) => Promise<void>
+    handleLocationChoiceAction: (action: string, folder: string, isReset: boolean) => Promise<void>
+    handleConfirmReset: () => Promise<void>
+  }
+  exclusions: number[]
 }
 
 export default function AppModals({
@@ -51,8 +51,8 @@ export default function AppModals({
   dbLocation,
   exclusions,
 }: AppModalsProps) {
-  const { t } = useTranslation();
-  const [fetchLoading, setFetchLoading] = useState(false);
+  const { t } = useTranslation()
+  const [fetchLoading, setFetchLoading] = useState(false)
 
   const {
     handleCreateBalanceUpdate,
@@ -75,7 +75,7 @@ export default function AppModals({
     snapshot,
     consolidationCurrency,
     onFxRatePrompt: (date) => setModalState({ type: 'fetchFxRatePrompt', date }),
-  });
+  })
 
   switch (modalState.type) {
     case 'createBalanceUpdate':
@@ -87,7 +87,7 @@ export default function AppModals({
           onBucketSubmit={handleCreateBucketBalanceUpdate}
           onClose={closeModal}
         />
-      );
+      )
 
     case 'editBalanceUpdate':
       return (
@@ -98,30 +98,16 @@ export default function AppModals({
           onBucketSubmit={handleEditBucketBalanceUpdate}
           onClose={closeModal}
         />
-      );
+      )
 
     case 'editTransfer':
-      return (
-        <EditTransferModal
-          fromEvent={modalState.fromEvent}
-          toEvent={modalState.toEvent}
-          onSubmit={handleEditTransfer}
-          onClose={closeModal}
-        />
-      );
+      return <EditTransferModal fromEvent={modalState.fromEvent} toEvent={modalState.toEvent} onSubmit={handleEditTransfer} onClose={closeModal} />
 
     case 'createAccount':
-      return (
-        <CreateAccountModal
-          accountType={modalState.accountType}
-          assets={assets}
-          onSubmit={handleCreateAccount}
-          onClose={closeModal}
-        />
-      );
+      return <CreateAccountModal accountType={modalState.accountType} assets={assets} onSubmit={handleCreateAccount} onClose={closeModal} />
 
     case 'createAsset':
-      return <CreateAssetModal onSuccess={handleCreateAssetSuccess} onClose={closeModal} />;
+      return <CreateAssetModal onSuccess={handleCreateAssetSuccess} onClose={closeModal} />
 
     case 'editAccount':
       return (
@@ -133,14 +119,13 @@ export default function AppModals({
           onSubmit={handleEditAccount}
           onClose={closeModal}
         />
-      );
+      )
 
     case 'confirmDeleteAccount':
       return (
         <ConfirmDialog
           message={
-            modalState.accountType === 'asset' &&
-            accounts.some((a) => a.linkedAssetIds.includes(modalState.accountId))
+            modalState.accountType === 'asset' && accounts.some((a) => a.linkedAssetIds.includes(modalState.accountId))
               ? t('modals.confirm.deleteAssetWithLinks', {
                   entityType: t('common.asset'),
                   name: modalState.name,
@@ -150,49 +135,23 @@ export default function AppModals({
                     .join(', '),
                 })
               : t('modals.confirm.deleteAccount', {
-                  entityType: t(
-                    modalState.accountType === 'bucket'
-                      ? 'common.bucket'
-                      : modalState.accountType === 'asset'
-                        ? 'common.asset'
-                        : 'common.account',
-                  ),
+                  entityType: t(modalState.accountType === 'bucket' ? 'common.bucket' : modalState.accountType === 'asset' ? 'common.asset' : 'common.account'),
                   name: modalState.name,
                 })
           }
           onConfirm={() => handleDeleteAccount(modalState.accountId)}
           onCancel={closeModal}
         />
-      );
+      )
 
     case 'confirmDeleteEvent':
-      return (
-        <ConfirmDialog
-          message={t('modals.confirm.deleteEvent')}
-          onConfirm={() => handleDeleteEvent(modalState.eventId)}
-          onCancel={closeModal}
-        />
-      );
+      return <ConfirmDialog message={t('modals.confirm.deleteEvent')} onConfirm={() => handleDeleteEvent(modalState.eventId)} onCancel={closeModal} />
 
     case 'confirmDeleteTransferEvent':
-      return (
-        <ConfirmDialog
-          message={t('modals.confirm.deleteTransferEvent')}
-          onConfirm={() => handleDeleteEvent(modalState.eventId)}
-          onCancel={closeModal}
-        />
-      );
+      return <ConfirmDialog message={t('modals.confirm.deleteTransferEvent')} onConfirm={() => handleDeleteEvent(modalState.eventId)} onCancel={closeModal} />
 
     case 'bulkUpdateBalance':
-      return (
-        <BulkUpdateBalanceModal
-          accounts={snapshot}
-          selectedDate={selectedDate}
-          exclusions={exclusions}
-          onSubmit={handleBulkUpdateSubmit}
-          onClose={closeModal}
-        />
-      );
+      return <BulkUpdateBalanceModal accounts={snapshot} selectedDate={selectedDate} exclusions={exclusions} onSubmit={handleBulkUpdateSubmit} onClose={closeModal} />
 
     case 'fetchFxRatePrompt':
       return (
@@ -201,20 +160,20 @@ export default function AppModals({
           confirmVariant="default"
           loading={fetchLoading}
           onConfirm={async () => {
-            setFetchLoading(true);
+            setFetchLoading(true)
             try {
-              await fetchFxRates(modalState.date);
-              await refresh();
+              await fetchFxRates(modalState.date)
+              await refresh()
             } catch {
               // Silently ignore fetch errors — user can retry from FX Rates screen
             } finally {
-              setFetchLoading(false);
-              closeModal();
+              setFetchLoading(false)
+              closeModal()
             }
           }}
           onCancel={closeModal}
         />
-      );
+      )
 
     case 'updateAssetValue':
       return (
@@ -228,37 +187,18 @@ export default function AppModals({
           onSubmit={handleUpdateAssetValue}
           onClose={closeModal}
         />
-      );
+      )
 
     case 'reorderAccounts':
       return (
-        <ReorderModal
-          items={accounts.map((r) => ({ id: r.accountId, name: r.accountName }))}
-          title={t('reorder.titleAccounts')}
-          onSave={handleSaveOrder}
-          onClose={closeModal}
-        />
-      );
+        <ReorderModal items={accounts.map((r) => ({ id: r.accountId, name: r.accountName }))} title={t('reorder.titleAccounts')} onSave={handleSaveOrder} onClose={closeModal} />
+      )
 
     case 'reorderBuckets':
-      return (
-        <ReorderModal
-          items={buckets.map((r) => ({ id: r.accountId, name: r.accountName }))}
-          title={t('reorder.titleBuckets')}
-          onSave={handleSaveOrder}
-          onClose={closeModal}
-        />
-      );
+      return <ReorderModal items={buckets.map((r) => ({ id: r.accountId, name: r.accountName }))} title={t('reorder.titleBuckets')} onSave={handleSaveOrder} onClose={closeModal} />
 
     case 'reorderAssets':
-      return (
-        <ReorderModal
-          items={assets.map((r) => ({ id: r.accountId, name: r.accountName }))}
-          title={t('reorder.titleAssets')}
-          onSave={handleSaveOrder}
-          onClose={closeModal}
-        />
-      );
+      return <ReorderModal items={assets.map((r) => ({ id: r.accountId, name: r.accountName }))} title={t('reorder.titleAssets')} onSave={handleSaveOrder} onClose={closeModal} />
 
     case 'manageLinkedAssets':
       return (
@@ -266,13 +206,11 @@ export default function AppModals({
           accountId={modalState.accountId}
           accountName={modalState.accountName}
           assets={assets}
-          currentLinks={
-            snapshot.find((r) => r.accountId === modalState.accountId)?.linkedAssetIds ?? []
-          }
+          currentLinks={snapshot.find((r) => r.accountId === modalState.accountId)?.linkedAssetIds ?? []}
           onSave={handleSetAccountAssetLinks}
           onClose={closeModal}
         />
-      );
+      )
 
     case 'confirmSwitchDb':
       return (
@@ -283,21 +221,19 @@ export default function AppModals({
           onConfirm={() => dbLocation.handleConfirmSwitch(modalState.folder)}
           onCancel={closeModal}
         />
-      );
+      )
 
     case 'dbLocationChoice':
       return (
         <DbLocationChoiceDialog
           loading={dbLocation.actionLoading}
-          onAction={(action) =>
-            dbLocation.handleLocationChoiceAction(action, modalState.folder, modalState.isReset)
-          }
+          onAction={(action) => dbLocation.handleLocationChoiceAction(action, modalState.folder, modalState.isReset)}
           onCancel={closeModal}
         />
-      );
+      )
 
     case 'csvImport':
-      return <CsvImportModal snapshot={snapshot} onClose={closeModal} onSuccess={refresh} />;
+      return <CsvImportModal snapshot={snapshot} onClose={closeModal} onSuccess={refresh} />
 
     case 'confirmResetDbLocation':
       return (
@@ -308,9 +244,9 @@ export default function AppModals({
           onConfirm={dbLocation.handleConfirmReset}
           onCancel={closeModal}
         />
-      );
+      )
 
     default:
-      return null;
+      return null
   }
 }

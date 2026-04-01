@@ -1,24 +1,18 @@
-import { useTranslation } from 'react-i18next';
-import type { CashflowFieldKey, ColumnMapping } from './types';
-import { autoDetectMapping } from './csvParser';
-import { Button } from '../../../shared/ui/button';
-import { DialogFooter } from '../../../shared/ui/dialog';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '../../../shared/ui/select';
+import { useTranslation } from 'react-i18next'
+import type { CashflowFieldKey, ColumnMapping } from './types'
+import { autoDetectMapping } from './csvParser'
+import { Button } from '../../../shared/ui/button'
+import { DialogFooter } from '../../../shared/ui/dialog'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../../shared/ui/select'
 
 interface MappingStepProps {
-  csvHeaders: string[];
-  columnMapping: ColumnMapping;
-  onMappingChange: (field: CashflowFieldKey, csvColumn: string | null) => void;
-  onNext: () => void;
-  onBack: () => void;
-  onCancel: () => void;
-  canProceed: boolean;
+  csvHeaders: string[]
+  columnMapping: ColumnMapping
+  onMappingChange: (field: CashflowFieldKey, csvColumn: string | null) => void
+  onNext: () => void
+  onBack: () => void
+  onCancel: () => void
+  canProceed: boolean
 }
 
 const FIELDS: { key: CashflowFieldKey; required: boolean }[] = [
@@ -28,38 +22,30 @@ const FIELDS: { key: CashflowFieldKey; required: boolean }[] = [
   { key: 'currency', required: false },
   { key: 'fxRate', required: false },
   { key: 'note', required: false },
-];
+]
 
-const SKIP_VALUE = '__skip__';
+const SKIP_VALUE = '__skip__'
 
-export default function MappingStep({
-  csvHeaders,
-  columnMapping,
-  onMappingChange,
-  onNext,
-  onBack,
-  onCancel,
-  canProceed,
-}: MappingStepProps) {
-  const { t } = useTranslation();
+export default function MappingStep({ csvHeaders, columnMapping, onMappingChange, onNext, onBack, onCancel, canProceed }: MappingStepProps) {
+  const { t } = useTranslation()
 
-  const autoDetectedMapping = autoDetectMapping(csvHeaders);
+  const autoDetectedMapping = autoDetectMapping(csvHeaders)
 
   const handleChange = (field: CashflowFieldKey, value: string) => {
-    onMappingChange(field, value === SKIP_VALUE ? null : value);
-  };
+    onMappingChange(field, value === SKIP_VALUE ? null : value)
+  }
 
   const getSelectValue = (field: CashflowFieldKey): string => {
-    return columnMapping[field] ?? SKIP_VALUE;
-  };
+    return columnMapping[field] ?? SKIP_VALUE
+  }
 
   const getHeaderLabel = (header: string): string => {
-    const match = header.match(/^no-header-column-(\d+)$/);
+    const match = header.match(/^no-header-column-(\d+)$/)
     if (match) {
-      return t('import.mappingStep.noHeader', { column: match[1] });
+      return t('import.mappingStep.noHeader', { column: match[1] })
     }
-    return header;
-  };
+    return header
+  }
 
   return (
     <>
@@ -71,15 +57,9 @@ export default function MappingStep({
             <div key={key} className="contents">
               <div className="flex items-center gap-1.5">
                 <span className="text-sm font-medium">{t(`import.mappingStep.field.${key}`)}</span>
-                {required && (
-                  <span className="text-xs text-muted-foreground">
-                    {t('import.mappingStep.required')}
-                  </span>
-                )}
+                {required && <span className="text-xs text-muted-foreground">{t('import.mappingStep.required')}</span>}
                 {columnMapping[key] !== null && columnMapping[key] === autoDetectedMapping[key] && (
-                  <span className="text-xs text-muted-foreground italic">
-                    {t('import.mappingStep.autoDetected')}
-                  </span>
+                  <span className="text-xs text-muted-foreground italic">{t('import.mappingStep.autoDetected')}</span>
                 )}
               </div>
               <Select value={getSelectValue(key)} onValueChange={(v) => handleChange(key, v)}>
@@ -112,5 +92,5 @@ export default function MappingStep({
         </Button>
       </DialogFooter>
     </>
-  );
+  )
 }

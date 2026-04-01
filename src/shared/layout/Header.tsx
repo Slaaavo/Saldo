@@ -1,16 +1,16 @@
-import { useTranslation } from 'react-i18next';
-import { DatePicker } from '../ui/date-picker';
-import { Label } from '../ui/label';
+import { useTranslation } from 'react-i18next'
+import { DatePicker } from '../ui/date-picker'
+import { Label } from '../ui/label'
 
 interface Props {
-  pageTitle: string;
-  selectedDate: string;
-  onDateChange: (date: string) => void;
-  showDatePicker: boolean;
+  pageTitle: string
+  selectedDate: string
+  onDateChange: (date: string) => void
+  showDatePicker: boolean
 }
 
 export default function Header({ pageTitle, selectedDate, onDateChange, showDatePicker }: Props) {
-  const { t } = useTranslation();
+  const { t } = useTranslation()
 
   return (
     <header className="flex items-center justify-between border-b bg-card px-4 md:px-10 py-3 min-h-16">
@@ -23,15 +23,10 @@ export default function Header({ pageTitle, selectedDate, onDateChange, showDate
             <Label htmlFor="date-picker" className="text-sm font-medium text-muted-foreground">
               {t('header.date')}
             </Label>
-            <DatePicker
-              id="date-picker"
-              value={selectedDate}
-              onChange={onDateChange}
-              className="w-48"
-            />
+            <DatePicker id="date-picker" value={selectedDate} onChange={onDateChange} className="w-48" />
           </>
         )}
       </div>
     </header>
-  );
+  )
 }

@@ -1,39 +1,39 @@
-import type { EventWithData } from '../types';
+import type { EventWithData } from '../types'
 
 export interface SplitGroupRow {
-  type: 'splitGroup';
-  splitGroupId: number;
-  groupDate: string;
-  groupTotal: number;
-  legCount: number;
-  groupNote: string | null;
-  legs: EventWithData[];
-  accountId: number;
-  currencyCode: string;
-  currencyMinorUnits: number;
+  type: 'splitGroup'
+  splitGroupId: number
+  groupDate: string
+  groupTotal: number
+  legCount: number
+  groupNote: string | null
+  legs: EventWithData[]
+  accountId: number
+  currencyCode: string
+  currencyMinorUnits: number
 }
 
 export function groupSplitEvents(events: EventWithData[]): (EventWithData | SplitGroupRow)[] {
-  const standalone: EventWithData[] = [];
-  const grouped = new Map<number, EventWithData[]>();
+  const standalone: EventWithData[] = []
+  const grouped = new Map<number, EventWithData[]>()
 
   for (const ev of events) {
     if (ev.splitGroupId === null) {
-      standalone.push(ev);
+      standalone.push(ev)
     } else {
       if (!grouped.has(ev.splitGroupId)) {
-        grouped.set(ev.splitGroupId, []);
+        grouped.set(ev.splitGroupId, [])
       }
-      grouped.get(ev.splitGroupId)!.push(ev);
+      grouped.get(ev.splitGroupId)!.push(ev)
     }
   }
 
-  const splitGroupRows: SplitGroupRow[] = [];
+  const splitGroupRows: SplitGroupRow[] = []
   for (const [splitGroupId, legs] of grouped.entries()) {
-    const first = legs[0];
-    let groupTotal = 0;
+    const first = legs[0]
+    let groupTotal = 0
     for (const leg of legs) {
-      groupTotal += leg.amountMinor;
+      groupTotal += leg.amountMinor
     }
     splitGroupRows.push({
       type: 'splitGroup',
@@ -46,8 +46,8 @@ export function groupSplitEvents(events: EventWithData[]): (EventWithData | Spli
       accountId: first.accountId,
       currencyCode: first.currencyCode,
       currencyMinorUnits: first.currencyMinorUnits,
-    });
+    })
   }
 
-  return [...standalone, ...splitGroupRows];
+  return [...standalone, ...splitGroupRows]
 }

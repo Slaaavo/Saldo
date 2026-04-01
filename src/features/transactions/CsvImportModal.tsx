@@ -1,27 +1,21 @@
-import { useTranslation } from 'react-i18next';
-import type { SnapshotRow } from '../../shared/types';
-import { useImportWizard } from './csv-import/useImportWizard';
-import UploadStep from './csv-import/UploadStep';
-import MappingStep from './csv-import/MappingStep';
-import ReviewStep from './csv-import/ReviewStep';
-import RulesStep from './csv-import/RulesStep';
-import SaveProfileStep from './csv-import/SaveProfileStep';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogBody,
-} from '../../shared/ui/dialog';
+import { useTranslation } from 'react-i18next'
+import type { SnapshotRow } from '../../shared/types'
+import { useImportWizard } from './csv-import/useImportWizard'
+import UploadStep from './csv-import/UploadStep'
+import MappingStep from './csv-import/MappingStep'
+import ReviewStep from './csv-import/ReviewStep'
+import RulesStep from './csv-import/RulesStep'
+import SaveProfileStep from './csv-import/SaveProfileStep'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogBody } from '../../shared/ui/dialog'
 
 interface CsvImportModalProps {
-  snapshot: SnapshotRow[];
-  onClose: () => void;
-  onSuccess: () => Promise<void>;
+  snapshot: SnapshotRow[]
+  onClose: () => void
+  onSuccess: () => Promise<void>
 }
 
 export default function CsvImportModal({ snapshot, onClose, onSuccess }: CsvImportModalProps) {
-  const { t } = useTranslation();
+  const { t } = useTranslation()
 
   const {
     wizardState,
@@ -65,18 +59,16 @@ export default function CsvImportModal({ snapshot, onClose, onSuccess }: CsvImpo
     handleUpdateProfile,
     handleSkipSaveProfile,
     goBack,
-  } = useImportWizard({ snapshot, onClose, onSuccess });
+  } = useImportWizard({ snapshot, onClose, onSuccess })
 
-  const accountOnlyRows = snapshot.filter((r) => r.accountType === 'account');
-  const allAccounts = snapshot.filter(
-    (r) => r.accountType === 'account' || r.accountType === 'partner',
-  );
+  const accountOnlyRows = snapshot.filter((r) => r.accountType === 'account')
+  const allAccounts = snapshot.filter((r) => r.accountType === 'account' || r.accountType === 'partner')
 
   return (
     <Dialog
       open={true}
       onOpenChange={(open) => {
-        if (!open) onClose();
+        if (!open) onClose()
       }}
     >
       <DialogContent className="max-w-4xl">
@@ -113,14 +105,7 @@ export default function CsvImportModal({ snapshot, onClose, onSuccess }: CsvImpo
           )}
 
           {wizardState.step === 'rules' && (
-            <RulesStep
-              rules={wizardState.rules}
-              csvHeaders={wizardState.csvHeaders}
-              onRulesChange={setRules}
-              onNext={goToReview}
-              onBack={goBack}
-              onCancel={onClose}
-            />
+            <RulesStep rules={wizardState.rules} csvHeaders={wizardState.csvHeaders} onRulesChange={setRules} onNext={goToReview} onBack={goBack} onCancel={onClose} />
           )}
 
           {wizardState.step === 'review' && (
@@ -161,12 +146,7 @@ export default function CsvImportModal({ snapshot, onClose, onSuccess }: CsvImpo
           {wizardState.step === 'save-profile' && (
             <SaveProfileStep
               importedCount={wizardState.importedCount ?? 0}
-              loadedProfileName={
-                wizardState.loadedProfileId !== null
-                  ? (availableProfiles.find((p) => p.id === wizardState.loadedProfileId)?.name ??
-                    null)
-                  : null
-              }
+              loadedProfileName={wizardState.loadedProfileId !== null ? (availableProfiles.find((p) => p.id === wizardState.loadedProfileId)?.name ?? null) : null}
               onSaveNew={handleSaveNewProfile}
               onUpdate={handleUpdateProfile}
               onClose={handleSkipSaveProfile}
@@ -175,5 +155,5 @@ export default function CsvImportModal({ snapshot, onClose, onSuccess }: CsvImpo
         </DialogBody>
       </DialogContent>
     </Dialog>
-  );
+  )
 }

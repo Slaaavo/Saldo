@@ -1,134 +1,120 @@
-import { useState, useCallback, useEffect } from 'react';
-import { useTranslation } from 'react-i18next';
-import { toast } from 'sonner';
-import {
-  getDbLocation,
-  pickDbFolder,
-  changeDbLocation,
-  resetDbLocation,
-  checkDefaultDb,
-} from '../../shared/api';
-import type { ModalState } from '../../shared/types';
-import { extractErrorMessage } from '../../shared/utils/errors';
+import { useState, useCallback, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
+import { getDbLocation, pickDbFolder, changeDbLocation, resetDbLocation, checkDefaultDb } from '../../shared/api'
+import type { ModalState } from '../../shared/types'
+import { extractErrorMessage } from '../../shared/utils/errors'
 
 interface UseDbLocationOptions {
-  setModalState: (state: ModalState) => void;
-  closeModal: () => void;
-  onAfterDbChange: () => Promise<void>;
+  setModalState: (state: ModalState) => void
+  closeModal: () => void
+  onAfterDbChange: () => Promise<void>
 }
 
-export function useDbLocation({
-  setModalState,
-  closeModal,
-  onAfterDbChange,
-}: UseDbLocationOptions) {
-  const { t } = useTranslation();
-  const [path, setPath] = useState('');
-  const [isDefault, setIsDefault] = useState(true);
-  const [actionLoading, setActionLoading] = useState(false);
+export function useDbLocation({ setModalState, closeModal, onAfterDbChange }: UseDbLocationOptions) {
+  const { t } = useTranslation()
+  const [path, setPath] = useState('')
+  const [isDefault, setIsDefault] = useState(true)
+  const [actionLoading, setActionLoading] = useState(false)
 
   const load = useCallback(async () => {
     try {
-      const info = await getDbLocation();
-      setPath(info.currentPath);
-      setIsDefault(info.isDefault);
+      const info = await getDbLocation()
+      setPath(info.currentPath)
+      setIsDefault(info.isDefault)
       if (info.fallbackWarning) {
-        toast.warning(t('dataStorage.toasts.fallbackWarning'));
+        toast.warning(t('dataStorage.toasts.fallbackWarning'))
       }
     } catch (err) {
-      console.error('Failed to load DB location:', err);
+      console.error('Failed to load DB location:', err)
     }
-  }, [t]);
+  }, [t])
 
   useEffect(() => {
-    load();
-  }, [load]);
+    load()
+  }, [load])
 
   const handleChange = async () => {
     try {
-      const result = await pickDbFolder();
-      if (!result) return;
+      const result = await pickDbFolder()
+      if (!result) return
       if (result.dbExists) {
-        setModalState({ type: 'confirmSwitchDb', folder: result.folder });
+        setModalState({ type: 'confirmSwitchDb', folder: result.folder })
       } else {
-        setModalState({ type: 'dbLocationChoice', folder: result.folder, isReset: false });
+        setModalState({ type: 'dbLocationChoice', folder: result.folder, isReset: false })
       }
     } catch (err) {
-      toast.error(t('dataStorage.errors.change', { error: extractErrorMessage(err) }));
+      toast.error(t('dataStorage.errors.change', { error: extractErrorMessage(err) }))
     }
-  };
+  }
 
   const handleReset = async () => {
     try {
-      const dbExists = await checkDefaultDb();
+      const dbExists = await checkDefaultDb()
       if (dbExists) {
-        setModalState({ type: 'confirmResetDbLocation' });
+        setModalState({ type: 'confirmResetDbLocation' })
       } else {
-        setModalState({ type: 'dbLocationChoice', folder: '', isReset: true });
+        setModalState({ type: 'dbLocationChoice', folder: '', isReset: true })
       }
     } catch (err) {
-      toast.error(t('dataStorage.errors.reset', { error: extractErrorMessage(err) }));
+      toast.error(t('dataStorage.errors.reset', { error: extractErrorMessage(err) }))
     }
-  };
+  }
 
   const handleConfirmSwitch = async (folder: string) => {
-    setActionLoading(true);
+    setActionLoading(true)
     try {
-      await changeDbLocation(folder, 'switch');
-      await onAfterDbChange();
-      await load();
-      toast.success(t('dataStorage.toasts.switched', { path: folder }));
-      closeModal();
+      await changeDbLocation(folder, 'switch')
+      await onAfterDbChange()
+      await load()
+      toast.success(t('dataStorage.toasts.switched', { path: folder }))
+      closeModal()
     } catch (err) {
-      toast.error(t('dataStorage.errors.change', { error: extractErrorMessage(err) }));
+      toast.error(t('dataStorage.errors.change', { error: extractErrorMessage(err) }))
     } finally {
-      setActionLoading(false);
+      setActionLoading(false)
     }
-  };
+  }
 
   const handleLocationChoiceAction = async (action: string, folder: string, isReset: boolean) => {
-    setActionLoading(true);
+    setActionLoading(true)
     try {
       if (isReset) {
-        await resetDbLocation(action);
+        await resetDbLocation(action)
       } else {
-        await changeDbLocation(folder, action);
+        await changeDbLocation(folder, action)
       }
-      await onAfterDbChange();
-      await load();
+      await onAfterDbChange()
+      await load()
       if (isReset) {
-        toast.success(t('dataStorage.toasts.reset'));
+        toast.success(t('dataStorage.toasts.reset'))
       } else if (action === 'move') {
-        toast.success(t('dataStorage.toasts.moved', { path: folder }));
+        toast.success(t('dataStorage.toasts.moved', { path: folder }))
       } else {
-        toast.success(t('dataStorage.toasts.fresh', { path: folder }));
+        toast.success(t('dataStorage.toasts.fresh', { path: folder }))
       }
-      closeModal();
+      closeModal()
     } catch (err) {
-      toast.error(
-        isReset
-          ? t('dataStorage.errors.reset', { error: extractErrorMessage(err) })
-          : t('dataStorage.errors.change', { error: extractErrorMessage(err) }),
-      );
+      toast.error(isReset ? t('dataStorage.errors.reset', { error: extractErrorMessage(err) }) : t('dataStorage.errors.change', { error: extractErrorMessage(err) }))
     } finally {
-      setActionLoading(false);
+      setActionLoading(false)
     }
-  };
+  }
 
   const handleConfirmReset = async () => {
-    setActionLoading(true);
+    setActionLoading(true)
     try {
-      await resetDbLocation('switch');
-      await onAfterDbChange();
-      await load();
-      toast.success(t('dataStorage.toasts.reset'));
-      closeModal();
+      await resetDbLocation('switch')
+      await onAfterDbChange()
+      await load()
+      toast.success(t('dataStorage.toasts.reset'))
+      closeModal()
     } catch (err) {
-      toast.error(t('dataStorage.errors.reset', { error: extractErrorMessage(err) }));
+      toast.error(t('dataStorage.errors.reset', { error: extractErrorMessage(err) }))
     } finally {
-      setActionLoading(false);
+      setActionLoading(false)
     }
-  };
+  }
 
   return {
     path,
@@ -140,5 +126,5 @@ export function useDbLocation({
     handleConfirmSwitch,
     handleLocationChoiceAction,
     handleConfirmReset,
-  };
+  }
 }

@@ -1,15 +1,15 @@
 export interface IbanSegment {
-  text: string;
-  weight: string;
+  text: string
+  weight: string
 }
 
 export function formatIbanSegments(iban: string): IbanSegment[] {
-  const normalized = iban.replace(/\s+/g, '').toUpperCase();
+  const normalized = iban.replace(/\s+/g, '').toUpperCase()
 
   // Split into visual groups of 4 chars (standard IBAN display)
-  const groups: string[] = [];
+  const groups: string[] = []
   for (let i = 0; i < normalized.length; i += 4) {
-    groups.push(normalized.slice(i, i + 4));
+    groups.push(normalized.slice(i, i + 4))
   }
 
   // SK IBAN structure: SKkk (4) + bank code (4) + prefix (6) + account number (10) = 24 chars
@@ -20,35 +20,35 @@ export function formatIbanSegments(iban: string): IbanSegment[] {
   if (normalized.startsWith('SK') && normalized.length === 24) {
     // Map each character position to its weight
     const charWeight = (pos: number): string => {
-      if (pos < 4) return 'font-normal'; // country + check
-      if (pos < 8) return 'font-bold'; // bank code
-      if (pos < 14) return 'font-normal'; // account prefix
-      return 'font-bold'; // account number
-    };
+      if (pos < 4) return 'font-normal' // country + check
+      if (pos < 8) return 'font-bold' // bank code
+      if (pos < 14) return 'font-normal' // account prefix
+      return 'font-bold' // account number
+    }
 
     // Split groups that cross weight boundaries into sub-spans
-    const result: IbanSegment[] = [];
-    let charPos = 0;
+    const result: IbanSegment[] = []
+    let charPos = 0
     for (const group of groups) {
-      let current = '';
-      let currentWeight = charWeight(charPos);
+      let current = ''
+      let currentWeight = charWeight(charPos)
       for (const ch of group) {
-        const w = charWeight(charPos);
+        const w = charWeight(charPos)
         if (w !== currentWeight) {
-          if (current) result.push({ text: current, weight: currentWeight });
-          current = '';
-          currentWeight = w;
+          if (current) result.push({ text: current, weight: currentWeight })
+          current = ''
+          currentWeight = w
         }
-        current += ch;
-        charPos++;
+        current += ch
+        charPos++
       }
-      if (current) result.push({ text: current, weight: currentWeight });
+      if (current) result.push({ text: current, weight: currentWeight })
       // Add a space separator marker after each group (except the last)
       if (charPos < normalized.length) {
-        result.push({ text: ' ', weight: '' });
+        result.push({ text: ' ', weight: '' })
       }
     }
-    return result;
+    return result
   }
 
   // Non-SK: groups of 4, uniform weight
@@ -59,5 +59,5 @@ export function formatIbanSegments(iban: string): IbanSegment[] {
           { text: ' ', weight: '' },
         ]
       : [{ text, weight: 'font-bold' }],
-  );
+  )
 }
