@@ -24,13 +24,21 @@ pub use snapshot::get_accounts_snapshot;
 mod tests {
     use super::*;
     use crate::db::initialize_in_memory;
-    use crate::features::accounts::repository::create_account;
+    use crate::features::accounts::repository::{create_account, CreateAccountParams};
     use crate::features::currency::repository::set_fx_rate_manual;
     use rusqlite::{params, Connection};
 
     fn mk_account(conn: &Connection) -> i64 {
-        create_account(conn, "Test Account", 1, "account", None, None, None)
-            .expect("create account failed")
+        create_account(
+            conn,
+            CreateAccountParams {
+                name: "Test Account".to_owned(),
+                currency_id: 1,
+                account_type: "account".to_owned(),
+                ..Default::default()
+            },
+        )
+        .expect("create account failed")
     }
 
     #[test]
@@ -126,7 +134,16 @@ mod tests {
     fn list_events_filters_by_account() {
         let conn = initialize_in_memory().expect("DB init failed");
         let acc1 = mk_account(&conn);
-        let acc2 = create_account(&conn, "Second", 1, "account", None, None, None).unwrap();
+        let acc2 = create_account(
+            &conn,
+            CreateAccountParams {
+                name: "Second".to_owned(),
+                currency_id: 1,
+                account_type: "account".to_owned(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
         create_balance_update(&conn, acc1, 1000, "2026-01-01", None).unwrap();
         create_balance_update(&conn, acc2, 2000, "2026-02-01", None).unwrap();
 
@@ -176,12 +193,13 @@ mod tests {
         let conn = initialize_in_memory().expect("DB init failed");
         let bucket_id = create_account(
             &conn,
-            "Emergency Fund",
-            1,
-            "bucket",
-            Some(20000),
-            None,
-            None,
+            CreateAccountParams {
+                name: "Emergency Fund".to_owned(),
+                currency_id: 1,
+                account_type: "bucket".to_owned(),
+                initial_balance_minor: Some(20000),
+                ..Default::default()
+            },
         )
         .unwrap();
         let snapshot = get_accounts_snapshot(&conn, "2099-12-31T23:59:59").unwrap();
@@ -202,8 +220,16 @@ mod tests {
     #[test]
     fn bucket_balance_update_works() {
         let conn = initialize_in_memory().expect("DB init failed");
-        let bucket_id =
-            create_account(&conn, "Savings Bucket", 1, "bucket", None, None, None).unwrap();
+        let bucket_id = create_account(
+            &conn,
+            CreateAccountParams {
+                name: "Savings Bucket".to_owned(),
+                currency_id: 1,
+                account_type: "bucket".to_owned(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
         create_balance_update(&conn, bucket_id, 15000, "2026-03-01", None).unwrap();
         let snapshot = get_accounts_snapshot(&conn, "2026-03-01T23:59:59").unwrap();
         let bucket = snapshot.iter().find(|r| r.account_id == bucket_id).unwrap();
@@ -213,8 +239,16 @@ mod tests {
     #[test]
     fn list_events_includes_account_type() {
         let conn = initialize_in_memory().expect("DB init failed");
-        let bucket_id =
-            create_account(&conn, "Test Bucket", 1, "bucket", None, None, None).unwrap();
+        let bucket_id = create_account(
+            &conn,
+            CreateAccountParams {
+                name: "Test Bucket".to_owned(),
+                currency_id: 1,
+                account_type: "bucket".to_owned(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
         create_balance_update(&conn, bucket_id, 5000, "2026-03-01", None).unwrap();
         let result = list_events(
             &conn,
@@ -227,8 +261,16 @@ mod tests {
         assert_eq!(result.events.len(), 1);
         assert_eq!(result.events[0].account_type, "bucket");
 
-        let empty_account_id =
-            create_account(&conn, "Empty Account", 1, "account", None, None, None).unwrap();
+        let empty_account_id = create_account(
+            &conn,
+            CreateAccountParams {
+                name: "Empty Account".to_owned(),
+                currency_id: 1,
+                account_type: "account".to_owned(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
         let result_empty = list_events(
             &conn,
             ListEventsQuery {
@@ -244,8 +286,26 @@ mod tests {
     #[test]
     fn snapshot_orders_accounts_before_buckets() {
         let conn = initialize_in_memory().expect("DB init failed");
-        create_account(&conn, "Zebra Bucket", 1, "bucket", None, None, None).unwrap();
-        create_account(&conn, "Alpha Account", 1, "account", None, None, None).unwrap();
+        create_account(
+            &conn,
+            CreateAccountParams {
+                name: "Zebra Bucket".to_owned(),
+                currency_id: 1,
+                account_type: "bucket".to_owned(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        create_account(
+            &conn,
+            CreateAccountParams {
+                name: "Alpha Account".to_owned(),
+                currency_id: 1,
+                account_type: "account".to_owned(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
         let snapshot = get_accounts_snapshot(&conn, "2099-12-31T23:59:59").unwrap();
         // accounts come first (alphabetically 'account' < 'bucket'), then buckets
         let types: Vec<&str> = snapshot.iter().map(|r| r.account_type.as_str()).collect();
@@ -280,7 +340,16 @@ mod tests {
                 r.get::<_, i64>(0)
             })
             .unwrap();
-        let acc = create_account(&conn, "USD Account", usd, "account", None, None, None).unwrap();
+        let acc = create_account(
+            &conn,
+            CreateAccountParams {
+                name: "USD Account".to_owned(),
+                currency_id: usd,
+                account_type: "account".to_owned(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
         create_balance_update(&conn, acc, 108420, "2026-03-01", None).unwrap();
         let snapshot = get_accounts_snapshot(&conn, "2026-03-01T23:59:59").unwrap();
         let row = snapshot.iter().find(|r| r.account_id == acc).unwrap();
@@ -303,7 +372,16 @@ mod tests {
                 r.get::<_, i64>(0)
             })
             .unwrap();
-        let acc = create_account(&conn, "USD Account", usd, "account", None, None, None).unwrap();
+        let acc = create_account(
+            &conn,
+            CreateAccountParams {
+                name: "USD Account".to_owned(),
+                currency_id: usd,
+                account_type: "account".to_owned(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
         create_balance_update(&conn, acc, 108420, "2026-03-01", None).unwrap();
         // Store rate: 1 EUR = 1.0842 USD (mantissa=10842, exponent=-4)
         set_fx_rate_manual(&conn, eur, usd, "2026-03-01", 10842, -4, false).unwrap();
@@ -447,7 +525,16 @@ mod tests {
     fn create_transfer_creates_linked_pair() {
         let conn = initialize_in_memory().expect("DB init failed");
         let acc1 = mk_account(&conn);
-        let acc2 = create_account(&conn, "Second Account", 1, "account", None, None, None).unwrap();
+        let acc2 = create_account(
+            &conn,
+            CreateAccountParams {
+                name: "Second Account".to_owned(),
+                currency_id: 1,
+                account_type: "account".to_owned(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
         let (source_id, counterpart_id) = create_transfer(
             &conn,
             &CashflowEntry {
@@ -494,7 +581,16 @@ mod tests {
     fn delete_transfer_also_deletes_counterpart() {
         let conn = initialize_in_memory().expect("DB init failed");
         let acc1 = mk_account(&conn);
-        let acc2 = create_account(&conn, "Second Account", 1, "account", None, None, None).unwrap();
+        let acc2 = create_account(
+            &conn,
+            CreateAccountParams {
+                name: "Second Account".to_owned(),
+                currency_id: 1,
+                account_type: "account".to_owned(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
         let (source_id, counterpart_id) = create_transfer(
             &conn,
             &CashflowEntry {
@@ -539,7 +635,16 @@ mod tests {
     fn snapshot_transfer_affects_both_accounts() {
         let conn = initialize_in_memory().expect("DB init failed");
         let acc_a = mk_account(&conn);
-        let acc_b = create_account(&conn, "Account B", 1, "account", None, None, None).unwrap();
+        let acc_b = create_account(
+            &conn,
+            CreateAccountParams {
+                name: "Account B".to_owned(),
+                currency_id: 1,
+                account_type: "account".to_owned(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
         create_balance_update(&conn, acc_a, 10000, "2026-01-10T09:00:00", None).unwrap();
         create_balance_update(&conn, acc_b, 5000, "2026-01-10T09:00:00", None).unwrap();
         create_transfer(
@@ -569,7 +674,16 @@ mod tests {
     fn delete_transfer_restores_snapshot_balances() {
         let conn = initialize_in_memory().expect("DB init failed");
         let acc_a = mk_account(&conn);
-        let acc_b = create_account(&conn, "Account B", 1, "account", None, None, None).unwrap();
+        let acc_b = create_account(
+            &conn,
+            CreateAccountParams {
+                name: "Account B".to_owned(),
+                currency_id: 1,
+                account_type: "account".to_owned(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
         create_balance_update(&conn, acc_a, 10000, "2026-01-10T09:00:00", None).unwrap();
         create_balance_update(&conn, acc_b, 5000, "2026-01-10T09:00:00", None).unwrap();
         let (source_id, _) = create_transfer(
@@ -626,7 +740,16 @@ mod tests {
     fn update_transfer_same_currency() {
         let conn = initialize_in_memory().expect("DB init failed");
         let acc1 = mk_account(&conn);
-        let acc2 = create_account(&conn, "Second Account", 1, "account", None, None, None).unwrap();
+        let acc2 = create_account(
+            &conn,
+            CreateAccountParams {
+                name: "Second Account".to_owned(),
+                currency_id: 1,
+                account_type: "account".to_owned(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
 
         let (from_id, to_id) = create_transfer(
             &conn,
@@ -702,8 +825,16 @@ mod tests {
             .unwrap();
 
         let acc_eur = mk_account(&conn);
-        let acc_usd =
-            create_account(&conn, "USD Account", usd_id, "account", None, None, None).unwrap();
+        let acc_usd = create_account(
+            &conn,
+            CreateAccountParams {
+                name: "USD Account".to_owned(),
+                currency_id: usd_id,
+                account_type: "account".to_owned(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
 
         let (from_id, to_id) = create_transfer(
             &conn,
@@ -759,8 +890,26 @@ mod tests {
     fn update_transfer_validation_not_linked() {
         let conn = initialize_in_memory().expect("DB init failed");
         let acc1 = mk_account(&conn);
-        let acc2 = create_account(&conn, "Second Account", 1, "account", None, None, None).unwrap();
-        let acc3 = create_account(&conn, "Third Account", 1, "account", None, None, None).unwrap();
+        let acc2 = create_account(
+            &conn,
+            CreateAccountParams {
+                name: "Second Account".to_owned(),
+                currency_id: 1,
+                account_type: "account".to_owned(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let acc3 = create_account(
+            &conn,
+            CreateAccountParams {
+                name: "Third Account".to_owned(),
+                currency_id: 1,
+                account_type: "account".to_owned(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
 
         let (pair1_from, _) = create_transfer(
             &conn,
@@ -822,7 +971,16 @@ mod tests {
     fn update_transfer_soft_deleted_event() {
         let conn = initialize_in_memory().expect("DB init failed");
         let acc1 = mk_account(&conn);
-        let acc2 = create_account(&conn, "Second Account", 1, "account", None, None, None).unwrap();
+        let acc2 = create_account(
+            &conn,
+            CreateAccountParams {
+                name: "Second Account".to_owned(),
+                currency_id: 1,
+                account_type: "account".to_owned(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
 
         let (from_id, to_id) = create_transfer(
             &conn,
@@ -891,8 +1049,16 @@ mod tests {
         let conn = initialize_in_memory().expect("DB init failed");
 
         let source_id = mk_account(&conn);
-        let bucket_id =
-            create_account(&conn, "Tagged Bucket", 1, "bucket", None, None, None).unwrap();
+        let bucket_id = create_account(
+            &conn,
+            CreateAccountParams {
+                name: "Tagged Bucket".to_owned(),
+                currency_id: 1,
+                account_type: "bucket".to_owned(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
 
         // Cashflow on source account tagged to bucket
         create_cashflow(
@@ -925,8 +1091,16 @@ mod tests {
         let conn = initialize_in_memory().expect("DB init failed");
 
         let source_id = mk_account(&conn);
-        let bucket_id =
-            create_account(&conn, "Tagged Bucket", 1, "bucket", None, None, None).unwrap();
+        let bucket_id = create_account(
+            &conn,
+            CreateAccountParams {
+                name: "Tagged Bucket".to_owned(),
+                currency_id: 1,
+                account_type: "bucket".to_owned(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
 
         // Cashflow dated AFTER the snapshot date
         create_cashflow(
@@ -959,8 +1133,16 @@ mod tests {
         let conn = initialize_in_memory().expect("DB init failed");
 
         let source_id = mk_account(&conn);
-        let bucket_id =
-            create_account(&conn, "Some Bucket", 1, "bucket", None, None, None).unwrap();
+        let bucket_id = create_account(
+            &conn,
+            CreateAccountParams {
+                name: "Some Bucket".to_owned(),
+                currency_id: 1,
+                account_type: "bucket".to_owned(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
 
         // Cashflow on source account tagged to bucket
         create_cashflow(

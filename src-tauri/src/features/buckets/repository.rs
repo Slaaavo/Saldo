@@ -323,17 +323,33 @@ pub fn check_link_conflicts(
 mod tests {
     use super::*;
     use crate::db::initialize_in_memory;
-    use crate::features::accounts::repository::create_account;
+    use crate::features::accounts::repository::{create_account, CreateAccountParams};
     use crate::features::transactions::repository::create_balance_update;
 
     fn mk_account(conn: &Connection) -> i64 {
-        create_account(conn, "Test Account", 1, "account", None, None, None)
-            .expect("create account failed")
+        create_account(
+            conn,
+            CreateAccountParams {
+                name: "Test Account".to_owned(),
+                currency_id: 1,
+                account_type: "account".to_owned(),
+                ..Default::default()
+            },
+        )
+        .expect("create account failed")
     }
 
     fn mk_bucket(conn: &Connection) -> i64 {
-        create_account(conn, "Test Bucket", 1, "bucket", None, None, None)
-            .expect("create bucket failed")
+        create_account(
+            conn,
+            CreateAccountParams {
+                name: "Test Bucket".to_owned(),
+                currency_id: 1,
+                account_type: "bucket".to_owned(),
+                ..Default::default()
+            },
+        )
+        .expect("create bucket failed")
     }
 
     #[test]
@@ -358,7 +374,16 @@ mod tests {
         let conn = initialize_in_memory().expect("DB init failed");
         let account_id = mk_account(&conn);
         let bucket1 = mk_bucket(&conn);
-        let bucket2 = create_account(&conn, "Bucket 2", 1, "bucket", None, None, None).unwrap();
+        let bucket2 = create_account(
+            &conn,
+            CreateAccountParams {
+                name: "Bucket 2".to_owned(),
+                currency_id: 1,
+                account_type: "bucket".to_owned(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
 
         let event_b1 = create_balance_update(&conn, bucket1, 0, "2025-01-01", None).unwrap();
         set_bucket_event_links(&conn, event_b1, &[account_id]).unwrap();
@@ -378,7 +403,16 @@ mod tests {
         let conn = initialize_in_memory().expect("DB init failed");
         let account_id = mk_account(&conn);
         let bucket1 = mk_bucket(&conn);
-        let bucket2 = create_account(&conn, "Bucket 2", 1, "bucket", None, None, None).unwrap();
+        let bucket2 = create_account(
+            &conn,
+            CreateAccountParams {
+                name: "Bucket 2".to_owned(),
+                currency_id: 1,
+                account_type: "bucket".to_owned(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
 
         // Link account to bucket1 starting 2025-01-01.
         let event_b1_jan = create_balance_update(&conn, bucket1, 0, "2025-01-01", None).unwrap();

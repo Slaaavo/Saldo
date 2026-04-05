@@ -72,12 +72,14 @@ pub fn create_account(
     let conn = state.conn()?;
     let id = repository::create_account(
         &conn,
-        input.name.trim(),
-        input.currency_id,
-        account_type,
-        input.initial_balance_minor,
-        input.price_per_unit.as_deref(),
-        input.iban.as_deref(),
+        repository::CreateAccountParams {
+            name: input.name.trim().to_owned(),
+            currency_id: input.currency_id,
+            account_type: account_type.to_owned(),
+            initial_balance_minor: input.initial_balance_minor,
+            price_per_unit: input.price_per_unit.clone(),
+            iban: input.iban.clone(),
+        },
     )?;
 
     // Link to assets if provided and this is a regular account.
@@ -106,9 +108,11 @@ pub fn update_account(
     let conn = state.conn()?;
     repository::update_account(
         &conn,
-        input.account_id,
-        input.name.trim(),
-        input.iban.as_deref(),
+        repository::UpdateAccountParams {
+            account_id: input.account_id,
+            name: input.name.trim().to_owned(),
+            iban: input.iban.clone(),
+        },
     )?;
     Ok(())
 }
@@ -137,6 +141,6 @@ pub fn update_sort_order(
         .iter()
         .map(|e| (e.account_id, e.sort_order))
         .collect();
-    repository::update_sort_order(&conn, &pairs)?;
+    repository::update_sort_order(&conn, repository::UpdateSortOrderParams { updates: pairs })?;
     Ok(())
 }

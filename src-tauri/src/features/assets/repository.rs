@@ -338,20 +338,37 @@ pub(crate) fn get_all_account_asset_link_ids(
 mod tests {
     use super::*;
     use crate::db::initialize_in_memory;
-    use crate::features::accounts::repository::create_account;
+    use crate::features::accounts::repository::{create_account, CreateAccountParams};
     use crate::features::transactions::repository::{create_balance_update, get_accounts_snapshot};
 
     fn mk_account(conn: &Connection) -> i64 {
-        create_account(conn, "Test Account", 1, "account", None, None, None)
-            .expect("create account failed")
+        create_account(
+            conn,
+            CreateAccountParams {
+                name: "Test Account".to_owned(),
+                currency_id: 1,
+                account_type: "account".to_owned(),
+                ..Default::default()
+            },
+        )
+        .expect("create account failed")
     }
 
     #[test]
     fn test_set_and_list_account_asset_links() {
         let conn = initialize_in_memory().expect("DB init failed");
         let account_id = mk_account(&conn);
-        let asset_id =
-            create_account(&conn, "House", 1, "asset", Some(40_000_000), None, None).unwrap();
+        let asset_id = create_account(
+            &conn,
+            CreateAccountParams {
+                name: "House".to_owned(),
+                currency_id: 1,
+                account_type: "asset".to_owned(),
+                initial_balance_minor: Some(40_000_000),
+                ..Default::default()
+            },
+        )
+        .unwrap();
 
         // Link account to asset.
         set_account_asset_links(&conn, account_id, &[asset_id]).unwrap();
@@ -370,9 +387,27 @@ mod tests {
     #[test]
     fn test_set_account_asset_links_validates_account_type() {
         let conn = initialize_in_memory().expect("DB init failed");
-        let bucket_id = create_account(&conn, "Bucket", 1, "bucket", None, None, None).unwrap();
-        let asset_id =
-            create_account(&conn, "House", 1, "asset", Some(40_000_000), None, None).unwrap();
+        let bucket_id = create_account(
+            &conn,
+            CreateAccountParams {
+                name: "Bucket".to_owned(),
+                currency_id: 1,
+                account_type: "bucket".to_owned(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let asset_id = create_account(
+            &conn,
+            CreateAccountParams {
+                name: "House".to_owned(),
+                currency_id: 1,
+                account_type: "asset".to_owned(),
+                initial_balance_minor: Some(40_000_000),
+                ..Default::default()
+            },
+        )
+        .unwrap();
 
         // Attempting to link a bucket as the account side should fail.
         let result = set_account_asset_links(&conn, bucket_id, &[asset_id]);
@@ -384,8 +419,16 @@ mod tests {
     fn test_set_account_asset_links_validates_asset_type() {
         let conn = initialize_in_memory().expect("DB init failed");
         let account_id = mk_account(&conn);
-        let other_account_id =
-            create_account(&conn, "Other Account", 1, "account", None, None, None).unwrap();
+        let other_account_id = create_account(
+            &conn,
+            CreateAccountParams {
+                name: "Other Account".to_owned(),
+                currency_id: 1,
+                account_type: "account".to_owned(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
 
         // Attempting to link account→account should fail validation.
         let result = set_account_asset_links(&conn, account_id, &[other_account_id]);
@@ -397,8 +440,17 @@ mod tests {
     fn test_snapshot_is_linked_to_asset_flag() {
         let conn = initialize_in_memory().expect("DB init failed");
         let account_id = mk_account(&conn);
-        let asset_id =
-            create_account(&conn, "House", 1, "asset", Some(40_000_000), None, None).unwrap();
+        let asset_id = create_account(
+            &conn,
+            CreateAccountParams {
+                name: "House".to_owned(),
+                currency_id: 1,
+                account_type: "asset".to_owned(),
+                initial_balance_minor: Some(40_000_000),
+                ..Default::default()
+            },
+        )
+        .unwrap();
 
         // Before linking: flag is false.
         let snap_before = get_accounts_snapshot(&conn, "2099-12-31T23:59:59").unwrap();
@@ -430,9 +482,27 @@ mod tests {
     fn test_snapshot_bucket_link_from_asset_linked_account() {
         let conn = initialize_in_memory().expect("DB init failed");
         let account_id = mk_account(&conn);
-        let asset_id =
-            create_account(&conn, "House", 1, "asset", Some(40_000_000), None, None).unwrap();
-        let bucket_id = create_account(&conn, "Bucket", 1, "bucket", None, None, None).unwrap();
+        let asset_id = create_account(
+            &conn,
+            CreateAccountParams {
+                name: "House".to_owned(),
+                currency_id: 1,
+                account_type: "asset".to_owned(),
+                initial_balance_minor: Some(40_000_000),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let bucket_id = create_account(
+            &conn,
+            CreateAccountParams {
+                name: "Bucket".to_owned(),
+                currency_id: 1,
+                account_type: "bucket".to_owned(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
 
         create_balance_update(&conn, account_id, 20_000, "2024-01-01", None).unwrap();
         // Link the account to the asset.
@@ -457,8 +527,17 @@ mod tests {
     fn test_delete_asset_cascades_links() {
         let conn = initialize_in_memory().expect("DB init failed");
         let account_id = mk_account(&conn);
-        let asset_id =
-            create_account(&conn, "House", 1, "asset", Some(40_000_000), None, None).unwrap();
+        let asset_id = create_account(
+            &conn,
+            CreateAccountParams {
+                name: "House".to_owned(),
+                currency_id: 1,
+                account_type: "asset".to_owned(),
+                initial_balance_minor: Some(40_000_000),
+                ..Default::default()
+            },
+        )
+        .unwrap();
         set_account_asset_links(&conn, account_id, &[asset_id]).unwrap();
 
         // Verify link exists.
@@ -477,8 +556,17 @@ mod tests {
     fn test_delete_account_cascades_links() {
         let conn = initialize_in_memory().expect("DB init failed");
         let account_id = mk_account(&conn);
-        let asset_id =
-            create_account(&conn, "House", 1, "asset", Some(40_000_000), None, None).unwrap();
+        let asset_id = create_account(
+            &conn,
+            CreateAccountParams {
+                name: "House".to_owned(),
+                currency_id: 1,
+                account_type: "asset".to_owned(),
+                initial_balance_minor: Some(40_000_000),
+                ..Default::default()
+            },
+        )
+        .unwrap();
         set_account_asset_links(&conn, account_id, &[asset_id]).unwrap();
 
         // Delete the account.

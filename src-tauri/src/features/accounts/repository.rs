@@ -4,16 +4,28 @@ use crate::shared::{
 };
 use rusqlite::{params, Connection, OptionalExtension};
 
-pub fn create_account(
-    conn: &Connection,
-    name: &str,
-    currency_id: i64,
-    account_type: &str,
-    initial_balance_minor: Option<i64>,
-    price_per_unit: Option<&str>,
-    iban: Option<&str>,
-) -> Result<i64, AppError> {
-    let normalised_iban: Option<String> = if let Some(raw) = iban {
+#[derive(Default)]
+pub struct CreateAccountParams {
+    pub name: String,
+    pub currency_id: i64,
+    pub account_type: String,
+    pub initial_balance_minor: Option<i64>,
+    pub price_per_unit: Option<String>,
+    pub iban: Option<String>,
+}
+
+pub struct UpdateAccountParams {
+    pub account_id: i64,
+    pub name: String,
+    pub iban: Option<String>,
+}
+
+pub struct UpdateSortOrderParams {
+    pub updates: Vec<(i64, i64)>,
+}
+
+pub fn create_account(conn: &Connection, params: CreateAccountParams) -> Result<i64, AppError> {
+    let normalised_iban: Option<String> = if let Some(raw) = params.iban.as_deref() {
         if raw.is_empty() {
             None
         } else {
@@ -25,12 +37,12 @@ pub fn create_account(
     with_savepoint_app(conn, || {
         let next_sort_order: i64 = conn.query_row(
             "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM account WHERE account_type = ?1",
-            params![account_type],
+            params![params.account_type.as_str()],
             |row| row.get(0),
         )?;
         conn.execute(
             "INSERT INTO account (name, currency_id, account_type, sort_order, iban) VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![name, currency_id, account_type, next_sort_order, normalised_iban],
+            params![params.name.as_str(), params.currency_id, params.account_type.as_str(), next_sort_order, normalised_iban],
         ).map_err(|e| {
             if is_duplicate_iban_error(&e) {
                 AppError {
@@ -43,14 +55,14 @@ pub fn create_account(
         })?;
         let account_id = conn.last_insert_rowid();
 
-        if let Some(amount) = initial_balance_minor {
+        if let Some(amount) = params.initial_balance_minor {
             let now = local_now();
             crate::features::transactions::repository::create_balance_update_inner(
                 conn, account_id, amount, &now, None,
             )?;
         }
 
-        if let Some(price) = price_per_unit {
+        if let Some(price) = params.price_per_unit.as_deref() {
             let today = chrono::Local::now().format("%Y-%m-%d").to_string();
             crate::features::assets::repository::store_asset_price(
                 conn, account_id, price, &today,
@@ -61,9 +73,9 @@ pub fn create_account(
     })
 }
 
-pub fn update_sort_order(conn: &Connection, updates: &[(i64, i64)]) -> rusqlite::Result<()> {
+pub fn update_sort_order(conn: &Connection, params: UpdateSortOrderParams) -> rusqlite::Result<()> {
     with_savepoint(conn, || {
-        for &(account_id, sort_order) in updates {
+        for &(account_id, sort_order) in &params.updates {
             let rows = conn.execute(
                 "UPDATE account SET sort_order = ?1 WHERE id = ?2",
                 params![sort_order, account_id],
@@ -76,14 +88,9 @@ pub fn update_sort_order(conn: &Connection, updates: &[(i64, i64)]) -> rusqlite:
     })
 }
 
-pub fn update_account(
-    conn: &Connection,
-    account_id: i64,
-    name: &str,
-    iban: Option<&str>,
-) -> Result<(), AppError> {
-    if iban.is_some() {
-        let account_type = get_account_type(conn, account_id)
+pub fn update_account(conn: &Connection, params: UpdateAccountParams) -> Result<(), AppError> {
+    if params.iban.is_some() {
+        let account_type = get_account_type(conn, params.account_id)
             .map_err(AppError::from)?
             .unwrap_or_default();
         if account_type != "account" {
@@ -93,13 +100,13 @@ pub fn update_account(
             });
         }
     }
-    match iban {
+    match params.iban.as_deref() {
         Some(raw) if !raw.is_empty() => {
             let normalised = validate_iban(raw)?;
             let rows = conn
                 .execute(
                     "UPDATE account SET name = ?1, iban = ?2 WHERE id = ?3",
-                    params![name, normalised, account_id],
+                    params![params.name.as_str(), normalised, params.account_id],
                 )
                 .map_err(|e| {
                     if is_duplicate_iban_error(&e) {
@@ -121,7 +128,7 @@ pub fn update_account(
             let rows = conn
                 .execute(
                     "UPDATE account SET name = ?1, iban = NULL WHERE id = ?2",
-                    params![name, account_id],
+                    params![params.name.as_str(), params.account_id],
                 )
                 .map_err(AppError::from)?;
             if rows == 0 {
@@ -133,7 +140,7 @@ pub fn update_account(
             let rows = conn
                 .execute(
                     "UPDATE account SET name = ?1 WHERE id = ?2",
-                    params![name, account_id],
+                    params![params.name.as_str(), params.account_id],
                 )
                 .map_err(AppError::from)?;
             if rows == 0 {
@@ -276,8 +283,16 @@ mod tests {
     };
 
     fn mk_account(conn: &Connection) -> i64 {
-        create_account(conn, "Test Account", 1, "account", None, None, None)
-            .expect("create account failed")
+        create_account(
+            conn,
+            CreateAccountParams {
+                name: "Test Account".to_owned(),
+                currency_id: 1,
+                account_type: "account".to_owned(),
+                ..Default::default()
+            },
+        )
+        .expect("create account failed")
     }
 
     #[test]
@@ -315,8 +330,16 @@ mod tests {
         let unit_id = create_custom_unit(&conn, "TSLA", 4).unwrap();
 
         // Create an asset account denominated in this custom unit
-        let account_id =
-            create_account(&conn, "TSLA Asset", unit_id, "asset", None, None, None).unwrap();
+        let account_id = create_account(
+            &conn,
+            CreateAccountParams {
+                name: "TSLA Asset".to_owned(),
+                currency_id: unit_id,
+                account_type: "asset".to_owned(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
 
         // Store a balance event for the asset
         create_balance_update(&conn, account_id, 10_000, "2026-03-11", None).unwrap();
@@ -371,8 +394,17 @@ mod tests {
     #[test]
     fn create_account_with_initial_balance() {
         let conn = initialize_in_memory().expect("DB init failed");
-        let account_id =
-            create_account(&conn, "Savings", 1, "account", Some(10000), None, None).unwrap();
+        let account_id = create_account(
+            &conn,
+            CreateAccountParams {
+                name: "Savings".to_owned(),
+                currency_id: 1,
+                account_type: "account".to_owned(),
+                initial_balance_minor: Some(10000),
+                ..Default::default()
+            },
+        )
+        .unwrap();
         let snapshot = get_accounts_snapshot(&conn, "2099-12-31T23:59:59").unwrap();
         let row = snapshot
             .iter()
@@ -385,8 +417,16 @@ mod tests {
     fn test_delete_account_blocked_by_bucket_link() {
         let conn = initialize_in_memory().expect("DB init failed");
         let source_id = mk_account(&conn);
-        let bucket_id =
-            create_account(&conn, "Emergency Reserve", 1, "bucket", None, None, None).unwrap();
+        let bucket_id = create_account(
+            &conn,
+            CreateAccountParams {
+                name: "Emergency Reserve".to_owned(),
+                currency_id: 1,
+                account_type: "bucket".to_owned(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
         create_balance_update(&conn, source_id, 10000, "2024-01-01", None).unwrap();
         // Create a bucket balance update event that links the source account.
         let event_id = create_balance_update(&conn, bucket_id, 0, "2024-01-01", None).unwrap();
@@ -407,8 +447,16 @@ mod tests {
     fn test_delete_bucket_cascades_links() {
         let conn = initialize_in_memory().expect("DB init failed");
         let source_id = mk_account(&conn);
-        let bucket_id =
-            create_account(&conn, "Cascade Bucket", 1, "bucket", None, None, None).unwrap();
+        let bucket_id = create_account(
+            &conn,
+            CreateAccountParams {
+                name: "Cascade Bucket".to_owned(),
+                currency_id: 1,
+                account_type: "bucket".to_owned(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
         create_balance_update(&conn, source_id, 10000, "2024-01-01", None).unwrap();
         // Create a bucket balance update event that links the source account.
         let event_id = create_balance_update(&conn, bucket_id, 0, "2024-01-01", None).unwrap();
@@ -434,8 +482,16 @@ mod tests {
     fn delete_account_succeeds_after_unlinking_from_bucket() {
         let conn = initialize_in_memory().expect("DB init failed");
         let source_id = mk_account(&conn);
-        let bucket_id =
-            create_account(&conn, "Savings Pot", 1, "bucket", None, None, None).unwrap();
+        let bucket_id = create_account(
+            &conn,
+            CreateAccountParams {
+                name: "Savings Pot".to_owned(),
+                currency_id: 1,
+                account_type: "bucket".to_owned(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
         create_balance_update(&conn, source_id, 10000, "2024-01-01", None).unwrap();
 
         // Event 1: link the source account.
@@ -473,8 +529,16 @@ mod tests {
     fn delete_account_fails_when_still_linked_to_bucket() {
         let conn = initialize_in_memory().expect("DB init failed");
         let source_id = mk_account(&conn);
-        let bucket_id =
-            create_account(&conn, "Active Reserve", 1, "bucket", None, None, None).unwrap();
+        let bucket_id = create_account(
+            &conn,
+            CreateAccountParams {
+                name: "Active Reserve".to_owned(),
+                currency_id: 1,
+                account_type: "bucket".to_owned(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
         create_balance_update(&conn, source_id, 10000, "2024-01-01", None).unwrap();
 
         // Link account without creating a newer event to unlink.
@@ -495,8 +559,26 @@ mod tests {
     fn create_account_assigns_sequential_sort_order() {
         let conn = initialize_in_memory().expect("DB init failed");
         // Use bucket type: seed DB has no buckets, so first gets sort_order=0.
-        let id1 = create_account(&conn, "First Bucket", 1, "bucket", None, None, None).unwrap();
-        let id2 = create_account(&conn, "Second Bucket", 1, "bucket", None, None, None).unwrap();
+        let id1 = create_account(
+            &conn,
+            CreateAccountParams {
+                name: "First Bucket".to_owned(),
+                currency_id: 1,
+                account_type: "bucket".to_owned(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let id2 = create_account(
+            &conn,
+            CreateAccountParams {
+                name: "Second Bucket".to_owned(),
+                currency_id: 1,
+                account_type: "bucket".to_owned(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
         let so1: i64 = conn
             .query_row(
                 "SELECT sort_order FROM account WHERE id = ?1",
@@ -518,10 +600,34 @@ mod tests {
     #[test]
     fn update_sort_order_changes_snapshot_order() {
         let conn = initialize_in_memory().expect("DB init failed");
-        let alpha_id = create_account(&conn, "Alpha", 1, "bucket", None, None, None).unwrap();
-        let beta_id = create_account(&conn, "Beta", 1, "bucket", None, None, None).unwrap();
+        let alpha_id = create_account(
+            &conn,
+            CreateAccountParams {
+                name: "Alpha".to_owned(),
+                currency_id: 1,
+                account_type: "bucket".to_owned(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let beta_id = create_account(
+            &conn,
+            CreateAccountParams {
+                name: "Beta".to_owned(),
+                currency_id: 1,
+                account_type: "bucket".to_owned(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
         // Alpha gets sort_order=0, Beta gets sort_order=1 — swap them.
-        update_sort_order(&conn, &[(beta_id, 0), (alpha_id, 1)]).unwrap();
+        update_sort_order(
+            &conn,
+            UpdateSortOrderParams {
+                updates: vec![(beta_id, 0), (alpha_id, 1)],
+            },
+        )
+        .unwrap();
         let snapshot = get_accounts_snapshot(&conn, "2099-12-31T23:59:59").unwrap();
         let beta_pos = snapshot
             .iter()
@@ -540,7 +646,12 @@ mod tests {
     #[test]
     fn update_sort_order_rejects_invalid_id() {
         let conn = initialize_in_memory().expect("DB init failed");
-        let result = update_sort_order(&conn, &[(9999, 0)]);
+        let result = update_sort_order(
+            &conn,
+            UpdateSortOrderParams {
+                updates: vec![(9999, 0)],
+            },
+        );
         assert!(result.is_err());
     }
 }
