@@ -57,7 +57,13 @@ pub fn create_custom_unit(
         });
     }
     let conn = state.conn()?;
-    let id = repository::create_custom_unit(&conn, &name, input.minor_units)?;
+    let id = repository::create_custom_unit(
+        &conn,
+        repository::CreateCustomUnitParams {
+            name,
+            minor_units: input.minor_units,
+        },
+    )?;
     Ok(id)
 }
 
@@ -81,7 +87,13 @@ pub fn update_custom_unit(
         });
     }
     let conn = state.conn()?;
-    repository::update_custom_unit(&conn, input.currency_id, &name)?;
+    repository::update_custom_unit(
+        &conn,
+        repository::UpdateCustomUnitParams {
+            currency_id: input.currency_id,
+            name,
+        },
+    )?;
     Ok(())
 }
 
@@ -100,11 +112,13 @@ pub fn update_asset_value(
     let conn = state.conn()?;
     repository::update_asset_value(
         &conn,
-        input.account_id,
-        input.amount_minor,
-        input.price_per_unit.as_deref(),
-        &input.event_date,
-        input.note.as_deref(),
+        repository::UpdateAssetValueParams {
+            account_id: input.account_id,
+            amount_minor: input.amount_minor,
+            price_per_unit: input.price_per_unit,
+            event_date: input.event_date,
+            note: input.note,
+        },
     )?;
     Ok(())
 }

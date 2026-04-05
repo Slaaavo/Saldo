@@ -275,7 +275,7 @@ pub fn get_account_type(conn: &Connection, account_id: i64) -> rusqlite::Result<
 mod tests {
     use super::*;
     use crate::db::initialize_in_memory;
-    use crate::features::assets::repository::create_custom_unit;
+    use crate::features::assets::repository::{create_custom_unit, CreateCustomUnitParams};
     use crate::features::buckets::repository::set_bucket_event_links;
     use crate::features::currency::repository::set_fx_rate_manual;
     use crate::features::transactions::repository::{
@@ -327,7 +327,14 @@ mod tests {
         let conn = initialize_in_memory().expect("DB init failed");
 
         // Create a custom unit currency (e.g. a stock ticker)
-        let unit_id = create_custom_unit(&conn, "TSLA", 4).unwrap();
+        let unit_id = create_custom_unit(
+            &conn,
+            CreateCustomUnitParams {
+                name: "TSLA".to_owned(),
+                minor_units: 4,
+            },
+        )
+        .unwrap();
 
         // Create an asset account denominated in this custom unit
         let account_id = create_account(

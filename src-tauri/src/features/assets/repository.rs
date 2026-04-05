@@ -47,30 +47,52 @@ pub(crate) fn store_asset_price(
     Ok(())
 }
 
+pub struct CreateCustomUnitParams {
+    pub name: String,
+    pub minor_units: i64,
+}
+
+pub struct UpdateCustomUnitParams {
+    pub currency_id: i64,
+    pub name: String,
+}
+
+#[derive(Default)]
+pub struct UpdateAssetValueParams {
+    pub account_id: i64,
+    pub amount_minor: Option<i64>,
+    pub price_per_unit: Option<String>,
+    pub event_date: String,
+    pub note: Option<String>,
+}
+
 /// Create a custom unit (currency with `is_custom = 1`).
 /// `code` and `name` are both set to `name`; validates uniqueness and minor_units range.
 pub fn create_custom_unit(
     conn: &Connection,
-    name: &str,
-    minor_units: i64,
+    params: CreateCustomUnitParams,
 ) -> Result<i64, AppError> {
     let exists: i64 = conn
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM currency WHERE code = ?1)",
-            params![name],
+            params![params.name.as_str()],
             |row| row.get(0),
         )
         .map_err(AppError::from)?;
     if exists != 0 {
         return Err(AppError {
             code: "VALIDATION".into(),
-            message: format!("A currency with code '{}' already exists", name),
+            message: format!("A currency with code '{}' already exists", params.name),
         });
     }
 
     conn.execute(
         "INSERT INTO currency (code, name, minor_units, is_custom) VALUES (?1, ?2, ?3, 1)",
-        params![name, name, minor_units],
+        params![
+            params.name.as_str(),
+            params.name.as_str(),
+            params.minor_units
+        ],
     )
     .map_err(AppError::from)?;
 
@@ -97,11 +119,14 @@ pub fn list_custom_units(conn: &Connection) -> rusqlite::Result<Vec<Currency>> {
 /// Rename a custom unit. Updates both `code` and `name` columns.
 /// Returns `NOT_FOUND` if the currency doesn't exist, `VALIDATION` if it is not custom
 /// or the new name conflicts with an existing code.
-pub fn update_custom_unit(conn: &Connection, currency_id: i64, name: &str) -> Result<(), AppError> {
+pub fn update_custom_unit(
+    conn: &Connection,
+    params: UpdateCustomUnitParams,
+) -> Result<(), AppError> {
     let is_custom: Option<i64> = conn
         .query_row(
             "SELECT is_custom FROM currency WHERE id = ?1",
-            params![currency_id],
+            params![params.currency_id],
             |row| row.get(0),
         )
         .optional()
@@ -126,20 +151,24 @@ pub fn update_custom_unit(conn: &Connection, currency_id: i64, name: &str) -> Re
     let conflict: i64 = conn
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM currency WHERE code = ?1 AND id != ?2)",
-            params![name, currency_id],
+            params![params.name.as_str(), params.currency_id],
             |row| row.get(0),
         )
         .map_err(AppError::from)?;
     if conflict != 0 {
         return Err(AppError {
             code: "VALIDATION".into(),
-            message: format!("A currency with code '{}' already exists", name),
+            message: format!("A currency with code '{}' already exists", params.name),
         });
     }
 
     conn.execute(
         "UPDATE currency SET code = ?1, name = ?2 WHERE id = ?3",
-        params![name, name, currency_id],
+        params![
+            params.name.as_str(),
+            params.name.as_str(),
+            params.currency_id
+        ],
     )
     .map_err(AppError::from)?;
 
@@ -151,16 +180,12 @@ pub fn update_custom_unit(conn: &Connection, currency_id: i64, name: &str) -> Re
 /// be provided. The account must be of type 'asset'.
 pub fn update_asset_value(
     conn: &Connection,
-    account_id: i64,
-    amount_minor: Option<i64>,
-    price_per_unit: Option<&str>,
-    event_date: &str,
-    note: Option<&str>,
+    params: UpdateAssetValueParams,
 ) -> Result<(), AppError> {
     let account_type: Option<String> = conn
         .query_row(
             "SELECT account_type FROM account WHERE id = ?1",
-            params![account_id],
+            params![params.account_id],
             |row| row.get(0),
         )
         .optional()
@@ -183,15 +208,19 @@ pub fn update_asset_value(
     }
 
     crate::shared::with_savepoint_app(conn, || {
-        if let Some(amount) = amount_minor {
+        if let Some(amount) = params.amount_minor {
             crate::features::transactions::repository::create_balance_update_inner(
-                conn, account_id, amount, event_date, note,
+                conn,
+                params.account_id,
+                amount,
+                &params.event_date,
+                params.note.as_deref(),
             )
             .map_err(AppError::from)?;
         }
 
-        if let Some(price_str) = price_per_unit {
-            store_asset_price(conn, account_id, price_str, event_date)?;
+        if let Some(price_str) = params.price_per_unit.as_deref() {
+            store_asset_price(conn, params.account_id, price_str, &params.event_date)?;
         }
 
         Ok(())
