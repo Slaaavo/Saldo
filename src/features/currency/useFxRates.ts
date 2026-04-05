@@ -1,11 +1,13 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import type { FxRateRow, Currency } from '../../shared/types'
 import { listFxRates, fetchFxRates, listCurrencies, getConsolidationCurrency, setFxRateManual, getMissingRateDates } from '../../shared/api'
 import { extractErrorMessage } from '../../shared/utils/errors'
 import { formatRate, parseRateInput, buildRatePivot } from './fxRate'
 import { todayIso } from '../../shared/utils/format'
 
-export function useFxRates(onRateUpdated?: () => Promise<void>) {
+export function useFxRates() {
+  const queryClient = useQueryClient()
   const [rates, setRates] = useState<FxRateRow[]>([])
   const [currencies, setCurrencies] = useState<Currency[]>([])
   const [consolidationCode, setConsolidationCode] = useState('')
@@ -53,6 +55,8 @@ export function useFxRates(onRateUpdated?: () => Promise<void>) {
       await fetchFxRates(fetchDate, true)
       await loadRates()
       await loadMissingDates()
+      await queryClient.invalidateQueries({ queryKey: ['fx-rates'] })
+      await queryClient.invalidateQueries({ queryKey: ['snapshot'] })
     } catch (err) {
       setError(extractErrorMessage(err))
     } finally {
@@ -69,6 +73,8 @@ export function useFxRates(onRateUpdated?: () => Promise<void>) {
       }
       await loadRates()
       await loadMissingDates()
+      await queryClient.invalidateQueries({ queryKey: ['fx-rates'] })
+      await queryClient.invalidateQueries({ queryKey: ['snapshot'] })
     } catch (err) {
       setError(extractErrorMessage(err))
     } finally {
@@ -103,7 +109,8 @@ export function useFxRates(onRateUpdated?: () => Promise<void>) {
     try {
       await setFxRateManual(fromId, toId, date, parsed.mantissa, parsed.exponent, false)
       await loadRates()
-      await onRateUpdated?.()
+      await queryClient.invalidateQueries({ queryKey: ['fx-rates'] })
+      await queryClient.invalidateQueries({ queryKey: ['snapshot'] })
     } catch (err) {
       setError(extractErrorMessage(err))
     }

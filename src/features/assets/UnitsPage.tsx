@@ -1,17 +1,15 @@
 import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useQueryClient } from '@tanstack/react-query'
 import type { FxRateRow, Currency } from '../../shared/types'
 import { listCustomUnits, listFxRates, getConsolidationCurrency, setFxRateManual } from '../../shared/api'
 import { extractErrorMessage } from '../../shared/utils/errors'
 import { formatPrice, parsePriceAsRate } from './unitPricing'
 import { cn } from '@/shared/lib/utils'
 
-interface Props {
-  onPriceUpdated?: () => Promise<void>
-}
-
-export default function UnitsPage({ onPriceUpdated }: Props = {}) {
+export default function UnitsPage() {
   const { t } = useTranslation()
+  const queryClient = useQueryClient()
   const [units, setUnits] = useState<Currency[]>([])
   const [rates, setRates] = useState<FxRateRow[]>([])
   const [consolidationCurrency, setConsolidationCurrency] = useState<Currency | null>(null)
@@ -82,7 +80,8 @@ export default function UnitsPage({ onPriceUpdated }: Props = {}) {
     try {
       await setFxRateManual(fromId, toId, date, parsed.mantissa, parsed.exponent, true)
       await loadData()
-      await onPriceUpdated?.()
+      await queryClient.invalidateQueries({ queryKey: ['snapshot'] })
+      await queryClient.invalidateQueries({ queryKey: ['fx-rates'] })
     } catch (err) {
       setError(extractErrorMessage(err))
     }

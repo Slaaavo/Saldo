@@ -7,6 +7,8 @@ Architecture, conventions, and technical guidance for the personal finance deskt
 - Desktop shell: Tauri (Rust backend)
 - Language for native/backend: Rust (small, focused modules)
 - Local storage: SQLite
+- Routing: `@tanstack/react-router` (memory history — no real browser URLs)
+- Server state / async data: `@tanstack/react-query`
 - End-to-end tests: Playwright Test
 - Unit tests: Vitest (for TS) and Rust unit tests
 - Notifications: sonner (toast notifications)
@@ -79,7 +81,7 @@ When listing or displaying an event, always use the latest `event_data` row for 
 ## 8. TypeScript / React guidelines
 - Keep business-critical calculations in Rust; React reads converted values via the command API.
 - Use strict TypeScript (`strict: true`). Define interfaces for `Account`, `Event`, `EventData`, `SnapshotRow`.
-- **Application state:** Business logic and data management is encapsulated in custom hooks. `useFinanceData` (in `src/features/dashboard/useFinanceData`) owns snapshot/events state and all mutation handlers. `useModalManager` (in `src/app/useModalManager`) owns modal state via a `ModalState` discriminated union type (defined in `src/shared/types/`). `App.tsx` is a thin composition root that wires hooks to views.
+- **Application state:** Server/async state is managed by `@tanstack/react-query`. Navigation is managed by `@tanstack/react-router` (memory history). Cross-cutting UI state uses React context: `ModalContext` (modal open/close), `DemoContext` (demo mode), `SelectedDateContext` (date picker). `App.tsx` is the root route shell — a thin layout that renders `<Outlet />`. Each page component is zero-prop and self-fetching. `useModalManager` (in `src/app/useModalManager`) owns modal state via a `ModalState` discriminated union type (defined in `src/shared/types/`). The old `useFinanceData` hook has been deleted.
 - **Feature vs Shared separation:** Page-level views live inside their feature folder (e.g. `src/features/dashboard/DashboardView.tsx`). Reusable UI components live in `src/shared/ui/`. Feature-specific components live in `src/features/<domain>/`. Components should not import across unrelated features; use `src/shared/` for cross-cutting concerns.
 - **Async calls in `useEffect`:** For API/IPC calls triggered from React effects, prefer the async/await pattern with an inner async function inside `useEffect` (e.g., define `const load = async () => { ... }` and then call `load()`). Avoid `.then()`/`.catch()` chaining in effects unless there is a specific reason to use promise chaining.
 - **Component folder structure:** When a component grows complex enough to warrant sub-components extracted to their own files, convert it from a flat file (`MyComponent.tsx`) into a folder (`MyComponent/`). The folder must contain:
@@ -101,6 +103,35 @@ Playwright tips:
 - Run headful during development for debugging; use traces for CI failures.
 - Test both UI flows and IPC commands (if Tauri exposes test endpoints, invoke them or run CLI-backed tests).
 
+Vitest patterns for TanStack Query:
+- Components that call `useQueryClient()` or any query hook need a `QueryClientProvider`. Create a fresh `QueryClient` per test:
+  ```ts
+  function makeWrapper() {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: 0 } } })
+    return ({ children }: { children: React.ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    )
+  }
+  ```
+  Pass as `{ wrapper: makeWrapper() }` to `render()` or `renderHook()`.
+
+Vitest patterns for TanStack Router (in `vi.mock` factories):
+- `vi.mock` factories that import TanStack Router hooks **must be async** and use `await import(...)`, NOT `require()`. Using `require()` loads the CJS build into a separate module registry, giving the mock a null router context at runtime.
+  ```ts
+  // CORRECT
+  vi.mock('../shared/layout/Sidebar', async () => {
+    const { useNavigate } = await import('@tanstack/react-router')
+    function SidebarMock(...) { ... }
+    return { default: SidebarMock }
+  })
+  // WRONG — causes 'Cannot read properties of null (reading isServer)'
+  vi.mock('../shared/layout/Sidebar', () => ({
+    default: () => { const { useNavigate } = require('@tanstack/react-router'); ... }
+  }))
+  ```
+- Mock component functions inside `vi.mock` must be **named functions** (not anonymous `() =>`), otherwise ESLint's `react-hooks/rules-of-hooks` will flag hook calls inside them as errors.
+- App-level tests use `createTestRouter()` + `renderApp()` helpers that wrap in both `QueryClientProvider` and `RouterProvider` with a fresh router instance per test. See `src/app/App.test.tsx` for the reference pattern.
+
 ## 10. CI & quality
 - Pre-commit: run `prettier`, `eslint --fix`, `cargo fmt`, `cargo clippy`.
 - CI steps: install Rust + Node, run linters, run unit tests (TS + Rust), run a headless Playwright suite.
@@ -114,3 +145,21 @@ Playwright tips:
 
 ---
 End of implementation rules.
+
+## 13. TanStack Router & Query patterns
+
+- **Memory history:** `createMemoryHistory({ initialEntries: ['/dashboard'] })`. There are no real browser URLs — this is a desktop app.
+- **Route components must be zero-prop.** All data and callbacks must come from query hooks or contexts. If a route component has required props, they will be silently `undefined` at runtime (no TypeScript error). See `memory.md` for the SettingsPage bug story.
+- **Shared query hooks** live in `src/shared/hooks/`. Current hooks: `useSnapshotQuery(date)`, `useDashboardEventsQuery(date)`, `useConsolidationCurrencyQuery()`, `useBulkUpdateExclusionsQuery()`.
+- **Query key conventions:**
+  - `['snapshot', date]`
+  - `['events', 'dashboard', date]`
+  - `['events', 'ledger', fromDate, toDate, accountIds, typeFilter]`
+  - `['consolidation-currency']`
+  - `['bulk-update-exclusions']`
+  - `['fx-rates']`
+- **QueryClient config:** `staleTime: Infinity`, `refetchOnWindowFocus: false`, `retry: 0`. The singleton is exported from `src/app/queryClient.ts`. A global `QueryCache.onError` handler toasts all query failures via `extractErrorMessage()`. Individual consumers do not need their own error handling unless they want custom behavior beyond the default toast.
+- **Post-mutation refresh:** Call `queryClient.invalidateQueries({ queryKey: [...] })`. Never call fetch functions manually to refresh. Pass the minimum necessary key prefix (e.g., `['events']` invalidates all event queries).
+- **Contexts in AppShell:** `ModalProvider` → `SelectedDateProvider` → `DemoProvider` are nested inside `App.tsx`. Any component in the tree can call `useModal()`, `useSelectedDate()`, or `useDemo()`.
+- **Navigation from code:** Use `const navigate = useNavigate()` from `@tanstack/react-router`, then `navigate({ to: '/dashboard' })`.
+- **Conditional UI based on route:** Use `useRouterState({ select: s => s.location.pathname })` to read the current path inside a component (e.g., Header shows date picker only on `/dashboard`).

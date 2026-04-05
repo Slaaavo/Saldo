@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import type { SnapshotRow, EventWithData, Currency, ModalState } from '../../shared/types'
+import type { EventWithData, Currency } from '../../shared/types'
 import { getEventById } from '../../shared/api'
 import { extractErrorMessage } from '../../shared/utils/errors'
 import { cn } from '@/shared/lib/utils'
@@ -8,25 +8,14 @@ import NumberValue from '../../shared/ui/NumberValue'
 import AccountCards from './AccountCards'
 import Ledger from './Ledger'
 import { Button } from '../../shared/ui/button'
-
-interface Props {
-  snapshot: SnapshotRow[]
-  accounts: SnapshotRow[]
-  buckets: SnapshotRow[]
-  assets: SnapshotRow[]
-  events: EventWithData[]
-  totalEvents: number
-  consolidationCurrency: Currency | null
-  totalMinor: number
-  leftToSpendMinor: number
-  netWorthMinor: number
-  hasAssets: boolean
-  missingFxCurrencies: string[]
-  setModalState: (state: ModalState) => void
-  isDemoMode: boolean
-  onEnterDemoMode: () => void
-  onNavigate: (view: string) => void
-}
+import { useDemo } from '../../app/DemoContext'
+import { useModal } from '../../app/ModalContext'
+import { useSelectedDate } from '../../app/SelectedDateContext'
+import { useSnapshotQuery } from '../../shared/hooks/useSnapshotQuery'
+import { useDashboardEventsQuery } from '../../shared/hooks/useDashboardEventsQuery'
+import { useConsolidationCurrencyQuery } from '../../shared/hooks/useConsolidationCurrencyQuery'
+import { computeDashboardMetrics } from './dashboardMetrics'
+import { useNavigate } from '@tanstack/react-router'
 
 function MetricCard({ label, value, currency }: { label: string; value: number; currency: Currency | null }) {
   return (
@@ -47,33 +36,35 @@ function metricsGridClass(count: number) {
   return 'flex justify-center'
 }
 
-export default function DashboardView({
-  snapshot,
-  accounts,
-  buckets,
-  assets,
-  events,
-  totalEvents,
-  consolidationCurrency,
-  totalMinor,
-  leftToSpendMinor,
-  netWorthMinor,
-  hasAssets,
-  missingFxCurrencies,
-  setModalState,
-  isDemoMode,
-  onEnterDemoMode,
-  onNavigate,
-}: Props) {
+export default function DashboardView() {
   const { t } = useTranslation()
+  const { isDemoMode, onEnterDemoMode } = useDemo()
+  const { setModalState } = useModal()
+  const { selectedDate } = useSelectedDate()
+  const navigate = useNavigate()
+
+  const snapshotQuery = useSnapshotQuery(selectedDate)
+  const eventsQuery = useDashboardEventsQuery(selectedDate)
+  const consolidationCurrencyQuery = useConsolidationCurrencyQuery()
+
+  const snapshot = snapshotQuery.data ?? []
+  const { accounts, buckets, assets, hasAssets, liquidMinor, leftToSpendMinor, netWorthMinor } = computeDashboardMetrics(snapshot)
+  const events = eventsQuery.data?.events ?? []
+  const totalEvents = eventsQuery.data?.totalCount ?? 0
+  const consolidationCurrency = consolidationCurrencyQuery.data ?? null
+  const missingFxCurrencies = [...new Set(snapshot.filter((r) => r.fxRateMissing).map((r) => r.currencyCode))]
+
+  if (snapshotQuery.isPending && eventsQuery.isPending && consolidationCurrencyQuery.isPending) {
+    return null
+  }
 
   const metrics = [
     ...(hasAssets
       ? [
           { key: 'netWorth', label: t('metrics.netWorth'), value: netWorthMinor },
-          { key: 'liquid', label: t('metrics.liquid'), value: totalMinor },
+          { key: 'liquid', label: t('metrics.liquid'), value: liquidMinor },
         ]
-      : [{ key: 'totalBalance', label: t('metrics.totalBalance'), value: totalMinor }]),
+      : [{ key: 'totalBalance', label: t('metrics.totalBalance'), value: liquidMinor }]),
     ...(buckets.length > 0 ? [{ key: 'leftToSpend', label: t('metrics.leftToSpend'), value: leftToSpendMinor }] : []),
   ]
 
@@ -235,7 +226,7 @@ export default function DashboardView({
               onUpdateBalances={() => setModalState({ type: 'bulkUpdateBalance' })}
               onImportCsv={() => setModalState({ type: 'csvImport' })}
               totalEvents={totalEvents}
-              onViewAll={() => onNavigate('ledger')}
+              onViewAll={() => navigate({ to: '/ledger' })}
             />
           </div>
         </>

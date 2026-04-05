@@ -1,10 +1,13 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
+import { useQueryClient } from '@tanstack/react-query'
 import { PINNED_CURRENCY_CODES } from '../../shared/config/constants'
-import type { ThemePreference } from './useTheme'
-import type { SnapshotRow } from '../../shared/types'
 import { useSettings } from './useSettings'
+import { useDemo } from '../../app/DemoContext'
+import { useTheme } from './useTheme'
+import { useModal } from '../../app/ModalContext'
+import { useDbLocation } from './useDbLocation'
 import { Button } from '../../shared/ui/button'
 import { Input } from '../../shared/ui/input'
 import { Label } from '../../shared/ui/label'
@@ -14,41 +17,23 @@ import LanguageSelector from './LanguageSelector'
 import BulkUpdateVisibilityModal from './BulkUpdateVisibilityModal'
 import { setBulkUpdateExclusions } from '../../shared/api'
 import { extractErrorMessage } from '../../shared/utils/errors'
+import { useSnapshotQuery } from '../../shared/hooks/useSnapshotQuery'
+import { useBulkUpdateExclusionsQuery } from '../../shared/hooks/useBulkUpdateExclusionsQuery'
+import { todayIso } from '../../shared/utils/format'
 
-interface Props {
-  onConsolidationCurrencyChange: () => void
-  themePreference: ThemePreference
-  onThemeChange: (pref: ThemePreference) => void
-  isDemoMode: boolean
-  onEnterDemoMode: () => void
-  onExitDemoMode: () => void
-  dbLocationPath: string
-  dbLocationIsDefault: boolean
-  onChangeDbLocation: () => void
-  onResetDbLocation: () => void
-  snapshot: SnapshotRow[]
-  exclusions: number[]
-  onExclusionsChange: () => void
-}
-
-export default function SettingsPage({
-  onConsolidationCurrencyChange,
-  themePreference,
-  onThemeChange,
-  isDemoMode,
-  onEnterDemoMode,
-  onExitDemoMode,
-  dbLocationPath,
-  dbLocationIsDefault,
-  onChangeDbLocation,
-  onResetDbLocation,
-  snapshot,
-  exclusions,
-  onExclusionsChange,
-}: Props) {
+export default function SettingsPage() {
   const { t } = useTranslation()
+  const queryClient = useQueryClient()
   const [visibilityModalOpen, setVisibilityModalOpen] = useState(false)
-  const { currencies, selectedCurrency, apiKey, setApiKey, apiKeySaved, currencySaved, handleCurrencySelect, handleSaveApiKey } = useSettings({ onConsolidationCurrencyChange })
+  const snapshotQuery = useSnapshotQuery(todayIso())
+  const snapshot = snapshotQuery.data ?? []
+  const exclusionsQuery = useBulkUpdateExclusionsQuery()
+  const exclusions = exclusionsQuery.data ?? []
+  const { currencies, selectedCurrency, apiKey, setApiKey, apiKeySaved, currencySaved, handleCurrencySelect, handleSaveApiKey } = useSettings()
+  const { isDemoMode, onEnterDemoMode, onExitDemoMode } = useDemo()
+  const { themePreference, setThemePreference } = useTheme()
+  const { setModalState, closeModal } = useModal()
+  const dbLocation = useDbLocation({ setModalState, closeModal, onAfterDbChange: async () => {} })
 
   return (
     <div className="px-4 md:px-10 py-8">
@@ -66,7 +51,7 @@ export default function SettingsPage({
         {/* Theme field */}
         <div className="flex flex-col gap-2 mb-4">
           <Label>{t('settings.theme.label')}</Label>
-          <Select value={themePreference} onValueChange={onThemeChange}>
+          <Select value={themePreference} onValueChange={setThemePreference}>
             <SelectTrigger className="w-64 h-10 text-sm">
               <SelectValue />
             </SelectTrigger>
@@ -120,18 +105,18 @@ export default function SettingsPage({
         <div className="flex flex-col gap-3">
           <Label>{t('dataStorage.currentPath')}</Label>
           <p className="select-text break-all rounded-md bg-muted px-3 py-2 font-mono text-sm">
-            {dbLocationPath}
-            {dbLocationIsDefault && <span className="ml-2 text-xs text-muted-foreground">{t('dataStorage.isDefault')}</span>}
+            {dbLocation.path}
+            {dbLocation.isDefault && <span className="ml-2 text-xs text-muted-foreground">{t('dataStorage.isDefault')}</span>}
           </p>
 
           {isDemoMode && <p className="text-sm text-muted-foreground">{t('dataStorage.disabledInDemoMode')}</p>}
 
           <div className="flex gap-2">
-            <Button type="button" variant="outline" onClick={onChangeDbLocation} disabled={isDemoMode}>
+            <Button type="button" variant="outline" onClick={dbLocation.handleChange} disabled={isDemoMode}>
               {t('dataStorage.changeButton')}
             </Button>
-            {!dbLocationIsDefault && (
-              <Button type="button" variant="outline" onClick={onResetDbLocation} disabled={isDemoMode}>
+            {!dbLocation.isDefault && (
+              <Button type="button" variant="outline" onClick={dbLocation.handleReset} disabled={isDemoMode}>
                 {t('dataStorage.resetButton')}
               </Button>
             )}
@@ -170,7 +155,7 @@ export default function SettingsPage({
           onSave={async (excludedIds) => {
             try {
               await setBulkUpdateExclusions(excludedIds)
-              onExclusionsChange()
+              await queryClient.invalidateQueries({ queryKey: ['bulk-update-exclusions'] })
               setVisibilityModalOpen(false)
             } catch (err) {
               toast.error(t('errors.bulkUpdateVisibility', { error: extractErrorMessage(err) }))

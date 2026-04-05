@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import LedgerPage from './LedgerPage'
-import type { SnapshotRow, Currency, ModalState } from '../../shared/types'
 
 // ── Mock i18n ─────────────────────────────────────────────────────────────
 vi.mock('react-i18next', () => {
@@ -25,6 +25,15 @@ vi.mock('react-i18next', () => {
 // ── Mock the API layer ──────────────────────────────────────────────────────
 vi.mock('../../shared/api', () => ({
   listEvents: vi.fn(),
+  getAccountsSnapshot: vi.fn(),
+  getConsolidationCurrency: vi.fn(),
+  getEventById: vi.fn(),
+}))
+
+// ── Mock ModalContext ───────────────────────────────────────────────────────
+const mockSetModalState = vi.fn()
+vi.mock('../../app/ModalContext', () => ({
+  useModal: () => ({ setModalState: mockSetModalState, closeModal: vi.fn(), modalState: { type: 'none' } }),
 }))
 
 // ── Mock child components ──────────────────────────────────────────────────
@@ -75,64 +84,41 @@ vi.mock('../../shared/ui/date-picker', () => ({
   ),
 }))
 
-import { listEvents } from '../../shared/api'
+import { listEvents, getAccountsSnapshot, getConsolidationCurrency } from '../../shared/api'
 
-// ── Helpers ──────────────────────────────────────────────────────────────
-const EUR: Currency = { id: 1, code: 'EUR', name: 'Euro', minorUnits: 2, isCustom: false }
-
-function makeSnapshot(overrides?: Partial<SnapshotRow>): SnapshotRow {
-  return {
-    accountId: 1,
-    accountName: 'Checking',
-    accountType: 'account',
-    balanceMinor: 100000,
-    currencyCode: 'EUR',
-    currencyMinorUnits: 2,
-    isCustom: false,
-    convertedBalanceMinor: 100000,
-    fxRateMissing: false,
-    isBucketLinked: false,
-    bucketLinks: [],
-    linkedBalanceMinor: 0,
-    cashflowTaggedMinor: 0,
-    isLinkedToAsset: false,
-    linkedAssetIds: [],
-    iban: null,
-    ...overrides,
-  }
-}
-
-function makeProps(overrides?: { refreshTrigger?: number }) {
-  return {
-    snapshot: [makeSnapshot()],
-    consolidationCurrency: EUR,
-    setModalState: vi.fn() as ReturnType<typeof vi.fn> & ((state: ModalState) => void),
-    refreshTrigger: overrides?.refreshTrigger ?? 0,
-  }
+function renderLedgerPage() {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: 0 } } })
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <LedgerPage />
+    </QueryClientProvider>,
+  )
 }
 
 describe('LedgerPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     ;(listEvents as Mock).mockResolvedValue({ events: [], totalCount: 0 })
+    ;(getAccountsSnapshot as Mock).mockResolvedValue([])
+    ;(getConsolidationCurrency as Mock).mockResolvedValue({ id: 1, code: 'EUR', name: 'Euro', minorUnits: 2, isCustom: false })
   })
 
   // ── Rendering ─────────────────────────────────────────────────────────────
 
   it('renders the page title', () => {
-    render(<LedgerPage {...makeProps()} />)
+    renderLedgerPage()
     expect(screen.getByText('ledgerPage.title')).toBeInTheDocument()
   })
 
   it('renders the filter bar with From and To date pickers and portfolio filter', () => {
-    render(<LedgerPage {...makeProps()} />)
+    renderLedgerPage()
     expect(screen.getByTestId('date-picker-ledgerPage.filterFrom')).toBeInTheDocument()
     expect(screen.getByTestId('date-picker-ledgerPage.filterTo')).toBeInTheDocument()
     expect(screen.getByTestId('portfolio-filter')).toBeInTheDocument()
   })
 
   it('renders the Update Balances button', () => {
-    render(<LedgerPage {...makeProps()} />)
+    renderLedgerPage()
     expect(screen.getByText('ledger.updateBalances')).toBeInTheDocument()
   })
 
@@ -140,10 +126,9 @@ describe('LedgerPage', () => {
 
   it('dispatches bulkUpdateBalance modal when Update Balances is clicked', async () => {
     const user = userEvent.setup()
-    const props = makeProps()
-    render(<LedgerPage {...props} />)
+    renderLedgerPage()
     await user.click(screen.getByText('ledger.updateBalances'))
-    expect(props.setModalState).toHaveBeenCalledWith({ type: 'bulkUpdateBalance' })
+    expect(mockSetModalState).toHaveBeenCalledWith({ type: 'bulkUpdateBalance' })
   })
 
   it('dispatches editBalanceUpdate modal when edit button is clicked', async () => {
@@ -166,21 +151,17 @@ describe('LedgerPage', () => {
       ],
       totalCount: 1,
     })
-    const props = makeProps()
-    render(<LedgerPage {...props} />)
-    // wait for loading to finish before interacting
+    renderLedgerPage()
     const editBtn = await screen.findByTestId('edit-btn')
     await user.click(editBtn)
-    expect(props.setModalState).toHaveBeenCalledWith(expect.objectContaining({ type: 'editBalanceUpdate' }))
+    expect(mockSetModalState).toHaveBeenCalledWith(expect.objectContaining({ type: 'editBalanceUpdate' }))
   })
 
   it('dispatches confirmDeleteEvent modal when delete button is clicked', async () => {
     const user = userEvent.setup()
-    const props = makeProps()
-    render(<LedgerPage {...props} />)
-    // wait for loading to finish before interacting
+    renderLedgerPage()
     const deleteBtn = await screen.findByTestId('delete-btn')
     await user.click(deleteBtn)
-    expect(props.setModalState).toHaveBeenCalledWith({ type: 'confirmDeleteEvent', eventId: 42 })
+    expect(mockSetModalState).toHaveBeenCalledWith({ type: 'confirmDeleteEvent', eventId: 42 })
   })
 })

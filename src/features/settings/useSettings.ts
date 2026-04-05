@@ -1,14 +1,12 @@
 import { useState, useEffect, useCallback } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import type { Currency } from '../../shared/types'
 import { listCurrencies, getConsolidationCurrency, setConsolidationCurrency, getAppSetting, setAppSetting } from '../../shared/api'
 
 const SAVED_FLASH_MS = 2000
 
-interface UseSettingsOptions {
-  onConsolidationCurrencyChange: () => void
-}
-
-export function useSettings({ onConsolidationCurrencyChange }: UseSettingsOptions) {
+export function useSettings() {
+  const queryClient = useQueryClient()
   const [currencies, setCurrencies] = useState<Currency[]>([])
   const [selectedCurrency, setSelectedCurrency] = useState<Currency | null>(null)
   const [apiKey, setApiKey] = useState('')
@@ -35,13 +33,14 @@ export function useSettings({ onConsolidationCurrencyChange }: UseSettingsOption
       setSelectedCurrency(currency)
       try {
         await setConsolidationCurrency(currency.id)
-        onConsolidationCurrencyChange()
+        await queryClient.invalidateQueries({ queryKey: ['consolidation-currency'] })
+        await queryClient.invalidateQueries({ queryKey: ['snapshot'] })
         flashSaved(setCurrencySaved)
       } catch (err) {
         console.error('Failed to set consolidation currency:', err)
       }
     },
-    [onConsolidationCurrencyChange, flashSaved],
+    [queryClient, flashSaved],
   )
 
   const handleSaveApiKey = useCallback(async () => {

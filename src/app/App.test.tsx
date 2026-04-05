@@ -1,7 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { createRouter, createRootRoute, createRoute, createMemoryHistory, RouterProvider } from '@tanstack/react-router'
+import type { RouteComponent } from '@tanstack/react-router'
 import App from './App'
+import DashboardView from '../features/dashboard/DashboardView'
+import SettingsPage from '../features/settings/SettingsPage'
+import FxRatesPage from '../features/currency/FxRatesPage'
+import UnitsPage from '../features/assets/UnitsPage'
+import LedgerPage from '../features/ledger/LedgerPage'
+import PartnersPage from '../features/partners/PartnersPage'
+import ImportProfilesPage from '../features/csv-profiles/ImportProfilesPage'
 import type { SnapshotRow, EventWithData, Currency, ModalState, DbLocationInfo } from '../shared/types'
 import type { ThemePreference } from '../features/settings/useTheme'
 
@@ -47,6 +57,9 @@ const mockChangeDbLocation = vi.fn()
 const mockResetDbLocation = vi.fn()
 const mockCheckDefaultDb = vi.fn()
 const mockGetBulkUpdateExclusions = vi.fn()
+const mockGetAccountsSnapshot = vi.fn()
+const mockGetConsolidationCurrency = vi.fn()
+const mockListEvents = vi.fn()
 
 vi.mock('../shared/api', () => ({
   fetchFxRates: (...args: unknown[]) => mockFetchFxRates(...args),
@@ -59,8 +72,8 @@ vi.mock('../shared/api', () => ({
   resetDbLocation: (...args: unknown[]) => mockResetDbLocation(...args),
   checkDefaultDb: (...args: unknown[]) => mockCheckDefaultDb(...args),
   createBalanceUpdate: vi.fn(),
-  getAccountsSnapshot: vi.fn(),
-  listEvents: vi.fn(),
+  getAccountsSnapshot: (...args: unknown[]) => mockGetAccountsSnapshot(...args),
+  listEvents: (...args: unknown[]) => mockListEvents(...args),
   createAccount: vi.fn(),
   updateAccount: vi.fn(),
   createPartnerAccount: vi.fn(),
@@ -72,7 +85,7 @@ vi.mock('../shared/api', () => ({
   deleteEvent: vi.fn(),
   bulkCreateBalanceUpdates: vi.fn(),
   listCurrencies: vi.fn(),
-  getConsolidationCurrency: vi.fn(),
+  getConsolidationCurrency: (...args: unknown[]) => mockGetConsolidationCurrency(...args),
   setConsolidationCurrency: vi.fn(),
   setFxRateManual: vi.fn(),
   listFxRates: vi.fn(),
@@ -117,7 +130,6 @@ vi.mock('./useModalManager', () => ({
   }),
 }))
 
-const mockRefresh = vi.fn().mockResolvedValue(undefined)
 const mockHandleCreateBalanceUpdate = vi.fn()
 const mockHandleEditBalanceUpdate = vi.fn()
 const mockHandleDeleteEvent = vi.fn()
@@ -126,33 +138,10 @@ const mockHandleEditAccount = vi.fn()
 const mockHandleDeleteAccount = vi.fn()
 const mockHandleBulkUpdateSubmit = vi.fn()
 const mockHandleSaveOrder = vi.fn()
-const mockHandleConsolidationCurrencyChange = vi.fn().mockResolvedValue(undefined)
 const mockHandleUpdateAssetValue = vi.fn()
 const mockHandleSetAccountAssetLinks = vi.fn()
-const mockSetSelectedDate = vi.fn()
 
 const EUR: Currency = { id: 1, code: 'EUR', name: 'Euro', minorUnits: 2, isCustom: false }
-
-let financeDataReturn: Record<string, unknown>
-
-function defaultFinanceData(overrides?: Partial<typeof financeDataReturn>) {
-  return {
-    selectedDate: '2026-01-15',
-    setSelectedDate: mockSetSelectedDate,
-    snapshot: [] as SnapshotRow[],
-    events: [] as EventWithData[],
-    totalEvents: 0,
-    consolidationCurrency: EUR,
-    refresh: mockRefresh,
-    handleConsolidationCurrencyChange: mockHandleConsolidationCurrencyChange,
-    missingFxCurrencies: [] as string[],
-    ...overrides,
-  }
-}
-
-vi.mock('../features/dashboard/useFinanceData', () => ({
-  useFinanceData: () => financeDataReturn,
-}))
 
 vi.mock('./useModalActions', () => ({
   useModalActions: () => ({
@@ -168,46 +157,55 @@ vi.mock('./useModalActions', () => ({
     handleSetAccountAssetLinks: mockHandleSetAccountAssetLinks,
     handleCreateAssetSuccess: vi.fn().mockImplementation(async () => {
       mockCloseModal()
-      await mockRefresh()
     }),
   }),
 }))
 
 // ── Mock child components ───────────────────────────────────────────────────
-let capturedDashboardProps: Record<string, unknown> = {}
+vi.mock('../shared/layout/Header', async () => {
+  const { useRouterState } = await import('@tanstack/react-router')
+  function HeaderMock({ pageTitle }: { pageTitle: string }) {
+    const pathname = useRouterState({ select: (s: { location: { pathname: string } }) => s.location.pathname })
+    const showDatePicker = pathname === '/dashboard'
+    return (
+      <div data-testid="header">
+        <span data-testid="page-title">{pageTitle}</span>
+        {showDatePicker && <span data-testid="date-picker-visible" />}
+      </div>
+    )
+  }
+  return { default: HeaderMock }
+})
 
-vi.mock('../shared/layout/Header', () => ({
-  default: (props: { pageTitle: string; showDatePicker: boolean }) => (
-    <div data-testid="header">
-      <span data-testid="page-title">{props.pageTitle}</span>
-      {props.showDatePicker && <span data-testid="date-picker-visible" />}
-    </div>
-  ),
-}))
-
-vi.mock('../shared/layout/Sidebar', () => ({
-  default: (props: { currentView: string; onNavigate: (view: string) => void; collapsed: boolean; onToggleCollapse: () => void }) => (
-    <div data-testid="sidebar">
-      <span data-testid="current-view">{props.currentView}</span>
-      <button data-testid="nav-dashboard" onClick={() => props.onNavigate('dashboard')}>
-        Dashboard
-      </button>
-      <button data-testid="nav-settings" onClick={() => props.onNavigate('settings')}>
-        Settings
-      </button>
-      <button data-testid="nav-fx-rates" onClick={() => props.onNavigate('fx-rates')}>
-        FxRates
-      </button>
-      <button data-testid="nav-units" onClick={() => props.onNavigate('units')}>
-        Units
-      </button>
-      <button data-testid="toggle-collapse" onClick={props.onToggleCollapse}>
-        Toggle
-      </button>
-      <span data-testid="sidebar-collapsed">{String(props.collapsed)}</span>
-    </div>
-  ),
-}))
+vi.mock('../shared/layout/Sidebar', async () => {
+  const { useNavigate, useRouterState } = await import('@tanstack/react-router')
+  function SidebarMock({ collapsed, onToggleCollapse }: { collapsed: boolean; onToggleCollapse: () => void }) {
+    const navigate = useNavigate()
+    const pathname = useRouterState({ select: (s: { location: { pathname: string } }) => s.location.pathname })
+    return (
+      <div data-testid="sidebar">
+        <span data-testid="current-view">{pathname.slice(1) || 'dashboard'}</span>
+        <button data-testid="nav-dashboard" onClick={() => navigate({ to: '/dashboard' })}>
+          Dashboard
+        </button>
+        <button data-testid="nav-settings" onClick={() => navigate({ to: '/settings' })}>
+          Settings
+        </button>
+        <button data-testid="nav-fx-rates" onClick={() => navigate({ to: '/fx-rates' })}>
+          FxRates
+        </button>
+        <button data-testid="nav-units" onClick={() => navigate({ to: '/units' })}>
+          Units
+        </button>
+        <button data-testid="toggle-collapse" onClick={onToggleCollapse}>
+          Toggle
+        </button>
+        <span data-testid="sidebar-collapsed">{String(collapsed)}</span>
+      </div>
+    )
+  }
+  return { default: SidebarMock }
+})
 
 vi.mock('../features/settings/DemoModeBanner', () => ({
   default: (props: { onExit: () => void }) => (
@@ -220,31 +218,27 @@ vi.mock('../features/settings/DemoModeBanner', () => ({
 }))
 
 vi.mock('../features/dashboard/DashboardView', () => ({
-  default: (props: Record<string, unknown>) => {
-    capturedDashboardProps = props
-    return <div data-testid="dashboard-view" />
-  },
+  default: () => <div data-testid="dashboard-view" />,
 }))
 
-vi.mock('../features/settings/SettingsPage', () => ({
-  default: (props: { isDemoMode: boolean; onEnterDemoMode: () => void; onExitDemoMode: () => void; onChangeDbLocation: () => void; onResetDbLocation: () => void }) => (
-    <div data-testid="settings-page">
-      <button data-testid="enter-demo" onClick={props.onEnterDemoMode}>
-        Enter Demo
-      </button>
-      <button data-testid="exit-demo-settings" onClick={props.onExitDemoMode}>
-        Exit Demo
-      </button>
-      <button data-testid="change-db" onClick={props.onChangeDbLocation}>
-        Change DB
-      </button>
-      <button data-testid="reset-db" onClick={props.onResetDbLocation}>
-        Reset DB
-      </button>
-      <span data-testid="demo-mode-value">{String(props.isDemoMode)}</span>
-    </div>
-  ),
-}))
+vi.mock('../features/settings/SettingsPage', async () => {
+  const { useDemo } = await import('./DemoContext')
+  function SettingsPageMock() {
+    const demo = useDemo()
+    return (
+      <div data-testid="settings-page">
+        <button data-testid="enter-demo" onClick={demo.onEnterDemoMode}>
+          Enter Demo
+        </button>
+        <button data-testid="exit-demo-settings" onClick={demo.onExitDemoMode}>
+          Exit Demo
+        </button>
+        <span data-testid="demo-mode-value">{String(demo.isDemoMode)}</span>
+      </div>
+    )
+  }
+  return { default: SettingsPageMock }
+})
 
 vi.mock('../features/currency/FxRatesPage', () => ({
   default: () => <div data-testid="fx-rates-page" />,
@@ -252,6 +246,18 @@ vi.mock('../features/currency/FxRatesPage', () => ({
 
 vi.mock('../features/assets/UnitsPage', () => ({
   default: () => <div data-testid="units-page" />,
+}))
+
+vi.mock('../features/ledger/LedgerPage', () => ({
+  default: () => <div data-testid="ledger-page" />,
+}))
+
+vi.mock('../features/partners/PartnersPage', () => ({
+  default: () => <div data-testid="partners-page" />,
+}))
+
+vi.mock('../features/csv-profiles/ImportProfilesPage', () => ({
+  default: () => <div data-testid="import-profiles-page" />,
 }))
 
 // Mock all modals
@@ -383,6 +389,14 @@ vi.mock('../features/assets/ManageLinkedAssetsModal', () => ({
   ),
 }))
 
+vi.mock('../features/transactions/CsvImportModal', () => ({
+  default: () => <div data-testid="csv-import-modal" />,
+}))
+
+vi.mock('../features/transactions/EditTransferModal', () => ({
+  default: () => <div data-testid="edit-transfer-modal" />,
+}))
+
 // ── Helpers ─────────────────────────────────────────────────────────────────
 function makeSnapshot(overrides?: Partial<SnapshotRow>): SnapshotRow {
   return {
@@ -465,7 +479,7 @@ const defaultDbLocation: DbLocationInfo = {
   fallbackWarning: false,
 }
 
-function setupDefaultMocks(overrides?: { snapshot?: SnapshotRow[]; events?: EventWithData[] }) {
+function setupDefaultMocks(overrides?: { snapshot?: SnapshotRow[] }) {
   mockIsDemoMode.mockResolvedValue(false)
   mockGetDbLocation.mockResolvedValue(defaultDbLocation)
   mockEnterDemoMode.mockResolvedValue(undefined)
@@ -476,11 +490,34 @@ function setupDefaultMocks(overrides?: { snapshot?: SnapshotRow[]; events?: Even
   mockResetDbLocation.mockResolvedValue(undefined)
   mockCheckDefaultDb.mockResolvedValue(false)
   mockGetBulkUpdateExclusions.mockResolvedValue([])
+  mockGetAccountsSnapshot.mockResolvedValue(overrides?.snapshot ?? [makeSnapshot()])
+  mockGetConsolidationCurrency.mockResolvedValue(EUR)
+  mockListEvents.mockResolvedValue({ events: [], totalCount: 0 })
+}
 
-  financeDataReturn = defaultFinanceData({
-    snapshot: overrides?.snapshot ?? [makeSnapshot()],
-    events: overrides?.events ?? [makeEvent()],
-  })
+// ── Router + App helpers ─────────────────────────────────────────────────────
+function createTestRouter(initialPath = '/dashboard') {
+  const rootRoute = createRootRoute({ component: App })
+  const indexRoute = createRoute({ getParentRoute: () => rootRoute, path: '/' })
+  const dashboardRoute = createRoute({ getParentRoute: () => rootRoute, path: '/dashboard', component: DashboardView })
+  const settingsRoute = createRoute({ getParentRoute: () => rootRoute, path: '/settings', component: SettingsPage as unknown as RouteComponent })
+  const fxRatesRoute = createRoute({ getParentRoute: () => rootRoute, path: '/fx-rates', component: FxRatesPage })
+  const unitsRoute = createRoute({ getParentRoute: () => rootRoute, path: '/units', component: UnitsPage })
+  const ledgerRoute = createRoute({ getParentRoute: () => rootRoute, path: '/ledger', component: LedgerPage })
+  const partnersRoute = createRoute({ getParentRoute: () => rootRoute, path: '/partners', component: PartnersPage })
+  const importRoute = createRoute({ getParentRoute: () => rootRoute, path: '/import-profiles', component: ImportProfilesPage })
+  const routeTree = rootRoute.addChildren([indexRoute, dashboardRoute, settingsRoute, fxRatesRoute, unitsRoute, ledgerRoute, partnersRoute, importRoute])
+  return createRouter({ routeTree, history: createMemoryHistory({ initialEntries: [initialPath] }) })
+}
+
+function renderApp(initialPath = '/dashboard') {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: 0 } } })
+  const router = createTestRouter(initialPath)
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <RouterProvider router={router} />
+    </QueryClientProvider>,
+  )
 }
 
 // ── Tests ───────────────────────────────────────────────────────────────────
@@ -488,7 +525,6 @@ describe('App', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     modalStateValue = { type: 'none' }
-    capturedDashboardProps = {}
     themeReturn = {
       theme: 'light',
       themePreference: 'system',
@@ -501,32 +537,40 @@ describe('App', () => {
 
   describe('initial render', () => {
     it('renders the sidebar and header', async () => {
-      render(<App />)
+      renderApp()
       await waitFor(() => {
         expect(screen.getByTestId('sidebar')).toBeInTheDocument()
         expect(screen.getByTestId('header')).toBeInTheDocument()
       })
     })
 
-    it('renders the toaster', () => {
-      render(<App />)
-      expect(screen.getByTestId('toaster')).toBeInTheDocument()
+    it('renders the toaster', async () => {
+      renderApp()
+      await waitFor(() => {
+        expect(screen.getByTestId('toaster')).toBeInTheDocument()
+      })
     })
 
-    it('checks demo mode on mount', () => {
-      render(<App />)
-      expect(mockIsDemoMode).toHaveBeenCalledOnce()
+    it('checks demo mode on mount', async () => {
+      renderApp()
+      await waitFor(() => {
+        expect(mockIsDemoMode).toHaveBeenCalledOnce()
+      })
     })
 
-    it('loads DB location on mount', () => {
-      render(<App />)
-      expect(mockGetDbLocation).toHaveBeenCalledOnce()
+    it('loads DB location on mount', async () => {
+      renderApp()
+      await waitFor(() => {
+        expect(mockGetDbLocation).toHaveBeenCalledOnce()
+      })
     })
 
-    it('defaults to dashboard view', () => {
-      render(<App />)
-      expect(screen.getByTestId('dashboard-view')).toBeInTheDocument()
-      expect(screen.getByTestId('current-view')).toHaveTextContent('dashboard')
+    it('defaults to dashboard view', async () => {
+      renderApp()
+      await waitFor(() => {
+        expect(screen.getByTestId('dashboard-view')).toBeInTheDocument()
+        expect(screen.getByTestId('current-view')).toHaveTextContent('dashboard')
+      })
     })
   })
 
@@ -535,102 +579,137 @@ describe('App', () => {
   describe('navigation', () => {
     it('navigates to settings page', async () => {
       const user = userEvent.setup()
-      render(<App />)
+      renderApp()
+      await waitFor(() => screen.getByTestId('nav-settings'))
       await user.click(screen.getByTestId('nav-settings'))
-      expect(screen.getByTestId('settings-page')).toBeInTheDocument()
-      expect(screen.queryByTestId('dashboard-view')).not.toBeInTheDocument()
+      await waitFor(() => {
+        expect(screen.getByTestId('settings-page')).toBeInTheDocument()
+        expect(screen.queryByTestId('dashboard-view')).not.toBeInTheDocument()
+      })
     })
 
     it('navigates to fx-rates page', async () => {
       const user = userEvent.setup()
-      render(<App />)
+      renderApp()
+      await waitFor(() => screen.getByTestId('nav-fx-rates'))
       await user.click(screen.getByTestId('nav-fx-rates'))
-      expect(screen.getByTestId('fx-rates-page')).toBeInTheDocument()
-      expect(screen.queryByTestId('dashboard-view')).not.toBeInTheDocument()
+      await waitFor(() => {
+        expect(screen.getByTestId('fx-rates-page')).toBeInTheDocument()
+        expect(screen.queryByTestId('dashboard-view')).not.toBeInTheDocument()
+      })
     })
 
     it('navigates to units page', async () => {
       const user = userEvent.setup()
-      render(<App />)
+      renderApp()
+      await waitFor(() => screen.getByTestId('nav-units'))
       await user.click(screen.getByTestId('nav-units'))
-      expect(screen.getByTestId('units-page')).toBeInTheDocument()
-      expect(screen.queryByTestId('dashboard-view')).not.toBeInTheDocument()
+      await waitFor(() => {
+        expect(screen.getByTestId('units-page')).toBeInTheDocument()
+        expect(screen.queryByTestId('dashboard-view')).not.toBeInTheDocument()
+      })
     })
 
     it('navigates back to dashboard', async () => {
       const user = userEvent.setup()
-      render(<App />)
+      renderApp()
+      await waitFor(() => screen.getByTestId('nav-settings'))
       await user.click(screen.getByTestId('nav-settings'))
-      expect(screen.getByTestId('settings-page')).toBeInTheDocument()
+      await waitFor(() => expect(screen.getByTestId('settings-page')).toBeInTheDocument())
 
       await user.click(screen.getByTestId('nav-dashboard'))
-      expect(screen.getByTestId('dashboard-view')).toBeInTheDocument()
-      expect(screen.queryByTestId('settings-page')).not.toBeInTheDocument()
+      await waitFor(() => {
+        expect(screen.getByTestId('dashboard-view')).toBeInTheDocument()
+        expect(screen.queryByTestId('settings-page')).not.toBeInTheDocument()
+      })
     })
   })
 
   // ── Page title ──
 
   describe('page title', () => {
-    it('shows dashboard title by default', () => {
-      render(<App />)
-      expect(screen.getByTestId('page-title')).toHaveTextContent('sidebar.dashboard')
+    it('shows dashboard title by default', async () => {
+      renderApp()
+      await waitFor(() => {
+        expect(screen.getByTestId('page-title')).toHaveTextContent('sidebar.dashboard')
+      })
     })
 
     it('shows settings title on settings page', async () => {
       const user = userEvent.setup()
-      render(<App />)
+      renderApp()
+      await waitFor(() => screen.getByTestId('nav-settings'))
       await user.click(screen.getByTestId('nav-settings'))
-      expect(screen.getByTestId('page-title')).toHaveTextContent('sidebar.settings')
+      await waitFor(() => {
+        expect(screen.getByTestId('page-title')).toHaveTextContent('sidebar.settings')
+      })
     })
 
     it('shows fx-rates title on fx-rates page', async () => {
       const user = userEvent.setup()
-      render(<App />)
+      renderApp()
+      await waitFor(() => screen.getByTestId('nav-fx-rates'))
       await user.click(screen.getByTestId('nav-fx-rates'))
-      expect(screen.getByTestId('page-title')).toHaveTextContent('sidebar.fxRates')
+      await waitFor(() => {
+        expect(screen.getByTestId('page-title')).toHaveTextContent('sidebar.fxRates')
+      })
     })
 
     it('shows units title on units page', async () => {
       const user = userEvent.setup()
-      render(<App />)
+      renderApp()
+      await waitFor(() => screen.getByTestId('nav-units'))
       await user.click(screen.getByTestId('nav-units'))
-      expect(screen.getByTestId('page-title')).toHaveTextContent('sidebar.units')
+      await waitFor(() => {
+        expect(screen.getByTestId('page-title')).toHaveTextContent('sidebar.units')
+      })
     })
   })
 
   // ── Date picker visibility ──
 
   describe('date picker visibility', () => {
-    it('shows date picker on dashboard view', () => {
-      render(<App />)
-      expect(screen.getByTestId('date-picker-visible')).toBeInTheDocument()
+    it('shows date picker on dashboard view', async () => {
+      renderApp()
+      await waitFor(() => {
+        expect(screen.getByTestId('date-picker-visible')).toBeInTheDocument()
+      })
     })
 
     it('hides date picker on settings page', async () => {
       const user = userEvent.setup()
-      render(<App />)
+      renderApp()
+      await waitFor(() => screen.getByTestId('nav-settings'))
       await user.click(screen.getByTestId('nav-settings'))
-      expect(screen.queryByTestId('date-picker-visible')).not.toBeInTheDocument()
+      await waitFor(() => {
+        expect(screen.queryByTestId('date-picker-visible')).not.toBeInTheDocument()
+      })
     })
   })
 
   // ── Sidebar collapse ──
 
   describe('sidebar collapse', () => {
-    it('starts expanded (collapsed=false)', () => {
-      render(<App />)
-      expect(screen.getByTestId('sidebar-collapsed')).toHaveTextContent('false')
+    it('starts expanded (collapsed=false)', async () => {
+      renderApp()
+      await waitFor(() => {
+        expect(screen.getByTestId('sidebar-collapsed')).toHaveTextContent('false')
+      })
     })
 
     it('toggles collapsed state', async () => {
       const user = userEvent.setup()
-      render(<App />)
+      renderApp()
+      await waitFor(() => screen.getByTestId('toggle-collapse'))
       await user.click(screen.getByTestId('toggle-collapse'))
-      expect(screen.getByTestId('sidebar-collapsed')).toHaveTextContent('true')
+      await waitFor(() => {
+        expect(screen.getByTestId('sidebar-collapsed')).toHaveTextContent('true')
+      })
 
       await user.click(screen.getByTestId('toggle-collapse'))
-      expect(screen.getByTestId('sidebar-collapsed')).toHaveTextContent('false')
+      await waitFor(() => {
+        expect(screen.getByTestId('sidebar-collapsed')).toHaveTextContent('false')
+      })
     })
   })
 
@@ -639,7 +718,7 @@ describe('App', () => {
   describe('demo mode banner', () => {
     it('does not show demo banner when not in demo mode', async () => {
       mockIsDemoMode.mockResolvedValue(false)
-      render(<App />)
+      renderApp()
       await waitFor(() => {
         expect(screen.queryByTestId('demo-banner')).not.toBeInTheDocument()
       })
@@ -647,7 +726,7 @@ describe('App', () => {
 
     it('shows demo banner when in demo mode', async () => {
       mockIsDemoMode.mockResolvedValue(true)
-      render(<App />)
+      renderApp()
       await waitFor(() => {
         expect(screen.getByTestId('demo-banner')).toBeInTheDocument()
       })
@@ -657,12 +736,14 @@ describe('App', () => {
       mockIsDemoMode.mockResolvedValue(true)
       mockExitDemoMode.mockResolvedValue(undefined)
       const user = userEvent.setup()
-      render(<App />)
+      renderApp()
       await waitFor(() => {
         expect(screen.getByTestId('demo-banner')).toBeInTheDocument()
       })
       await user.click(screen.getByTestId('exit-demo'))
-      expect(mockExitDemoMode).toHaveBeenCalledOnce()
+      await waitFor(() => {
+        expect(mockExitDemoMode).toHaveBeenCalledOnce()
+      })
     })
   })
 
@@ -671,9 +752,10 @@ describe('App', () => {
   describe('demo mode enter/exit', () => {
     it('enters demo mode and navigates to dashboard', async () => {
       const user = userEvent.setup()
-      render(<App />)
+      renderApp()
+      await waitFor(() => screen.getByTestId('nav-settings'))
       await user.click(screen.getByTestId('nav-settings'))
-
+      await waitFor(() => screen.getByTestId('enter-demo'))
       await user.click(screen.getByTestId('enter-demo'))
 
       await waitFor(() => {
@@ -684,13 +766,15 @@ describe('App', () => {
     it('exits demo mode and shows success toast', async () => {
       mockIsDemoMode.mockResolvedValue(true)
       const user = userEvent.setup()
-      render(<App />)
+      renderApp()
 
       await waitFor(() => {
         expect(screen.getByTestId('demo-banner')).toBeInTheDocument()
       })
 
+      await waitFor(() => screen.getByTestId('nav-settings'))
       await user.click(screen.getByTestId('nav-settings'))
+      await waitFor(() => screen.getByTestId('exit-demo-settings'))
       await user.click(screen.getByTestId('exit-demo-settings'))
 
       await waitFor(() => {
@@ -702,8 +786,10 @@ describe('App', () => {
     it('shows error toast when enter demo mode fails', async () => {
       mockEnterDemoMode.mockRejectedValue(new Error('Demo error'))
       const user = userEvent.setup()
-      render(<App />)
+      renderApp()
+      await waitFor(() => screen.getByTestId('nav-settings'))
       await user.click(screen.getByTestId('nav-settings'))
+      await waitFor(() => screen.getByTestId('enter-demo'))
       await user.click(screen.getByTestId('enter-demo'))
 
       await waitFor(() => {
@@ -715,7 +801,7 @@ describe('App', () => {
       mockIsDemoMode.mockResolvedValue(true)
       mockExitDemoMode.mockRejectedValue(new Error('Exit error'))
       const user = userEvent.setup()
-      render(<App />)
+      renderApp()
 
       await waitFor(() => {
         expect(screen.getByTestId('demo-banner')).toBeInTheDocument()
@@ -737,262 +823,100 @@ describe('App', () => {
         ...defaultDbLocation,
         fallbackWarning: true,
       })
-      render(<App />)
+      renderApp()
       await waitFor(() => {
         expect(mockToastWarning).toHaveBeenCalledWith('dataStorage.toasts.fallbackWarning')
       })
-    })
-
-    it('opens confirmSwitchDb modal when picking folder with existing db', async () => {
-      mockPickDbFolder.mockResolvedValue({ folder: '/new/path', dbExists: true })
-      const user = userEvent.setup()
-      render(<App />)
-      await user.click(screen.getByTestId('nav-settings'))
-      await user.click(screen.getByTestId('change-db'))
-
-      await waitFor(() => {
-        expect(mockSetModalState).toHaveBeenCalledWith({
-          type: 'confirmSwitchDb',
-          folder: '/new/path',
-        })
-      })
-    })
-
-    it('opens dbLocationChoice modal when picking folder without existing db', async () => {
-      mockPickDbFolder.mockResolvedValue({ folder: '/new/path', dbExists: false })
-      const user = userEvent.setup()
-      render(<App />)
-      await user.click(screen.getByTestId('nav-settings'))
-      await user.click(screen.getByTestId('change-db'))
-
-      await waitFor(() => {
-        expect(mockSetModalState).toHaveBeenCalledWith({
-          type: 'dbLocationChoice',
-          folder: '/new/path',
-          isReset: false,
-        })
-      })
-    })
-
-    it('does nothing when pickDbFolder returns null (cancelled)', async () => {
-      mockPickDbFolder.mockResolvedValue(null)
-      const user = userEvent.setup()
-      render(<App />)
-      await user.click(screen.getByTestId('nav-settings'))
-      await user.click(screen.getByTestId('change-db'))
-
-      await waitFor(() => {
-        expect(mockPickDbFolder).toHaveBeenCalledOnce()
-      })
-      expect(mockSetModalState).not.toHaveBeenCalled()
-    })
-
-    it('shows error toast when change DB location fails', async () => {
-      mockPickDbFolder.mockRejectedValue(new Error('pick error'))
-      const user = userEvent.setup()
-      render(<App />)
-      await user.click(screen.getByTestId('nav-settings'))
-      await user.click(screen.getByTestId('change-db'))
-
-      await waitFor(() => {
-        expect(mockToastError).toHaveBeenCalled()
-      })
-    })
-
-    it('opens confirmResetDbLocation when default db exists', async () => {
-      mockCheckDefaultDb.mockResolvedValue(true)
-      const user = userEvent.setup()
-      render(<App />)
-      await user.click(screen.getByTestId('nav-settings'))
-      await user.click(screen.getByTestId('reset-db'))
-
-      await waitFor(() => {
-        expect(mockSetModalState).toHaveBeenCalledWith({ type: 'confirmResetDbLocation' })
-      })
-    })
-
-    it('opens dbLocationChoice for reset when default db does not exist', async () => {
-      mockCheckDefaultDb.mockResolvedValue(false)
-      const user = userEvent.setup()
-      render(<App />)
-      await user.click(screen.getByTestId('nav-settings'))
-      await user.click(screen.getByTestId('reset-db'))
-
-      await waitFor(() => {
-        expect(mockSetModalState).toHaveBeenCalledWith({
-          type: 'dbLocationChoice',
-          folder: '',
-          isReset: true,
-        })
-      })
-    })
-
-    it('shows error toast when reset DB location fails', async () => {
-      mockCheckDefaultDb.mockRejectedValue(new Error('reset check error'))
-      const user = userEvent.setup()
-      render(<App />)
-      await user.click(screen.getByTestId('nav-settings'))
-      await user.click(screen.getByTestId('reset-db'))
-
-      await waitFor(() => {
-        expect(mockToastError).toHaveBeenCalled()
-      })
-    })
-  })
-
-  // ── Computed values passed to DashboardView ──
-
-  describe('computed values for DashboardView', () => {
-    it('splits snapshot into accounts, buckets, and assets', () => {
-      const acct = makeSnapshot({ accountId: 1, accountType: 'account' })
-      const bucket = makeBucket({ accountId: 10, accountType: 'bucket' })
-      const asset = makeAsset({ accountId: 20, accountType: 'asset' })
-
-      setupDefaultMocks({ snapshot: [acct, bucket, asset] })
-      render(<App />)
-
-      expect(capturedDashboardProps.accounts).toEqual([acct])
-      expect(capturedDashboardProps.buckets).toEqual([bucket])
-      expect(capturedDashboardProps.assets).toEqual([asset])
-    })
-
-    it('computes totalMinor as sum of non-asset-linked accounts', () => {
-      const acct1 = makeSnapshot({
-        accountId: 1,
-        convertedBalanceMinor: 100000,
-        isLinkedToAsset: false,
-      })
-      const acct2 = makeSnapshot({
-        accountId: 2,
-        convertedBalanceMinor: 50000,
-        isLinkedToAsset: true,
-      })
-
-      setupDefaultMocks({ snapshot: [acct1, acct2] })
-      render(<App />)
-
-      // totalMinor = liquidMinor = acct1 (100000) — acct2 is linked to asset
-      expect(capturedDashboardProps.totalMinor).toBe(100000)
-    })
-
-    it('computes leftToSpendMinor correctly', () => {
-      const acct = makeSnapshot({
-        accountId: 1,
-        convertedBalanceMinor: 200000,
-        isLinkedToAsset: false,
-      })
-      const bucket = makeBucket({
-        accountId: 10,
-        convertedBalanceMinor: 80000,
-        linkedBalanceMinor: 20000,
-      })
-
-      setupDefaultMocks({ snapshot: [acct, bucket] })
-      render(<App />)
-
-      // leftToSpend = liquidMinor(200000) - bucketsMinor(80000)
-      expect(capturedDashboardProps.leftToSpendMinor).toBe(120000)
-    })
-
-    it('computes netWorthMinor as accounts + assets', () => {
-      const acct = makeSnapshot({
-        accountId: 1,
-        convertedBalanceMinor: 100000,
-      })
-      const asset = makeAsset({
-        accountId: 20,
-        convertedBalanceMinor: 500000,
-      })
-
-      setupDefaultMocks({ snapshot: [acct, asset] })
-      render(<App />)
-
-      // netWorth = allAccountsMinor(100000) + assetTotalMinor(500000)
-      expect(capturedDashboardProps.netWorthMinor).toBe(600000)
-    })
-
-    it('sets hasAssets to true when assets exist', () => {
-      setupDefaultMocks({ snapshot: [makeSnapshot(), makeAsset()] })
-      render(<App />)
-      expect(capturedDashboardProps.hasAssets).toBe(true)
-    })
-
-    it('sets hasAssets to false when no assets exist', () => {
-      setupDefaultMocks({ snapshot: [makeSnapshot()] })
-      render(<App />)
-      expect(capturedDashboardProps.hasAssets).toBe(false)
     })
   })
 
   // ── Modal rendering ──
 
   describe('modal rendering', () => {
-    it('renders CreateBalanceUpdateModal when modalState is createBalanceUpdate', () => {
+    it('renders CreateBalanceUpdateModal when modalState is createBalanceUpdate', async () => {
       modalStateValue = { type: 'createBalanceUpdate' }
-      render(<App />)
-      expect(screen.getByTestId('create-balance-modal')).toBeInTheDocument()
+      renderApp()
+      await waitFor(() => {
+        expect(screen.getByTestId('create-balance-modal')).toBeInTheDocument()
+      })
     })
 
-    it('renders EditBalanceUpdateModal when modalState is editBalanceUpdate', () => {
+    it('renders EditBalanceUpdateModal when modalState is editBalanceUpdate', async () => {
       modalStateValue = { type: 'editBalanceUpdate', event: makeEvent() }
-      render(<App />)
-      expect(screen.getByTestId('edit-balance-modal')).toBeInTheDocument()
+      renderApp()
+      await waitFor(() => {
+        expect(screen.getByTestId('edit-balance-modal')).toBeInTheDocument()
+      })
     })
 
-    it('renders CreateAccountModal when modalState is createAccount', () => {
+    it('renders CreateAccountModal when modalState is createAccount', async () => {
       modalStateValue = { type: 'createAccount', accountType: 'account' }
-      render(<App />)
-      expect(screen.getByTestId('create-account-modal')).toBeInTheDocument()
-      expect(screen.getByTestId('create-account-type')).toHaveTextContent('account')
+      renderApp()
+      await waitFor(() => {
+        expect(screen.getByTestId('create-account-modal')).toBeInTheDocument()
+        expect(screen.getByTestId('create-account-type')).toHaveTextContent('account')
+      })
     })
 
-    it('renders CreateAssetModal when modalState is createAsset', () => {
+    it('renders CreateAssetModal when modalState is createAsset', async () => {
       modalStateValue = { type: 'createAsset' }
-      render(<App />)
-      expect(screen.getByTestId('create-asset-modal')).toBeInTheDocument()
+      renderApp()
+      await waitFor(() => {
+        expect(screen.getByTestId('create-asset-modal')).toBeInTheDocument()
+      })
     })
 
-    it('renders EditAccountModal when modalState is editAccount', () => {
+    it('renders EditAccountModal when modalState is editAccount', async () => {
       modalStateValue = {
         type: 'editAccount',
         accountId: 1,
         currentName: 'Test',
         accountType: 'account',
       }
-      render(<App />)
-      expect(screen.getByTestId('edit-account-modal')).toBeInTheDocument()
+      renderApp()
+      await waitFor(() => {
+        expect(screen.getByTestId('edit-account-modal')).toBeInTheDocument()
+      })
     })
 
-    it('renders ConfirmDialog for confirmDeleteAccount', () => {
+    it('renders ConfirmDialog for confirmDeleteAccount', async () => {
       modalStateValue = {
         type: 'confirmDeleteAccount',
         accountId: 1,
         name: 'Checking',
         accountType: 'account',
       }
-      render(<App />)
-      expect(screen.getByTestId('confirm-dialog')).toBeInTheDocument()
+      renderApp()
+      await waitFor(() => {
+        expect(screen.getByTestId('confirm-dialog')).toBeInTheDocument()
+      })
     })
 
-    it('renders ConfirmDialog for confirmDeleteEvent', () => {
+    it('renders ConfirmDialog for confirmDeleteEvent', async () => {
       modalStateValue = { type: 'confirmDeleteEvent', eventId: 1 }
-      render(<App />)
-      expect(screen.getByTestId('confirm-dialog')).toBeInTheDocument()
+      renderApp()
+      await waitFor(() => {
+        expect(screen.getByTestId('confirm-dialog')).toBeInTheDocument()
+      })
     })
 
-    it('renders BulkUpdateBalanceModal when modalState is bulkUpdateBalance', () => {
+    it('renders BulkUpdateBalanceModal when modalState is bulkUpdateBalance', async () => {
       modalStateValue = { type: 'bulkUpdateBalance' }
-      render(<App />)
-      expect(screen.getByTestId('bulk-update-modal')).toBeInTheDocument()
+      renderApp()
+      await waitFor(() => {
+        expect(screen.getByTestId('bulk-update-modal')).toBeInTheDocument()
+      })
     })
 
-    it('renders ConfirmDialog for fetchFxRatePrompt', () => {
+    it('renders ConfirmDialog for fetchFxRatePrompt', async () => {
       modalStateValue = { type: 'fetchFxRatePrompt', date: '2026-01-15' }
-      render(<App />)
-      expect(screen.getByTestId('confirm-dialog')).toBeInTheDocument()
+      renderApp()
+      await waitFor(() => {
+        expect(screen.getByTestId('confirm-dialog')).toBeInTheDocument()
+      })
     })
 
-    it('renders UpdateAssetValueModal when modalState is updateAssetValue', () => {
+    it('renders UpdateAssetValueModal when modalState is updateAssetValue', async () => {
       modalStateValue = {
         type: 'updateAssetValue',
         accountId: 20,
@@ -1002,49 +926,61 @@ describe('App', () => {
         isCustomUnit: false,
         balanceMinor: 30000000,
       }
-      render(<App />)
-      expect(screen.getByTestId('update-asset-modal')).toBeInTheDocument()
+      renderApp()
+      await waitFor(() => {
+        expect(screen.getByTestId('update-asset-modal')).toBeInTheDocument()
+      })
     })
 
-    it('renders ReorderModal for reorderAccounts', () => {
+    it('renders ReorderModal for reorderAccounts', async () => {
       setupDefaultMocks({ snapshot: [makeSnapshot()] })
       modalStateValue = { type: 'reorderAccounts' }
-      render(<App />)
-      expect(screen.getByTestId('reorder-modal')).toBeInTheDocument()
-      expect(screen.getByTestId('reorder-title')).toHaveTextContent('reorder.titleAccounts')
+      renderApp()
+      await waitFor(() => {
+        expect(screen.getByTestId('reorder-modal')).toBeInTheDocument()
+        expect(screen.getByTestId('reorder-title')).toHaveTextContent('reorder.titleAccounts')
+      })
     })
 
-    it('renders ReorderModal for reorderBuckets', () => {
+    it('renders ReorderModal for reorderBuckets', async () => {
       setupDefaultMocks({ snapshot: [makeBucket()] })
       modalStateValue = { type: 'reorderBuckets' }
-      render(<App />)
-      expect(screen.getByTestId('reorder-modal')).toBeInTheDocument()
-      expect(screen.getByTestId('reorder-title')).toHaveTextContent('reorder.titleBuckets')
+      renderApp()
+      await waitFor(() => {
+        expect(screen.getByTestId('reorder-modal')).toBeInTheDocument()
+        expect(screen.getByTestId('reorder-title')).toHaveTextContent('reorder.titleBuckets')
+      })
     })
 
-    it('renders ReorderModal for reorderAssets', () => {
+    it('renders ReorderModal for reorderAssets', async () => {
       setupDefaultMocks({ snapshot: [makeAsset()] })
       modalStateValue = { type: 'reorderAssets' }
-      render(<App />)
-      expect(screen.getByTestId('reorder-modal')).toBeInTheDocument()
-      expect(screen.getByTestId('reorder-title')).toHaveTextContent('reorder.titleAssets')
+      renderApp()
+      await waitFor(() => {
+        expect(screen.getByTestId('reorder-modal')).toBeInTheDocument()
+        expect(screen.getByTestId('reorder-title')).toHaveTextContent('reorder.titleAssets')
+      })
     })
 
-    it('renders ManageLinkedAssetsModal when modalState is manageLinkedAssets', () => {
+    it('renders ManageLinkedAssetsModal when modalState is manageLinkedAssets', async () => {
       modalStateValue = { type: 'manageLinkedAssets', accountId: 1, accountName: 'Checking' }
-      render(<App />)
-      expect(screen.getByTestId('manage-linked-assets-modal')).toBeInTheDocument()
+      renderApp()
+      await waitFor(() => {
+        expect(screen.getByTestId('manage-linked-assets-modal')).toBeInTheDocument()
+      })
     })
 
-    it('does not render any modal when modalState is none', () => {
+    it('does not render any modal when modalState is none', async () => {
       modalStateValue = { type: 'none' }
-      render(<App />)
-      expect(screen.queryByTestId('create-balance-modal')).not.toBeInTheDocument()
-      expect(screen.queryByTestId('edit-balance-modal')).not.toBeInTheDocument()
-      expect(screen.queryByTestId('create-account-modal')).not.toBeInTheDocument()
-      expect(screen.queryByTestId('confirm-dialog')).not.toBeInTheDocument()
-      expect(screen.queryByTestId('bulk-update-modal')).not.toBeInTheDocument()
-      expect(screen.queryByTestId('reorder-modal')).not.toBeInTheDocument()
+      renderApp()
+      await waitFor(() => {
+        expect(screen.queryByTestId('create-balance-modal')).not.toBeInTheDocument()
+        expect(screen.queryByTestId('edit-balance-modal')).not.toBeInTheDocument()
+        expect(screen.queryByTestId('create-account-modal')).not.toBeInTheDocument()
+        expect(screen.queryByTestId('confirm-dialog')).not.toBeInTheDocument()
+        expect(screen.queryByTestId('bulk-update-modal')).not.toBeInTheDocument()
+        expect(screen.queryByTestId('reorder-modal')).not.toBeInTheDocument()
+      })
     })
   })
 
@@ -1059,9 +995,12 @@ describe('App', () => {
         accountType: 'account',
       }
       const user = userEvent.setup()
-      render(<App />)
+      renderApp()
+      await waitFor(() => screen.getByTestId('confirm-ok'))
       await user.click(screen.getByTestId('confirm-ok'))
-      expect(mockHandleDeleteAccount).toHaveBeenCalledWith(42)
+      await waitFor(() => {
+        expect(mockHandleDeleteAccount).toHaveBeenCalledWith(42)
+      })
     })
 
     it('calls closeModal when confirmDeleteAccount is cancelled', async () => {
@@ -1072,20 +1011,26 @@ describe('App', () => {
         accountType: 'account',
       }
       const user = userEvent.setup()
-      render(<App />)
+      renderApp()
+      await waitFor(() => screen.getByTestId('confirm-cancel'))
       await user.click(screen.getByTestId('confirm-cancel'))
-      expect(mockCloseModal).toHaveBeenCalledOnce()
+      await waitFor(() => {
+        expect(mockCloseModal).toHaveBeenCalledOnce()
+      })
     })
 
     it('calls handleDeleteEvent when confirmDeleteEvent is confirmed', async () => {
       modalStateValue = { type: 'confirmDeleteEvent', eventId: 99 }
       const user = userEvent.setup()
-      render(<App />)
+      renderApp()
+      await waitFor(() => screen.getByTestId('confirm-ok'))
       await user.click(screen.getByTestId('confirm-ok'))
-      expect(mockHandleDeleteEvent).toHaveBeenCalledWith(99)
+      await waitFor(() => {
+        expect(mockHandleDeleteEvent).toHaveBeenCalledWith(99)
+      })
     })
 
-    it('shows asset deletion warning for linked assets', () => {
+    it('shows asset deletion warning for linked assets', async () => {
       const acctLinkedToAsset = makeSnapshot({
         accountId: 1,
         accountName: 'Investment Account',
@@ -1098,37 +1043,41 @@ describe('App', () => {
         name: 'House',
         accountType: 'asset',
       }
-      render(<App />)
-      expect(screen.getByTestId('confirm-message')).toHaveTextContent('modals.confirm.deleteAssetWithLinks')
+      renderApp()
+      await waitFor(() => {
+        expect(screen.getByTestId('confirm-message')).toHaveTextContent('modals.confirm.deleteAssetWithLinks')
+      })
     })
   })
 
   // ── CreateAssetModal onSuccess ──
 
   describe('CreateAssetModal onSuccess', () => {
-    it('calls closeModal and refresh when asset is created', async () => {
+    it('calls closeModal when asset is created', async () => {
       modalStateValue = { type: 'createAsset' }
       const user = userEvent.setup()
-      render(<App />)
+      renderApp()
+      await waitFor(() => screen.getByTestId('create-asset-success'))
       await user.click(screen.getByTestId('create-asset-success'))
 
-      expect(mockCloseModal).toHaveBeenCalledOnce()
-      expect(mockRefresh).toHaveBeenCalledOnce()
+      await waitFor(() => {
+        expect(mockCloseModal).toHaveBeenCalledOnce()
+      })
     })
   })
 
   // ── FxRate prompt modal ──
 
   describe('fetchFxRatePrompt modal', () => {
-    it('fetches FX rates and refreshes on confirm', async () => {
+    it('fetches FX rates and closes on confirm', async () => {
       modalStateValue = { type: 'fetchFxRatePrompt', date: '2026-01-15' }
       const user = userEvent.setup()
-      render(<App />)
+      renderApp()
+      await waitFor(() => screen.getByTestId('confirm-ok'))
       await user.click(screen.getByTestId('confirm-ok'))
 
       await waitFor(() => {
         expect(mockFetchFxRates).toHaveBeenCalledWith('2026-01-15')
-        expect(mockRefresh).toHaveBeenCalled()
         expect(mockCloseModal).toHaveBeenCalled()
       })
     })
@@ -1137,7 +1086,8 @@ describe('App', () => {
       mockFetchFxRates.mockRejectedValue(new Error('fetch fail'))
       modalStateValue = { type: 'fetchFxRatePrompt', date: '2026-01-15' }
       const user = userEvent.setup()
-      render(<App />)
+      renderApp()
+      await waitFor(() => screen.getByTestId('confirm-ok'))
       await user.click(screen.getByTestId('confirm-ok'))
 
       await waitFor(() => {
@@ -1152,12 +1102,12 @@ describe('App', () => {
     it('calls changeDbLocation with switch action on confirm', async () => {
       modalStateValue = { type: 'confirmSwitchDb', folder: '/existing/db' }
       const user = userEvent.setup()
-      render(<App />)
+      renderApp()
+      await waitFor(() => screen.getByTestId('confirm-ok'))
       await user.click(screen.getByTestId('confirm-ok'))
 
       await waitFor(() => {
         expect(mockChangeDbLocation).toHaveBeenCalledWith('/existing/db', 'switch')
-        expect(mockHandleConsolidationCurrencyChange).toHaveBeenCalled()
         expect(mockToastSuccess).toHaveBeenCalled()
         expect(mockCloseModal).toHaveBeenCalled()
       })
@@ -1167,7 +1117,8 @@ describe('App', () => {
       mockChangeDbLocation.mockRejectedValue(new Error('switch fail'))
       modalStateValue = { type: 'confirmSwitchDb', folder: '/existing/db' }
       const user = userEvent.setup()
-      render(<App />)
+      renderApp()
+      await waitFor(() => screen.getByTestId('confirm-ok'))
       await user.click(screen.getByTestId('confirm-ok'))
 
       await waitFor(() => {
@@ -1182,7 +1133,8 @@ describe('App', () => {
     it('calls changeDbLocation with move action', async () => {
       modalStateValue = { type: 'dbLocationChoice', folder: '/new/path', isReset: false }
       const user = userEvent.setup()
-      render(<App />)
+      renderApp()
+      await waitFor(() => screen.getByTestId('db-choice-move'))
       await user.click(screen.getByTestId('db-choice-move'))
 
       await waitFor(() => {
@@ -1195,7 +1147,8 @@ describe('App', () => {
     it('calls changeDbLocation with fresh action', async () => {
       modalStateValue = { type: 'dbLocationChoice', folder: '/new/path', isReset: false }
       const user = userEvent.setup()
-      render(<App />)
+      renderApp()
+      await waitFor(() => screen.getByTestId('db-choice-fresh'))
       await user.click(screen.getByTestId('db-choice-fresh'))
 
       await waitFor(() => {
@@ -1207,7 +1160,8 @@ describe('App', () => {
     it('calls resetDbLocation when isReset is true', async () => {
       modalStateValue = { type: 'dbLocationChoice', folder: '', isReset: true }
       const user = userEvent.setup()
-      render(<App />)
+      renderApp()
+      await waitFor(() => screen.getByTestId('db-choice-move'))
       await user.click(screen.getByTestId('db-choice-move'))
 
       await waitFor(() => {
@@ -1220,7 +1174,8 @@ describe('App', () => {
       mockChangeDbLocation.mockRejectedValue(new Error('change fail'))
       modalStateValue = { type: 'dbLocationChoice', folder: '/new/path', isReset: false }
       const user = userEvent.setup()
-      render(<App />)
+      renderApp()
+      await waitFor(() => screen.getByTestId('db-choice-move'))
       await user.click(screen.getByTestId('db-choice-move'))
 
       await waitFor(() => {
@@ -1232,7 +1187,8 @@ describe('App', () => {
       mockResetDbLocation.mockRejectedValue(new Error('reset fail'))
       modalStateValue = { type: 'dbLocationChoice', folder: '', isReset: true }
       const user = userEvent.setup()
-      render(<App />)
+      renderApp()
+      await waitFor(() => screen.getByTestId('db-choice-move'))
       await user.click(screen.getByTestId('db-choice-move'))
 
       await waitFor(() => {
@@ -1247,12 +1203,12 @@ describe('App', () => {
     it('calls resetDbLocation with switch on confirm', async () => {
       modalStateValue = { type: 'confirmResetDbLocation' }
       const user = userEvent.setup()
-      render(<App />)
+      renderApp()
+      await waitFor(() => screen.getByTestId('confirm-ok'))
       await user.click(screen.getByTestId('confirm-ok'))
 
       await waitFor(() => {
         expect(mockResetDbLocation).toHaveBeenCalledWith('switch')
-        expect(mockHandleConsolidationCurrencyChange).toHaveBeenCalled()
         expect(mockToastSuccess).toHaveBeenCalled()
         expect(mockCloseModal).toHaveBeenCalled()
       })
@@ -1262,7 +1218,8 @@ describe('App', () => {
       mockResetDbLocation.mockRejectedValue(new Error('reset fail'))
       modalStateValue = { type: 'confirmResetDbLocation' }
       const user = userEvent.setup()
-      render(<App />)
+      renderApp()
+      await waitFor(() => screen.getByTestId('confirm-ok'))
       await user.click(screen.getByTestId('confirm-ok'))
 
       await waitFor(() => {

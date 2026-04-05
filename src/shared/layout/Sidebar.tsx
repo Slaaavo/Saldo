@@ -2,31 +2,32 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { LayoutDashboard, Settings, ArrowLeftRight, ChevronsLeft, ChevronsRight, Layers, BookOpen, Users, FileText } from 'lucide-react'
 import { cn } from '@/shared/lib/utils'
+import { Link } from '@tanstack/react-router'
 import SaldoLogo from './SaldoLogo'
 import saldoLogotype from '@/assets/Saldo logotype transparent.svg'
 import saldoLogotypeDark from '@/assets/Saldo logotype transparent dark.svg'
 
 interface SidebarProps {
-  currentView: 'dashboard' | 'ledger' | 'fx-rates' | 'units' | 'settings' | 'partners' | 'import-profiles'
-  onNavigate: (view: 'dashboard' | 'ledger' | 'fx-rates' | 'units' | 'settings' | 'partners' | 'import-profiles') => void
   collapsed: boolean
   onToggleCollapse: () => void
 }
 
-export default function Sidebar({ currentView, onNavigate, collapsed, onToggleCollapse }: SidebarProps) {
+export default function Sidebar({ collapsed, onToggleCollapse }: SidebarProps) {
   const { t } = useTranslation()
   const [hovered, setHovered] = useState(false)
 
   const expanded = !collapsed || (collapsed && hovered)
 
+  const navLinkBase = 'w-full flex items-center gap-3 px-2 py-2 rounded-lg text-sm font-medium transition-colors'
+
   const navItems = [
-    { view: 'dashboard' as const, icon: LayoutDashboard, label: t('sidebar.dashboard') },
-    { view: 'ledger' as const, icon: BookOpen, label: t('sidebar.ledger') },
-    { view: 'partners' as const, icon: Users, label: t('sidebar.partners') },
-    { view: 'import-profiles' as const, icon: FileText, label: t('sidebar.importProfiles') },
-    { view: 'settings' as const, icon: Settings, label: t('sidebar.settings') },
-    { view: 'fx-rates' as const, icon: ArrowLeftRight, label: t('sidebar.fxRates') },
-    { view: 'units' as const, icon: Layers, label: t('sidebar.units') },
+    { to: '/dashboard' as const, icon: LayoutDashboard, label: t('sidebar.dashboard') },
+    { to: '/ledger' as const, icon: BookOpen, label: t('sidebar.ledger') },
+    { to: '/partners' as const, icon: Users, label: t('sidebar.partners') },
+    { to: '/import-profiles' as const, icon: FileText, label: t('sidebar.importProfiles') },
+    { to: '/settings' as const, icon: Settings, label: t('sidebar.settings') },
+    { to: '/fx-rates' as const, icon: ArrowLeftRight, label: t('sidebar.fxRates') },
+    { to: '/units' as const, icon: Layers, label: t('sidebar.units') },
   ]
 
   return (
@@ -61,18 +62,17 @@ export default function Sidebar({ currentView, onNavigate, collapsed, onToggleCo
 
       {/* Nav items */}
       <div className="flex flex-col gap-1 px-2">
-        {navItems.map(({ view, icon: Icon, label }) => (
-          <button
-            key={view}
-            onClick={() => onNavigate(view)}
-            className={cn(
-              'w-full flex items-center gap-3 px-2 py-2 rounded-lg text-sm font-medium transition-colors',
-              currentView === view ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground',
-            )}
+        {navItems.map(({ to, icon: Icon, label }) => (
+          <Link
+            key={to}
+            to={to}
+            activeProps={{ className: cn(navLinkBase, 'bg-accent text-accent-foreground') }}
+            inactiveProps={{ className: cn(navLinkBase, 'text-muted-foreground hover:bg-muted hover:text-foreground') }}
+            activeOptions={{ exact: true }}
           >
             <Icon className="h-5 w-5 shrink-0" />
             <span className={cn('overflow-hidden whitespace-nowrap transition-opacity duration-150', expanded ? 'opacity-100' : 'opacity-0 w-0')}>{label}</span>
-          </button>
+          </Link>
         ))}
       </div>
     </nav>

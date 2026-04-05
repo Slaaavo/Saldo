@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import UnitsPage from './UnitsPage'
 import { formatPrice, parsePriceAsRate } from './unitPricing'
 import type { FxRateRow, Currency } from '../../shared/types'
@@ -66,6 +67,16 @@ function setupMocks(overrides?: { units?: Currency[]; rates?: FxRateRow[]; conso
   ;(listFxRates as Mock).mockResolvedValue(rates)
   ;(getConsolidationCurrency as Mock).mockResolvedValue(consolidation)
   ;(setFxRateManual as Mock).mockResolvedValue(undefined)
+}
+
+// ── Render helper ──────────────────────────────────────────────────────────
+function renderUnitsPage() {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: 0 } } })
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <UnitsPage />
+    </QueryClientProvider>,
+  )
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -163,7 +174,7 @@ describe('UnitsPage', () => {
 
   it('renders the title and subtitle', async () => {
     setupMocks()
-    render(<UnitsPage />)
+    renderUnitsPage()
 
     await waitFor(() => {
       expect(screen.getByText('units.title')).toBeInTheDocument()
@@ -173,7 +184,7 @@ describe('UnitsPage', () => {
 
   it('shows empty state when no custom units exist', async () => {
     setupMocks({ units: [] })
-    render(<UnitsPage />)
+    renderUnitsPage()
 
     await waitFor(() => {
       expect(screen.getByText('units.empty')).toBeInTheDocument()
@@ -182,7 +193,7 @@ describe('UnitsPage', () => {
 
   it('shows "no prices" when units exist but no rates', async () => {
     setupMocks({ units: [GOLD], rates: [] })
-    render(<UnitsPage />)
+    renderUnitsPage()
 
     await waitFor(() => {
       expect(screen.getByText('units.noPrices')).toBeInTheDocument()
@@ -195,7 +206,7 @@ describe('UnitsPage', () => {
       makeRate(2, '2025-01-14', 'GOLD', 2, 0), // isDirect=true, rate=2 → price=2
     ]
     setupMocks({ units: [GOLD], rates })
-    render(<UnitsPage />)
+    renderUnitsPage()
 
     await waitFor(() => {
       expect(screen.getByText('GOLD')).toBeInTheDocument()
@@ -211,7 +222,7 @@ describe('UnitsPage', () => {
   it('renders multiple unit columns', async () => {
     const rates = [makeRate(1, '2025-01-15', 'GOLD', 5, -1), makeRate(2, '2025-01-15', 'BTC', 1, -5)]
     setupMocks({ units: [GOLD, BTC], rates })
-    render(<UnitsPage />)
+    renderUnitsPage()
 
     await waitFor(() => {
       expect(screen.getByText('GOLD')).toBeInTheDocument()
@@ -222,7 +233,7 @@ describe('UnitsPage', () => {
   it('shows manual rate indicator', async () => {
     const rates = [makeRate(1, '2025-01-15', 'GOLD', 5, -1, true)]
     setupMocks({ units: [GOLD], rates })
-    render(<UnitsPage />)
+    renderUnitsPage()
 
     await waitFor(() => {
       expect(screen.getByText(/fxRates\.isManual/)).toBeInTheDocument()
@@ -234,7 +245,7 @@ describe('UnitsPage', () => {
     ;(listFxRates as Mock).mockResolvedValue([])
     ;(getConsolidationCurrency as Mock).mockResolvedValue(EUR)
 
-    render(<UnitsPage />)
+    renderUnitsPage()
 
     await waitFor(() => {
       expect(screen.getByText('Network error')).toBeInTheDocument()
@@ -244,7 +255,7 @@ describe('UnitsPage', () => {
   it('sorts dates in descending order', async () => {
     const rates = [makeRate(1, '2025-01-10', 'GOLD', 1, 0), makeRate(2, '2025-01-20', 'GOLD', 2, 0), makeRate(3, '2025-01-15', 'GOLD', 3, 0)]
     setupMocks({ units: [GOLD], rates })
-    render(<UnitsPage />)
+    renderUnitsPage()
 
     await waitFor(() => {
       expect(screen.getByText('2025-01-20')).toBeInTheDocument()
@@ -263,7 +274,7 @@ describe('UnitsPage', () => {
     const rates = [makeRate(1, '2025-01-15', 'GOLD', 5, -1)]
     setupMocks({ units: [GOLD], rates })
     const user = userEvent.setup()
-    render(<UnitsPage />)
+    renderUnitsPage()
 
     await waitFor(() => {
       expect(screen.getByText('0.5')).toBeInTheDocument()
@@ -282,7 +293,7 @@ describe('UnitsPage', () => {
     const rates = [makeRate(1, '2025-01-15', 'GOLD', 5, -1)]
     setupMocks({ units: [GOLD], rates })
     const user = userEvent.setup()
-    render(<UnitsPage />)
+    renderUnitsPage()
 
     await waitFor(() => {
       expect(screen.getByText('0.5')).toBeInTheDocument()
@@ -307,35 +318,11 @@ describe('UnitsPage', () => {
     })
   })
 
-  it('calls onPriceUpdated after successful save', async () => {
-    const rates = [makeRate(1, '2025-01-15', 'GOLD', 5, -1)]
-    setupMocks({ units: [GOLD], rates })
-    const onPriceUpdated = vi.fn().mockResolvedValue(undefined)
-    const user = userEvent.setup()
-    render(<UnitsPage onPriceUpdated={onPriceUpdated} />)
-
-    await waitFor(() => {
-      expect(screen.getByText('0.5')).toBeInTheDocument()
-    })
-
-    await user.click(screen.getByText('0.5'))
-    const input = await screen.findByRole('textbox')
-    await user.clear(input)
-    await user.type(input, '4')
-    await user.keyboard('{Enter}')
-
-    await waitFor(() => {
-      expect(setFxRateManual).toHaveBeenCalled()
-    })
-
-    expect(onPriceUpdated).toHaveBeenCalledOnce()
-  })
-
   it('cancels editing on Escape', async () => {
     const rates = [makeRate(1, '2025-01-15', 'GOLD', 5, -1)]
     setupMocks({ units: [GOLD], rates })
     const user = userEvent.setup()
-    render(<UnitsPage />)
+    renderUnitsPage()
 
     await waitFor(() => {
       expect(screen.getByText('0.5')).toBeInTheDocument()
@@ -355,7 +342,7 @@ describe('UnitsPage', () => {
     const rates = [makeRate(1, '2025-01-15', 'GOLD', 5, -1)]
     setupMocks({ units: [GOLD], rates })
     const user = userEvent.setup()
-    render(<UnitsPage />)
+    renderUnitsPage()
 
     await waitFor(() => {
       expect(screen.getByText('0.5')).toBeInTheDocument()
@@ -373,7 +360,7 @@ describe('UnitsPage', () => {
     const rates = [makeRate(1, '2025-01-15', 'GOLD', 5, -1)]
     setupMocks({ units: [GOLD], rates })
     const user = userEvent.setup()
-    render(<UnitsPage />)
+    renderUnitsPage()
 
     await waitFor(() => {
       expect(screen.getByText('0.5')).toBeInTheDocument()
@@ -396,7 +383,7 @@ describe('UnitsPage', () => {
     setupMocks({ units: [GOLD], rates })
     ;(setFxRateManual as Mock).mockRejectedValue(new Error('Save failed'))
     const user = userEvent.setup()
-    render(<UnitsPage />)
+    renderUnitsPage()
 
     await waitFor(() => {
       expect(screen.getByText('0.5')).toBeInTheDocument()
@@ -417,7 +404,7 @@ describe('UnitsPage', () => {
     // Two dates but only one has a rate for GOLD
     const rates = [makeRate(1, '2025-01-15', 'GOLD', 5, -1), makeRate(2, '2025-01-14', 'BTC', 1, -5)]
     setupMocks({ units: [GOLD, BTC], rates })
-    render(<UnitsPage />)
+    renderUnitsPage()
 
     await waitFor(() => {
       expect(screen.getByText('2025-01-15')).toBeInTheDocument()
@@ -433,7 +420,7 @@ describe('UnitsPage', () => {
     // Rate for USD (not a custom unit) should not appear in the table
     const rates = [makeRate(1, '2025-01-15', 'GOLD', 5, -1), makeRate(2, '2025-01-15', 'USD', 11, -1)]
     setupMocks({ units: [GOLD], rates })
-    render(<UnitsPage />)
+    renderUnitsPage()
 
     await waitFor(() => {
       expect(screen.getByText('GOLD')).toBeInTheDocument()

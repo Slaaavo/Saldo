@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import type { SnapshotRow, Currency, ModalState, EventWithData } from '../../shared/types'
+import type { EventWithData } from '../../shared/types'
 import { getEventById } from '../../shared/api'
 import { extractErrorMessage } from '../../shared/utils/errors'
 import { useLedgerData } from './useLedgerData'
@@ -9,19 +9,20 @@ import PortfolioItemFilter from './PortfolioItemFilter'
 import { DatePicker } from '../../shared/ui/date-picker'
 import { Button } from '../../shared/ui/button'
 import { RefreshCw, Upload } from 'lucide-react'
+import { useSnapshotQuery } from '../../shared/hooks/useSnapshotQuery'
+import { useConsolidationCurrencyQuery } from '../../shared/hooks/useConsolidationCurrencyQuery'
+import { useModal } from '../../app/ModalContext'
+import { todayIso } from '../../shared/utils/format'
 
-interface Props {
-  snapshot: SnapshotRow[]
-  consolidationCurrency: Currency | null
-  setModalState: (state: ModalState) => void
-  refreshTrigger: number
-}
-
-export default function LedgerPage({ snapshot, consolidationCurrency, setModalState, refreshTrigger }: Props) {
+export default function LedgerPage() {
   const { t } = useTranslation()
+  const { setModalState } = useModal()
+  const snapshotQuery = useSnapshotQuery(todayIso())
+  const snapshot = snapshotQuery.data ?? []
+  const consolidationCurrencyQuery = useConsolidationCurrencyQuery()
+  const consolidationCurrency = consolidationCurrencyQuery.data ?? null
 
   const { fromDate, setFromDate, toDate, setToDate, selectedAccountIds, setSelectedAccountIds, eventTypeFilter, setEventTypeFilter, events, loading } = useLedgerData({
-    refreshTrigger,
     snapshot,
   })
 

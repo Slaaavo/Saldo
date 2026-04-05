@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import type { SnapshotRow, Currency } from '../shared/types'
+import { useQueryClient } from '@tanstack/react-query'
 import {
   createBalanceUpdate,
   createAccount,
@@ -18,24 +18,30 @@ import {
   updateTransfer,
 } from '../shared/api'
 import { extractErrorMessage } from '../shared/utils/errors'
+import { useSnapshotQuery } from '../shared/hooks/useSnapshotQuery'
+import { useConsolidationCurrencyQuery } from '../shared/hooks/useConsolidationCurrencyQuery'
+import { todayIso } from '../shared/utils/format'
 
 interface UseModalActionsOptions {
   closeModal: () => void
-  refresh: () => Promise<void>
-  snapshot: SnapshotRow[]
-  consolidationCurrency: Currency | null
   onFxRatePrompt: (date: string) => void
 }
 
-export function useModalActions({ closeModal, refresh, snapshot, consolidationCurrency, onFxRatePrompt }: UseModalActionsOptions) {
+export function useModalActions({ closeModal, onFxRatePrompt }: UseModalActionsOptions) {
   const { t } = useTranslation()
+  const queryClient = useQueryClient()
+  const snapshotQuery = useSnapshotQuery(todayIso())
+  const snapshot = snapshotQuery.data ?? []
+  const consolidationCurrencyQuery = useConsolidationCurrencyQuery()
+  const consolidationCurrency = consolidationCurrencyQuery.data ?? null
 
   const handleCreateBalanceUpdate = async (accountId: number, amountMinor: number, eventDate: string, note: string) => {
     const account = snapshot.find((r) => r.accountId === accountId)
     try {
       await createBalanceUpdate(accountId, amountMinor, eventDate, note || undefined)
       closeModal()
-      await refresh()
+      await queryClient.invalidateQueries({ queryKey: ['snapshot'] })
+      await queryClient.invalidateQueries({ queryKey: ['events'] })
       // Prompt to fetch FX rates when saving a non-consolidation-currency balance update
       if (account && consolidationCurrency && account.currencyCode !== consolidationCurrency.code) {
         const rates = await listFxRates(eventDate)
@@ -53,7 +59,8 @@ export function useModalActions({ closeModal, refresh, snapshot, consolidationCu
     try {
       await updateEvent(eventId, amountMinor, eventDate, note || undefined)
       closeModal()
-      await refresh()
+      await queryClient.invalidateQueries({ queryKey: ['snapshot'] })
+      await queryClient.invalidateQueries({ queryKey: ['events'] })
     } catch (err) {
       toast.error(t('errors.updateEvent', { error: extractErrorMessage(err) }))
     }
@@ -63,7 +70,8 @@ export function useModalActions({ closeModal, refresh, snapshot, consolidationCu
     try {
       await deleteEvent(eventId)
       closeModal()
-      await refresh()
+      await queryClient.invalidateQueries({ queryKey: ['snapshot'] })
+      await queryClient.invalidateQueries({ queryKey: ['events'] })
     } catch (err) {
       toast.error(t('errors.deleteEvent', { error: extractErrorMessage(err) }))
     }
@@ -73,7 +81,8 @@ export function useModalActions({ closeModal, refresh, snapshot, consolidationCu
     try {
       await createAccount(name, currencyId, initialBalanceMinor, accountType, undefined, linkedAssetIds, iban)
       closeModal()
-      await refresh()
+      await queryClient.invalidateQueries({ queryKey: ['snapshot'] })
+      await queryClient.invalidateQueries({ queryKey: ['events'] })
     } catch (err) {
       toast.error(t('errors.createAccount', { error: extractErrorMessage(err) }))
     }
@@ -83,7 +92,8 @@ export function useModalActions({ closeModal, refresh, snapshot, consolidationCu
     try {
       await updateAccount(accountId, name, iban)
       closeModal()
-      await refresh()
+      await queryClient.invalidateQueries({ queryKey: ['snapshot'] })
+      await queryClient.invalidateQueries({ queryKey: ['events'] })
     } catch (err) {
       toast.error(t('errors.renameAccount', { error: extractErrorMessage(err) }))
     }
@@ -93,7 +103,8 @@ export function useModalActions({ closeModal, refresh, snapshot, consolidationCu
     try {
       await deleteAccount(accountId)
       closeModal()
-      await refresh()
+      await queryClient.invalidateQueries({ queryKey: ['snapshot'] })
+      await queryClient.invalidateQueries({ queryKey: ['events'] })
     } catch (err) {
       const msg = extractErrorMessage(err)
       if (msg.includes('currently linked to buckets')) {
@@ -107,7 +118,8 @@ export function useModalActions({ closeModal, refresh, snapshot, consolidationCu
   const handleBulkUpdateSubmit = async (updates: { accountId: number; amountMinor: number }[], eventDate: string, note: string) => {
     await bulkCreateBalanceUpdates(updates, eventDate, note || undefined)
     closeModal()
-    await refresh()
+    await queryClient.invalidateQueries({ queryKey: ['snapshot'] })
+    await queryClient.invalidateQueries({ queryKey: ['events'] })
   }
 
   const handleSaveOrder = async (orderedIds: number[]) => {
@@ -115,7 +127,8 @@ export function useModalActions({ closeModal, refresh, snapshot, consolidationCu
       const entries = orderedIds.map((accountId, index) => ({ accountId, sortOrder: index }))
       await updateSortOrder(entries)
       closeModal()
-      await refresh()
+      await queryClient.invalidateQueries({ queryKey: ['snapshot'] })
+      await queryClient.invalidateQueries({ queryKey: ['events'] })
     } catch (err) {
       toast.error(extractErrorMessage(err))
     }
@@ -125,7 +138,8 @@ export function useModalActions({ closeModal, refresh, snapshot, consolidationCu
     try {
       await updateAssetValue(accountId, amountMinor, pricePerUnit, eventDate, note)
       closeModal()
-      await refresh()
+      await queryClient.invalidateQueries({ queryKey: ['snapshot'] })
+      await queryClient.invalidateQueries({ queryKey: ['events'] })
     } catch (err) {
       toast.error(t('errors.updateAssetValue', { error: extractErrorMessage(err) }))
     }
@@ -135,7 +149,8 @@ export function useModalActions({ closeModal, refresh, snapshot, consolidationCu
     try {
       await setAccountAssetLinks(accountId, assetIds)
       closeModal()
-      await refresh()
+      await queryClient.invalidateQueries({ queryKey: ['snapshot'] })
+      await queryClient.invalidateQueries({ queryKey: ['events'] })
     } catch (err) {
       toast.error(extractErrorMessage(err))
     }
@@ -143,13 +158,15 @@ export function useModalActions({ closeModal, refresh, snapshot, consolidationCu
 
   const handleCreateAssetSuccess = async () => {
     closeModal()
-    await refresh()
+    await queryClient.invalidateQueries({ queryKey: ['snapshot'] })
+    await queryClient.invalidateQueries({ queryKey: ['events'] })
   }
 
   const handleCreateBucketBalanceUpdate = async (accountId: number, amountMinor: number, eventDate: string, note: string | null, linkedAccountIds: number[]): Promise<void> => {
     const account = snapshot.find((r) => r.accountId === accountId)
     await createBucketBalanceUpdate(accountId, amountMinor, eventDate, note, linkedAccountIds)
-    await refresh()
+    await queryClient.invalidateQueries({ queryKey: ['snapshot'] })
+    await queryClient.invalidateQueries({ queryKey: ['events'] })
     if (account && consolidationCurrency && account.currencyCode !== consolidationCurrency.code) {
       const rates = await listFxRates(eventDate)
       const hasRate = rates.some((r) => r.toCurrencyCode === account.currencyCode)
@@ -159,7 +176,8 @@ export function useModalActions({ closeModal, refresh, snapshot, consolidationCu
 
   const handleEditBucketBalanceUpdate = async (eventId: number, amountMinor: number, eventDate: string, note: string | null, linkedAccountIds: number[]): Promise<void> => {
     await updateBucketBalanceUpdate(eventId, amountMinor, eventDate, note, linkedAccountIds)
-    await refresh()
+    await queryClient.invalidateQueries({ queryKey: ['snapshot'] })
+    await queryClient.invalidateQueries({ queryKey: ['events'] })
   }
 
   const handleEditTransfer = async (payload: {
@@ -177,7 +195,8 @@ export function useModalActions({ closeModal, refresh, snapshot, consolidationCu
     try {
       await updateTransfer(payload)
       closeModal()
-      await refresh()
+      await queryClient.invalidateQueries({ queryKey: ['snapshot'] })
+      await queryClient.invalidateQueries({ queryKey: ['events'] })
     } catch (err) {
       toast.error(t('errors.updateTransfer', { error: extractErrorMessage(err) }))
     }

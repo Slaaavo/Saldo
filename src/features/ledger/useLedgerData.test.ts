@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest'
+import React from 'react'
 import { renderHook, waitFor, act } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { useLedgerData } from './useLedgerData'
 import type { EventWithData, SnapshotRow } from '../../shared/types'
 
@@ -26,6 +28,14 @@ vi.mock('react-i18next', () => {
 })
 
 import { listEvents } from '../../shared/api'
+
+// ── Wrapper helper ──────────────────────────────────────────────────────────
+function createWrapper() {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: 0, refetchOnWindowFocus: false } },
+  })
+  return ({ children }: { children: React.ReactNode }) => React.createElement(QueryClientProvider, { client: queryClient }, children)
+}
 
 // ── Test data ───────────────────────────────────────────────────────────────
 function makeSnapshot(overrides?: Partial<SnapshotRow>): SnapshotRow {
@@ -89,7 +99,7 @@ describe('useLedgerData', () => {
   // ── Initial load ──────────────────────────────────────────────────────────
 
   it('loads events on mount with no filters', async () => {
-    const { result } = renderHook(() => useLedgerData())
+    const { result } = renderHook(() => useLedgerData(), { wrapper: createWrapper() })
 
     await waitFor(() => {
       expect(result.current.events).toHaveLength(1)
@@ -99,7 +109,7 @@ describe('useLedgerData', () => {
   })
 
   it('starts with empty filter state', () => {
-    const { result } = renderHook(() => useLedgerData())
+    const { result } = renderHook(() => useLedgerData(), { wrapper: createWrapper() })
 
     expect(result.current.fromDate).toBe('')
     expect(result.current.toDate).toBe('')
@@ -109,7 +119,7 @@ describe('useLedgerData', () => {
   // ── Filter state management ───────────────────────────────────────────────
 
   it('updates fromDate and re-fetches with fromDate filter', async () => {
-    const { result } = renderHook(() => useLedgerData())
+    const { result } = renderHook(() => useLedgerData(), { wrapper: createWrapper() })
 
     await waitFor(() => expect(result.current.events).toHaveLength(1))
     vi.clearAllMocks()
@@ -125,7 +135,7 @@ describe('useLedgerData', () => {
   })
 
   it('updates toDate and re-fetches with beforeDate filter', async () => {
-    const { result } = renderHook(() => useLedgerData())
+    const { result } = renderHook(() => useLedgerData(), { wrapper: createWrapper() })
 
     await waitFor(() => expect(result.current.events).toHaveLength(1))
     vi.clearAllMocks()
@@ -141,7 +151,7 @@ describe('useLedgerData', () => {
   })
 
   it('passes accountIds when selectedAccountIds is non-empty', async () => {
-    const { result } = renderHook(() => useLedgerData())
+    const { result } = renderHook(() => useLedgerData(), { wrapper: createWrapper() })
 
     await waitFor(() => expect(result.current.events).toHaveLength(1))
     vi.clearAllMocks()
@@ -157,35 +167,11 @@ describe('useLedgerData', () => {
   })
 
   it('does not pass accountIds when selectedAccountIds is empty', async () => {
-    const { result } = renderHook(() => useLedgerData())
+    const { result } = renderHook(() => useLedgerData(), { wrapper: createWrapper() })
 
     await waitFor(() => expect(result.current.events).toHaveLength(1))
 
     expect(listEvents).toHaveBeenCalledWith({})
-  })
-
-  // ── External refresh trigger ──────────────────────────────────────────────
-
-  it('re-fetches when refreshTrigger increments', async () => {
-    const { result, rerender } = renderHook(({ t }: { t: number }) => useLedgerData({ refreshTrigger: t }), { initialProps: { t: 0 } })
-
-    await waitFor(() => expect(result.current.events).toHaveLength(1))
-    const callsBefore = (listEvents as Mock).mock.calls.length
-
-    rerender({ t: 1 })
-
-    await waitFor(() => {
-      expect((listEvents as Mock).mock.calls.length).toBeGreaterThan(callsBefore)
-    })
-  })
-
-  it('does not re-fetch when refreshTrigger is 0', async () => {
-    const { result } = renderHook(() => useLedgerData({ refreshTrigger: 0 }))
-
-    await waitFor(() => expect(result.current.events).toHaveLength(1))
-
-    // Only 1 call from initial mount
-    expect(listEvents).toHaveBeenCalledTimes(1)
   })
 
   // ── Bucket ID splitting ───────────────────────────────────────────────────
@@ -193,7 +179,7 @@ describe('useLedgerData', () => {
   it('routes bucket IDs to both accountIds and bucketIds', async () => {
     const bucketId = 42
     const snapshot = [makeSnapshot({ accountId: bucketId, accountType: 'bucket' })]
-    const { result } = renderHook(() => useLedgerData({ snapshot }))
+    const { result } = renderHook(() => useLedgerData({ snapshot }), { wrapper: createWrapper() })
 
     await waitFor(() => expect(result.current.events).toHaveLength(1))
     vi.clearAllMocks()

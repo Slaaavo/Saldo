@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import FxRatesPage from './FxRatesPage'
 import type { FxRateRow, Currency } from '../../shared/types'
 
@@ -39,6 +40,16 @@ vi.mock('../../shared/ui/date-picker', () => ({
 }))
 
 import { listFxRates, fetchFxRates, listCurrencies, getConsolidationCurrency, setFxRateManual, getMissingRateDates } from '../../shared/api'
+
+// ── Render helper ──────────────────────────────────────────────────────────
+function renderFxRatesPage() {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: 0 } } })
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <FxRatesPage />
+    </QueryClientProvider>,
+  )
+}
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 const makeCurrency = (id: number, code: string): Currency => ({
@@ -93,7 +104,7 @@ describe('FxRatesPage', () => {
 
   it('calls all API endpoints on mount', async () => {
     setupMocks()
-    render(<FxRatesPage />)
+    renderFxRatesPage()
 
     await waitFor(() => {
       expect(listFxRates).toHaveBeenCalledOnce()
@@ -105,14 +116,14 @@ describe('FxRatesPage', () => {
 
   it('renders the title', async () => {
     setupMocks()
-    render(<FxRatesPage />)
+    renderFxRatesPage()
 
     expect(screen.getByText('fxRates.title')).toBeInTheDocument()
   })
 
   it('shows subtitle with consolidation currency', async () => {
     setupMocks()
-    render(<FxRatesPage />)
+    renderFxRatesPage()
 
     await waitFor(() => {
       expect(screen.getByText('fxRates.subtitle')).toBeInTheDocument()
@@ -121,7 +132,7 @@ describe('FxRatesPage', () => {
 
   it('renders empty state when no rates exist', async () => {
     setupMocks({ rates: [] })
-    render(<FxRatesPage />)
+    renderFxRatesPage()
 
     await waitFor(() => {
       expect(screen.getByText('fxRates.noRates')).toBeInTheDocument()
@@ -132,7 +143,7 @@ describe('FxRatesPage', () => {
 
   it('renders rate table with dates and currencies', async () => {
     setupMocks()
-    render(<FxRatesPage />)
+    renderFxRatesPage()
 
     await waitFor(() => {
       // Column headers
@@ -146,7 +157,7 @@ describe('FxRatesPage', () => {
 
   it('renders rate values in the table', async () => {
     setupMocks()
-    render(<FxRatesPage />)
+    renderFxRatesPage()
 
     await waitFor(() => {
       // 10900e-4 = 1.09, 8500e-4 = 0.85
@@ -158,7 +169,7 @@ describe('FxRatesPage', () => {
   it('shows manual badge for manual rates', async () => {
     const manualRate = makeRate(10, '2026-01-01', 'USD', 10842, -4, true)
     setupMocks({ rates: [manualRate] })
-    render(<FxRatesPage />)
+    renderFxRatesPage()
 
     await waitFor(() => {
       expect(screen.getByText('(fxRates.isManual)')).toBeInTheDocument()
@@ -169,7 +180,7 @@ describe('FxRatesPage', () => {
     // USD and GBP columns exist, but only USD has a rate for this date
     const rates = [makeRate(1, '2026-01-01', 'USD', 10842, -4), makeRate(2, '2026-01-02', 'GBP', 8500, -4)]
     setupMocks({ rates })
-    render(<FxRatesPage />)
+    renderFxRatesPage()
 
     await waitFor(() => {
       // The GBP cell on 2026-01-01 and USD cell on 2026-01-02 should show dashes
@@ -183,7 +194,7 @@ describe('FxRatesPage', () => {
   it('shows error when listFxRates fails', async () => {
     setupMocks()
     ;(listFxRates as Mock).mockRejectedValue(new Error('Network error'))
-    render(<FxRatesPage />)
+    renderFxRatesPage()
 
     await waitFor(() => {
       expect(screen.getByText('Network error')).toBeInTheDocument()
@@ -195,7 +206,7 @@ describe('FxRatesPage', () => {
   it('calls fetchFxRates on refresh button click', async () => {
     setupMocks()
     const user = userEvent.setup()
-    render(<FxRatesPage />)
+    renderFxRatesPage()
 
     await waitFor(() => {
       expect(screen.getByText('fxRates.refreshRates')).toBeInTheDocument()
@@ -214,7 +225,7 @@ describe('FxRatesPage', () => {
     setupMocks()
     ;(fetchFxRates as Mock).mockRejectedValue(new Error('API limit'))
     const user = userEvent.setup()
-    render(<FxRatesPage />)
+    renderFxRatesPage()
 
     await waitFor(() => {
       expect(screen.getByText('fxRates.refreshRates')).toBeInTheDocument()
@@ -231,7 +242,7 @@ describe('FxRatesPage', () => {
 
   it('shows backfill button when missing dates exist', async () => {
     setupMocks({ missingDates: ['2026-01-03', '2026-01-04'] })
-    render(<FxRatesPage />)
+    renderFxRatesPage()
 
     await waitFor(() => {
       expect(screen.getByText('fxRates.backfill')).toBeInTheDocument()
@@ -240,7 +251,7 @@ describe('FxRatesPage', () => {
 
   it('does not show backfill button when no missing dates', async () => {
     setupMocks({ missingDates: [] })
-    render(<FxRatesPage />)
+    renderFxRatesPage()
 
     await waitFor(() => {
       expect(screen.getByText('fxRates.refreshRates')).toBeInTheDocument()
@@ -252,7 +263,7 @@ describe('FxRatesPage', () => {
     const missingDates = ['2026-01-03', '2026-01-04']
     setupMocks({ missingDates })
     const user = userEvent.setup()
-    render(<FxRatesPage />)
+    renderFxRatesPage()
 
     await waitFor(() => {
       expect(screen.getByText('fxRates.backfill')).toBeInTheDocument()
@@ -272,7 +283,7 @@ describe('FxRatesPage', () => {
   it('opens edit input when clicking a rate cell', async () => {
     setupMocks()
     const user = userEvent.setup()
-    render(<FxRatesPage />)
+    renderFxRatesPage()
 
     await waitFor(() => {
       expect(screen.getByText('1.09')).toBeInTheDocument()
@@ -288,7 +299,7 @@ describe('FxRatesPage', () => {
   it('saves on Enter and calls setFxRateManual', async () => {
     setupMocks()
     const user = userEvent.setup()
-    render(<FxRatesPage />)
+    renderFxRatesPage()
 
     await waitFor(() => {
       expect(screen.getByText('1.09')).toBeInTheDocument()
@@ -310,7 +321,7 @@ describe('FxRatesPage', () => {
   it('cancels edit on Escape', async () => {
     setupMocks()
     const user = userEvent.setup()
-    render(<FxRatesPage />)
+    renderFxRatesPage()
 
     await waitFor(() => {
       expect(screen.getByText('1.09')).toBeInTheDocument()
@@ -329,7 +340,7 @@ describe('FxRatesPage', () => {
   it('shows error for invalid rate input', async () => {
     setupMocks()
     const user = userEvent.setup()
-    render(<FxRatesPage />)
+    renderFxRatesPage()
 
     await waitFor(() => {
       expect(screen.getByText('1.09')).toBeInTheDocument()
@@ -351,7 +362,7 @@ describe('FxRatesPage', () => {
   it('does not save when input is empty', async () => {
     setupMocks()
     const user = userEvent.setup()
-    render(<FxRatesPage />)
+    renderFxRatesPage()
 
     await waitFor(() => {
       expect(screen.getByText('1.09')).toBeInTheDocument()
@@ -370,7 +381,7 @@ describe('FxRatesPage', () => {
     setupMocks()
     ;(setFxRateManual as Mock).mockRejectedValue(new Error('DB write failed'))
     const user = userEvent.setup()
-    render(<FxRatesPage />)
+    renderFxRatesPage()
 
     await waitFor(() => {
       expect(screen.getByText('1.09')).toBeInTheDocument()
@@ -386,29 +397,5 @@ describe('FxRatesPage', () => {
     await waitFor(() => {
       expect(screen.getByText('DB write failed')).toBeInTheDocument()
     })
-  })
-
-  it('calls onRateUpdated after successful rate save', async () => {
-    setupMocks()
-    const onRateUpdated = vi.fn().mockResolvedValue(undefined)
-    const user = userEvent.setup()
-    render(<FxRatesPage onRateUpdated={onRateUpdated} />)
-
-    await waitFor(() => {
-      expect(screen.getByText('1.09')).toBeInTheDocument()
-    })
-
-    await user.click(screen.getByText('1.09'))
-    const input = screen.getByDisplayValue('1.09')
-
-    await user.clear(input)
-    await user.type(input, '1.15')
-    await user.keyboard('{Enter}')
-
-    await waitFor(() => {
-      expect(setFxRateManual).toHaveBeenCalled()
-    })
-
-    expect(onRateUpdated).toHaveBeenCalledOnce()
   })
 })

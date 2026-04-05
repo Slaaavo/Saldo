@@ -1,8 +1,41 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import DashboardView from './DashboardView'
-import type { SnapshotRow, EventWithData, Currency, ModalState } from '../../shared/types'
+import type { SnapshotRow, EventWithData, Currency } from '../../shared/types'
+
+// ── Mock TanStack Router ──────────────────────────────────────────────────────
+const mockNavigate = vi.fn()
+vi.mock('@tanstack/react-router', () => ({
+  useNavigate: () => mockNavigate,
+}))
+
+// ── Mock API layer ────────────────────────────────────────────────────────────
+vi.mock('../../shared/api', () => ({
+  getAccountsSnapshot: vi.fn(),
+  listEvents: vi.fn(),
+  getConsolidationCurrency: vi.fn(),
+  getEventById: vi.fn(),
+}))
+
+import { getAccountsSnapshot, listEvents, getConsolidationCurrency } from '../../shared/api'
+
+// ── Mock contexts ─────────────────────────────────────────────────────────────
+const mockSetModalState = vi.fn()
+vi.mock('../../app/ModalContext', () => ({
+  useModal: () => ({ setModalState: mockSetModalState, closeModal: vi.fn(), modalState: { type: 'none' } }),
+}))
+
+const demoModeState = { isDemoMode: false }
+const mockOnEnterDemoMode = vi.fn()
+vi.mock('../../app/DemoContext', () => ({
+  useDemo: () => ({ isDemoMode: demoModeState.isDemoMode, onEnterDemoMode: mockOnEnterDemoMode, onExitDemoMode: vi.fn() }),
+}))
+
+vi.mock('../../app/SelectedDateContext', () => ({
+  useSelectedDate: () => ({ selectedDate: '2026-01-15', setSelectedDate: vi.fn() }),
+}))
 
 // ── Mock i18n — pass-through that returns the key (with interpolations) ─────
 vi.mock('react-i18next', () => ({
@@ -135,115 +168,107 @@ function makeEvent(overrides?: Partial<EventWithData>): EventWithData {
   }
 }
 
-interface DefaultPropsOptions {
-  accounts?: SnapshotRow[]
-  buckets?: SnapshotRow[]
-  assets?: SnapshotRow[]
-  events?: EventWithData[]
-  totalMinor?: number
-  leftToSpendMinor?: number
-  netWorthMinor?: number
-  hasAssets?: boolean
-  missingFxCurrencies?: string[]
-  isDemoMode?: boolean
+// ── API mock helper ──────────────────────────────────────────────────────────
+function setupApiMocks(options?: { snapshot?: SnapshotRow[]; events?: EventWithData[] }) {
+  ;(getAccountsSnapshot as Mock).mockResolvedValue(options?.snapshot ?? [makeSnapshot()])
+  ;(listEvents as Mock).mockResolvedValue({ events: options?.events ?? [makeEvent()], totalCount: options?.events?.length ?? 1 })
+  ;(getConsolidationCurrency as Mock).mockResolvedValue(EUR)
 }
 
-function makeProps(overrides?: DefaultPropsOptions) {
-  const accounts = overrides?.accounts ?? [makeSnapshot()]
-  const buckets = overrides?.buckets ?? []
-  const assets = overrides?.assets ?? []
-  const events = overrides?.events ?? [makeEvent()]
-  const snapshot = [...accounts, ...buckets, ...assets]
-
-  return {
-    snapshot,
-    accounts,
-    buckets,
-    assets,
-    events,
-    totalEvents: 0,
-    consolidationCurrency: EUR,
-    totalMinor: overrides?.totalMinor ?? 100000,
-    leftToSpendMinor: overrides?.leftToSpendMinor ?? 50000,
-    netWorthMinor: overrides?.netWorthMinor ?? 300000,
-    hasAssets: overrides?.hasAssets ?? false,
-    missingFxCurrencies: overrides?.missingFxCurrencies ?? [],
-    setModalState: vi.fn() as ReturnType<typeof vi.fn> & ((state: ModalState) => void),
-    isDemoMode: overrides?.isDemoMode ?? false,
-    onEnterDemoMode: vi.fn(),
-    onNavigate: vi.fn(),
-  }
+function renderDashboard() {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: 0 } } })
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <DashboardView />
+    </QueryClientProvider>,
+  )
 }
 
 // ── Tests ───────────────────────────────────────────────────────────────────
 describe('DashboardView', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    demoModeState.isDemoMode = false
+    setupApiMocks()
   })
 
   // ── Metric rendering ──
 
   describe('metrics', () => {
-    it('shows totalBalance metric when there are no assets', () => {
-      const props = makeProps({ hasAssets: false })
-      render(<DashboardView {...props} />)
-      expect(screen.getByText('metrics.totalBalance')).toBeInTheDocument()
+    it('shows totalBalance metric when there are no assets', async () => {
+      setupApiMocks({ snapshot: [makeSnapshot()] })
+      renderDashboard()
+      await waitFor(() => {
+        expect(screen.getByText('metrics.totalBalance')).toBeInTheDocument()
+      })
       expect(screen.queryByText('metrics.netWorth')).not.toBeInTheDocument()
       expect(screen.queryByText('metrics.liquid')).not.toBeInTheDocument()
     })
 
-    it('shows netWorth and liquid metrics when there are assets', () => {
-      const props = makeProps({ hasAssets: true, assets: [makeAsset()] })
-      render(<DashboardView {...props} />)
-      expect(screen.getByText('metrics.netWorth')).toBeInTheDocument()
-      expect(screen.getByText('metrics.liquid')).toBeInTheDocument()
+    it('shows netWorth and liquid metrics when there are assets', async () => {
+      setupApiMocks({ snapshot: [makeSnapshot(), makeAsset()] })
+      renderDashboard()
+      await waitFor(() => {
+        expect(screen.getByText('metrics.netWorth')).toBeInTheDocument()
+        expect(screen.getByText('metrics.liquid')).toBeInTheDocument()
+      })
       expect(screen.queryByText('metrics.totalBalance')).not.toBeInTheDocument()
     })
 
-    it('shows leftToSpend metric when buckets exist', () => {
-      const props = makeProps({ buckets: [makeBucket()] })
-      render(<DashboardView {...props} />)
-      expect(screen.getByText('metrics.leftToSpend')).toBeInTheDocument()
+    it('shows leftToSpend metric when buckets exist', async () => {
+      setupApiMocks({ snapshot: [makeSnapshot(), makeBucket()] })
+      renderDashboard()
+      await waitFor(() => {
+        expect(screen.getByText('metrics.leftToSpend')).toBeInTheDocument()
+      })
     })
 
-    it('hides leftToSpend metric when no buckets exist', () => {
-      const props = makeProps({ buckets: [] })
-      render(<DashboardView {...props} />)
+    it('hides leftToSpend metric when no buckets exist', async () => {
+      setupApiMocks({ snapshot: [makeSnapshot()] })
+      renderDashboard()
+      await waitFor(() => {
+        expect(screen.getByText('metrics.totalBalance')).toBeInTheDocument()
+      })
       expect(screen.queryByText('metrics.leftToSpend')).not.toBeInTheDocument()
     })
 
-    it('shows all three metrics when assets and buckets exist', () => {
-      const props = makeProps({
-        hasAssets: true,
-        assets: [makeAsset()],
-        buckets: [makeBucket()],
+    it('shows all three metrics when assets and buckets exist', async () => {
+      setupApiMocks({ snapshot: [makeSnapshot(), makeBucket(), makeAsset()] })
+      renderDashboard()
+      await waitFor(() => {
+        expect(screen.getByText('metrics.netWorth')).toBeInTheDocument()
+        expect(screen.getByText('metrics.liquid')).toBeInTheDocument()
+        expect(screen.getByText('metrics.leftToSpend')).toBeInTheDocument()
       })
-      render(<DashboardView {...props} />)
-      expect(screen.getByText('metrics.netWorth')).toBeInTheDocument()
-      expect(screen.getByText('metrics.liquid')).toBeInTheDocument()
-      expect(screen.getByText('metrics.leftToSpend')).toBeInTheDocument()
     })
 
-    it('renders metric values via NumberValue', () => {
-      const props = makeProps({ totalMinor: 123456 })
-      render(<DashboardView {...props} />)
-      const values = screen.getAllByTestId('number-value')
-      expect(values.some((el) => el.textContent === '123456')).toBe(true)
+    it('renders metric values via NumberValue', async () => {
+      setupApiMocks({ snapshot: [makeSnapshot({ convertedBalanceMinor: 123456, isLinkedToAsset: false })] })
+      renderDashboard()
+      await waitFor(() => {
+        const values = screen.getAllByTestId('number-value')
+        expect(values.some((el) => el.textContent === '123456')).toBe(true)
+      })
     })
   })
 
   // ── FX rate missing warning ──
 
   describe('FX rate missing warning', () => {
-    it('shows warning when missingFxCurrencies is non-empty', () => {
-      const props = makeProps({ missingFxCurrencies: ['USD', 'GBP'] })
-      render(<DashboardView {...props} />)
-      expect(screen.getByText('metrics.fxRateMissing', { exact: false })).toBeInTheDocument()
+    it('shows warning when missingFxCurrencies is non-empty', async () => {
+      setupApiMocks({ snapshot: [makeSnapshot({ fxRateMissing: true, currencyCode: 'USD' })] })
+      renderDashboard()
+      await waitFor(() => {
+        expect(screen.getByText('metrics.fxRateMissing', { exact: false })).toBeInTheDocument()
+      })
     })
 
-    it('hides warning when missingFxCurrencies is empty', () => {
-      const props = makeProps({ missingFxCurrencies: [] })
-      render(<DashboardView {...props} />)
+    it('hides warning when missingFxCurrencies is empty', async () => {
+      setupApiMocks({ snapshot: [makeSnapshot({ fxRateMissing: false })] })
+      renderDashboard()
+      await waitFor(() => {
+        expect(screen.getByText('metrics.totalBalance')).toBeInTheDocument()
+      })
       expect(screen.queryByText('metrics.fxRateMissing')).not.toBeInTheDocument()
     })
   })
@@ -251,65 +276,82 @@ describe('DashboardView', () => {
   // ── Empty state / demo mode ──
 
   describe('empty state', () => {
-    it('shows empty state when no accounts and not in demo mode', () => {
-      const props = makeProps({ accounts: [], isDemoMode: false })
-      render(<DashboardView {...props} />)
-      expect(screen.getByText('demo.emptyTitle')).toBeInTheDocument()
-      expect(screen.getByText('demo.emptyDesc')).toBeInTheDocument()
-      expect(screen.getByText('demo.emptyCta')).toBeInTheDocument()
-      expect(screen.getByText('accounts.addAccount')).toBeInTheDocument()
+    it('shows empty state when no accounts and not in demo mode', async () => {
+      setupApiMocks({ snapshot: [] })
+      renderDashboard()
+      await waitFor(() => {
+        expect(screen.getByText('demo.emptyTitle')).toBeInTheDocument()
+        expect(screen.getByText('demo.emptyDesc')).toBeInTheDocument()
+        expect(screen.getByText('demo.emptyCta')).toBeInTheDocument()
+        expect(screen.getByText('accounts.addAccount')).toBeInTheDocument()
+      })
     })
 
     it('calls onEnterDemoMode when demo CTA is clicked', async () => {
       const user = userEvent.setup()
-      const props = makeProps({ accounts: [], isDemoMode: false })
-      render(<DashboardView {...props} />)
+      setupApiMocks({ snapshot: [] })
+      renderDashboard()
+      await waitFor(() => screen.getByText('demo.emptyCta'))
       await user.click(screen.getByText('demo.emptyCta'))
-      expect(props.onEnterDemoMode).toHaveBeenCalledOnce()
+      expect(mockOnEnterDemoMode).toHaveBeenCalledOnce()
     })
 
     it('opens createAccount modal when add account button is clicked in empty state', async () => {
       const user = userEvent.setup()
-      const props = makeProps({ accounts: [], isDemoMode: false })
-      render(<DashboardView {...props} />)
+      setupApiMocks({ snapshot: [] })
+      renderDashboard()
+      await waitFor(() => screen.getByText('accounts.addAccount'))
       await user.click(screen.getByText('accounts.addAccount'))
-      expect(props.setModalState).toHaveBeenCalledWith({
+      expect(mockSetModalState).toHaveBeenCalledWith({
         type: 'createAccount',
         accountType: 'account',
       })
     })
 
-    it('does not show empty state when in demo mode with no accounts', () => {
-      const props = makeProps({ accounts: [], isDemoMode: true })
-      render(<DashboardView {...props} />)
-      expect(screen.queryByText('demo.emptyTitle')).not.toBeInTheDocument()
+    it('does not show empty state when in demo mode with no accounts', async () => {
+      demoModeState.isDemoMode = true
+      setupApiMocks({ snapshot: [] })
+      renderDashboard()
+      await waitFor(() => {
+        expect(screen.queryByText('demo.emptyTitle')).not.toBeInTheDocument()
+      })
     })
   })
 
   // ── Account cards section ──
 
   describe('account cards section', () => {
-    it('renders AccountCards for accounts when accounts exist', () => {
-      const props = makeProps()
-      render(<DashboardView {...props} />)
-      expect(screen.getByTestId('account-cards-accounts.sectionTitle')).toBeInTheDocument()
+    it('renders AccountCards for accounts when accounts exist', async () => {
+      setupApiMocks({ snapshot: [makeSnapshot()] })
+      renderDashboard()
+      await waitFor(() => {
+        expect(screen.getByTestId('account-cards-accounts.sectionTitle')).toBeInTheDocument()
+      })
     })
 
-    it('renders AccountCards for buckets when accounts exist', () => {
-      const props = makeProps({ buckets: [makeBucket()] })
-      render(<DashboardView {...props} />)
-      expect(screen.getByTestId('account-cards-buckets.sectionTitle')).toBeInTheDocument()
+    it('renders AccountCards for buckets when accounts exist', async () => {
+      setupApiMocks({ snapshot: [makeSnapshot(), makeBucket()] })
+      renderDashboard()
+      await waitFor(() => {
+        expect(screen.getByTestId('account-cards-buckets.sectionTitle')).toBeInTheDocument()
+      })
     })
 
-    it('renders AccountCards for assets when accounts exist', () => {
-      const props = makeProps({ assets: [makeAsset()] })
-      render(<DashboardView {...props} />)
-      expect(screen.getByTestId('account-cards-assets.sectionTitle')).toBeInTheDocument()
+    it('renders AccountCards for assets when accounts exist', async () => {
+      setupApiMocks({ snapshot: [makeSnapshot(), makeAsset()] })
+      renderDashboard()
+      await waitFor(() => {
+        expect(screen.getByTestId('account-cards-assets.sectionTitle')).toBeInTheDocument()
+      })
     })
 
-    it('does not render buckets, assets, or ledger sections when no accounts exist', () => {
-      const props = makeProps({ accounts: [], isDemoMode: true })
-      render(<DashboardView {...props} />)
+    it('does not render buckets, assets, or ledger sections when no accounts exist', async () => {
+      demoModeState.isDemoMode = true
+      setupApiMocks({ snapshot: [] })
+      renderDashboard()
+      await waitFor(() => {
+        expect(screen.getByTestId('account-cards-accounts.sectionTitle')).toBeInTheDocument()
+      })
       expect(screen.queryByTestId('account-cards-buckets.sectionTitle')).not.toBeInTheDocument()
       expect(screen.queryByTestId('account-cards-assets.sectionTitle')).not.toBeInTheDocument()
       expect(screen.queryByTestId('ledger')).not.toBeInTheDocument()
@@ -321,10 +363,11 @@ describe('DashboardView', () => {
   describe('section add/create buttons', () => {
     it('opens createAccount modal for accounts section', async () => {
       const user = userEvent.setup()
-      const props = makeProps()
-      render(<DashboardView {...props} />)
+      setupApiMocks({ snapshot: [makeSnapshot()] })
+      renderDashboard()
+      await waitFor(() => screen.getByTestId('add-btn-accounts.sectionTitle'))
       await user.click(screen.getByTestId('add-btn-accounts.sectionTitle'))
-      expect(props.setModalState).toHaveBeenCalledWith({
+      expect(mockSetModalState).toHaveBeenCalledWith({
         type: 'createAccount',
         accountType: 'account',
       })
@@ -332,10 +375,11 @@ describe('DashboardView', () => {
 
     it('opens createAccount modal for buckets section', async () => {
       const user = userEvent.setup()
-      const props = makeProps({ buckets: [makeBucket()] })
-      render(<DashboardView {...props} />)
+      setupApiMocks({ snapshot: [makeSnapshot(), makeBucket()] })
+      renderDashboard()
+      await waitFor(() => screen.getByTestId('add-btn-buckets.sectionTitle'))
       await user.click(screen.getByTestId('add-btn-buckets.sectionTitle'))
-      expect(props.setModalState).toHaveBeenCalledWith({
+      expect(mockSetModalState).toHaveBeenCalledWith({
         type: 'createAccount',
         accountType: 'bucket',
       })
@@ -343,10 +387,11 @@ describe('DashboardView', () => {
 
     it('opens createAsset modal for assets section', async () => {
       const user = userEvent.setup()
-      const props = makeProps({ assets: [makeAsset()] })
-      render(<DashboardView {...props} />)
+      setupApiMocks({ snapshot: [makeSnapshot(), makeAsset()] })
+      renderDashboard()
+      await waitFor(() => screen.getByTestId('add-btn-assets.sectionTitle'))
       await user.click(screen.getByTestId('add-btn-assets.sectionTitle'))
-      expect(props.setModalState).toHaveBeenCalledWith({ type: 'createAsset' })
+      expect(mockSetModalState).toHaveBeenCalledWith({ type: 'createAsset' })
     })
   })
 
@@ -355,69 +400,81 @@ describe('DashboardView', () => {
   describe('reorder buttons', () => {
     it('opens reorderAccounts modal', async () => {
       const user = userEvent.setup()
-      const props = makeProps()
-      render(<DashboardView {...props} />)
+      setupApiMocks({ snapshot: [makeSnapshot()] })
+      renderDashboard()
+      await waitFor(() => screen.getByTestId('reorder-btn-accounts.sectionTitle'))
       await user.click(screen.getByTestId('reorder-btn-accounts.sectionTitle'))
-      expect(props.setModalState).toHaveBeenCalledWith({ type: 'reorderAccounts' })
+      expect(mockSetModalState).toHaveBeenCalledWith({ type: 'reorderAccounts' })
     })
 
     it('opens reorderBuckets modal', async () => {
       const user = userEvent.setup()
-      const props = makeProps({ buckets: [makeBucket()] })
-      render(<DashboardView {...props} />)
+      setupApiMocks({ snapshot: [makeSnapshot(), makeBucket()] })
+      renderDashboard()
+      await waitFor(() => screen.getByTestId('reorder-btn-buckets.sectionTitle'))
       await user.click(screen.getByTestId('reorder-btn-buckets.sectionTitle'))
-      expect(props.setModalState).toHaveBeenCalledWith({ type: 'reorderBuckets' })
+      expect(mockSetModalState).toHaveBeenCalledWith({ type: 'reorderBuckets' })
     })
 
     it('opens reorderAssets modal', async () => {
       const user = userEvent.setup()
-      const props = makeProps({ assets: [makeAsset()] })
-      render(<DashboardView {...props} />)
+      setupApiMocks({ snapshot: [makeSnapshot(), makeAsset()] })
+      renderDashboard()
+      await waitFor(() => screen.getByTestId('reorder-btn-assets.sectionTitle'))
       await user.click(screen.getByTestId('reorder-btn-assets.sectionTitle'))
-      expect(props.setModalState).toHaveBeenCalledWith({ type: 'reorderAssets' })
+      expect(mockSetModalState).toHaveBeenCalledWith({ type: 'reorderAssets' })
     })
   })
 
   // ── Ledger section ──
 
   describe('ledger', () => {
-    it('renders Ledger when accounts exist', () => {
-      const props = makeProps()
-      render(<DashboardView {...props} />)
-      expect(screen.getByTestId('ledger')).toBeInTheDocument()
+    it('renders Ledger when accounts exist', async () => {
+      setupApiMocks({ snapshot: [makeSnapshot()] })
+      renderDashboard()
+      await waitFor(() => {
+        expect(screen.getByTestId('ledger')).toBeInTheDocument()
+      })
     })
 
     it('opens bulkUpdateBalance modal from Ledger', async () => {
       const user = userEvent.setup()
-      const props = makeProps()
-      render(<DashboardView {...props} />)
+      setupApiMocks({ snapshot: [makeSnapshot()] })
+      renderDashboard()
+      await waitFor(() => screen.getByTestId('update-balances-btn'))
       await user.click(screen.getByTestId('update-balances-btn'))
-      expect(props.setModalState).toHaveBeenCalledWith({ type: 'bulkUpdateBalance' })
+      expect(mockSetModalState).toHaveBeenCalledWith({ type: 'bulkUpdateBalance' })
     })
 
-    it('calls onNavigate with "ledger" when View all is clicked', async () => {
+    it('navigates to ledger when View all is clicked', async () => {
       const user = userEvent.setup()
-      const props = makeProps()
-      render(<DashboardView {...props} />)
+      setupApiMocks({ snapshot: [makeSnapshot()] })
+      renderDashboard()
+      await waitFor(() => screen.getByTestId('view-all-btn'))
       await user.click(screen.getByTestId('view-all-btn'))
-      expect(props.onNavigate).toHaveBeenCalledWith('ledger')
+      expect(mockNavigate).toHaveBeenCalledWith({ to: '/ledger' })
     })
   })
 
   // ── MetricCard styling ──
 
   describe('MetricCard styling', () => {
-    it('applies destructive class for negative values', () => {
-      const props = makeProps({ totalMinor: -5000, hasAssets: false })
-      render(<DashboardView {...props} />)
-      const metricEl = screen.getByText('metrics.totalBalance').closest('div')
-      const valueEl = metricEl?.querySelector('.text-destructive')
-      expect(valueEl).toBeInTheDocument()
+    it('applies destructive class for negative values', async () => {
+      setupApiMocks({ snapshot: [makeSnapshot({ convertedBalanceMinor: -5000, isLinkedToAsset: false })] })
+      renderDashboard()
+      await waitFor(() => {
+        const metricEl = screen.getByText('metrics.totalBalance').closest('div')
+        const valueEl = metricEl?.querySelector('.text-destructive')
+        expect(valueEl).toBeInTheDocument()
+      })
     })
 
-    it('does not apply destructive class for positive values', () => {
-      const props = makeProps({ totalMinor: 5000, hasAssets: false })
-      render(<DashboardView {...props} />)
+    it('does not apply destructive class for positive values', async () => {
+      setupApiMocks({ snapshot: [makeSnapshot({ convertedBalanceMinor: 5000, isLinkedToAsset: false })] })
+      renderDashboard()
+      await waitFor(() => {
+        expect(screen.getByText('metrics.totalBalance')).toBeInTheDocument()
+      })
       const metricEl = screen.getByText('metrics.totalBalance').closest('div')
       const valueEl = metricEl?.querySelector('.text-destructive')
       expect(valueEl).not.toBeInTheDocument()

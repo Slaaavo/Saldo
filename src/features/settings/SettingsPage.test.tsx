@@ -1,6 +1,7 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import SettingsPage from './SettingsPage'
 import type { Currency } from '../../shared/types'
 import type { ThemePreference } from './useTheme'
@@ -26,6 +27,56 @@ let hookReturn = {
 
 vi.mock('./useSettings', () => ({
   useSettings: () => hookReturn,
+}))
+
+// ── Mock useDemo hook ──────────────────────────────────────────────────────
+const mockOnEnterDemoMode = vi.fn()
+const mockOnExitDemoMode = vi.fn()
+
+let demoModeReturn = {
+  isDemoMode: false,
+  onEnterDemoMode: mockOnEnterDemoMode,
+  onExitDemoMode: mockOnExitDemoMode,
+}
+
+vi.mock('../../app/DemoContext', () => ({
+  useDemo: () => demoModeReturn,
+}))
+
+// ── Mock useTheme hook ─────────────────────────────────────────────────────
+let themeHookReturn = {
+  theme: 'light' as 'light' | 'dark',
+  themePreference: 'system' as ThemePreference,
+  setThemePreference: vi.fn(),
+}
+
+vi.mock('./useTheme', () => ({
+  useTheme: () => themeHookReturn,
+}))
+
+// ── Mock useModal hook ─────────────────────────────────────────────────────
+vi.mock('../../app/ModalContext', () => ({
+  useModal: () => ({ modalState: { type: 'none' }, setModalState: vi.fn(), closeModal: vi.fn() }),
+}))
+
+// ── Mock useDbLocation hook ────────────────────────────────────────────────
+const mockHandleChange = vi.fn()
+const mockHandleReset = vi.fn()
+
+let dbLocationReturn = {
+  path: '/home/user/.local/share/our-finances/db.sqlite',
+  isDefault: true,
+  actionLoading: false,
+  handleChange: mockHandleChange,
+  handleReset: mockHandleReset,
+  load: vi.fn(),
+  handleConfirmSwitch: vi.fn(),
+  handleLocationChoiceAction: vi.fn(),
+  handleConfirmReset: vi.fn(),
+}
+
+vi.mock('./useDbLocation', () => ({
+  useDbLocation: () => dbLocationReturn,
 }))
 
 // ── Mock i18n — pass-through that returns the key (with interpolations) ─────
@@ -63,23 +114,19 @@ vi.mock('./LanguageSelector', () => ({
   default: () => <div data-testid="language-selector">LanguageSelector</div>,
 }))
 
-// ── Default props ───────────────────────────────────────────────────────────
-function defaultProps(overrides?: Partial<Parameters<typeof SettingsPage>[0]>) {
-  return {
-    onConsolidationCurrencyChange: vi.fn(),
-    themePreference: 'system' as ThemePreference,
-    onThemeChange: vi.fn(),
-    isDemoMode: false,
-    onEnterDemoMode: vi.fn(),
-    onExitDemoMode: vi.fn(),
-    dbLocationPath: '/home/user/.local/share/our-finances/db.sqlite',
-    dbLocationIsDefault: true,
-    onChangeDbLocation: vi.fn(),
-    onResetDbLocation: vi.fn(),
-    snapshot: [],
-    exclusions: [],
-    onExclusionsChange: vi.fn(),
-    ...overrides,
+// ── Mock API functions used internally by query hooks ────────────────────────
+vi.mock('../../shared/api', () => ({
+  getAccountsSnapshot: vi.fn(),
+  getBulkUpdateExclusions: vi.fn(),
+  setBulkUpdateExclusions: vi.fn(),
+}))
+import { getAccountsSnapshot, getBulkUpdateExclusions } from '../../shared/api'
+
+// ── QueryClient test wrapper ──────────────────────────────────────────────────
+function makeWrapper() {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: 0 } } })
+  return function Wrapper({ children }: { children: React.ReactNode }) {
+    return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
   }
 }
 
@@ -88,6 +135,8 @@ function defaultProps(overrides?: Partial<Parameters<typeof SettingsPage>[0]>) {
 describe('SettingsPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    ;(getAccountsSnapshot as Mock).mockResolvedValue([])
+    ;(getBulkUpdateExclusions as Mock).mockResolvedValue([])
     hookReturn = {
       currencies: [EUR, USD],
       selectedCurrency: EUR,
@@ -98,12 +147,33 @@ describe('SettingsPage', () => {
       handleCurrencySelect: mockHandleCurrencySelect,
       handleSaveApiKey: mockHandleSaveApiKey,
     }
+    demoModeReturn = {
+      isDemoMode: false,
+      onEnterDemoMode: mockOnEnterDemoMode,
+      onExitDemoMode: mockOnExitDemoMode,
+    }
+    themeHookReturn = {
+      theme: 'light',
+      themePreference: 'system',
+      setThemePreference: vi.fn(),
+    }
+    dbLocationReturn = {
+      path: '/home/user/.local/share/our-finances/db.sqlite',
+      isDefault: true,
+      actionLoading: false,
+      handleChange: mockHandleChange,
+      handleReset: mockHandleReset,
+      load: vi.fn(),
+      handleConfirmSwitch: vi.fn(),
+      handleLocationChoiceAction: vi.fn(),
+      handleConfirmReset: vi.fn(),
+    }
   })
 
   // ── Section rendering ───────────────────────────────────────────────────
 
   it('renders all four sections', () => {
-    render(<SettingsPage {...defaultProps()} />)
+    render(<SettingsPage />, { wrapper: makeWrapper() })
 
     expect(screen.getByText('settings.sectionDisplay')).toBeInTheDocument()
     expect(screen.getByText('settings.sectionIntegrations')).toBeInTheDocument()
@@ -112,7 +182,7 @@ describe('SettingsPage', () => {
   })
 
   it('renders section descriptions', () => {
-    render(<SettingsPage {...defaultProps()} />)
+    render(<SettingsPage />, { wrapper: makeWrapper() })
 
     expect(screen.getByText('settings.sectionDisplayDesc')).toBeInTheDocument()
     expect(screen.getByText('settings.sectionIntegrationsDesc')).toBeInTheDocument()
@@ -123,17 +193,18 @@ describe('SettingsPage', () => {
   // ── Display section ───────────────────────────────────────────────────
 
   it('renders language selector', () => {
-    render(<SettingsPage {...defaultProps()} />)
+    render(<SettingsPage />, { wrapper: makeWrapper() })
     expect(screen.getByTestId('language-selector')).toBeInTheDocument()
   })
 
   it('renders theme select with current preference', () => {
-    render(<SettingsPage {...defaultProps({ themePreference: 'dark' })} />)
+    themeHookReturn = { ...themeHookReturn, themePreference: 'dark' }
+    render(<SettingsPage />, { wrapper: makeWrapper() })
     expect(screen.getByText('settings.theme.label')).toBeInTheDocument()
   })
 
   it('renders currency select with loaded currencies', () => {
-    render(<SettingsPage {...defaultProps()} />)
+    render(<SettingsPage />, { wrapper: makeWrapper() })
 
     expect(screen.getByTestId('currency-select-value')).toHaveTextContent('EUR')
     expect(screen.getByTestId('currency-option-EUR')).toBeInTheDocument()
@@ -142,7 +213,7 @@ describe('SettingsPage', () => {
 
   it('shows currency saved badge when currencySaved is true', () => {
     hookReturn = { ...hookReturn, currencySaved: true }
-    render(<SettingsPage {...defaultProps()} />)
+    render(<SettingsPage />, { wrapper: makeWrapper() })
 
     const savedElements = screen.getAllByText('settings.saved')
     const currencySaved = savedElements.find((el) => el.closest('[data-testid="currency-select"]')?.parentElement != null || el.tagName === 'SPAN')
@@ -151,7 +222,7 @@ describe('SettingsPage', () => {
 
   it('calls handleCurrencySelect when a currency is clicked', async () => {
     const user = userEvent.setup()
-    render(<SettingsPage {...defaultProps()} />)
+    render(<SettingsPage />, { wrapper: makeWrapper() })
 
     await user.click(screen.getByTestId('currency-option-USD'))
 
@@ -162,14 +233,14 @@ describe('SettingsPage', () => {
 
   it('renders API key input with stored value', () => {
     hookReturn = { ...hookReturn, apiKey: 'my-secret-key' }
-    render(<SettingsPage {...defaultProps()} />)
+    render(<SettingsPage />, { wrapper: makeWrapper() })
 
     expect(screen.getByLabelText('settings.oxrApiKey')).toHaveValue('my-secret-key')
   })
 
   it('calls setApiKey when typing in API key input', async () => {
     const user = userEvent.setup()
-    render(<SettingsPage {...defaultProps()} />)
+    render(<SettingsPage />, { wrapper: makeWrapper() })
 
     const input = screen.getByLabelText('settings.oxrApiKey')
     await user.type(input, 'k')
@@ -179,7 +250,7 @@ describe('SettingsPage', () => {
 
   it('calls handleSaveApiKey when save button is clicked', async () => {
     const user = userEvent.setup()
-    render(<SettingsPage {...defaultProps()} />)
+    render(<SettingsPage />, { wrapper: makeWrapper() })
 
     await user.click(screen.getByText('settings.saveApiKey'))
 
@@ -188,7 +259,7 @@ describe('SettingsPage', () => {
 
   it('shows saved state on API key button when apiKeySaved is true', () => {
     hookReturn = { ...hookReturn, apiKeySaved: true }
-    render(<SettingsPage {...defaultProps()} />)
+    render(<SettingsPage />, { wrapper: makeWrapper() })
 
     const buttons = screen.getAllByRole('button')
     const saveBtn = buttons.find((b) => b.textContent === 'settings.saved' && !b.closest('[data-testid="currency-select"]'))
@@ -198,48 +269,52 @@ describe('SettingsPage', () => {
   // ── Data Storage section ──────────────────────────────────────────────
 
   it('displays the database location path', () => {
-    render(<SettingsPage {...defaultProps({ dbLocationPath: '/custom/path/db.sqlite', dbLocationIsDefault: false })} />)
+    dbLocationReturn = { ...dbLocationReturn, path: '/custom/path/db.sqlite', isDefault: false }
+    render(<SettingsPage />, { wrapper: makeWrapper() })
     expect(screen.getByText('/custom/path/db.sqlite')).toBeInTheDocument()
   })
 
   it('shows default badge when using default location', () => {
-    render(<SettingsPage {...defaultProps({ dbLocationIsDefault: true })} />)
+    render(<SettingsPage />, { wrapper: makeWrapper() })
     expect(screen.getByText('dataStorage.isDefault')).toBeInTheDocument()
   })
 
   it('does not show default badge for custom location', () => {
-    render(<SettingsPage {...defaultProps({ dbLocationIsDefault: false })} />)
+    dbLocationReturn = { ...dbLocationReturn, isDefault: false }
+    render(<SettingsPage />, { wrapper: makeWrapper() })
     expect(screen.queryByText('dataStorage.isDefault')).not.toBeInTheDocument()
   })
 
-  it('calls onChangeDbLocation when change button is clicked', async () => {
-    const props = defaultProps()
+  it('calls handleChange when change button is clicked', async () => {
     const user = userEvent.setup()
-    render(<SettingsPage {...props} />)
+    render(<SettingsPage />, { wrapper: makeWrapper() })
 
     await user.click(screen.getByText('dataStorage.changeButton'))
-    expect(props.onChangeDbLocation).toHaveBeenCalledOnce()
+    expect(mockHandleChange).toHaveBeenCalledOnce()
   })
 
   it('shows reset button only when not using default location', () => {
-    const { rerender } = render(<SettingsPage {...defaultProps({ dbLocationIsDefault: true })} />)
+    const { rerender } = render(<SettingsPage />, { wrapper: makeWrapper() })
     expect(screen.queryByText('dataStorage.resetButton')).not.toBeInTheDocument()
 
-    rerender(<SettingsPage {...defaultProps({ dbLocationIsDefault: false })} />)
+    dbLocationReturn = { ...dbLocationReturn, isDefault: false }
+    rerender(<SettingsPage />)
     expect(screen.getByText('dataStorage.resetButton')).toBeInTheDocument()
   })
 
-  it('calls onResetDbLocation when reset button is clicked', async () => {
-    const props = defaultProps({ dbLocationIsDefault: false })
+  it('calls handleReset when reset button is clicked', async () => {
+    dbLocationReturn = { ...dbLocationReturn, isDefault: false }
     const user = userEvent.setup()
-    render(<SettingsPage {...props} />)
+    render(<SettingsPage />, { wrapper: makeWrapper() })
 
     await user.click(screen.getByText('dataStorage.resetButton'))
-    expect(props.onResetDbLocation).toHaveBeenCalledOnce()
+    expect(mockHandleReset).toHaveBeenCalledOnce()
   })
 
   it('disables db buttons in demo mode', () => {
-    render(<SettingsPage {...defaultProps({ isDemoMode: true, dbLocationIsDefault: false })} />)
+    demoModeReturn = { ...demoModeReturn, isDemoMode: true }
+    dbLocationReturn = { ...dbLocationReturn, isDefault: false }
+    render(<SettingsPage />, { wrapper: makeWrapper() })
 
     expect(screen.getByText('dataStorage.changeButton')).toBeDisabled()
     expect(screen.getByText('dataStorage.resetButton')).toBeDisabled()
@@ -249,7 +324,7 @@ describe('SettingsPage', () => {
   // ── Demo Mode section ─────────────────────────────────────────────────
 
   it('shows start button when not in demo mode', () => {
-    render(<SettingsPage {...defaultProps({ isDemoMode: false })} />)
+    render(<SettingsPage />, { wrapper: makeWrapper() })
 
     expect(screen.getByText('demo.startButton')).toBeInTheDocument()
     expect(screen.getByText('demo.settingsNote')).toBeInTheDocument()
@@ -257,27 +332,27 @@ describe('SettingsPage', () => {
   })
 
   it('shows stop button when in demo mode', () => {
-    render(<SettingsPage {...defaultProps({ isDemoMode: true })} />)
+    demoModeReturn = { ...demoModeReturn, isDemoMode: true }
+    render(<SettingsPage />, { wrapper: makeWrapper() })
 
     expect(screen.getByText('demo.stopButton')).toBeInTheDocument()
     expect(screen.queryByText('demo.startButton')).not.toBeInTheDocument()
   })
 
-  it('calls onEnterDemoMode when start button is clicked', async () => {
-    const props = defaultProps({ isDemoMode: false })
+  it('calls onEnterDemoMode from useDemo when start button is clicked', async () => {
     const user = userEvent.setup()
-    render(<SettingsPage {...props} />)
+    render(<SettingsPage />, { wrapper: makeWrapper() })
 
     await user.click(screen.getByText('demo.startButton'))
-    expect(props.onEnterDemoMode).toHaveBeenCalledOnce()
+    expect(mockOnEnterDemoMode).toHaveBeenCalledOnce()
   })
 
-  it('calls onExitDemoMode when stop button is clicked', async () => {
-    const props = defaultProps({ isDemoMode: true })
+  it('calls onExitDemoMode from useDemo when stop button is clicked', async () => {
+    demoModeReturn = { ...demoModeReturn, isDemoMode: true }
     const user = userEvent.setup()
-    render(<SettingsPage {...props} />)
+    render(<SettingsPage />, { wrapper: makeWrapper() })
 
     await user.click(screen.getByText('demo.stopButton'))
-    expect(props.onExitDemoMode).toHaveBeenCalledOnce()
+    expect(mockOnExitDemoMode).toHaveBeenCalledOnce()
   })
 })

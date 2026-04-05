@@ -1,8 +1,14 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useQueryClient } from '@tanstack/react-query'
 import { fetchFxRates } from '../shared/api'
-import type { ModalState, SnapshotRow, Currency } from '../shared/types'
 import { useModalActions } from './useModalActions'
+import { useModal } from './ModalContext'
+import { useSnapshotQuery } from '../shared/hooks/useSnapshotQuery'
+import { useConsolidationCurrencyQuery } from '../shared/hooks/useConsolidationCurrencyQuery'
+import { useBulkUpdateExclusionsQuery } from '../shared/hooks/useBulkUpdateExclusionsQuery'
+import { computeDashboardMetrics } from '../features/dashboard/dashboardMetrics'
+import { todayIso } from '../shared/utils/format'
 import CreateBalanceUpdateModal from '../features/transactions/CreateBalanceUpdateModal'
 import EditBalanceUpdateModal from '../features/transactions/EditBalanceUpdateModal'
 import CreateAccountModal from '../features/accounts/CreateAccountModal'
@@ -18,41 +24,28 @@ import CsvImportModal from '../features/transactions/CsvImportModal'
 import EditTransferModal from '../features/transactions/EditTransferModal'
 
 interface AppModalsProps {
-  modalState: ModalState
-  closeModal: () => void
-  setModalState: (state: ModalState) => void
-  snapshot: SnapshotRow[]
-  accounts: SnapshotRow[]
-  buckets: SnapshotRow[]
-  assets: SnapshotRow[]
   selectedDate: string
-  consolidationCurrency: Currency | null
-  refresh: () => Promise<void>
   dbLocation: {
     actionLoading: boolean
     handleConfirmSwitch: (folder: string) => Promise<void>
     handleLocationChoiceAction: (action: string, folder: string, isReset: boolean) => Promise<void>
     handleConfirmReset: () => Promise<void>
   }
-  exclusions: number[]
 }
 
-export default function AppModals({
-  modalState,
-  closeModal,
-  setModalState,
-  snapshot,
-  accounts,
-  buckets,
-  assets,
-  selectedDate,
-  consolidationCurrency,
-  refresh,
-  dbLocation,
-  exclusions,
-}: AppModalsProps) {
+export default function AppModals({ selectedDate, dbLocation }: AppModalsProps) {
   const { t } = useTranslation()
+  const { modalState, closeModal, setModalState } = useModal()
+  const queryClient = useQueryClient()
   const [fetchLoading, setFetchLoading] = useState(false)
+
+  const snapshotQuery = useSnapshotQuery(todayIso())
+  const snapshot = snapshotQuery.data ?? []
+  const { accounts, buckets, assets } = computeDashboardMetrics(snapshot)
+  const consolidationCurrencyQuery = useConsolidationCurrencyQuery()
+  const consolidationCurrency = consolidationCurrencyQuery.data ?? null
+  const exclusionsQuery = useBulkUpdateExclusionsQuery()
+  const exclusions = exclusionsQuery.data ?? []
 
   const {
     handleCreateBalanceUpdate,
@@ -71,9 +64,6 @@ export default function AppModals({
     handleEditTransfer,
   } = useModalActions({
     closeModal,
-    refresh,
-    snapshot,
-    consolidationCurrency,
     onFxRatePrompt: (date) => setModalState({ type: 'fetchFxRatePrompt', date }),
   })
 
@@ -163,7 +153,8 @@ export default function AppModals({
             setFetchLoading(true)
             try {
               await fetchFxRates(modalState.date)
-              await refresh()
+              await queryClient.invalidateQueries({ queryKey: ['fx-rates'] })
+              await queryClient.invalidateQueries({ queryKey: ['snapshot'] })
             } catch {
               // Silently ignore fetch errors — user can retry from FX Rates screen
             } finally {
@@ -233,7 +224,16 @@ export default function AppModals({
       )
 
     case 'csvImport':
-      return <CsvImportModal snapshot={snapshot} onClose={closeModal} onSuccess={refresh} />
+      return (
+        <CsvImportModal
+          snapshot={snapshot}
+          onClose={closeModal}
+          onSuccess={async () => {
+            await queryClient.invalidateQueries({ queryKey: ['snapshot'] })
+            await queryClient.invalidateQueries({ queryKey: ['events'] })
+          }}
+        />
+      )
 
     case 'confirmResetDbLocation':
       return (

@@ -1,16 +1,18 @@
 import { useTranslation } from 'react-i18next'
+import { useRouterState } from '@tanstack/react-router'
 import { DatePicker } from '../ui/date-picker'
 import { Label } from '../ui/label'
+import { useSelectedDate } from '../../app/SelectedDateContext'
 
 interface Props {
   pageTitle: string
-  selectedDate: string
-  onDateChange: (date: string) => void
-  showDatePicker: boolean
 }
 
-export default function Header({ pageTitle, selectedDate, onDateChange, showDatePicker }: Props) {
+export default function Header({ pageTitle }: Props) {
   const { t } = useTranslation()
+  const { selectedDate, setSelectedDate } = useSelectedDate()
+  const routerState = useRouterState()
+  const showDatePicker = routerState.location.pathname === '/dashboard'
 
   return (
     <header className="flex items-center justify-between border-b bg-card px-4 md:px-10 py-3 min-h-16">
@@ -23,7 +25,7 @@ export default function Header({ pageTitle, selectedDate, onDateChange, showDate
             <Label htmlFor="date-picker" className="text-sm font-medium text-muted-foreground">
               {t('header.date')}
             </Label>
-            <DatePicker id="date-picker" value={selectedDate} onChange={onDateChange} className="w-48" />
+            <DatePicker id="date-picker" value={selectedDate} onChange={setSelectedDate} className="w-48" />
           </>
         )}
       </div>
