@@ -226,7 +226,7 @@ vi.mock('../features/dashboard/DashboardView', () => ({
 }))
 
 vi.mock('../features/settings/SettingsPage', async () => {
-  const { useDemo } = await import('./DemoContext')
+  const { useDemo } = await import('./useDemo')
 
   const SettingsPageMock = () => {
     const demo = useDemo()

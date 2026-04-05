@@ -11,7 +11,7 @@ import { Button } from '../../shared/ui/button'
 import { RefreshCw, Upload } from 'lucide-react'
 import { useSnapshotQuery } from '../../shared/hooks/useSnapshotQuery'
 import { useConsolidationCurrencyQuery } from '../../shared/hooks/useConsolidationCurrencyQuery'
-import { useModal } from '../../app/ModalContext'
+import { useModal } from '../../app/useModal'
 import { todayIso } from '../../shared/utils/format'
 
 const LedgerPage = () => {

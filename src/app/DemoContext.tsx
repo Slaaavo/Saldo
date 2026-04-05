@@ -1,13 +1,5 @@
-import { createContext, useContext } from 'react'
 import type { ReactNode } from 'react'
-
-interface DemoContextValue {
-  isDemoMode: boolean
-  onEnterDemoMode: () => void
-  onExitDemoMode: () => void
-}
-
-const DemoContext = createContext<DemoContextValue | null>(null)
+import { DemoContext } from './useDemo'
 
 interface DemoProviderProps {
   isDemoMode: boolean
@@ -18,11 +10,4 @@ interface DemoProviderProps {
 
 export const DemoProvider = ({ isDemoMode, onEnterDemoMode, onExitDemoMode, children }: DemoProviderProps) => {
   return <DemoContext.Provider value={{ isDemoMode, onEnterDemoMode, onExitDemoMode }}>{children}</DemoContext.Provider>
-}
-
-// eslint-disable-next-line react-refresh/only-export-components
-export const useDemo = (): DemoContextValue => {
-  const ctx = useContext(DemoContext)
-  if (!ctx) throw new Error('useDemo must be used within a DemoProvider')
-  return ctx
 }

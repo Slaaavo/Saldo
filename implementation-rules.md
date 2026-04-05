@@ -91,7 +91,7 @@ When listing or displaying an event, always use the latest `event_data` row for 
   
   This structure preserves TypeScript's directory import resolution (`'./csv-import/MyComponent'` resolves to `MyComponent/index.ts`) so callers are never affected by the refactor. `index.ts` must remain a pure barrel — it should never contain logic or component definitions.
 - **Error handling (UI):** Use `toast.error()` from `sonner` for user-facing error messages. Never use `window.alert()`. The `<Toaster>` component is mounted in `App.tsx` with theme-aware configuration.
-- **React context file split (Fast Refresh):** Vite Fast Refresh requires each file to export only components or only non-components. For context modules, put `createContext()` and `useXxx()` in `useXxx.ts` (no JSX); put only the `XxxProvider` component in `XxxContext.tsx`. The provider imports the context object from the hook file.
+- **React context file split (Fast Refresh):** Vite Fast Refresh requires each file to export only components or only non-components. For context modules, put `createContext()` and `useXxx()` in `useXxx.ts` (no JSX); put only the `XxxProvider` component in `XxxContext.tsx`. The provider imports the context object from the hook file (never the other way around). Do not export the context object or non-component values from `XxxContext.tsx`. `buttonVariants` and similar non-component values should not be exported from component files unless consumed externally.
 - **Shared constants:** App-wide constants (e.g., `PINNED_CURRENCY_CODES`) live in `src/shared/config/constants.ts`. Do not duplicate magic values across components.
 
 ## 9. Testing
@@ -122,7 +122,7 @@ Vitest patterns for TanStack Router (in `vi.mock` factories):
   // CORRECT
   vi.mock('../shared/layout/Sidebar', async () => {
     const { useNavigate } = await import('@tanstack/react-router')
-    function SidebarMock(...) { ... }
+    const SidebarMock = (...) => { ... }
     return { default: SidebarMock }
   })
   // WRONG — causes 'Cannot read properties of null (reading isServer)'
@@ -130,7 +130,7 @@ Vitest patterns for TanStack Router (in `vi.mock` factories):
     default: () => { const { useNavigate } = require('@tanstack/react-router'); ... }
   }))
   ```
-- Mock component functions inside `vi.mock` must be **named functions** (not anonymous `() =>`), otherwise ESLint's `react-hooks/rules-of-hooks` will flag hook calls inside them as errors.
+- Mock component functions inside `vi.mock` must be **named** (assigned to a `const`, not anonymous `() =>`), otherwise ESLint's `react-hooks/rules-of-hooks` will flag hook calls inside them as errors. Arrow functions assigned to `const` satisfy this requirement.
 - App-level tests use `createTestRouter()` + `renderApp()` helpers that wrap in both `QueryClientProvider` and `RouterProvider` with a fresh router instance per test. See `src/app/App.test.tsx` for the reference pattern.
 
 ## 10. CI & quality
