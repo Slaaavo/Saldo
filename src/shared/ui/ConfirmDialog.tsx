@@ -11,7 +11,7 @@ interface Props {
   loading?: boolean
 }
 
-export default function ConfirmDialog({ message, onConfirm, onCancel, confirmVariant = 'destructive', loading = false }: Props) {
+const ConfirmDialog = ({ message, onConfirm, onCancel, confirmVariant = 'destructive', loading = false }: Props) => {
   const { t } = useTranslation()
 
   return (
@@ -41,3 +41,5 @@ export default function ConfirmDialog({ message, onConfirm, onCancel, confirmVar
     </Dialog>
   )
 }
+
+export default ConfirmDialog

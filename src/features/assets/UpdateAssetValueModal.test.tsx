@@ -50,8 +50,7 @@ const EUR: Currency = {
   isCustom: false,
 }
 
-// isDirect=true: rateMantissa=1, rateExponent=-3 → rateValue = 0.001 = price directly
-function setupMocks() {
+const setupMocks = () => {
   ;(listFxRates as Mock).mockResolvedValue([
     {
       id: 1,

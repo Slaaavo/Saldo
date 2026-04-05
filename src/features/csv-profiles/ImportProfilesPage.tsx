@@ -4,7 +4,7 @@ import { Button } from '../../shared/ui/button'
 import ConfirmDialog from '../../shared/ui/ConfirmDialog'
 import { useImportProfiles } from './useImportProfiles'
 
-function countMappedColumns(columnMappingJson: string): number {
+const countMappedColumns = (columnMappingJson: string): number => {
   try {
     const m = JSON.parse(columnMappingJson) as Record<string, unknown>
     return Object.values(m).filter(Boolean).length
@@ -13,7 +13,7 @@ function countMappedColumns(columnMappingJson: string): number {
   }
 }
 
-export default function ImportProfilesPage() {
+const ImportProfilesPage = () => {
   const { t } = useTranslation()
   const { profiles, loading, deletingProfile, setDeletingProfile, handleDelete } = useImportProfiles()
 
@@ -69,3 +69,5 @@ export default function ImportProfilesPage() {
     </div>
   )
 }
+
+export default ImportProfilesPage

@@ -15,7 +15,7 @@ interface EditableRateCellProps {
   manualLabel: string
 }
 
-export function EditableRateCell({ date, code, row, isEditing, editValue, onCellClick, onEditValueChange, onSave, onCancel, manualLabel }: EditableRateCellProps) {
+export const EditableRateCell = ({ date, code, row, isEditing, editValue, onCellClick, onEditValueChange, onSave, onCancel, manualLabel }: EditableRateCellProps) => {
   return (
     <td
       className={cn('text-right py-1 px-3 font-mono text-sm cursor-pointer', row?.isManual && 'font-bold bg-amber-50 dark:bg-amber-900/20')}

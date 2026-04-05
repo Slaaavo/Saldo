@@ -12,7 +12,7 @@ interface SidebarProps {
   onToggleCollapse: () => void
 }
 
-export default function Sidebar({ collapsed, onToggleCollapse }: SidebarProps) {
+const Sidebar = ({ collapsed, onToggleCollapse }: SidebarProps) => {
   const { t } = useTranslation()
   const [hovered, setHovered] = useState(false)
 
@@ -78,3 +78,5 @@ export default function Sidebar({ collapsed, onToggleCollapse }: SidebarProps) {
     </nav>
   )
 }
+
+export default Sidebar

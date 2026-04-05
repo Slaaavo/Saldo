@@ -13,7 +13,7 @@ export interface SplitGroupRow {
   currencyMinorUnits: number
 }
 
-export function groupSplitEvents(events: EventWithData[]): (EventWithData | SplitGroupRow)[] {
+export const groupSplitEvents = (events: EventWithData[]): (EventWithData | SplitGroupRow)[] => {
   const standalone: EventWithData[] = []
   const grouped = new Map<number, EventWithData[]>()
 

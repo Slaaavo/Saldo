@@ -3,7 +3,7 @@ import type { FxRateRow, Currency } from '../../shared/types'
 
 export const formatRate = (r: FxRateRow): string => new Decimal(`${r.rateMantissa}e${r.rateExponent}`).toString()
 
-export function parseRateInput(input: string): { mantissa: number; exponent: number } | null {
+export const parseRateInput = (input: string): { mantissa: number; exponent: number } | null => {
   try {
     const d = new Decimal(input)
     if (d.isZero() || d.isNegative()) return null
@@ -22,20 +22,14 @@ export function parseRateInput(input: string): { mantissa: number; exponent: num
   }
 }
 
-/**
- * Build the pivot-table data for the FX rates page.
- * Filters out rates whose toCurrencyCode is not in the known currencies list,
- * then returns sorted dates (most recent first), sorted target currency codes,
- * and a lookup map keyed by `${date}:${toCurrencyCode}`.
- */
-export function buildRatePivot(
+export const buildRatePivot = (
   rates: FxRateRow[],
   currencies: Currency[],
 ): {
   dates: string[]
   targetCurrencies: string[]
   rateMap: Map<string, FxRateRow>
-} {
+} => {
   // Gate on currencies.length > 0 to avoid filtering everything while currencies are loading.
   const validCodes = currencies.length > 0 ? new Set(currencies.map((c) => c.code)) : null
   const filtered = validCodes ? rates.filter((r) => validCodes.has(r.toCurrencyCode)) : rates

@@ -11,12 +11,13 @@ interface ModalContextValue {
 
 const ModalContext = createContext<ModalContextValue | null>(null)
 
-export function ModalProvider({ children }: { children: ReactNode }) {
+export const ModalProvider = ({ children }: { children: ReactNode }) => {
   const { modalState, setModalState, closeModal } = useModalManager()
   return <ModalContext.Provider value={{ modalState, setModalState, closeModal }}>{children}</ModalContext.Provider>
 }
 
-export function useModal(): ModalContextValue {
+// eslint-disable-next-line react-refresh/only-export-components
+export const useModal = (): ModalContextValue => {
   const ctx = useContext(ModalContext)
   if (!ctx) throw new Error('useModal must be used within a ModalProvider')
   return ctx

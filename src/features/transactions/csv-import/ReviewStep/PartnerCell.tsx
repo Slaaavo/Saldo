@@ -17,7 +17,7 @@ export interface PartnerCellProps {
   isFirstOccurrence: boolean
 }
 
-export function PartnerCell({ row, accountsWithoutIban, allAccounts, onCreatePartner, onAssignIban, onCounterpartChange, isFirstOccurrence }: PartnerCellProps) {
+export const PartnerCell = ({ row, accountsWithoutIban, allAccounts, onCreatePartner, onAssignIban, onCounterpartChange, isFirstOccurrence }: PartnerCellProps) => {
   const { t } = useTranslation()
 
   switch (row.ibanMatch.type) {

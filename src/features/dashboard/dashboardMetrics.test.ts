@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { computeDashboardMetrics } from './dashboardMetrics'
 import type { SnapshotRow } from '../../shared/types'
 
-function makeSnapshot(overrides?: Partial<SnapshotRow>): SnapshotRow {
+const makeSnapshot = (overrides?: Partial<SnapshotRow>): SnapshotRow => {
   return {
     accountId: 1,
     accountName: 'Checking',
@@ -24,7 +24,7 @@ function makeSnapshot(overrides?: Partial<SnapshotRow>): SnapshotRow {
   }
 }
 
-function makeBucket(overrides?: Partial<SnapshotRow>): SnapshotRow {
+const makeBucket = (overrides?: Partial<SnapshotRow>): SnapshotRow => {
   return makeSnapshot({
     accountId: 10,
     accountName: 'Vacation',
@@ -35,7 +35,7 @@ function makeBucket(overrides?: Partial<SnapshotRow>): SnapshotRow {
   })
 }
 
-function makeAsset(overrides?: Partial<SnapshotRow>): SnapshotRow {
+const makeAsset = (overrides?: Partial<SnapshotRow>): SnapshotRow => {
   return makeSnapshot({
     accountId: 20,
     accountName: 'House',

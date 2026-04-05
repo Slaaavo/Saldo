@@ -26,7 +26,7 @@ interface RulesStepProps {
   onCancel: () => void
 }
 
-export default function RulesStep({ rules, csvHeaders, onRulesChange, onNext, onBack, onCancel }: RulesStepProps) {
+const RulesStep = ({ rules, csvHeaders, onRulesChange, onNext, onBack, onCancel }: RulesStepProps) => {
   const { t } = useTranslation()
   const [addType, setAddType] = useState<string>(ADD_NONE)
   const [validationErrors, setValidationErrors] = useState<ValidationErrors>({})
@@ -194,3 +194,5 @@ export default function RulesStep({ rules, csvHeaders, onRulesChange, onNext, on
     </>
   )
 }
+
+export default RulesStep

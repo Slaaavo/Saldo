@@ -5,7 +5,7 @@ interface Props {
   onExit: () => void
 }
 
-export default function DemoModeBanner({ onExit }: Props) {
+const DemoModeBanner = ({ onExit }: Props) => {
   const { t } = useTranslation()
 
   return (
@@ -25,3 +25,5 @@ export default function DemoModeBanner({ onExit }: Props) {
     </div>
   )
 }
+
+export default DemoModeBanner

@@ -22,7 +22,7 @@ interface Props {
   onClose: () => void
 }
 
-export default function CreateBalanceUpdateModal({ accounts, preselectedAccountId, onSubmit, onBucketSubmit, onClose }: Props) {
+const CreateBalanceUpdateModal = ({ accounts, preselectedAccountId, onSubmit, onBucketSubmit, onClose }: Props) => {
   const { t } = useTranslation()
 
   const initialAccountId = preselectedAccountId ?? accounts[0]?.accountId ?? 0
@@ -196,3 +196,5 @@ export default function CreateBalanceUpdateModal({ accounts, preselectedAccountI
     </Dialog>
   )
 }
+
+export default CreateBalanceUpdateModal

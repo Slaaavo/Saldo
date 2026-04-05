@@ -1,11 +1,7 @@
 import Decimal from 'decimal.js'
 import type { FxRateRow } from '../../shared/types'
 
-/**
- * Display the stored rate as a price.
- * If isDirect, the rate value IS the price. Otherwise invert: price = 1 / rate.
- */
-export function formatPrice(r: FxRateRow): string {
+export const formatPrice = (r: FxRateRow): string => {
   try {
     const rateDecimal = new Decimal(`${r.rateMantissa}e${r.rateExponent}`)
     if (r.isDirect) {
@@ -17,11 +13,7 @@ export function formatPrice(r: FxRateRow): string {
   }
 }
 
-/**
- * Parse a price string entered by the user and return it as {mantissa, exponent} for storage.
- * Stored directly (no inversion) — the stored rate IS the price.
- */
-export function parsePriceAsRate(input: string): { mantissa: number; exponent: number } | null {
+export const parsePriceAsRate = (input: string): { mantissa: number; exponent: number } | null => {
   try {
     const price = new Decimal(input)
     if (price.isZero() || price.isNegative()) return null

@@ -9,7 +9,7 @@ interface SignFromColumnFormProps {
   onChange: (rule: ImportRule) => void
 }
 
-export default function SignFromColumnForm({ rule, csvHeaders, onChange }: SignFromColumnFormProps) {
+const SignFromColumnForm = ({ rule, csvHeaders, onChange }: SignFromColumnFormProps) => {
   const { t } = useTranslation()
 
   const typeColumnMissing = rule.typeColumn !== '' && !csvHeaders.includes(rule.typeColumn)
@@ -41,3 +41,5 @@ export default function SignFromColumnForm({ rule, csvHeaders, onChange }: SignF
     </div>
   )
 }
+
+export default SignFromColumnForm

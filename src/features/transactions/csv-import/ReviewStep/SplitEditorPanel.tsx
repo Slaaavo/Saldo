@@ -7,7 +7,7 @@ import { Button } from '../../../../shared/ui/button'
 import NumberValue from '../../../../shared/ui/NumberValue'
 import { SplitLegRow } from './SplitLegRow'
 
-function SplitEditorColGroup() {
+const SplitEditorColGroup = () => {
   return (
     <colgroup>
       <col className="w-8" />
@@ -38,7 +38,7 @@ interface SplitEditorPanelProps {
   onAssignIban: (iban: string, targetAccountId: number) => Promise<void>
 }
 
-export function SplitEditorPanel({
+export const SplitEditorPanel = ({
   row,
   selectedAccountCurrencyCode,
   selectedAccountMinorUnits,
@@ -53,7 +53,7 @@ export function SplitEditorPanel({
   onRemoveLeg,
   onCreatePartner,
   onAssignIban,
-}: SplitEditorPanelProps) {
+}: SplitEditorPanelProps) => {
   const { t } = useTranslation()
 
   const legs = row.splitLegs!

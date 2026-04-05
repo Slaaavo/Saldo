@@ -94,7 +94,7 @@ vi.mock('./Ledger', () => ({
 // ── Helpers ─────────────────────────────────────────────────────────────────
 const EUR: Currency = { id: 1, code: 'EUR', name: 'Euro', minorUnits: 2, isCustom: false }
 
-function makeSnapshot(overrides?: Partial<SnapshotRow>): SnapshotRow {
+const makeSnapshot = (overrides?: Partial<SnapshotRow>): SnapshotRow => {
   return {
     accountId: 1,
     accountName: 'Checking',
@@ -116,7 +116,7 @@ function makeSnapshot(overrides?: Partial<SnapshotRow>): SnapshotRow {
   }
 }
 
-function makeBucket(overrides?: Partial<SnapshotRow>): SnapshotRow {
+const makeBucket = (overrides?: Partial<SnapshotRow>): SnapshotRow => {
   return makeSnapshot({
     accountId: 10,
     accountName: 'Vacation',
@@ -127,7 +127,7 @@ function makeBucket(overrides?: Partial<SnapshotRow>): SnapshotRow {
   })
 }
 
-function makeAsset(overrides?: Partial<SnapshotRow>): SnapshotRow {
+const makeAsset = (overrides?: Partial<SnapshotRow>): SnapshotRow => {
   return makeSnapshot({
     accountId: 20,
     accountName: 'House',
@@ -138,7 +138,7 @@ function makeAsset(overrides?: Partial<SnapshotRow>): SnapshotRow {
   })
 }
 
-function makeEvent(overrides?: Partial<EventWithData>): EventWithData {
+const makeEvent = (overrides?: Partial<EventWithData>): EventWithData => {
   return {
     id: 1,
     accountId: 1,
@@ -168,14 +168,13 @@ function makeEvent(overrides?: Partial<EventWithData>): EventWithData {
   }
 }
 
-// ── API mock helper ──────────────────────────────────────────────────────────
-function setupApiMocks(options?: { snapshot?: SnapshotRow[]; events?: EventWithData[] }) {
+const setupApiMocks = (options?: { snapshot?: SnapshotRow[]; events?: EventWithData[] }) => {
   ;(getAccountsSnapshot as Mock).mockResolvedValue(options?.snapshot ?? [makeSnapshot()])
   ;(listEvents as Mock).mockResolvedValue({ events: options?.events ?? [makeEvent()], totalCount: options?.events?.length ?? 1 })
   ;(getConsolidationCurrency as Mock).mockResolvedValue(EUR)
 }
 
-function renderDashboard() {
+const renderDashboard = () => {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: 0 } } })
   return render(
     <QueryClientProvider client={queryClient}>

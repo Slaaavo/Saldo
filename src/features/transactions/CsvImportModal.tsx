@@ -14,7 +14,7 @@ interface CsvImportModalProps {
   onSuccess: () => Promise<void>
 }
 
-export default function CsvImportModal({ snapshot, onClose, onSuccess }: CsvImportModalProps) {
+const CsvImportModal = ({ snapshot, onClose, onSuccess }: CsvImportModalProps) => {
   const { t } = useTranslation()
 
   const {
@@ -157,3 +157,5 @@ export default function CsvImportModal({ snapshot, onClose, onSuccess }: CsvImpo
     </Dialog>
   )
 }
+
+export default CsvImportModal

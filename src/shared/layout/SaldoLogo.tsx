@@ -1,6 +1,6 @@
 import type { ComponentProps } from 'react'
 
-export default function SaldoLogo({ className, ...props }: ComponentProps<'svg'>) {
+const SaldoLogo = ({ className, ...props }: ComponentProps<'svg'>) => {
   return (
     <svg viewBox="0 0 150 150" fill="none" xmlns="http://www.w3.org/2000/svg" className={className} {...props}>
       <path
@@ -14,3 +14,5 @@ export default function SaldoLogo({ className, ...props }: ComponentProps<'svg'>
     </svg>
   )
 }
+
+export default SaldoLogo

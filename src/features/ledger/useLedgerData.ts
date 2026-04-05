@@ -8,7 +8,7 @@ interface UseLedgerDataOptions {
   snapshot?: SnapshotRow[]
 }
 
-export function useLedgerData({ snapshot }: UseLedgerDataOptions = {}) {
+export const useLedgerData = ({ snapshot }: UseLedgerDataOptions = {}) => {
   const [fromDate, setFromDate] = useState('')
   const [toDate, setToDate] = useState('')
   const [selectedAccountIds, setSelectedAccountIds] = useState<number[]>([])

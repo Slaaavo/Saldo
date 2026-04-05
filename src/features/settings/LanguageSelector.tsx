@@ -6,7 +6,7 @@ const LANGUAGES = [
   { code: 'sk', labelKey: 'language.sk' },
 ] as const
 
-export default function LanguageSelector() {
+const LanguageSelector = () => {
   const { t, i18n } = useTranslation()
 
   return (
@@ -24,3 +24,5 @@ export default function LanguageSelector() {
     </Select>
   )
 }
+
+export default LanguageSelector

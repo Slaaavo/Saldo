@@ -22,7 +22,7 @@ interface Props {
   onDeleteTransferEvent?: (eventId: number, linkedEventId: number) => void
 }
 
-export default function LedgerEventList({ events, accounts, consolidationCurrency, onEditEvent, onDeleteEvent, onDeleteTransferEvent }: Props) {
+const LedgerEventList = ({ events, accounts, consolidationCurrency, onEditEvent, onDeleteEvent, onDeleteTransferEvent }: Props) => {
   const { t } = useTranslation()
   const [expandedGroups, setExpandedGroups] = useState<Set<number>>(new Set())
 
@@ -263,3 +263,5 @@ export default function LedgerEventList({ events, accounts, consolidationCurrenc
     </div>
   )
 }
+
+export default LedgerEventList

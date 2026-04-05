@@ -86,7 +86,7 @@ vi.mock('../../shared/ui/date-picker', () => ({
 
 import { listEvents, getAccountsSnapshot, getConsolidationCurrency } from '../../shared/api'
 
-function renderLedgerPage() {
+const renderLedgerPage = () => {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: 0 } } })
   return render(
     <QueryClientProvider client={queryClient}>

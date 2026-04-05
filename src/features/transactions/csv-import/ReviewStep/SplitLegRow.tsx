@@ -30,7 +30,7 @@ interface SplitLegRowProps {
   onAssignIban: (iban: string, targetAccountId: number) => Promise<void>
 }
 
-export function SplitLegRow({
+export const SplitLegRow = ({
   leg,
   legNumber,
   selectedAccountMinorUnits,
@@ -46,7 +46,7 @@ export function SplitLegRow({
   onRemove,
   onCreatePartner,
   onAssignIban,
-}: SplitLegRowProps) {
+}: SplitLegRowProps) => {
   const { t } = useTranslation()
 
   const [amountStr, setAmountStr] = useState(() => fromMinorUnits(leg.amountMinor, selectedAccountMinorUnits))

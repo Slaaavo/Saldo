@@ -122,12 +122,10 @@ vi.mock('../../shared/api', () => ({
 }))
 import { getAccountsSnapshot, getBulkUpdateExclusions } from '../../shared/api'
 
-// ── QueryClient test wrapper ──────────────────────────────────────────────────
-function makeWrapper() {
+const makeWrapper = () => {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: 0 } } })
-  return function Wrapper({ children }: { children: React.ReactNode }) {
-    return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
-  }
+  const Wrapper = ({ children }: { children: React.ReactNode }) => <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+  return Wrapper
 }
 
 // ── Tests ───────────────────────────────────────────────────────────────────

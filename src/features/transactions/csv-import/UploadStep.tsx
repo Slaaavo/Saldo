@@ -21,7 +21,7 @@ interface UploadStepProps {
   canProceed: boolean
 }
 
-export default function UploadStep({
+const UploadStep = ({
   fileName,
   selectedAccountId,
   accounts,
@@ -33,7 +33,7 @@ export default function UploadStep({
   onNext,
   onCancel,
   canProceed,
-}: UploadStepProps) {
+}: UploadStepProps) => {
   const { t } = useTranslation()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [isDragOver, setIsDragOver] = useState(false)
@@ -147,3 +147,5 @@ export default function UploadStep({
     </>
   )
 }
+
+export default UploadStep

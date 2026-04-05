@@ -10,10 +10,12 @@ interface NumberValueProps extends HTMLAttributes<HTMLSpanElement> {
   currencyCode?: string
 }
 
-export default function NumberValue({ value, minorUnits = 2, config = defaultNumberFormat, currencyCode, className, ...rest }: NumberValueProps) {
+const NumberValue = ({ value, minorUnits = 2, config = defaultNumberFormat, currencyCode, className, ...rest }: NumberValueProps) => {
   return (
     <span className={className} {...rest}>
       {formatAmount(value, minorUnits, config, currencyCode)}
     </span>
   )
 }
+
+export default NumberValue

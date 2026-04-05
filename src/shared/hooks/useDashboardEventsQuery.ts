@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { listEvents } from '../api'
 import { toEndOfDay } from '../utils/format'
 
-export function useDashboardEventsQuery(selectedDate: string) {
+export const useDashboardEventsQuery = (selectedDate: string) => {
   return useQuery({
     queryKey: ['events', 'dashboard', selectedDate],
     queryFn: async () => {

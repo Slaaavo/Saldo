@@ -3,7 +3,7 @@ import type { PartnerAccount } from '../../shared/types'
 import { listPartnerAccounts, createPartnerAccount, updatePartnerAccount, deletePartnerAccount, getConsolidationCurrency } from '../../shared/api'
 import { extractErrorMessage } from '../../shared/utils/errors'
 
-export function usePartners() {
+export const usePartners = () => {
   const [partners, setPartners] = useState<PartnerAccount[]>([])
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')

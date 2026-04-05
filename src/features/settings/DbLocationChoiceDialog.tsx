@@ -12,7 +12,7 @@ interface Props {
   loading?: boolean
 }
 
-export default function DbLocationChoiceDialog({ onAction, onCancel, loading = false }: Props) {
+const DbLocationChoiceDialog = ({ onAction, onCancel, loading = false }: Props) => {
   const { t } = useTranslation()
   const [pendingAction, setPendingAction] = useState<DbLocationAction | null>(null)
 
@@ -52,3 +52,5 @@ export default function DbLocationChoiceDialog({ onAction, onCancel, loading = f
     </Dialog>
   )
 }
+
+export default DbLocationChoiceDialog

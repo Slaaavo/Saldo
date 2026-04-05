@@ -3,7 +3,7 @@ import { groupSplitEvents } from './splitGroupUtils'
 import type { SplitGroupRow } from './splitGroupUtils'
 import type { EventWithData } from '../types'
 
-function makeEvent(overrides?: Partial<EventWithData>): EventWithData {
+const makeEvent = (overrides?: Partial<EventWithData>): EventWithData => {
   return {
     id: 1,
     accountId: 1,

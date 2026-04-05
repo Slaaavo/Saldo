@@ -26,7 +26,7 @@ const FIELDS: { key: CashflowFieldKey; required: boolean }[] = [
 
 const SKIP_VALUE = '__skip__'
 
-export default function MappingStep({ csvHeaders, columnMapping, onMappingChange, onNext, onBack, onCancel, canProceed }: MappingStepProps) {
+const MappingStep = ({ csvHeaders, columnMapping, onMappingChange, onNext, onBack, onCancel, canProceed }: MappingStepProps) => {
   const { t } = useTranslation()
 
   const autoDetectedMapping = autoDetectMapping(csvHeaders)
@@ -94,3 +94,5 @@ export default function MappingStep({ csvHeaders, columnMapping, onMappingChange
     </>
   )
 }
+
+export default MappingStep

@@ -24,8 +24,7 @@ const PAGE_TITLES: Record<string, string> = {
   'import-profiles': 'sidebar.importProfiles',
 }
 
-// AppShell renders inside ModalProvider so it can safely call useModal()
-function AppShell() {
+const AppShell = () => {
   const { t } = useTranslation()
   const { theme } = useTheme()
   const { setModalState, closeModal } = useModal()
@@ -75,7 +74,7 @@ function AppShell() {
   )
 }
 
-function App() {
+const App = () => {
   return (
     <ModalProvider>
       <AppShell />

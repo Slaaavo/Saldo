@@ -21,27 +21,27 @@ interface DatePickerProps {
   defaultTime?: string
 }
 
-function parseDateOnly(value: string): Date {
+const parseDateOnly = (value: string): Date => {
   const datePart = value.substring(0, 10)
   const [y, m, d] = datePart.split('-').map(Number)
   return new Date(y, m - 1, d, 12, 0, 0)
 }
 
-function toIsoString(date: Date): string {
+const toIsoString = (date: Date): string => {
   const y = date.getFullYear()
   const m = String(date.getMonth() + 1).padStart(2, '0')
   const d = String(date.getDate()).padStart(2, '0')
   return `${y}-${m}-${d}`
 }
 
-function combineDateTime(date: Date, h: string, m: string): string {
+const combineDateTime = (date: Date, h: string, m: string): string => {
   const y = date.getFullYear()
   const mo = String(date.getMonth() + 1).padStart(2, '0')
   const d = String(date.getDate()).padStart(2, '0')
   return `${y}-${mo}-${d}T${h}:${m}:00`
 }
 
-function parseTimePart(value: string | undefined, defaultTime: string): { h: string; m: string } {
+const parseTimePart = (value: string | undefined, defaultTime: string): { h: string; m: string } => {
   if (value && value.length >= 16) {
     const [h, min] = value.substring(11, 16).split(':')
     return { h: h.padStart(2, '0'), m: min.padStart(2, '0') }
@@ -53,7 +53,7 @@ function parseTimePart(value: string | undefined, defaultTime: string): { h: str
 const HOURS = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'))
 const MINUTES = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0'))
 
-export function DatePicker({ value, onChange, placeholder = 'Pick a date', id, className, clearable = false, withTime = false, defaultTime = '23:59' }: DatePickerProps) {
+export const DatePicker = ({ value, onChange, placeholder = 'Pick a date', id, className, clearable = false, withTime = false, defaultTime = '23:59' }: DatePickerProps) => {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
 

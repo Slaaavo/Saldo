@@ -5,7 +5,7 @@ import type { Currency } from '../../shared/types'
 import { cn } from '@/shared/lib/utils'
 import { Input } from '../../shared/ui/input'
 
-function CurrencyOption({ currency, onSelect }: { currency: Currency; onSelect: (c: Currency) => void }) {
+const CurrencyOption = ({ currency, onSelect }: { currency: Currency; onSelect: (c: Currency) => void }) => {
   return (
     <button
       type="button"
@@ -26,7 +26,7 @@ interface CurrencySelectProps {
   className?: string
 }
 
-export default function CurrencySelect({ currencies, value, onChange, pinnedCurrencyCodes, className }: CurrencySelectProps) {
+const CurrencySelect = ({ currencies, value, onChange, pinnedCurrencyCodes, className }: CurrencySelectProps) => {
   const { t } = useTranslation()
   const [currencySearch, setCurrencySearch] = useState('')
   const [showDropdown, setShowDropdown] = useState(false)
@@ -85,3 +85,5 @@ export default function CurrencySelect({ currencies, value, onChange, pinnedCurr
     </div>
   )
 }
+
+export default CurrencySelect

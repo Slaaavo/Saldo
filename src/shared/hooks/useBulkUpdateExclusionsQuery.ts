@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { getBulkUpdateExclusions } from '../api'
 
-export function useBulkUpdateExclusionsQuery() {
+export const useBulkUpdateExclusionsQuery = () => {
   return useQuery({
     queryKey: ['bulk-update-exclusions'],
     queryFn: async () => {

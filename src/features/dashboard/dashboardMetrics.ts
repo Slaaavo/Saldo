@@ -10,7 +10,7 @@ export interface DashboardMetrics {
   netWorthMinor: number
 }
 
-export function computeDashboardMetrics(snapshot: SnapshotRow[]): DashboardMetrics {
+export const computeDashboardMetrics = (snapshot: SnapshotRow[]): DashboardMetrics => {
   const accounts = snapshot.filter((r) => r.accountType === 'account')
   const buckets = snapshot.filter((r) => r.accountType === 'bucket')
   const assets = snapshot.filter((r) => r.accountType === 'asset')

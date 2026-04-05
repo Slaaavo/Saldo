@@ -10,7 +10,7 @@ interface OverrideDateFromDescriptionFormProps {
   errors?: { conditionRegex?: string; dateRegex?: string }
 }
 
-export default function OverrideDateFromDescriptionForm({ rule, csvHeaders, onChange, errors }: OverrideDateFromDescriptionFormProps) {
+const OverrideDateFromDescriptionForm = ({ rule, csvHeaders, onChange, errors }: OverrideDateFromDescriptionFormProps) => {
   const { t } = useTranslation()
 
   const descColumnMissing = rule.descriptionColumn !== '' && !csvHeaders.includes(rule.descriptionColumn)
@@ -118,3 +118,5 @@ export default function OverrideDateFromDescriptionForm({ rule, csvHeaders, onCh
     </div>
   )
 }
+
+export default OverrideDateFromDescriptionForm

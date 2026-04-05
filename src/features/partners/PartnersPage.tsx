@@ -8,7 +8,7 @@ import { usePartners } from './usePartners'
 import CreatePartnerModal from './CreatePartnerModal'
 import EditPartnerModal from './EditPartnerModal'
 
-export default function PartnersPage() {
+const PartnersPage = () => {
   const { t } = useTranslation()
   const {
     filteredPartners,
@@ -98,3 +98,5 @@ export default function PartnersPage() {
     </div>
   )
 }
+
+export default PartnersPage

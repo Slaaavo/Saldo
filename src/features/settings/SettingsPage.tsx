@@ -21,7 +21,7 @@ import { useSnapshotQuery } from '../../shared/hooks/useSnapshotQuery'
 import { useBulkUpdateExclusionsQuery } from '../../shared/hooks/useBulkUpdateExclusionsQuery'
 import { todayIso } from '../../shared/utils/format'
 
-export default function SettingsPage() {
+const SettingsPage = () => {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [visibilityModalOpen, setVisibilityModalOpen] = useState(false)
@@ -185,3 +185,5 @@ export default function SettingsPage() {
     </div>
   )
 }
+
+export default SettingsPage

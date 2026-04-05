@@ -16,11 +16,12 @@ interface DemoProviderProps {
   children: ReactNode
 }
 
-export function DemoProvider({ isDemoMode, onEnterDemoMode, onExitDemoMode, children }: DemoProviderProps) {
+export const DemoProvider = ({ isDemoMode, onEnterDemoMode, onExitDemoMode, children }: DemoProviderProps) => {
   return <DemoContext.Provider value={{ isDemoMode, onEnterDemoMode, onExitDemoMode }}>{children}</DemoContext.Provider>
 }
 
-export function useDemo(): DemoContextValue {
+// eslint-disable-next-line react-refresh/only-export-components
+export const useDemo = (): DemoContextValue => {
   const ctx = useContext(DemoContext)
   if (!ctx) throw new Error('useDemo must be used within a DemoProvider')
   return ctx

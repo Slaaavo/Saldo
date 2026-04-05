@@ -46,7 +46,7 @@ export interface ReviewStepProps {
 
 const BUCKET_NONE = '__none__'
 
-function ReviewTableColGroup() {
+const ReviewTableColGroup = () => {
   return (
     <colgroup>
       <col className="w-8" />
@@ -60,7 +60,7 @@ function ReviewTableColGroup() {
   )
 }
 
-export default function ReviewStep({
+const ReviewStep = ({
   importRows,
   selectedCount,
   duplicateCount,
@@ -91,7 +91,7 @@ export default function ReviewStep({
   onAddLeg,
   onRemoveLeg,
   splitValidationErrors,
-}: ReviewStepProps) {
+}: ReviewStepProps) => {
   const { t } = useTranslation()
 
   const total = importRows.length
@@ -303,3 +303,5 @@ export default function ReviewStep({
     </>
   )
 }
+
+export default ReviewStep

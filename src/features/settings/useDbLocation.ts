@@ -11,7 +11,7 @@ interface UseDbLocationOptions {
   onAfterDbChange: () => Promise<void>
 }
 
-export function useDbLocation({ setModalState, closeModal, onAfterDbChange }: UseDbLocationOptions) {
+export const useDbLocation = ({ setModalState, closeModal, onAfterDbChange }: UseDbLocationOptions) => {
   const { t } = useTranslation()
   const [path, setPath] = useState('')
   const [isDefault, setIsDefault] = useState(true)

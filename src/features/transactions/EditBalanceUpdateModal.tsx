@@ -21,7 +21,7 @@ interface Props {
   onClose: () => void
 }
 
-export default function EditBalanceUpdateModal({ event, accounts, onSubmit, onBucketSubmit, onClose }: Props) {
+const EditBalanceUpdateModal = ({ event, accounts, onSubmit, onBucketSubmit, onClose }: Props) => {
   const { t } = useTranslation()
   const minorUnits = event.currencyMinorUnits
   const isBucket = event.accountType === 'bucket'
@@ -164,3 +164,5 @@ export default function EditBalanceUpdateModal({ event, accounts, onSubmit, onBu
     </Dialog>
   )
 }
+
+export default EditBalanceUpdateModal

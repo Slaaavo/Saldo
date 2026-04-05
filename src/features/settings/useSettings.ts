@@ -5,7 +5,7 @@ import { listCurrencies, getConsolidationCurrency, setConsolidationCurrency, get
 
 const SAVED_FLASH_MS = 2000
 
-export function useSettings() {
+export const useSettings = () => {
   const queryClient = useQueryClient()
   const [currencies, setCurrencies] = useState<Currency[]>([])
   const [selectedCurrency, setSelectedCurrency] = useState<Currency | null>(null)

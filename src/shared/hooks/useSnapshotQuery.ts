@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { getAccountsSnapshot } from '../api'
 import { toEndOfDay } from '../utils/format'
 
-export function useSnapshotQuery(selectedDate: string) {
+export const useSnapshotQuery = (selectedDate: string) => {
   return useQuery({
     queryKey: ['snapshot', selectedDate],
     queryFn: async () => {

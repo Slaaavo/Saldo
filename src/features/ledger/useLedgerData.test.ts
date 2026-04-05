@@ -29,16 +29,14 @@ vi.mock('react-i18next', () => {
 
 import { listEvents } from '../../shared/api'
 
-// ── Wrapper helper ──────────────────────────────────────────────────────────
-function createWrapper() {
+const createWrapper = () => {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: 0, refetchOnWindowFocus: false } },
   })
   return ({ children }: { children: React.ReactNode }) => React.createElement(QueryClientProvider, { client: queryClient }, children)
 }
 
-// ── Test data ───────────────────────────────────────────────────────────────
-function makeSnapshot(overrides?: Partial<SnapshotRow>): SnapshotRow {
+const makeSnapshot = (overrides?: Partial<SnapshotRow>): SnapshotRow => {
   return {
     accountId: 1,
     accountName: 'Checking',
@@ -60,7 +58,7 @@ function makeSnapshot(overrides?: Partial<SnapshotRow>): SnapshotRow {
   }
 }
 
-function makeEvent(overrides?: Partial<EventWithData>): EventWithData {
+const makeEvent = (overrides?: Partial<EventWithData>): EventWithData => {
   return {
     id: 1,
     accountId: 1,

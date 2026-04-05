@@ -7,7 +7,7 @@ import { extractErrorMessage } from '../../shared/utils/errors'
 import { formatPrice, parsePriceAsRate } from './unitPricing'
 import { cn } from '@/shared/lib/utils'
 
-export default function UnitsPage() {
+const UnitsPage = () => {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [units, setUnits] = useState<Currency[]>([])
@@ -163,3 +163,5 @@ export default function UnitsPage() {
     </div>
   )
 }
+
+export default UnitsPage

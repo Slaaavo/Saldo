@@ -24,7 +24,7 @@ interface Props {
   allAccounts?: SnapshotRow[]
 }
 
-export default function AccountCards({
+const AccountCards = ({
   snapshot,
   consolidationCurrency,
   sectionTitle,
@@ -39,7 +39,7 @@ export default function AccountCards({
   onManageLinkedAssets,
   allAssets,
   allAccounts,
-}: Props) {
+}: Props) => {
   const { t } = useTranslation()
   const scrollRef = useRef<HTMLDivElement>(null)
   const [canScrollLeft, setCanScrollLeft] = useState(false)
@@ -134,3 +134,5 @@ export default function AccountCards({
     </section>
   )
 }
+
+export default AccountCards

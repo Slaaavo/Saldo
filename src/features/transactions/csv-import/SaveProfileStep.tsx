@@ -12,7 +12,7 @@ interface SaveProfileStepProps {
   onClose: () => void
 }
 
-export default function SaveProfileStep({ importedCount, loadedProfileName, onSaveNew, onUpdate, onClose }: SaveProfileStepProps) {
+const SaveProfileStep = ({ importedCount, loadedProfileName, onSaveNew, onUpdate, onClose }: SaveProfileStepProps) => {
   const { t } = useTranslation()
   const [profileName, setProfileName] = useState('')
   const [saving, setSaving] = useState(false)
@@ -41,7 +41,6 @@ export default function SaveProfileStep({ importedCount, loadedProfileName, onSa
       <DialogHeader>
         <DialogTitle>{t('import.saveStep.title')}</DialogTitle>
       </DialogHeader>
-
       <div className="flex flex-col gap-4">
         <p className="text-sm">{t('import.saveStep.success', { count: importedCount })}</p>
 
@@ -68,17 +67,14 @@ export default function SaveProfileStep({ importedCount, loadedProfileName, onSa
           // Variant B: a profile was loaded and changed
           <div className="flex flex-col gap-4">
             <p className="text-sm text-muted-foreground">{t('import.saveStep.changedPrompt', { name: loadedProfileName })}</p>
-
             <Button type="button" onClick={() => void handleUpdate()} disabled={saving} variant="default">
               {t('import.saveStep.update', { name: loadedProfileName })}
             </Button>
-
             <div className="relative flex items-center gap-2">
               <div className="h-px flex-1 bg-border" />
               <span className="text-xs text-muted-foreground">{t('import.saveStep.orSaveNew')}</span>
               <div className="h-px flex-1 bg-border" />
             </div>
-
             <div className="flex gap-2">
               <Input
                 value={profileName}
@@ -105,3 +101,5 @@ export default function SaveProfileStep({ importedCount, loadedProfileName, onSa
     </>
   )
 }
+
+export default SaveProfileStep

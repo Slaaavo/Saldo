@@ -19,7 +19,7 @@ interface Props {
   onClose: () => void
 }
 
-export default function CreateAccountModal({ accountType, assets, onSubmit, onClose }: Props) {
+const CreateAccountModal = ({ accountType, assets, onSubmit, onClose }: Props) => {
   const { t } = useTranslation()
   const [name, setName] = useState('')
   const [balance, setBalance] = useState('')
@@ -164,3 +164,5 @@ export default function CreateAccountModal({ accountType, assets, onSubmit, onCl
     </Dialog>
   )
 }
+
+export default CreateAccountModal

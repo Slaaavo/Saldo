@@ -6,7 +6,7 @@ import { extractErrorMessage } from '../../shared/utils/errors'
 import { formatRate, parseRateInput, buildRatePivot } from './fxRate'
 import { todayIso } from '../../shared/utils/format'
 
-export function useFxRates() {
+export const useFxRates = () => {
   const queryClient = useQueryClient()
   const [rates, setRates] = useState<FxRateRow[]>([])
   const [currencies, setCurrencies] = useState<Currency[]>([])

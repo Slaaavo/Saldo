@@ -41,8 +41,7 @@ vi.mock('../../shared/ui/date-picker', () => ({
 
 import { listFxRates, fetchFxRates, listCurrencies, getConsolidationCurrency, setFxRateManual, getMissingRateDates } from '../../shared/api'
 
-// ── Render helper ──────────────────────────────────────────────────────────
-function renderFxRatesPage() {
+const renderFxRatesPage = () => {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: 0 } } })
   return render(
     <QueryClientProvider client={queryClient}>
@@ -83,7 +82,7 @@ const sampleRates: FxRateRow[] = [
   makeRate(4, '2026-01-01', 'GBP', 8456, -4),
 ]
 
-function setupMocks(overrides?: { rates?: FxRateRow[]; currencies?: Currency[]; consolidationCode?: string; missingDates?: string[] }) {
+const setupMocks = (overrides?: { rates?: FxRateRow[]; currencies?: Currency[]; consolidationCode?: string; missingDates?: string[] }) => {
   const { rates = sampleRates, currencies = [EUR, USD, GBP], consolidationCode = 'EUR', missingDates = [] } = overrides ?? {}
 
   ;(listFxRates as Mock).mockResolvedValue(rates)

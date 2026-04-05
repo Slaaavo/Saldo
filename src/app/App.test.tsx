@@ -164,7 +164,8 @@ vi.mock('./useModalActions', () => ({
 // ── Mock child components ───────────────────────────────────────────────────
 vi.mock('../shared/layout/Header', async () => {
   const { useRouterState } = await import('@tanstack/react-router')
-  function HeaderMock({ pageTitle }: { pageTitle: string }) {
+
+  const HeaderMock = ({ pageTitle }: { pageTitle: string }) => {
     const pathname = useRouterState({ select: (s: { location: { pathname: string } }) => s.location.pathname })
     const showDatePicker = pathname === '/dashboard'
     return (
@@ -174,12 +175,14 @@ vi.mock('../shared/layout/Header', async () => {
       </div>
     )
   }
+
   return { default: HeaderMock }
 })
 
 vi.mock('../shared/layout/Sidebar', async () => {
   const { useNavigate, useRouterState } = await import('@tanstack/react-router')
-  function SidebarMock({ collapsed, onToggleCollapse }: { collapsed: boolean; onToggleCollapse: () => void }) {
+
+  const SidebarMock = ({ collapsed, onToggleCollapse }: { collapsed: boolean; onToggleCollapse: () => void }) => {
     const navigate = useNavigate()
     const pathname = useRouterState({ select: (s: { location: { pathname: string } }) => s.location.pathname })
     return (
@@ -204,6 +207,7 @@ vi.mock('../shared/layout/Sidebar', async () => {
       </div>
     )
   }
+
   return { default: SidebarMock }
 })
 
@@ -223,7 +227,8 @@ vi.mock('../features/dashboard/DashboardView', () => ({
 
 vi.mock('../features/settings/SettingsPage', async () => {
   const { useDemo } = await import('./DemoContext')
-  function SettingsPageMock() {
+
+  const SettingsPageMock = () => {
     const demo = useDemo()
     return (
       <div data-testid="settings-page">
@@ -237,6 +242,7 @@ vi.mock('../features/settings/SettingsPage', async () => {
       </div>
     )
   }
+
   return { default: SettingsPageMock }
 })
 
@@ -397,8 +403,7 @@ vi.mock('../features/transactions/EditTransferModal', () => ({
   default: () => <div data-testid="edit-transfer-modal" />,
 }))
 
-// ── Helpers ─────────────────────────────────────────────────────────────────
-function makeSnapshot(overrides?: Partial<SnapshotRow>): SnapshotRow {
+const makeSnapshot = (overrides?: Partial<SnapshotRow>): SnapshotRow => {
   return {
     accountId: 1,
     accountName: 'Checking',
@@ -420,7 +425,7 @@ function makeSnapshot(overrides?: Partial<SnapshotRow>): SnapshotRow {
   }
 }
 
-function makeBucket(overrides?: Partial<SnapshotRow>): SnapshotRow {
+const makeBucket = (overrides?: Partial<SnapshotRow>): SnapshotRow => {
   return makeSnapshot({
     accountId: 10,
     accountName: 'Vacation',
@@ -431,7 +436,7 @@ function makeBucket(overrides?: Partial<SnapshotRow>): SnapshotRow {
   })
 }
 
-function makeAsset(overrides?: Partial<SnapshotRow>): SnapshotRow {
+const makeAsset = (overrides?: Partial<SnapshotRow>): SnapshotRow => {
   return makeSnapshot({
     accountId: 20,
     accountName: 'House',
@@ -442,7 +447,7 @@ function makeAsset(overrides?: Partial<SnapshotRow>): SnapshotRow {
   })
 }
 
-function makeEvent(overrides?: Partial<EventWithData>): EventWithData {
+const makeEvent = (overrides?: Partial<EventWithData>): EventWithData => {
   return {
     id: 1,
     accountId: 1,
@@ -479,7 +484,7 @@ const defaultDbLocation: DbLocationInfo = {
   fallbackWarning: false,
 }
 
-function setupDefaultMocks(overrides?: { snapshot?: SnapshotRow[] }) {
+const setupDefaultMocks = (overrides?: { snapshot?: SnapshotRow[] }) => {
   mockIsDemoMode.mockResolvedValue(false)
   mockGetDbLocation.mockResolvedValue(defaultDbLocation)
   mockEnterDemoMode.mockResolvedValue(undefined)
@@ -495,8 +500,7 @@ function setupDefaultMocks(overrides?: { snapshot?: SnapshotRow[] }) {
   mockListEvents.mockResolvedValue({ events: [], totalCount: 0 })
 }
 
-// ── Router + App helpers ─────────────────────────────────────────────────────
-function createTestRouter(initialPath = '/dashboard') {
+const createTestRouter = (initialPath = '/dashboard') => {
   const rootRoute = createRootRoute({ component: App })
   const indexRoute = createRoute({ getParentRoute: () => rootRoute, path: '/' })
   const dashboardRoute = createRoute({ getParentRoute: () => rootRoute, path: '/dashboard', component: DashboardView })
@@ -510,7 +514,7 @@ function createTestRouter(initialPath = '/dashboard') {
   return createRouter({ routeTree, history: createMemoryHistory({ initialEntries: [initialPath] }) })
 }
 
-function renderApp(initialPath = '/dashboard') {
+const renderApp = (initialPath = '/dashboard') => {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: 0 } } })
   const router = createTestRouter(initialPath)
   return render(

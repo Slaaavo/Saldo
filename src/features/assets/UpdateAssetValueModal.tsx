@@ -24,7 +24,7 @@ interface Props {
   onClose: () => void
 }
 
-function parsePriceInput(input: string): string | null {
+const parsePriceInput = (input: string): string | null => {
   try {
     const d = new Decimal(input)
     if (d.isZero() || d.isNegative()) return null
@@ -34,7 +34,7 @@ function parsePriceInput(input: string): string | null {
   }
 }
 
-export default function UpdateAssetValueModal({ accountId, accountName, currencyCode, currencyMinorUnits, balanceMinor, consolidationCurrency, onSubmit, onClose }: Props) {
+const UpdateAssetValueModal = ({ accountId, accountName, currencyCode, currencyMinorUnits, balanceMinor, consolidationCurrency, onSubmit, onClose }: Props) => {
   const { t } = useTranslation()
 
   const originalQuantityStr = fromMinorUnits(balanceMinor, currencyMinorUnits)
@@ -168,3 +168,5 @@ export default function UpdateAssetValueModal({ accountId, accountName, currency
     </Dialog>
   )
 }
+
+export default UpdateAssetValueModal

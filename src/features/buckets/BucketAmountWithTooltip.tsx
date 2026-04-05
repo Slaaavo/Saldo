@@ -18,7 +18,7 @@ interface Props {
   cashflowTaggedMinor?: number
 }
 
-export default function BucketAmountWithTooltip({
+const BucketAmountWithTooltip = ({
   totalMinor,
   manualBalanceMinor,
   bucketLinks,
@@ -30,7 +30,7 @@ export default function BucketAmountWithTooltip({
   allAccounts,
   consolidationCurrencyCode,
   cashflowTaggedMinor,
-}: Props) {
+}: Props) => {
   const { t } = useTranslation()
 
   const amount = <NumberValue value={totalMinor} currencyCode={currencyCode} minorUnits={minorUnits} className={className} />
@@ -76,3 +76,5 @@ export default function BucketAmountWithTooltip({
     </TooltipProvider>
   )
 }
+
+export default BucketAmountWithTooltip

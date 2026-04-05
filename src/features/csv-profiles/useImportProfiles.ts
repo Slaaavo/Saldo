@@ -4,7 +4,7 @@ import type { ImportProfileRow } from '../../shared/types'
 import { listImportProfiles, deleteImportProfile } from '../../shared/api'
 import { extractErrorMessage } from '../../shared/utils/errors'
 
-export function useImportProfiles() {
+export const useImportProfiles = () => {
   const [profiles, setProfiles] = useState<ImportProfileRow[]>([])
   const [loading, setLoading] = useState(true)
   const [deletingProfile, setDeletingProfile] = useState<ImportProfileRow | null>(null)

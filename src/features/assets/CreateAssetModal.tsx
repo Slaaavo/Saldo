@@ -22,7 +22,7 @@ interface Props {
 type Denomination = 'currency' | 'unit'
 const NEW_UNIT_VALUE = '__new__'
 
-export default function CreateAssetModal({ onSuccess, onClose }: Props) {
+const CreateAssetModal = ({ onSuccess, onClose }: Props) => {
   const { t } = useTranslation()
 
   const [denomination, setDenomination] = useState<Denomination>('currency')
@@ -331,3 +331,5 @@ export default function CreateAssetModal({ onSuccess, onClose }: Props) {
     </Dialog>
   )
 }
+
+export default CreateAssetModal

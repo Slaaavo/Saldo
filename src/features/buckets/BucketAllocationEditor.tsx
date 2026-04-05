@@ -16,7 +16,7 @@ interface Props {
   handleUnlink: (tempId: string) => void
 }
 
-export default function BucketAllocationEditor({
+const BucketAllocationEditor = ({
   visibleLinks,
   availableToLink,
   allAccounts,
@@ -26,7 +26,7 @@ export default function BucketAllocationEditor({
   handleAddLink,
   handleRemoveNew,
   handleUnlink,
-}: Props) {
+}: Props) => {
   const { t } = useTranslation()
 
   const hasAccounts = allAccounts.some((a) => a.accountType === 'account')
@@ -95,3 +95,5 @@ export default function BucketAllocationEditor({
     </>
   )
 }
+
+export default BucketAllocationEditor

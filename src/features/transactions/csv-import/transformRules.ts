@@ -2,13 +2,13 @@ import type { ImportRule, SignFromColumnParams, OverrideDateFromDescriptionParam
 import type { CsvRow, ColumnMapping, TransformedCsvRow } from './types'
 import { parseDateString } from './csvParser'
 
-export function applyRules(
+export const applyRules = (
   csvRows: CsvRow[],
   rules: ImportRule[],
   // columnMapping is part of the public API signature reserved for future rule types
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   _columnMapping: ColumnMapping,
-): TransformedCsvRow[] {
+): TransformedCsvRow[] => {
   const sortedRules = [...rules].sort((a, b) => a.sortOrder - b.sortOrder)
 
   return csvRows.map((row) => {
@@ -30,7 +30,7 @@ export function applyRules(
   })
 }
 
-function applySignFromColumn(row: TransformedCsvRow, rule: { typeColumn: string; negativeType: string }): void {
+const applySignFromColumn = (row: TransformedCsvRow, rule: { typeColumn: string; negativeType: string }): void => {
   const value = row[rule.typeColumn]
   if (value === undefined) return
   if (value.trim().toLowerCase() === rule.negativeType.trim().toLowerCase()) {
@@ -38,7 +38,7 @@ function applySignFromColumn(row: TransformedCsvRow, rule: { typeColumn: string;
   }
 }
 
-function applyOverrideDateFromDescription(row: TransformedCsvRow, rule: { descriptionColumn: string; conditionRegex: string; dateRegex: string }): void {
+const applyOverrideDateFromDescription = (row: TransformedCsvRow, rule: { descriptionColumn: string; conditionRegex: string; dateRegex: string }): void => {
   const description = row[rule.descriptionColumn]
   if (description === undefined) return
 

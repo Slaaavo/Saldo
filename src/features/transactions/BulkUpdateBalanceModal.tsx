@@ -21,7 +21,7 @@ interface Props {
   onClose: () => void
 }
 
-export default function BulkUpdateBalanceModal({ accounts, selectedDate, exclusions, onSubmit, onClose }: Props) {
+const BulkUpdateBalanceModal = ({ accounts, selectedDate, exclusions, onSubmit, onClose }: Props) => {
   const { t } = useTranslation()
   const [date, setDate] = useState(selectedDate)
   const [note, setNote] = useState('')
@@ -172,3 +172,5 @@ export default function BulkUpdateBalanceModal({ accounts, selectedDate, exclusi
     </Dialog>
   )
 }
+
+export default BulkUpdateBalanceModal

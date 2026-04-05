@@ -33,7 +33,7 @@ interface AppModalsProps {
   }
 }
 
-export default function AppModals({ selectedDate, dbLocation }: AppModalsProps) {
+const AppModals = ({ selectedDate, dbLocation }: AppModalsProps) => {
   const { t } = useTranslation()
   const { modalState, closeModal, setModalState } = useModal()
   const queryClient = useQueryClient()
@@ -250,3 +250,5 @@ export default function AppModals({ selectedDate, dbLocation }: AppModalsProps) 
       return null
   }
 }
+
+export default AppModals

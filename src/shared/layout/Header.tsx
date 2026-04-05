@@ -2,13 +2,13 @@ import { useTranslation } from 'react-i18next'
 import { useRouterState } from '@tanstack/react-router'
 import { DatePicker } from '../ui/date-picker'
 import { Label } from '../ui/label'
-import { useSelectedDate } from '../../app/SelectedDateContext'
+import { useSelectedDate } from '../../app/useSelectedDate'
 
 interface Props {
   pageTitle: string
 }
 
-export default function Header({ pageTitle }: Props) {
+const Header = ({ pageTitle }: Props) => {
   const { t } = useTranslation()
   const { selectedDate, setSelectedDate } = useSelectedDate()
   const routerState = useRouterState()
@@ -32,3 +32,5 @@ export default function Header({ pageTitle }: Props) {
     </header>
   )
 }
+
+export default Header

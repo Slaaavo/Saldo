@@ -32,7 +32,7 @@ interface EditTransferModalProps {
   onClose: () => void
 }
 
-export default function EditTransferModal({ fromEvent, toEvent, onSubmit, onClose }: EditTransferModalProps) {
+const EditTransferModal = ({ fromEvent, toEvent, onSubmit, onClose }: EditTransferModalProps) => {
   const { t } = useTranslation()
   const [fromDate, setFromDate] = useState(fromEvent.eventDate)
   const [toDate, setToDate] = useState(toEvent.eventDate)
@@ -221,3 +221,5 @@ export default function EditTransferModal({ fromEvent, toEvent, onSubmit, onClos
     </Dialog>
   )
 }
+
+export default EditTransferModal

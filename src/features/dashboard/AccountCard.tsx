@@ -24,7 +24,7 @@ interface AccountCardProps {
   allAccounts?: SnapshotRow[]
 }
 
-export default function AccountCard({
+const AccountCard = ({
   row,
   consolidationCurrency,
   updateButtonLabel,
@@ -34,7 +34,7 @@ export default function AccountCard({
   onManageLinkedAssets,
   allAssets,
   allAccounts,
-}: AccountCardProps) {
+}: AccountCardProps) => {
   const { t } = useTranslation()
 
   const numConfig = { ...defaultNumberFormat, currencySymbol: '' }
@@ -221,3 +221,5 @@ export default function AccountCard({
     </Card>
   )
 }
+
+export default AccountCard

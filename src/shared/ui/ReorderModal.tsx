@@ -16,7 +16,7 @@ interface SortableRowProps {
   item: Item
 }
 
-function SortableRow({ item }: SortableRowProps) {
+const SortableRow = ({ item }: SortableRowProps) => {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: item.id,
   })
@@ -44,7 +44,7 @@ interface Props {
   onClose: () => void
 }
 
-export default function ReorderModal({ items, title, onSave, onClose }: Props) {
+const ReorderModal = ({ items, title, onSave, onClose }: Props) => {
   const { t } = useTranslation()
   const [ordered, setOrdered] = useState<Item[]>(items)
 
@@ -98,3 +98,5 @@ export default function ReorderModal({ items, title, onSave, onClose }: Props) {
     </Dialog>
   )
 }
+
+export default ReorderModal

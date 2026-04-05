@@ -13,7 +13,7 @@ interface Props {
   onClose: () => void
 }
 
-export default function CreatePartnerModal({ currencyId, onSubmit, onClose }: Props) {
+const CreatePartnerModal = ({ currencyId, onSubmit, onClose }: Props) => {
   const { t } = useTranslation()
   const [name, setName] = useState('')
   const [iban, setIban] = useState('')
@@ -88,3 +88,5 @@ export default function CreatePartnerModal({ currencyId, onSubmit, onClose }: Pr
     </Dialog>
   )
 }
+
+export default CreatePartnerModal

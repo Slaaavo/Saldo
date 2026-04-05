@@ -8,11 +8,11 @@ export interface IbanLookupEntry {
   iban: string
 }
 
-export function normalizeIban(raw: string): string {
+export const normalizeIban = (raw: string): string => {
   return raw.replace(/\s/g, '').toUpperCase()
 }
 
-export function buildIbanLookup(snapshot: SnapshotRow[], partners: PartnerAccount[]): Map<string, IbanLookupEntry> {
+export const buildIbanLookup = (snapshot: SnapshotRow[], partners: PartnerAccount[]): Map<string, IbanLookupEntry> => {
   const lookup = new Map<string, IbanLookupEntry>()
 
   for (const row of snapshot) {
@@ -46,7 +46,7 @@ export function buildIbanLookup(snapshot: SnapshotRow[], partners: PartnerAccoun
   return lookup
 }
 
-export function matchIban(normalizedIban: string, lookup: Map<string, IbanLookupEntry>): IbanMatchResult {
+export const matchIban = (normalizedIban: string, lookup: Map<string, IbanLookupEntry>): IbanMatchResult => {
   const entry = lookup.get(normalizedIban)
 
   if (!entry) {

@@ -1,7 +1,7 @@
 import Papa from 'papaparse'
 import type { CsvRow, ColumnMapping, CashflowFieldKey } from './types'
 
-export async function parseCsvFile(file: File): Promise<{ headers: string[]; rows: CsvRow[] }> {
+export const parseCsvFile = async (file: File): Promise<{ headers: string[]; rows: CsvRow[] }> => {
   const text = await readFileAsText(file)
   const lines = text.split('\n')
   if (lines.length < 2) {
@@ -15,7 +15,7 @@ export async function parseCsvFile(file: File): Promise<{ headers: string[]; row
       header: true,
       skipEmptyLines: true,
       dynamicTyping: false,
-      complete(results) {
+      complete: (results) => {
         if (results.errors.length > 0 && results.data.length === 0) {
           reject(new Error(`CSV parsing failed: ${results.errors[0].message}`))
           return
@@ -41,14 +41,14 @@ export async function parseCsvFile(file: File): Promise<{ headers: string[]; row
         })
         resolve({ headers: normalizedHeaders, rows: transformedRows })
       },
-      error(err: { message: string }) {
+      error: (err: { message: string }) => {
         reject(new Error(`CSV parsing failed: ${err.message}`))
       },
     })
   })
 }
 
-async function readFileAsText(file: File): Promise<string> {
+const readFileAsText = async (file: File): Promise<string> => {
   // Try UTF-8 first
   let text = await file.text()
   // If result contains replacement characters, try Windows-1250 (common for Slovak/Czech bank exports)
@@ -69,7 +69,7 @@ const FIELD_PATTERNS: Array<{ field: CashflowFieldKey; patterns: string[] }> = [
   { field: 'fxRate', patterns: ['rate', 'kurz'] },
 ]
 
-export function autoDetectMapping(headers: string[]): ColumnMapping {
+export const autoDetectMapping = (headers: string[]): ColumnMapping => {
   const mapping: ColumnMapping = {
     date: null,
     amount: null,
@@ -93,7 +93,7 @@ export function autoDetectMapping(headers: string[]): ColumnMapping {
   return mapping
 }
 
-export function parseAmount(raw: string): number | null {
+export const parseAmount = (raw: string): number | null => {
   // Strip currency symbols, spaces, and leading plus signs
   const cleaned = raw.replace(/[€$£¥₹\s+]/g, '')
 
@@ -150,7 +150,7 @@ const DATE_PATTERNS: Array<{
   },
 ]
 
-export function parseDateString(raw: string): string | null {
+export const parseDateString = (raw: string): string | null => {
   if (!raw || raw.trim() === '') return null
 
   const trimmed = raw.trim()

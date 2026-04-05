@@ -5,7 +5,7 @@ import { Label } from '../../shared/ui/label'
 import { EditableRateCell } from './EditableRateCell'
 import { useFxRates } from './useFxRates'
 
-export default function FxRatesPage() {
+const FxRatesPage = () => {
   const { t } = useTranslation()
   const {
     dates,
@@ -99,3 +99,5 @@ export default function FxRatesPage() {
     </div>
   )
 }
+
+export default FxRatesPage

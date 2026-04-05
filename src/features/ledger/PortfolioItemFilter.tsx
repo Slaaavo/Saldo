@@ -17,7 +17,7 @@ interface Group {
   items: SnapshotRow[]
 }
 
-export default function PortfolioItemFilter({ accounts, selectedIds, onChange }: Props) {
+const PortfolioItemFilter = ({ accounts, selectedIds, onChange }: Props) => {
   const { t } = useTranslation()
 
   const groups: Group[] = [
@@ -86,3 +86,5 @@ export default function PortfolioItemFilter({ accounts, selectedIds, onChange }:
     </Popover>
   )
 }
+
+export default PortfolioItemFilter

@@ -10,14 +10,14 @@ import Ledger from './Ledger'
 import { Button } from '../../shared/ui/button'
 import { useDemo } from '../../app/DemoContext'
 import { useModal } from '../../app/ModalContext'
-import { useSelectedDate } from '../../app/SelectedDateContext'
+import { useSelectedDate } from '../../app/useSelectedDate'
 import { useSnapshotQuery } from '../../shared/hooks/useSnapshotQuery'
 import { useDashboardEventsQuery } from '../../shared/hooks/useDashboardEventsQuery'
 import { useConsolidationCurrencyQuery } from '../../shared/hooks/useConsolidationCurrencyQuery'
 import { computeDashboardMetrics } from './dashboardMetrics'
 import { useNavigate } from '@tanstack/react-router'
 
-function MetricCard({ label, value, currency }: { label: string; value: number; currency: Currency | null }) {
+const MetricCard = ({ label, value, currency }: { label: string; value: number; currency: Currency | null }) => {
   return (
     <div className="flex flex-col items-center">
       <p className="text-sm font-medium uppercase tracking-widest text-muted-foreground mb-1">{label}</p>
@@ -30,13 +30,13 @@ function MetricCard({ label, value, currency }: { label: string; value: number; 
 
 const sectionClass = 'px-4 md:px-10 py-8'
 
-function metricsGridClass(count: number) {
+const metricsGridClass = (count: number) => {
   if (count === 3) return 'grid grid-cols-3'
   if (count === 2) return 'grid grid-cols-2'
   return 'flex justify-center'
 }
 
-export default function DashboardView() {
+const DashboardView = () => {
   const { t } = useTranslation()
   const { isDemoMode, onEnterDemoMode } = useDemo()
   const { setModalState } = useModal()
@@ -234,3 +234,5 @@ export default function DashboardView() {
     </>
   )
 }
+
+export default DashboardView

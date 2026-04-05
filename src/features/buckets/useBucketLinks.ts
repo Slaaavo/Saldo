@@ -27,7 +27,7 @@ interface UseBucketLinksParams {
   allAccounts: SnapshotRow[]
 }
 
-export function useBucketLinks({ isBucket, eventId, bucketAccountId, asOfDate, allAccounts }: UseBucketLinksParams): UseBucketLinksReturn {
+export const useBucketLinks = ({ isBucket, eventId, bucketAccountId, asOfDate, allAccounts }: UseBucketLinksParams): UseBucketLinksReturn => {
   const [links, setLinks] = useState<LinkRow[]>([])
   const [loadedForEventId, setLoadedForEventId] = useState<number | null>(null)
 

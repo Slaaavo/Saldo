@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { getConsolidationCurrency } from '../api'
 
-export function useConsolidationCurrencyQuery() {
+export const useConsolidationCurrencyQuery = () => {
   return useQuery({
     queryKey: ['consolidation-currency'],
     queryFn: async () => {

@@ -58,7 +58,7 @@ const EUR = makeCurrency(1, 'EUR')
 const GOLD = makeCurrency(10, 'GOLD', true)
 const BTC = makeCurrency(11, 'BTC', true)
 
-function setupMocks(overrides?: { units?: Currency[]; rates?: FxRateRow[]; consolidation?: Currency }) {
+const setupMocks = (overrides?: { units?: Currency[]; rates?: FxRateRow[]; consolidation?: Currency }) => {
   const units = overrides?.units ?? [GOLD]
   const rates = overrides?.rates ?? []
   const consolidation = overrides?.consolidation ?? EUR
@@ -69,8 +69,7 @@ function setupMocks(overrides?: { units?: Currency[]; rates?: FxRateRow[]; conso
   ;(setFxRateManual as Mock).mockResolvedValue(undefined)
 }
 
-// ── Render helper ──────────────────────────────────────────────────────────
-function renderUnitsPage() {
+const renderUnitsPage = () => {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: 0 } } })
   return render(
     <QueryClientProvider client={queryClient}>

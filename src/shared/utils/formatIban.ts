@@ -3,7 +3,7 @@ export interface IbanSegment {
   weight: string
 }
 
-export function formatIbanSegments(iban: string): IbanSegment[] {
+export const formatIbanSegments = (iban: string): IbanSegment[] => {
   const normalized = iban.replace(/\s+/g, '').toUpperCase()
 
   // Split into visual groups of 4 chars (standard IBAN display)

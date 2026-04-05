@@ -14,7 +14,7 @@ interface Props {
   onClose: () => void
 }
 
-export default function ManageLinkedAssetsModal({ accountId, accountName, assets, currentLinks, onSave, onClose }: Props) {
+const ManageLinkedAssetsModal = ({ accountId, accountName, assets, currentLinks, onSave, onClose }: Props) => {
   const { t } = useTranslation()
   const [linkedAssetIds, setLinkedAssetIds] = useState<number[]>(currentLinks)
 
@@ -109,3 +109,5 @@ export default function ManageLinkedAssetsModal({ accountId, accountName, assets
     </Dialog>
   )
 }
+
+export default ManageLinkedAssetsModal

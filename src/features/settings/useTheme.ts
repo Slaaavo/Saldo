@@ -3,7 +3,7 @@ import { getAppSetting, setAppSetting } from '../../shared/api'
 
 export type ThemePreference = 'light' | 'dark' | 'system'
 
-function applyTheme(preference: ThemePreference, systemDark: boolean): void {
+const applyTheme = (preference: ThemePreference, systemDark: boolean): void => {
   const resolved = preference === 'system' ? (systemDark ? 'dark' : 'light') : preference
   if (resolved === 'dark') {
     document.documentElement.classList.add('dark')
@@ -12,7 +12,7 @@ function applyTheme(preference: ThemePreference, systemDark: boolean): void {
   }
 }
 
-export function useTheme() {
+export const useTheme = () => {
   const [preference, setPreference] = useState<ThemePreference>(() => {
     const cached = localStorage.getItem('theme') as ThemePreference | null
     return cached ?? 'system'

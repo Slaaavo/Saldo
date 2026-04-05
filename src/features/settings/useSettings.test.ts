@@ -16,12 +16,10 @@ vi.mock('../../shared/api', () => ({
 
 import { listCurrencies, getConsolidationCurrency, setConsolidationCurrency, getAppSetting, setAppSetting } from '../../shared/api'
 
-// ── QueryClient wrapper for hooks that call useQueryClient() ───────────────
-function makeWrapper() {
+const makeWrapper = () => {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: 0 } } })
-  return function Wrapper({ children }: { children: Parameters<typeof createElement>[2] }) {
-    return createElement(QueryClientProvider, { client: queryClient }, children)
-  }
+  const Wrapper = ({ children }: { children: Parameters<typeof createElement>[2] }) => createElement(QueryClientProvider, { client: queryClient }, children)
+  return Wrapper
 }
 
 // ── Test data ───────────────────────────────────────────────────────────────
@@ -29,7 +27,7 @@ const EUR: Currency = { id: 1, code: 'EUR', name: 'Euro', minorUnits: 2, isCusto
 const USD: Currency = { id: 2, code: 'USD', name: 'US Dollar', minorUnits: 2, isCustom: false }
 const ALL_CURRENCIES = [EUR, USD]
 
-function setupMocks(overrides?: { currencies?: Currency[]; consolidation?: Currency; apiKey?: string | null }) {
+const setupMocks = (overrides?: { currencies?: Currency[]; consolidation?: Currency; apiKey?: string | null }) => {
   ;(listCurrencies as Mock).mockResolvedValue(overrides?.currencies ?? ALL_CURRENCIES)
   ;(getConsolidationCurrency as Mock).mockResolvedValue(overrides?.consolidation ?? EUR)
   ;(getAppSetting as Mock).mockResolvedValue(overrides?.apiKey ?? null)

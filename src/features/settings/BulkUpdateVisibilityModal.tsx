@@ -14,7 +14,7 @@ interface Props {
 
 type CheckedState = boolean | 'indeterminate'
 
-function computeSectionState(sectionIds: number[], excluded: Set<number>): CheckedState {
+const computeSectionState = (sectionIds: number[], excluded: Set<number>): CheckedState => {
   if (sectionIds.length === 0) return true
   const includedCount = sectionIds.filter((id) => !excluded.has(id)).length
   if (includedCount === sectionIds.length) return true
@@ -22,7 +22,7 @@ function computeSectionState(sectionIds: number[], excluded: Set<number>): Check
   return 'indeterminate'
 }
 
-export default function BulkUpdateVisibilityModal({ accounts, currentExclusions, onSave, onClose }: Props) {
+const BulkUpdateVisibilityModal = ({ accounts, currentExclusions, onSave, onClose }: Props) => {
   const { t } = useTranslation()
   const [excluded, setExcluded] = useState<Set<number>>(() => new Set(currentExclusions))
 
@@ -138,3 +138,5 @@ export default function BulkUpdateVisibilityModal({ accounts, currentExclusions,
     </Dialog>
   )
 }
+
+export default BulkUpdateVisibilityModal

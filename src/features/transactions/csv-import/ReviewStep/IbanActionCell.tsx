@@ -14,7 +14,7 @@ export interface IbanActionCellProps {
   isFirstOccurrence: boolean
 }
 
-export function IbanActionCell({ row, accountsWithoutIban, onCreatePartner, onAssignIban, isFirstOccurrence }: IbanActionCellProps) {
+export const IbanActionCell = ({ row, accountsWithoutIban, onCreatePartner, onAssignIban, isFirstOccurrence }: IbanActionCellProps) => {
   const { t } = useTranslation()
   const [partnerName, setPartnerName] = useState('')
   const [assignAccountId, setAssignAccountId] = useState<string>('')

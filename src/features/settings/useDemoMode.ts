@@ -10,7 +10,7 @@ interface UseDemoModeOptions {
   onEntered: () => void
 }
 
-export function useDemoMode({ loadDbLocation, onEntered }: UseDemoModeOptions) {
+export const useDemoMode = ({ loadDbLocation, onEntered }: UseDemoModeOptions) => {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [isDemoMode, setIsDemoMode] = useState(false)

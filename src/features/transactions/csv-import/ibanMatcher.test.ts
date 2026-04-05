@@ -3,7 +3,7 @@ import { normalizeIban, buildIbanLookup, matchIban } from './ibanMatcher'
 import type { SnapshotRow } from '../../../shared/types/index'
 import type { PartnerAccount } from '../../../shared/types/index'
 
-function makeSnapshotRow(overrides?: Partial<SnapshotRow>): SnapshotRow {
+const makeSnapshotRow = (overrides?: Partial<SnapshotRow>): SnapshotRow => {
   return {
     accountId: 1,
     accountName: 'Checking',
@@ -25,7 +25,7 @@ function makeSnapshotRow(overrides?: Partial<SnapshotRow>): SnapshotRow {
   }
 }
 
-function makePartner(overrides?: Partial<PartnerAccount>): PartnerAccount {
+const makePartner = (overrides?: Partial<PartnerAccount>): PartnerAccount => {
   return {
     id: 10,
     name: 'Acme Corp',

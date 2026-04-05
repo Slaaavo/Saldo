@@ -14,7 +14,7 @@ import { useConsolidationCurrencyQuery } from '../../shared/hooks/useConsolidati
 import { useModal } from '../../app/ModalContext'
 import { todayIso } from '../../shared/utils/format'
 
-export default function LedgerPage() {
+const LedgerPage = () => {
   const { t } = useTranslation()
   const { setModalState } = useModal()
   const snapshotQuery = useSnapshotQuery(todayIso())
@@ -127,3 +127,5 @@ export default function LedgerPage() {
     </section>
   )
 }
+
+export default LedgerPage

@@ -14,7 +14,7 @@ interface Props {
   onClose: () => void
 }
 
-export default function EditPartnerModal({ partner, onSubmit, onClose }: Props) {
+const EditPartnerModal = ({ partner, onSubmit, onClose }: Props) => {
   const { t } = useTranslation()
   const [name, setName] = useState(partner.name)
   const [iban, setIban] = useState(partner.iban ?? '')
@@ -81,3 +81,5 @@ export default function EditPartnerModal({ partner, onSubmit, onClose }: Props) 
     </Dialog>
   )
 }
+
+export default EditPartnerModal

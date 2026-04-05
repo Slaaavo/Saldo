@@ -5,7 +5,7 @@ import { cn } from '@/shared/lib/utils'
 // The Calendar component props are the DayPicker props
 type CalendarProps = DayPickerProps
 
-function Calendar({ className, classNames, ...props }: CalendarProps) {
+const Calendar = ({ className, classNames, ...props }: CalendarProps) => {
   return (
     <DayPicker
       weekStartsOn={1}
@@ -41,6 +41,7 @@ function Calendar({ className, classNames, ...props }: CalendarProps) {
     />
   )
 }
+
 Calendar.displayName = 'Calendar'
 
 export { Calendar }

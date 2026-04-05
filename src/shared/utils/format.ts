@@ -1,11 +1,6 @@
 import { defaultNumberFormat, type NumberFormatConfig } from '../config/numberFormat'
 
-/**
- * Format a minor-unit integer amount as a display string.
- * Example: 123456 (minorUnits=2) → "1 234.56 €"
- * When currencyCode is provided, it overrides the symbol from config.
- */
-export function formatAmount(amountMinor: number, minorUnits: number = 2, config: NumberFormatConfig = defaultNumberFormat, currencyCode?: string): string {
+export const formatAmount = (amountMinor: number, minorUnits: number = 2, config: NumberFormatConfig = defaultNumberFormat, currencyCode?: string): string => {
   const isNegative = amountMinor < 0
   const abs = Math.abs(amountMinor)
   const divisor = Math.pow(10, minorUnits)
@@ -38,25 +33,15 @@ export function formatAmount(amountMinor: number, minorUnits: number = 2, config
   return isNegative ? `-${result}` : result
 }
 
-/**
- * Format an ISO datetime string to display only the date portion.
- * Example: "2026-03-01T12:00:00" → "2026-03-01"
- */
-export function formatDate(isoDatetime: string): string {
+export const formatDate = (isoDatetime: string): string => {
   return isoDatetime.substring(0, 10)
 }
 
-/**
- * Convert a date string (YYYY-MM-DD) to end-of-day datetime.
- */
-export function toEndOfDay(dateStr: string): string {
+export const toEndOfDay = (dateStr: string): string => {
   return `${dateStr}T23:59:59`
 }
 
-/**
- * Get today's date as YYYY-MM-DD.
- */
-export function todayIso(): string {
+export const todayIso = (): string => {
   const now = new Date()
   const y = now.getFullYear()
   const m = String(now.getMonth() + 1).padStart(2, '0')
@@ -64,35 +49,19 @@ export function todayIso(): string {
   return `${y}-${m}-${d}`
 }
 
-/**
- * Convert a decimal string to integer minor units.
- * Example: toMinorUnits('12.34', 2) → 1234
- */
-export function toMinorUnits(decimalStr: string, minorUnits: number): number {
+export const toMinorUnits = (decimalStr: string, minorUnits: number): number => {
   return Math.round(parseFloat(decimalStr) * Math.pow(10, minorUnits))
 }
 
-/**
- * Convert integer minor units to a decimal string with the right precision.
- * Example: fromMinorUnits(1234, 2) → '12.34'
- */
-export function fromMinorUnits(amountMinor: number, minorUnits: number): string {
+export const fromMinorUnits = (amountMinor: number, minorUnits: number): string => {
   return (amountMinor / Math.pow(10, minorUnits)).toFixed(minorUnits)
 }
 
-/**
- * Get the step string for a number input based on minor units.
- * Example: getMinorUnitsStep(2) → '0.01', getMinorUnitsStep(0) → '1'
- */
-export function getMinorUnitsStep(minorUnits: number): string {
+export const getMinorUnitsStep = (minorUnits: number): string => {
   return minorUnits === 0 ? '1' : '0.' + '0'.repeat(minorUnits - 1) + '1'
 }
 
-/**
- * Format a YYYY-MM-DD date string as a human-readable date.
- * Example: "2026-03-05" → "5 March 2026"
- */
-export function formatDisplayDate(dateStr: string, locale = 'en-GB'): string {
+export const formatDisplayDate = (dateStr: string, locale = 'en-GB'): string => {
   const [y, m, d] = dateStr.split('-').map(Number)
   const date = new Date(y, m - 1, d)
   return date.toLocaleDateString(locale, {

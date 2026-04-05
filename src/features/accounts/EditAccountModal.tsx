@@ -15,7 +15,7 @@ interface Props {
   onClose: () => void
 }
 
-export default function EditAccountModal({ accountId, currentName, accountType, currentIban, onSubmit, onClose }: Props) {
+const EditAccountModal = ({ accountId, currentName, accountType, currentIban, onSubmit, onClose }: Props) => {
   const { t } = useTranslation()
   const [name, setName] = useState(currentName)
   const [iban, setIban] = useState(currentIban ?? '')
@@ -70,3 +70,5 @@ export default function EditAccountModal({ accountId, currentName, accountType, 
     </Dialog>
   )
 }
+
+export default EditAccountModal

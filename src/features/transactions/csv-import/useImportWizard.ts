@@ -53,7 +53,7 @@ const INITIAL_WIZARD_STATE: WizardState = {
 const MS_PER_DAY = 86_400_000
 const NEAR_DATE_WINDOW_DAYS = 5
 
-function matchProfileMapping(savedMapping: ColumnMapping, csvHeaders: string[]): ColumnMapping {
+const matchProfileMapping = (savedMapping: ColumnMapping, csvHeaders: string[]): ColumnMapping => {
   const result: ColumnMapping = { ...savedMapping }
   const fields: CashflowFieldKey[] = ['date', 'amount', 'partner', 'note', 'currency', 'fxRate']
   for (const field of fields) {
@@ -68,7 +68,7 @@ function matchProfileMapping(savedMapping: ColumnMapping, csvHeaders: string[]):
   return result
 }
 
-function matchProfileRules(savedRules: ImportRule[], csvHeaders: string[]): ImportRule[] {
+const matchProfileRules = (savedRules: ImportRule[], csvHeaders: string[]): ImportRule[] => {
   return savedRules.map((rule) => {
     if (rule.type === 'sign_from_column') {
       const match = csvHeaders.find((h) => h.trim().toLowerCase() === rule.typeColumn.trim().toLowerCase())
@@ -82,7 +82,7 @@ function matchProfileRules(savedRules: ImportRule[], csvHeaders: string[]): Impo
   })
 }
 
-function rateToMantissaExponent(rate: number): { mantissa: number; exponent: number } {
+const rateToMantissaExponent = (rate: number): { mantissa: number; exponent: number } => {
   const str = rate.toString()
   const dotIndex = str.indexOf('.')
   if (dotIndex === -1) return { mantissa: rate, exponent: 0 }
@@ -91,7 +91,7 @@ function rateToMantissaExponent(rate: number): { mantissa: number; exponent: num
   return { mantissa, exponent: -decimalPlaces }
 }
 
-export function useImportWizard(params: { snapshot: SnapshotRow[]; onClose: () => void; onSuccess: () => Promise<void> }) {
+export const useImportWizard = (params: { snapshot: SnapshotRow[]; onClose: () => void; onSuccess: () => Promise<void> }) => {
   const { snapshot, onClose, onSuccess } = params
   const { t } = useTranslation()
 

@@ -27,7 +27,7 @@ interface UseModalActionsOptions {
   onFxRatePrompt: (date: string) => void
 }
 
-export function useModalActions({ closeModal, onFxRatePrompt }: UseModalActionsOptions) {
+export const useModalActions = ({ closeModal, onFxRatePrompt }: UseModalActionsOptions) => {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const snapshotQuery = useSnapshotQuery(todayIso())

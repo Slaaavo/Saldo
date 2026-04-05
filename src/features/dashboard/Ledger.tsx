@@ -17,18 +17,7 @@ interface Props {
   onImportCsv?: () => void
 }
 
-export default function Ledger({
-  events,
-  accounts,
-  consolidationCurrency,
-  onEditEvent,
-  onDeleteEvent,
-  onDeleteTransferEvent,
-  onUpdateBalances,
-  totalEvents,
-  onViewAll,
-  onImportCsv,
-}: Props) {
+const Ledger = ({ events, accounts, consolidationCurrency, onEditEvent, onDeleteEvent, onDeleteTransferEvent, onUpdateBalances, totalEvents, onViewAll, onImportCsv }: Props) => {
   const { t } = useTranslation()
 
   const showViewAll = totalEvents !== undefined && events.length < totalEvents && onViewAll !== undefined
@@ -70,3 +59,5 @@ export default function Ledger({
     </section>
   )
 }
+
+export default Ledger
