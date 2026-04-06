@@ -421,6 +421,7 @@ const makeSnapshot = (overrides?: Partial<SnapshotRow>): SnapshotRow => {
     bucketLinks: [],
     linkedBalanceMinor: 0,
     cashflowTaggedMinor: 0,
+    personId: null,
     ...overrides,
   }
 }

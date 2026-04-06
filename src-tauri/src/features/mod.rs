@@ -4,6 +4,7 @@ pub mod buckets;
 pub mod csv_profiles;
 pub mod currency;
 pub mod partner_accounts;
+pub mod persons;
 pub mod settings;
 pub mod transactions;
 
@@ -13,5 +14,6 @@ pub use buckets::*;
 pub use csv_profiles::*;
 pub use currency::*;
 pub use partner_accounts::*;
+pub use persons::*;
 pub use settings::*;
 pub use transactions::*;

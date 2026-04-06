@@ -100,60 +100,68 @@ fn seed_impl(
         )?;
     }
 
-    // D. Insert 6 accounts (3 regular + 3 bucket).
+    // D. Insert demo person (all non-partner accounts belong to this person).
     conn.execute(
-        "INSERT INTO account (name, currency_id, account_type, sort_order)
-         VALUES ('Checking Account', ?1, 'account', 0)",
-        params![eur_id],
+        "INSERT INTO person (name, person_type, is_default, created_at)
+         VALUES ('Personal', 'physical', 1, strftime('%Y-%m-%dT%H:%M:%S', 'now', 'localtime'))",
+        [],
+    )?;
+    let demo_person_id = conn.last_insert_rowid();
+
+    // E. Insert 6 accounts (3 regular + 3 bucket + 1 asset).
+    conn.execute(
+        "INSERT INTO account (name, currency_id, account_type, sort_order, person_id)
+         VALUES ('Checking Account', ?1, 'account', 0, ?2)",
+        params![eur_id, demo_person_id],
     )?;
     let checking_id = conn.last_insert_rowid();
 
     conn.execute(
-        "INSERT INTO account (name, currency_id, account_type, sort_order)
-         VALUES ('Credit Card', ?1, 'account', 1)",
-        params![eur_id],
+        "INSERT INTO account (name, currency_id, account_type, sort_order, person_id)
+         VALUES ('Credit Card', ?1, 'account', 1, ?2)",
+        params![eur_id, demo_person_id],
     )?;
     let credit_id = conn.last_insert_rowid();
 
     conn.execute(
-        "INSERT INTO account (name, currency_id, account_type, sort_order)
-         VALUES ('BTC Wallet', ?1, 'account', 2)",
-        params![btc_id],
+        "INSERT INTO account (name, currency_id, account_type, sort_order, person_id)
+         VALUES ('BTC Wallet', ?1, 'account', 2, ?2)",
+        params![btc_id, demo_person_id],
     )?;
     let btc_wallet_id = conn.last_insert_rowid();
 
     conn.execute(
-        "INSERT INTO account (name, currency_id, account_type, sort_order)
-         VALUES ('Mortgage', ?1, 'account', 3)",
-        params![eur_id],
+        "INSERT INTO account (name, currency_id, account_type, sort_order, person_id)
+         VALUES ('Mortgage', ?1, 'account', 3, ?2)",
+        params![eur_id, demo_person_id],
     )?;
     let mortgage_id = conn.last_insert_rowid();
 
     conn.execute(
-        "INSERT INTO account (name, currency_id, account_type, sort_order)
-         VALUES ('Emergency Fund', ?1, 'bucket', 0)",
-        params![eur_id],
+        "INSERT INTO account (name, currency_id, account_type, sort_order, person_id)
+         VALUES ('Emergency Fund', ?1, 'bucket', 0, ?2)",
+        params![eur_id, demo_person_id],
     )?;
     let emergency_id = conn.last_insert_rowid();
 
     conn.execute(
-        "INSERT INTO account (name, currency_id, account_type, sort_order)
-         VALUES ('Retirement Fund', ?1, 'bucket', 1)",
-        params![eur_id],
+        "INSERT INTO account (name, currency_id, account_type, sort_order, person_id)
+         VALUES ('Retirement Fund', ?1, 'bucket', 1, ?2)",
+        params![eur_id, demo_person_id],
     )?;
     let retirement_id = conn.last_insert_rowid();
 
     conn.execute(
-        "INSERT INTO account (name, currency_id, account_type, sort_order)
-         VALUES ('Holiday Savings', ?1, 'bucket', 2)",
-        params![eur_id],
+        "INSERT INTO account (name, currency_id, account_type, sort_order, person_id)
+         VALUES ('Holiday Savings', ?1, 'bucket', 2, ?2)",
+        params![eur_id, demo_person_id],
     )?;
     let holiday_id = conn.last_insert_rowid();
 
     conn.execute(
-        "INSERT INTO account (name, currency_id, account_type, sort_order)
-         VALUES ('House', ?1, 'asset', 0)",
-        params![eur_id],
+        "INSERT INTO account (name, currency_id, account_type, sort_order, person_id)
+         VALUES ('House', ?1, 'asset', 0, ?2)",
+        params![eur_id, demo_person_id],
     )?;
     let house_id = conn.last_insert_rowid();
 

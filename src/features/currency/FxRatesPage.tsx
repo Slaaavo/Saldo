@@ -32,10 +32,7 @@ const FxRatesPage = () => {
     <div className="px-4 md:px-10 py-8">
       <div className="mb-6">
         {/* Row 1: Summary */}
-        <div className="mb-4">
-          <h2 className="text-2xl font-bold">{t('fxRates.title')}</h2>
-          {consolidationCode && <p className="text-sm text-muted-foreground">{t('fxRates.subtitle', { currency: consolidationCode })}</p>}
-        </div>
+        <div className="mb-4">{consolidationCode && <p className="text-sm text-muted-foreground">{t('fxRates.subtitle', { currency: consolidationCode })}</p>}</div>
         {/* Row 2: Actions */}
         <div className="flex items-center gap-3">
           {missingDates.length > 0 && (

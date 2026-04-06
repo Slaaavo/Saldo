@@ -77,9 +77,17 @@ export const useModalActions = ({ closeModal, onFxRatePrompt }: UseModalActionsO
     }
   }
 
-  const handleCreateAccount = async (name: string, currencyId: number, initialBalanceMinor?: number, accountType?: string, linkedAssetIds?: number[], iban?: string) => {
+  const handleCreateAccount = async (
+    name: string,
+    currencyId: number,
+    initialBalanceMinor?: number,
+    accountType?: string,
+    linkedAssetIds?: number[],
+    iban?: string,
+    personId?: number,
+  ) => {
     try {
-      await createAccount(name, currencyId, initialBalanceMinor, accountType, undefined, linkedAssetIds, iban)
+      await createAccount(name, currencyId, initialBalanceMinor, accountType, undefined, linkedAssetIds, iban, personId)
       closeModal()
       await queryClient.invalidateQueries({ queryKey: ['snapshot'] })
       await queryClient.invalidateQueries({ queryKey: ['events'] })
@@ -88,9 +96,9 @@ export const useModalActions = ({ closeModal, onFxRatePrompt }: UseModalActionsO
     }
   }
 
-  const handleEditAccount = async (accountId: number, name: string, iban?: string) => {
+  const handleEditAccount = async (accountId: number, name: string, iban?: string, personId?: number) => {
     try {
-      await updateAccount(accountId, name, iban)
+      await updateAccount(accountId, name, iban, personId)
       closeModal()
       await queryClient.invalidateQueries({ queryKey: ['snapshot'] })
       await queryClient.invalidateQueries({ queryKey: ['events'] })

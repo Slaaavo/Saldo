@@ -11,6 +11,7 @@ import type {
   PartnerAccount,
   EventWithData,
   ImportProfileRow,
+  PersonRow,
 } from '../types'
 
 export const createBalanceUpdate = (accountId: number, amountMinor: number, eventDate: string, note?: string): Promise<number> => {
@@ -24,8 +25,8 @@ export const createBalanceUpdate = (accountId: number, amountMinor: number, even
   })
 }
 
-export const getAccountsSnapshot = (dateIso: string): Promise<SnapshotRow[]> => {
-  return invoke('get_accounts_snapshot', { dateIso })
+export const getAccountsSnapshot = (dateIso: string, personId?: number): Promise<SnapshotRow[]> => {
+  return invoke('get_accounts_snapshot', { dateIso, personId: personId ?? null })
 }
 
 export interface ListEventsFilter {
@@ -36,6 +37,7 @@ export interface ListEventsFilter {
   fromDate?: string
   limit?: number
   eventTypes?: string[]
+  personId?: number
 }
 
 export const listEvents = (filter?: ListEventsFilter): Promise<ListEventsResult> => {
@@ -48,6 +50,7 @@ export const listEvents = (filter?: ListEventsFilter): Promise<ListEventsResult>
       fromDate: filter?.fromDate ?? null,
       limit: filter?.limit ?? null,
       eventTypes: filter?.eventTypes ?? null,
+      personId: filter?.personId ?? null,
     },
   })
 }
@@ -60,6 +63,7 @@ export const createAccount = (
   pricePerUnit?: string,
   linkedAssetIds?: number[],
   iban?: string,
+  personId?: number,
 ): Promise<number> => {
   return invoke('create_account', {
     input: {
@@ -70,13 +74,14 @@ export const createAccount = (
       pricePerUnit: pricePerUnit ?? null,
       linkedAssetIds: linkedAssetIds ?? null,
       iban: iban ?? null,
+      personId: personId ?? null,
     },
   })
 }
 
-export const updateAccount = (accountId: number, name: string, iban?: string | null): Promise<void> => {
+export const updateAccount = (accountId: number, name: string, iban?: string | null, personId?: number | null): Promise<void> => {
   return invoke('update_account', {
-    input: { accountId, name, iban: iban ?? null },
+    input: { accountId, name, iban: iban ?? null, personId: personId ?? null },
   })
 }
 
@@ -115,6 +120,8 @@ export const deleteEvent = (eventId: number): Promise<void> => {
   return invoke('delete_event', { eventId })
 }
 
+// Fetches the counterpart leg of a transfer for the edit-transfer modal.
+// The event list only contains one leg; this call fetches the linked event to populate both sides.
 export const getEventById = (eventId: number): Promise<EventWithData | null> => {
   return invoke('get_event_by_id', { eventId })
 }
@@ -375,4 +382,20 @@ export const getPreferredProfile = (accountId: number): Promise<ImportProfileRow
 
 export const setPreferredProfile = (accountId: number, profileId: number | null): Promise<void> => {
   return invoke('set_preferred_profile', { accountId, profileId })
+}
+
+export const listPersons = (): Promise<PersonRow[]> => {
+  return invoke('list_persons')
+}
+
+export const createPerson = (name: string, personType: string): Promise<number> => {
+  return invoke('create_person', { input: { name, personType } })
+}
+
+export const updatePerson = (personId: number, name: string, personType: string): Promise<void> => {
+  return invoke('update_person', { input: { personId, name, personType } })
+}
+
+export const deletePerson = (personId: number): Promise<void> => {
+  return invoke('delete_person', { personId })
 }

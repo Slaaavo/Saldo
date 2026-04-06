@@ -12,12 +12,14 @@ pub struct CreateAccountParams {
     pub initial_balance_minor: Option<i64>,
     pub price_per_unit: Option<String>,
     pub iban: Option<String>,
+    pub person_id: Option<i64>,
 }
 
 pub struct UpdateAccountParams {
     pub account_id: i64,
     pub name: String,
     pub iban: Option<String>,
+    pub person_id: Option<i64>,
 }
 
 pub struct UpdateSortOrderParams {
@@ -41,8 +43,8 @@ pub fn create_account(conn: &Connection, params: CreateAccountParams) -> Result<
             |row| row.get(0),
         )?;
         conn.execute(
-            "INSERT INTO account (name, currency_id, account_type, sort_order, iban) VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![params.name.as_str(), params.currency_id, params.account_type.as_str(), next_sort_order, normalised_iban],
+            "INSERT INTO account (name, currency_id, account_type, sort_order, iban, person_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![params.name.as_str(), params.currency_id, params.account_type.as_str(), next_sort_order, normalised_iban, params.person_id],
         ).map_err(|e| {
             if is_duplicate_iban_error(&e) {
                 AppError {
@@ -111,8 +113,13 @@ pub fn update_account(conn: &Connection, params: UpdateAccountParams) -> Result<
             let normalised = validate_iban(raw)?;
             let rows = conn
                 .execute(
-                    "UPDATE account SET name = ?1, iban = ?2 WHERE id = ?3",
-                    params![params.name.as_str(), normalised, params.account_id],
+                    "UPDATE account SET name = ?1, iban = ?2, person_id = ?3 WHERE id = ?4",
+                    params![
+                        params.name.as_str(),
+                        normalised,
+                        params.person_id,
+                        params.account_id
+                    ],
                 )
                 .map_err(|e| {
                     if is_duplicate_iban_error(&e) {
@@ -133,8 +140,8 @@ pub fn update_account(conn: &Connection, params: UpdateAccountParams) -> Result<
             // Empty string — clear the IBAN
             let rows = conn
                 .execute(
-                    "UPDATE account SET name = ?1, iban = NULL WHERE id = ?2",
-                    params![params.name.as_str(), params.account_id],
+                    "UPDATE account SET name = ?1, iban = NULL, person_id = ?2 WHERE id = ?3",
+                    params![params.name.as_str(), params.person_id, params.account_id],
                 )
                 .map_err(AppError::from)?;
             if rows == 0 {
@@ -145,8 +152,8 @@ pub fn update_account(conn: &Connection, params: UpdateAccountParams) -> Result<
             // No IBAN update — name only
             let rows = conn
                 .execute(
-                    "UPDATE account SET name = ?1 WHERE id = ?2",
-                    params![params.name.as_str(), params.account_id],
+                    "UPDATE account SET name = ?1, person_id = ?2 WHERE id = ?3",
+                    params![params.name.as_str(), params.person_id, params.account_id],
                 )
                 .map_err(AppError::from)?;
             if rows == 0 {
@@ -286,7 +293,7 @@ mod tests {
     use crate::features::currency::repository::{set_fx_rate_manual, SetFxRateManualParams};
     use crate::features::transactions::repository::{
         create_balance_update, get_accounts_snapshot, list_events, CreateBalanceUpdateParams,
-        ListEventsQuery,
+        GetSnapshotParams, ListEventsQuery,
     };
 
     fn mk_account(conn: &Connection) -> i64 {
@@ -317,7 +324,14 @@ mod tests {
         )
         .unwrap();
         delete_account(&conn, account_id).unwrap();
-        let snapshot = get_accounts_snapshot(&conn, "2099-12-31T23:59:59").unwrap();
+        let snapshot = get_accounts_snapshot(
+            &conn,
+            GetSnapshotParams {
+                selected_datetime: "2099-12-31T23:59:59".to_owned(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
         assert!(snapshot.iter().all(|r| r.account_id != account_id));
         let result = list_events(
             &conn,
@@ -399,7 +413,14 @@ mod tests {
         delete_account(&conn, account_id).unwrap();
 
         // Account must be gone from snapshot
-        let snapshot = get_accounts_snapshot(&conn, "2099-12-31T23:59:59").unwrap();
+        let snapshot = get_accounts_snapshot(
+            &conn,
+            GetSnapshotParams {
+                selected_datetime: "2099-12-31T23:59:59".to_owned(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
         assert!(snapshot.iter().all(|r| r.account_id != account_id));
 
         // Events must be gone
@@ -448,7 +469,14 @@ mod tests {
             },
         )
         .unwrap();
-        let snapshot = get_accounts_snapshot(&conn, "2099-12-31T23:59:59").unwrap();
+        let snapshot = get_accounts_snapshot(
+            &conn,
+            GetSnapshotParams {
+                selected_datetime: "2099-12-31T23:59:59".to_owned(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
         let row = snapshot
             .iter()
             .find(|r| r.account_id == account_id)
@@ -655,7 +683,14 @@ mod tests {
         assert_eq!(count, 0, "all link rows should have been deleted");
 
         // The account itself must be gone.
-        let snap = get_accounts_snapshot(&conn, "2099-12-31T23:59:59").unwrap();
+        let snap = get_accounts_snapshot(
+            &conn,
+            GetSnapshotParams {
+                selected_datetime: "2099-12-31T23:59:59".to_owned(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
         assert!(snap.iter().all(|r| r.account_id != source_id));
     }
 
@@ -787,7 +822,14 @@ mod tests {
             },
         )
         .unwrap();
-        let snapshot = get_accounts_snapshot(&conn, "2099-12-31T23:59:59").unwrap();
+        let snapshot = get_accounts_snapshot(
+            &conn,
+            GetSnapshotParams {
+                selected_datetime: "2099-12-31T23:59:59".to_owned(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
         let beta_pos = snapshot
             .iter()
             .position(|r| r.account_id == beta_id)

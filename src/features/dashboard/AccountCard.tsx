@@ -22,6 +22,7 @@ interface AccountCardProps {
   onManageLinkedAssets?: (accountId: number, accountName: string) => void
   allAssets?: SnapshotRow[]
   allAccounts?: SnapshotRow[]
+  personName?: string
 }
 
 const AccountCard = ({
@@ -34,6 +35,7 @@ const AccountCard = ({
   onManageLinkedAssets,
   allAssets,
   allAccounts,
+  personName,
 }: AccountCardProps) => {
   const { t } = useTranslation()
 
@@ -84,7 +86,7 @@ const AccountCard = ({
               <DropdownMenuContent align="end">
                 <DropdownMenuItem onClick={() => onRenameAccount(row.accountId, row.accountName)}>
                   <Pencil className="h-4 w-4" />
-                  {row.accountType === 'account' ? t('accounts.edit') : t('accounts.rename')}
+                  {t('accounts.edit')}
                 </DropdownMenuItem>
                 {onManageLinkedAssets && row.accountType === 'account' && (
                   <DropdownMenuItem onClick={() => onManageLinkedAssets(row.accountId, row.accountName)}>
@@ -100,6 +102,7 @@ const AccountCard = ({
             </DropdownMenu>
           </div>
         </div>
+        {personName && <span className="text-xs text-muted-foreground">{personName}</span>}
         {row.accountType === 'account' &&
           (row.iban?.trim() ? (
             <p className="text-xs text-muted-foreground truncate" title={row.iban.replace(/(.{4})/g, '$1 ').trim()}>

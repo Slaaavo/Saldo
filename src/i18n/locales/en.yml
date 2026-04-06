@@ -8,6 +8,7 @@ sidebar:
   units: "Units"
   partners: "Partners"
   importProfiles: "Import Profiles"
+  persons: "Persons"
   collapse: "Collapse sidebar"
   expand: "Expand sidebar"
 
@@ -525,3 +526,23 @@ import:
       regexHint: "Regex reference"
     invalidRegex: "Invalid regex pattern"
     unmatchedColumn: "Column \"{{name}}\" not found in CSV"
+
+# ──── Persons ────
+persons:
+  title: "Persons"
+  addPerson: "Add Person"
+  createPerson: "Create Person"
+  editPerson: "Edit Person"
+  deletePerson: "Delete Person"
+  name: "Name"
+  type: "Type"
+  typePhysical: "Physical"
+  typeLegal: "Legal"
+  defaultBadge: "Default"
+  isDefault: "Default person"
+  empty: "No persons yet."
+  deleteConfirm: "Deleting \"{{name}}\" will permanently delete all linked accounts and their transaction history. This cannot be undone."
+  cannotDeleteDefault: "The default person cannot be deleted."
+  all: "All Persons"
+  selector: "Person"
+  manage: "Manage Persons"

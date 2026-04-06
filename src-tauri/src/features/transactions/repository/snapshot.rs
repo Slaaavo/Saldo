@@ -18,12 +18,21 @@ type SnapshotRawRow = (
     i64,
     i64,
     i64,
+    Option<i64>,
 );
+
+#[derive(Default)]
+pub struct GetSnapshotParams {
+    pub selected_datetime: String,
+    pub person_id: Option<i64>,
+}
 
 pub fn get_accounts_snapshot(
     conn: &Connection,
-    selected_datetime: &str,
+    params: GetSnapshotParams,
 ) -> rusqlite::Result<Vec<SnapshotRow>> {
+    let selected_datetime = params.selected_datetime.as_str();
+    let person_id = params.person_id;
     let consolidation = get_consolidation_currency(conn)?;
     // Extract YYYY-MM-DD from datetime string for fx_rate date comparison.
     let snapshot_date = &selected_datetime[..10.min(selected_datetime.len())];
@@ -70,15 +79,17 @@ pub fn get_accounts_snapshot(
                   ''
                 )),
              0
-           ) AS balance_minor
+           ) AS balance_minor,
+           a.person_id
          FROM account a
          JOIN currency c ON c.id = a.currency_id
          WHERE a.account_type IN ('account', 'bucket', 'asset')
+           AND (?2 IS NULL OR a.person_id = ?2)
          ORDER BY a.account_type, a.sort_order, a.id",
     )?;
 
     let row_data: Vec<SnapshotRawRow> = stmt
-        .query_map(params![selected_datetime], |row| {
+        .query_map(params![selected_datetime, person_id], |row| {
             Ok((
                 row.get(0)?,
                 row.get(1)?,
@@ -89,6 +100,7 @@ pub fn get_accounts_snapshot(
                 row.get(6)?,
                 row.get(7)?,
                 row.get(8)?,
+                row.get(9)?,
             ))
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -104,6 +116,7 @@ pub fn get_accounts_snapshot(
         currency_minor_units,
         currency_is_custom,
         balance_minor,
+        person_id_row,
     ) in row_data
     {
         let (converted_balance_minor, fx_rate_missing) = if currency_id == consolidation.id {
@@ -160,6 +173,7 @@ pub fn get_accounts_snapshot(
             bucket_links: vec![],
             linked_balance_minor: 0,
             cashflow_tagged_minor: 0,
+            person_id: person_id_row,
         });
     }
 

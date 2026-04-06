@@ -106,6 +106,7 @@ const AppModals = ({ selectedDate, dbLocation }: AppModalsProps) => {
           currentName={modalState.currentName}
           accountType={modalState.accountType}
           currentIban={modalState.currentIban}
+          currentPersonId={modalState.currentPersonId}
           onSubmit={handleEditAccount}
           onClose={closeModal}
         />

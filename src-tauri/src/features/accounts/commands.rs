@@ -15,6 +15,7 @@ pub struct CreateAccountInput {
     pub price_per_unit: Option<String>,
     pub linked_asset_ids: Option<Vec<i64>>,
     pub iban: Option<String>,
+    pub person_id: Option<i64>,
 }
 
 #[derive(Deserialize)]
@@ -23,6 +24,7 @@ pub struct UpdateAccountInput {
     pub account_id: i64,
     pub name: String,
     pub iban: Option<String>,
+    pub person_id: Option<i64>,
 }
 
 #[derive(Deserialize)]
@@ -69,6 +71,12 @@ pub fn create_account(
             message: "IBAN can only be set on account-type accounts".into(),
         });
     }
+    if account_type != "partner" && input.person_id.is_none() {
+        return Err(AppError {
+            code: "VALIDATION".into(),
+            message: "person_id is required for non-partner accounts".into(),
+        });
+    }
     let conn = state.conn()?;
     let id = repository::create_account(
         &conn,
@@ -79,6 +87,7 @@ pub fn create_account(
             initial_balance_minor: input.initial_balance_minor,
             price_per_unit: input.price_per_unit.clone(),
             iban: input.iban.clone(),
+            person_id: input.person_id,
         },
     )?;
 
@@ -112,6 +121,7 @@ pub fn update_account(
             account_id: input.account_id,
             name: input.name.trim().to_owned(),
             iban: input.iban.clone(),
+            person_id: input.person_id,
         },
     )?;
     Ok(())

@@ -10,6 +10,7 @@ pub struct ListEventsQuery {
     pub event_types: Option<Vec<String>>,
     pub limit: Option<i64>,
     pub bucket_ids: Option<Vec<i64>>,
+    pub person_id: Option<i64>,
 }
 
 pub fn list_events(
@@ -23,6 +24,7 @@ pub fn list_events(
     let event_types = query.event_types.as_deref();
     let limit = query.limit;
     let bucket_ids = query.bucket_ids.as_deref();
+    let person_id = query.person_id;
     let base = "FROM event e
         JOIN account a ON a.id = e.account_id
         JOIN currency c ON c.id = a.currency_id
@@ -101,6 +103,11 @@ pub fn list_events(
                 params.push(Box::new(t.to_owned()));
             }
         }
+    }
+
+    if let Some(pid) = person_id {
+        where_suffix.push_str(" AND a.person_id = ?");
+        params.push(Box::new(pid));
     }
 
     // Count query: same conditions, no ORDER BY or LIMIT

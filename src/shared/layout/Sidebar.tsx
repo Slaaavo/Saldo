@@ -23,6 +23,7 @@ const Sidebar = ({ collapsed, onToggleCollapse }: SidebarProps) => {
   const navItems = [
     { to: '/dashboard' as const, icon: LayoutDashboard, label: t('sidebar.dashboard') },
     { to: '/ledger' as const, icon: BookOpen, label: t('sidebar.ledger') },
+    { to: '/persons' as const, icon: Users, label: t('sidebar.persons') },
     { to: '/partners' as const, icon: Users, label: t('sidebar.partners') },
     { to: '/import-profiles' as const, icon: FileText, label: t('sidebar.importProfiles') },
     { to: '/settings' as const, icon: Settings, label: t('sidebar.settings') },

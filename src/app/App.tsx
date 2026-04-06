@@ -14,6 +14,7 @@ import { ModalProvider } from './ModalContext'
 import { useModal } from './useModal'
 import { DemoProvider } from './DemoContext'
 import { SelectedDateProvider } from './SelectedDateContext'
+import { SelectedPersonProvider } from './SelectedPersonContext'
 
 const PAGE_TITLES: Record<string, string> = {
   dashboard: 'sidebar.dashboard',
@@ -23,6 +24,7 @@ const PAGE_TITLES: Record<string, string> = {
   settings: 'sidebar.settings',
   partners: 'sidebar.partners',
   'import-profiles': 'sidebar.importProfiles',
+  persons: 'sidebar.persons',
 }
 
 const AppShell = () => {
@@ -48,30 +50,32 @@ const AppShell = () => {
   const pageTitle = t(PAGE_TITLES[routerState.location.pathname.slice(1)] ?? 'sidebar.dashboard')
 
   return (
-    <SelectedDateProvider>
-      <DemoProvider isDemoMode={demo.isDemoMode} onEnterDemoMode={demo.handleEnter} onExitDemoMode={demo.handleExit}>
-        <>
-          <Toaster theme={theme} richColors />
-          <div className="flex flex-col h-screen">
-            {demo.isDemoMode && <DemoModeBanner onExit={demo.handleExit} />}
-            <div className="flex flex-1 min-h-0 bg-background overflow-hidden">
-              <Sidebar collapsed={sidebarCollapsed} onToggleCollapse={() => setSidebarCollapsed((c) => !c)} />
-              <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-                <div className="flex-1 overflow-y-auto [scrollbar-gutter:stable]">
-                  <div className="mx-auto max-w-5xl py-6 px-4">
-                    <div className="bg-card rounded-xl shadow-sm overflow-hidden">
-                      <Header pageTitle={pageTitle} />
-                      <Outlet />
+    <SelectedPersonProvider>
+      <SelectedDateProvider>
+        <DemoProvider isDemoMode={demo.isDemoMode} onEnterDemoMode={demo.handleEnter} onExitDemoMode={demo.handleExit}>
+          <>
+            <Toaster theme={theme} richColors />
+            <div className="flex flex-col h-screen">
+              {demo.isDemoMode && <DemoModeBanner onExit={demo.handleExit} />}
+              <div className="flex flex-1 min-h-0 bg-background overflow-hidden">
+                <Sidebar collapsed={sidebarCollapsed} onToggleCollapse={() => setSidebarCollapsed((c) => !c)} />
+                <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+                  <div className="flex-1 overflow-y-auto [scrollbar-gutter:stable]">
+                    <div className="mx-auto max-w-5xl py-6 px-4">
+                      <div className="bg-card rounded-xl shadow-sm overflow-hidden">
+                        <Header pageTitle={pageTitle} />
+                        <Outlet />
+                      </div>
                     </div>
                   </div>
                 </div>
+                <AppModals selectedDate={todayIso()} dbLocation={dbLocation} />
               </div>
-              <AppModals selectedDate={todayIso()} dbLocation={dbLocation} />
             </div>
-          </div>
-        </>
-      </DemoProvider>
-    </SelectedDateProvider>
+          </>
+        </DemoProvider>
+      </SelectedDateProvider>
+    </SelectedPersonProvider>
   )
 }
 

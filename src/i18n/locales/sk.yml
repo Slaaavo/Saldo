@@ -10,7 +10,7 @@ sidebar:
   importProfiles: "Importné profily"
   collapse: "Zbaliť panel"
   expand: "Rozbaliť panel"
-
+  persons: "Osoby"
 # ──── Partneri ────
 partners:
   title: "Partneri"
@@ -508,6 +508,27 @@ import:
 language:
   en: English
   sk: Slovenčina
+
+# ──── Osoby ────
+persons:
+  title: "Osoby"
+  addPerson: "Pridať osobu"
+  createPerson: "Vytvoriť osobu"
+  editPerson: "Upraviť osobu"
+  deletePerson: "Vymazať osobu"
+  name: "Názov"
+  type: "Typ"
+  typePhysical: "Fyzická osoba"
+  typeLegal: "Právnická osoba"
+  defaultBadge: "Predvolená"
+  isDefault: "Predvolená osoba"
+  empty: "Žiadne osoby."
+  deleteConfirm: "Vymazanie osoby \"{{name}}\" natrvalo vymaže všetky prepojené účty a ich históriu transakcií. Túto akciu nie je možné vrátiť späť."
+  cannotDeleteDefault: "Predvolenú osobu nie je možné vymazať."
+  all: "Všetky osoby"
+  selector: "Osoba"
+  manage: "Spravovať osoby"
+
 
 # ──── Demo režim ────
 demo:

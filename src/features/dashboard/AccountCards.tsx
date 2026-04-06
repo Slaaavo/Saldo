@@ -1,9 +1,10 @@
 import { useRef, useState, useCallback, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import type { SnapshotRow, Currency } from '../../shared/types'
+import type { SnapshotRow, Currency, PersonRow } from '../../shared/types'
 import { Button } from '../../shared/ui/button'
 import { Plus, ChevronLeft, ChevronRight, ArrowUpDown } from 'lucide-react'
 import AccountCard from './AccountCard'
+import { useSelectedPerson } from '../../app/useSelectedPerson'
 
 interface Props {
   snapshot: SnapshotRow[]
@@ -22,6 +23,8 @@ interface Props {
   allAssets?: SnapshotRow[]
   /** All account rows — used to resolve linked account balances for equity tooltip on asset cards */
   allAccounts?: SnapshotRow[]
+  /** Persons list — used to show the owner name on each card when viewing all persons */
+  persons?: PersonRow[]
 }
 
 const AccountCards = ({
@@ -39,8 +42,10 @@ const AccountCards = ({
   onManageLinkedAssets,
   allAssets,
   allAccounts,
+  persons,
 }: Props) => {
   const { t } = useTranslation()
+  const { selectedPersonId } = useSelectedPerson()
   const scrollRef = useRef<HTMLDivElement>(null)
   const [canScrollLeft, setCanScrollLeft] = useState(false)
   const [canScrollRight, setCanScrollRight] = useState(false)
@@ -104,20 +109,24 @@ const AccountCards = ({
           )}
 
           <div ref={scrollRef} className="flex gap-4 overflow-x-auto no-scrollbar" style={{ scrollbarWidth: 'none' }}>
-            {snapshot.map((row) => (
-              <AccountCard
-                key={row.accountId}
-                row={row}
-                consolidationCurrency={consolidationCurrency}
-                updateButtonLabel={updateButtonLabel}
-                onUpdateBalance={onUpdateBalance}
-                onRenameAccount={onRenameAccount}
-                onDeleteAccount={onDeleteAccount}
-                onManageLinkedAssets={onManageLinkedAssets}
-                allAssets={allAssets}
-                allAccounts={allAccounts}
-              />
-            ))}
+            {snapshot.map((row) => {
+              const personName = persons && persons.length > 1 && selectedPersonId === null ? (persons.find((p) => p.id === row.personId)?.name ?? undefined) : undefined
+              return (
+                <AccountCard
+                  key={row.accountId}
+                  row={row}
+                  consolidationCurrency={consolidationCurrency}
+                  updateButtonLabel={updateButtonLabel}
+                  onUpdateBalance={onUpdateBalance}
+                  onRenameAccount={onRenameAccount}
+                  onDeleteAccount={onDeleteAccount}
+                  onManageLinkedAssets={onManageLinkedAssets}
+                  allAssets={allAssets}
+                  allAccounts={allAccounts}
+                  personName={personName}
+                />
+              )
+            })}
           </div>
 
           {canScrollRight && (

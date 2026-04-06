@@ -19,10 +19,6 @@ const ImportProfilesPage = () => {
 
   return (
     <div className="px-4 md:px-10 py-8">
-      <div className="flex items-center justify-between mb-6">
-        <h2 className="text-2xl font-bold">{t('import.profiles.title')}</h2>
-      </div>
-
       {loading ? null : profiles.length === 0 ? (
         <p className="text-sm text-muted-foreground">{t('import.profiles.empty')}</p>
       ) : (

@@ -89,10 +89,7 @@ const UnitsPage = () => {
 
   return (
     <div className="px-4 md:px-10 py-8">
-      <div className="mb-6">
-        <h2 className="text-2xl font-bold">{t('units.title')}</h2>
-        {consolidationCurrency && <p className="text-sm text-muted-foreground">{t('units.subtitle', { currency: consolidationCurrency.name })}</p>}
-      </div>
+      <div className="mb-6">{consolidationCurrency && <p className="text-sm text-muted-foreground">{t('units.subtitle', { currency: consolidationCurrency.name })}</p>}</div>
 
       {error && <div className="mb-4 rounded-md border border-destructive bg-destructive/10 px-4 py-2 text-sm text-destructive">{error}</div>}
 

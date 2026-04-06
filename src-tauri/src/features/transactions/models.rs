@@ -66,6 +66,7 @@ pub struct SnapshotRow {
     pub linked_balance_minor: i64,
     /// For bucket-type rows: converted sum of cashflows tagged to this bucket via event_data.bucket_id (consolidation currency).
     pub cashflow_tagged_minor: i64,
+    pub person_id: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]

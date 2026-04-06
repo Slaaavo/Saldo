@@ -1,8 +1,9 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import type { SnapshotRow } from '../../shared/types'
 import { listEvents } from '../../shared/api'
 import { toEndOfDay } from '../../shared/utils/format'
+import { useSelectedPerson } from '../../app/useSelectedPerson'
 
 interface UseLedgerDataOptions {
   snapshot?: SnapshotRow[]
@@ -13,6 +14,14 @@ export const useLedgerData = ({ snapshot }: UseLedgerDataOptions = {}) => {
   const [toDate, setToDate] = useState('')
   const [selectedAccountIds, setSelectedAccountIds] = useState<number[]>([])
   const [eventTypeFilter, setEventTypeFilter] = useState<string>('all')
+  const { selectedPersonId } = useSelectedPerson()
+
+  useEffect(() => {
+    const id = setTimeout(() => {
+      setSelectedAccountIds([])
+    }, 0)
+    return () => clearTimeout(id)
+  }, [selectedPersonId])
 
   const accountTypeMap = useMemo(() => {
     const map = new Map<number, string>()
@@ -25,7 +34,7 @@ export const useLedgerData = ({ snapshot }: UseLedgerDataOptions = {}) => {
   }, [snapshot])
 
   const { data, isPending, isFetching } = useQuery({
-    queryKey: ['events', 'ledger', fromDate, toDate, selectedAccountIds, eventTypeFilter],
+    queryKey: ['events', 'ledger', fromDate, toDate, selectedAccountIds, eventTypeFilter, selectedPersonId],
     queryFn: async () => {
       const filter: Parameters<typeof listEvents>[0] = {}
       if (fromDate) filter.fromDate = `${fromDate}T00:00:00`
@@ -38,6 +47,7 @@ export const useLedgerData = ({ snapshot }: UseLedgerDataOptions = {}) => {
         if (bucketFilterIds.length > 0) filter.bucketIds = bucketFilterIds
       }
       if (eventTypeFilter !== 'all') filter.eventTypes = [eventTypeFilter]
+      if (selectedPersonId !== null) filter.personId = selectedPersonId
       const { events: evts } = await listEvents(filter)
       return evts
     },

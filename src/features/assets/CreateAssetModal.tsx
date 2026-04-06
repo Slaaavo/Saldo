@@ -1,15 +1,18 @@
 import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
+import { useQuery } from '@tanstack/react-query'
 import { PINNED_CURRENCY_CODES } from '../../shared/config/constants'
 import { toMinorUnits, getMinorUnitsStep } from '../../shared/utils/format'
 import type { Currency } from '../../shared/types'
-import { listCurrencies, getConsolidationCurrency, listCustomUnits, createCustomUnit, createAccount } from '../../shared/api'
+import { listCurrencies, getConsolidationCurrency, listCustomUnits, createCustomUnit, createAccount, listPersons } from '../../shared/api'
+import { useSelectedPerson } from '../../app/useSelectedPerson'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogBody, DialogFooter } from '../../shared/ui/dialog'
 import { Button } from '../../shared/ui/button'
 import { CurrencyInput } from '../../shared/ui/CurrencyInput'
 import { Input } from '../../shared/ui/input'
 import { Label } from '../../shared/ui/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../shared/ui/select'
 import CurrencySelect from '../currency/CurrencySelect'
 import NumberValue from '../../shared/ui/NumberValue'
 import { extractErrorMessage } from '../../shared/utils/errors'
@@ -24,6 +27,11 @@ const NEW_UNIT_VALUE = '__new__'
 
 const CreateAssetModal = ({ onSuccess, onClose }: Props) => {
   const { t } = useTranslation()
+  const { selectedPersonId } = useSelectedPerson()
+  const { data: persons } = useQuery({ queryKey: ['persons'], queryFn: listPersons })
+  // undefined = auto-derive from default person; number = explicitly chosen
+  const [personIdOverride, setPersonIdOverride] = useState<number | undefined>(selectedPersonId ?? undefined)
+  const personId: number | null = personIdOverride !== undefined ? personIdOverride : (persons?.find((p) => p.isDefault)?.id ?? null)
 
   const [denomination, setDenomination] = useState<Denomination>('currency')
 
@@ -96,7 +104,7 @@ const CreateAssetModal = ({ onSuccess, onClose }: Props) => {
     }
     setSubmitting(true)
     try {
-      await createAccount(assetName.trim(), selectedCurrency.id, initialBalanceMinor, 'asset')
+      await createAccount(assetName.trim(), selectedCurrency.id, initialBalanceMinor, 'asset', undefined, undefined, undefined, personId ?? undefined)
       onSuccess()
     } catch (err) {
       toast.error(t('errors.createAccount', { error: extractErrorMessage(err) }))
@@ -147,7 +155,7 @@ const CreateAssetModal = ({ onSuccess, onClose }: Props) => {
 
       const price = pricePerUnit.trim() || undefined
 
-      await createAccount(assetName.trim(), currencyId, initialQuantityMinor, 'asset', price)
+      await createAccount(assetName.trim(), currencyId, initialQuantityMinor, 'asset', price, undefined, undefined, personId ?? undefined)
       onSuccess()
     } catch (err) {
       toast.error(t('errors.createAccount', { error: extractErrorMessage(err) }))
@@ -209,6 +217,23 @@ const CreateAssetModal = ({ onSuccess, onClose }: Props) => {
                 <Label>{t('currency.label')}</Label>
                 <CurrencySelect currencies={currencies} value={selectedCurrency} onChange={setSelectedCurrency} pinnedCurrencyCodes={PINNED_CURRENCY_CODES} />
               </div>
+              {persons && persons.length > 1 && (
+                <div className="flex flex-col gap-2">
+                  <Label>{t('persons.selector')}</Label>
+                  <Select value={personId === null ? 'none' : String(personId)} onValueChange={(val) => setPersonIdOverride(Number(val))}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {persons.map((p) => (
+                        <SelectItem key={p.id} value={String(p.id)}>
+                          {p.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
               <div className="flex flex-col gap-2">
                 <Label htmlFor="create-asset-value">{t('modals.createAsset.initialValue')}</Label>
                 <CurrencyInput
@@ -246,6 +271,25 @@ const CreateAssetModal = ({ onSuccess, onClose }: Props) => {
                   autoFocus
                 />
               </div>
+
+              {/* Person selector */}
+              {persons && persons.length > 1 && (
+                <div className="flex flex-col gap-2">
+                  <Label>{t('persons.selector')}</Label>
+                  <Select value={personId === null ? 'none' : String(personId)} onValueChange={(val) => setPersonIdOverride(Number(val))}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {persons.map((p) => (
+                        <SelectItem key={p.id} value={String(p.id)}>
+                          {p.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
 
               {/* Unit selector */}
               <div className="flex flex-col gap-2">

@@ -218,6 +218,10 @@ pub fn run() {
             features::delete_import_profile,
             features::get_preferred_profile,
             features::set_preferred_profile,
+            features::create_person,
+            features::list_persons,
+            features::update_person,
+            features::delete_person,
         ])
         .run({
             let mut ctx = tauri::generate_context!();

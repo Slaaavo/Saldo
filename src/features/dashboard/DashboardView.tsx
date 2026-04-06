@@ -1,7 +1,8 @@
+import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import type { EventWithData, Currency } from '../../shared/types'
-import { getEventById } from '../../shared/api'
+import { getEventById, listPersons } from '../../shared/api'
 import { extractErrorMessage } from '../../shared/utils/errors'
 import { cn } from '@/shared/lib/utils'
 import NumberValue from '../../shared/ui/NumberValue'
@@ -46,12 +47,14 @@ const DashboardView = () => {
   const snapshotQuery = useSnapshotQuery(selectedDate)
   const eventsQuery = useDashboardEventsQuery(selectedDate)
   const consolidationCurrencyQuery = useConsolidationCurrencyQuery()
+  const personsQuery = useQuery({ queryKey: ['persons'], queryFn: listPersons })
 
   const snapshot = snapshotQuery.data ?? []
   const { accounts, buckets, assets, hasAssets, liquidMinor, leftToSpendMinor, netWorthMinor } = computeDashboardMetrics(snapshot)
   const events = eventsQuery.data?.events ?? []
   const totalEvents = eventsQuery.data?.totalCount ?? 0
   const consolidationCurrency = consolidationCurrencyQuery.data ?? null
+  const persons = personsQuery.data ?? []
   const missingFxCurrencies = [...new Set(snapshot.filter((r) => r.fxRateMissing).map((r) => r.currencyCode))]
 
   if (snapshotQuery.isPending && eventsQuery.isPending && consolidationCurrencyQuery.isPending) {
@@ -76,6 +79,7 @@ const DashboardView = () => {
       currentName,
       accountType: row?.accountType ?? 'account',
       currentIban: row?.iban,
+      currentPersonId: row?.personId,
     })
   }
 
@@ -170,6 +174,7 @@ const DashboardView = () => {
             onReorder={() => setModalState({ type: 'reorderAccounts' })}
             onManageLinkedAssets={(accountId, accountName) => setModalState({ type: 'manageLinkedAssets', accountId, accountName })}
             allAssets={assets}
+            persons={persons}
           />
         )}
       </div>
@@ -191,6 +196,7 @@ const DashboardView = () => {
               onDeleteAccount={handleDelete('bucket')}
               onCreateAccount={() => setModalState({ type: 'createAccount', accountType: 'bucket' })}
               onReorder={() => setModalState({ type: 'reorderBuckets' })}
+              persons={persons}
             />
           </div>
 
@@ -211,6 +217,7 @@ const DashboardView = () => {
               onCreateAccount={() => setModalState({ type: 'createAsset' })}
               onReorder={() => setModalState({ type: 'reorderAssets' })}
               allAccounts={accounts}
+              persons={persons}
             />
           </div>
 

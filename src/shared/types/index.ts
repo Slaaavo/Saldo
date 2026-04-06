@@ -1,3 +1,11 @@
+export interface PersonRow {
+  id: number
+  name: string
+  personType: string
+  isDefault: boolean
+  createdAt: string
+}
+
 export interface AccountAssetLink {
   id: number
   accountId: number
@@ -19,6 +27,7 @@ export type ModalState =
       currentName: string
       accountType: string
       currentIban?: string | null
+      currentPersonId?: number | null
     }
   | {
       type: 'confirmDeleteAccount'
@@ -130,6 +139,7 @@ export interface SnapshotRow {
   bucketLinks: BucketLink[]
   linkedBalanceMinor: number
   cashflowTaggedMinor: number
+  personId: number | null
 }
 
 export interface FxRateRow {

@@ -7,6 +7,7 @@ import UnitsPage from '../features/assets/UnitsPage'
 import SettingsPage from '../features/settings/SettingsPage'
 import PartnersPage from '../features/partners/PartnersPage'
 import ImportProfilesPage from '../features/csv-profiles/ImportProfilesPage'
+import PersonsPage from '../features/persons/PersonsPage'
 
 // Root route — App is the shell layout (renders Outlet inside)
 const rootRoute = createRootRoute({
@@ -65,7 +66,13 @@ const importProfilesRoute = createRoute({
   component: ImportProfilesPage,
 })
 
-export const routeTree = rootRoute.addChildren([indexRoute, dashboardRoute, ledgerRoute, fxRatesRoute, unitsRoute, settingsRoute, partnersRoute, importProfilesRoute])
+const personsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/persons',
+  component: PersonsPage,
+})
+
+export const routeTree = rootRoute.addChildren([indexRoute, dashboardRoute, ledgerRoute, fxRatesRoute, unitsRoute, settingsRoute, partnersRoute, importProfilesRoute, personsRoute])
 
 const memoryHistory = createMemoryHistory({ initialEntries: ['/dashboard'] })
 

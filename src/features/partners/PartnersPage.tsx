@@ -37,15 +37,11 @@ const PartnersPage = () => {
 
   return (
     <div className="px-4 md:px-10 py-8">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <h2 className="text-2xl font-bold">{t('partners.title')}</h2>
-        <Button onClick={() => setCreateModalOpen(true)}>{t('partners.addPartner')}</Button>
-      </div>
-
-      {/* Search */}
-      <div className="mb-4">
+      <div className="flex items-center gap-3 mb-6">
         <Input type="text" placeholder={t('partners.search')} value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="max-w-sm" />
+        <div className="ml-auto">
+          <Button onClick={() => setCreateModalOpen(true)}>{t('partners.addPartner')}</Button>
+        </div>
       </div>
 
       {/* Table */}

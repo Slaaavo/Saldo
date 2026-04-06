@@ -6,7 +6,7 @@ use tauri::State;
 use super::models::{
     CreateSplitGroupInput, EventWithData, ListEventsResult, SnapshotRow, UpdateSplitGroupDateInput,
 };
-use super::repository;
+use super::repository::{self, GetSnapshotParams};
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -51,6 +51,7 @@ pub struct ListEventsFilter {
     pub from_date: Option<String>,
     pub event_types: Option<Vec<String>>,
     pub limit: Option<i64>,
+    pub person_id: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -128,6 +129,7 @@ pub fn create_balance_update(
 pub fn get_accounts_snapshot(
     state: State<'_, AppState>,
     date_iso: String,
+    person_id: Option<i64>,
 ) -> Result<Vec<SnapshotRow>, AppError> {
     let selected_datetime = if date_iso.len() == 10 {
         format!("{}T23:59:59", date_iso)
@@ -135,7 +137,13 @@ pub fn get_accounts_snapshot(
         date_iso
     };
     let conn = state.conn()?;
-    let snapshot = repository::get_accounts_snapshot(&conn, &selected_datetime)?;
+    let snapshot = repository::get_accounts_snapshot(
+        &conn,
+        GetSnapshotParams {
+            selected_datetime,
+            person_id,
+        },
+    )?;
     Ok(snapshot)
 }
 
@@ -155,6 +163,7 @@ pub fn list_events(
             event_types: filter.event_types,
             limit: filter.limit,
             bucket_ids: filter.bucket_ids,
+            person_id: filter.person_id,
         },
     )?;
     Ok(result)

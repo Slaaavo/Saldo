@@ -1,32 +1,40 @@
 import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useQuery } from '@tanstack/react-query'
 import { PINNED_CURRENCY_CODES } from '../../shared/config/constants'
 import { toast } from 'sonner'
 import { toMinorUnits, getMinorUnitsStep } from '../../shared/utils/format'
 import type { Currency, SnapshotRow } from '../../shared/types'
-import { listCurrencies, getConsolidationCurrency } from '../../shared/api'
+import { listCurrencies, getConsolidationCurrency, listPersons } from '../../shared/api'
+import { useSelectedPerson } from '../../app/useSelectedPerson'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogBody, DialogFooter } from '../../shared/ui/dialog'
 import { Button } from '../../shared/ui/button'
 import { CurrencyInput } from '../../shared/ui/CurrencyInput'
 import { Input } from '../../shared/ui/input'
 import { Label } from '../../shared/ui/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../shared/ui/select'
 import CurrencySelect from '../currency/CurrencySelect'
 
 interface Props {
   accountType?: 'account' | 'bucket' | 'asset'
   assets?: SnapshotRow[]
-  onSubmit: (name: string, currencyId: number, initialBalanceMinor?: number, accountType?: string, linkedAssetIds?: number[], iban?: string) => void
+  onSubmit: (name: string, currencyId: number, initialBalanceMinor?: number, accountType?: string, linkedAssetIds?: number[], iban?: string, personId?: number) => void
   onClose: () => void
 }
 
 const CreateAccountModal = ({ accountType, assets, onSubmit, onClose }: Props) => {
   const { t } = useTranslation()
+  const { selectedPersonId } = useSelectedPerson()
+  const { data: persons } = useQuery({ queryKey: ['persons'], queryFn: listPersons })
   const [name, setName] = useState('')
   const [balance, setBalance] = useState('')
   const [iban, setIban] = useState('')
   const [linkedAssetIds, setLinkedAssetIds] = useState<number[]>([])
   const [currencies, setCurrencies] = useState<Currency[]>([])
   const [selectedCurrency, setSelectedCurrency] = useState<Currency | null>(null)
+  // undefined = auto-derive from default person; number = explicitly chosen
+  const [personIdOverride, setPersonIdOverride] = useState<number | undefined>(selectedPersonId ?? undefined)
+  const personId: number | null = personIdOverride !== undefined ? personIdOverride : (persons?.find((p) => p.isDefault)?.id ?? null)
 
   const isBucket = accountType === 'bucket'
   const isAsset = accountType === 'asset'
@@ -72,6 +80,7 @@ const CreateAccountModal = ({ accountType, assets, onSubmit, onClose }: Props) =
       accountType,
       linkedAssetIds.length > 0 ? linkedAssetIds : undefined,
       !isBucket && !isAsset ? iban.trim() || undefined : undefined,
+      personId ?? undefined,
     )
   }
 
@@ -114,6 +123,24 @@ const CreateAccountModal = ({ accountType, assets, onSubmit, onClose }: Props) =
               <Label>{t('currency.label')}</Label>
               <CurrencySelect currencies={currencies} value={selectedCurrency} onChange={setSelectedCurrency} pinnedCurrencyCodes={PINNED_CURRENCY_CODES} />
             </div>
+
+            {!isAsset && persons && persons.length > 1 && (
+              <div className="flex flex-col gap-2">
+                <Label>{t('persons.selector')}</Label>
+                <Select value={personId === null ? 'none' : String(personId)} onValueChange={(val) => setPersonIdOverride(Number(val))}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {persons.map((p) => (
+                      <SelectItem key={p.id} value={String(p.id)}>
+                        {p.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
 
             <div className="flex flex-col gap-2">
               <Label htmlFor="create-account-balance">{t(isAsset ? 'modals.createAsset.initialValue' : 'modals.createAccount.initialBalance')}</Label>
