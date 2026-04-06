@@ -1,4 +1,6 @@
-use crate::features::buckets::repository::carry_forward_bucket_links;
+use crate::features::buckets::repository::{
+    carry_forward_bucket_links, CarryForwardBucketLinksParams,
+};
 use crate::shared::with_savepoint;
 use rusqlite::{params, Connection, OptionalExtension};
 
@@ -54,7 +56,13 @@ pub fn bulk_create_balance_updates(
                 )
                 .optional()?;
             if account_type.as_deref() == Some("bucket") {
-                carry_forward_bucket_links(conn, account_id, event_id)?;
+                carry_forward_bucket_links(
+                    conn,
+                    CarryForwardBucketLinksParams {
+                        bucket_id: account_id,
+                        new_event_id: event_id,
+                    },
+                )?;
             }
             ids.push(event_id);
         }

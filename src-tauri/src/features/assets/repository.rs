@@ -540,8 +540,10 @@ mod tests {
         let event_id = create_balance_update(&conn, bucket_id, 0, "2024-01-01", None).unwrap();
         crate::features::buckets::repository::set_bucket_event_links(
             &conn,
-            event_id,
-            &[account_id],
+            crate::features::buckets::repository::SetBucketEventLinksParams {
+                event_id,
+                account_ids: vec![account_id],
+            },
         )
         .unwrap();
 

@@ -76,20 +76,32 @@ Ask the user to confirm, remove items, or suggest edits before proceeding. Only 
 
 ### Step 5 — Write Approved Updates
 
-Edit each file, adding only the user-approved entries under the appropriate sections.
+Edit each file, adding only the user-approved entries.
 
-**For `memory.md`**: Write in a flat, chronological or thematic style — no rigid section structure. Group related entries naturally. Each entry should capture *what* was done and *why*, or how things relate. Think of it as a project journal that a new contributor could read to understand the project's evolution.
+**For `memory.md`**: Use a **dated log format**:
+- Each entry is preceded by a date heading: `## YYYY-MM-DD`
+- If multiple entries share the same date, they appear as bullets under one heading.
+- **Append new entries at the bottom** of the file — the log is chronological, oldest first, newest last.
+- Each entry captures *what* was done and *why*, or how things relate. Write concisely — bullet points, not prose.
+- Do NOT reorder existing entries when adding new ones.
 
 **For `implementation-rules.md`**: Follow the existing numbered section structure. Add new rules (patterns, conventions, workarounds with technical steps) to the relevant section, or create a new numbered section if needed.
 
 ### Step 6 — Enforce Size Limit
 
-Each file must stay under **10,000 tokens** (~7,500 words). If a file approaches this limit, **summarize and compact** in place:
-1. Merge related entries into single, denser bullet points
-2. Shorten older entries to their essential takeaway (one line each)
-3. Remove entries that are now obvious from the codebase itself or were superseded by later decisions
-4. Prioritize recent and frequently-relevant knowledge over historical context
-5. Never archive to separate files — keep everything in the two canonical files
+Each file must stay under **10,000 tokens** (~7,500 words). Only compact when the file is actually approaching this limit — do not compact proactively.
+
+When compaction is needed for `memory.md`:
+1. Leave the most recent dated entries untouched in their dated log format.
+2. Starting from the oldest entries, group multiple `## YYYY-MM-DD` headings into combined headings (e.g., `## 2026-03-10 – 2026-03-14`) until enough space is recovered.
+3. Within each grouped heading, re-organise bullets by **topic** (e.g., "Accounts", "Buckets", "Testing").
+4. Merge related bullets into single denser points; remove entries superseded by later decisions.
+5. Never archive to separate files — keep everything in `memory.md`.
+
+When compaction is needed for `implementation-rules.md`:
+1. Merge related rules into single, denser bullet points.
+2. Remove rules that are now obvious from the codebase or were superseded.
+3. Prioritise recent and frequently-relevant rules.
 
 ### Step 7 — Confirm
 
@@ -98,6 +110,7 @@ Summarize what was written to each file so the user has a final record of what w
 ## Quality Criteria
 
 - **memory.md is about what and why, not how**: No code patterns, no struct definitions, no step-by-step technical recipes. Those belong in `implementation-rules.md`.
+- **memory.md is a dated log**: New entries always append at the bottom under a `## YYYY-MM-DD` heading. Never insert entries above existing ones.
 - **implementation-rules.md is about how, not why**: It captures patterns and conventions. Rationale belongs in `memory.md`.
 - **No overlap**: If something is in one file, it should not be repeated in the other. Cross-reference instead (e.g., "see implementation-rules.md §7 for migration details").
 - **No vague entries**: Every entry should be actionable or informative. "We decided to use X" is only useful with "because Y".

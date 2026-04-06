@@ -4,20 +4,48 @@ use std::collections::HashMap;
 use super::models::{BucketLink, LinkConflict};
 use crate::shared::with_savepoint;
 
+pub struct SetBucketEventLinksParams {
+    pub event_id: i64,
+    pub account_ids: Vec<i64>,
+}
+
+pub struct ListLatestLinksParams {
+    pub bucket_account_id: i64,
+    pub as_of_date: String,
+}
+
+pub struct CarryForwardBucketLinksParams {
+    pub bucket_id: i64,
+    pub new_event_id: i64,
+}
+
+pub struct CheckSingleLinkConflictParams {
+    pub source_account_id: i64,
+    pub target_bucket_id: i64,
+    pub new_event_id: i64,
+    pub new_event_date: String,
+}
+
+pub struct CheckLinkConflictsParams {
+    pub target_bucket_id: i64,
+    pub new_event_id: i64,
+    pub new_event_date: String,
+    pub proposed_account_ids: Vec<i64>,
+}
+
 pub fn set_bucket_event_links(
     conn: &Connection,
-    event_id: i64,
-    account_ids: &[i64],
+    params: SetBucketEventLinksParams,
 ) -> rusqlite::Result<()> {
     with_savepoint(conn, || {
         conn.execute(
             "DELETE FROM bucket_event_link WHERE event_id = ?1",
-            params![event_id],
+            params![params.event_id],
         )?;
-        for &account_id in account_ids {
+        for &account_id in &params.account_ids {
             conn.execute(
                 "INSERT OR IGNORE INTO bucket_event_link (event_id, source_account_id) VALUES (?1, ?2)",
-                params![event_id, account_id],
+                params![params.event_id, account_id],
             )?;
         }
         Ok(())
@@ -53,8 +81,7 @@ pub fn list_links_for_event(conn: &Connection, event_id: i64) -> rusqlite::Resul
 
 pub fn list_latest_links_for_bucket(
     conn: &Connection,
-    bucket_account_id: i64,
-    as_of_date: &str,
+    params: ListLatestLinksParams,
 ) -> rusqlite::Result<Vec<BucketLink>> {
     let mut stmt = conn.prepare(
         "SELECT bel.id, bel.event_id, bel.source_account_id,
@@ -82,17 +109,20 @@ pub fn list_latest_links_for_bucket(
            )
          ORDER BY bel.id",
     )?;
-    let rows = stmt.query_map(params![bucket_account_id, as_of_date], |row| {
-        Ok(BucketLink {
-            id: row.get(0)?,
-            event_id: row.get(1)?,
-            source_account_id: row.get(2)?,
-            source_account_name: row.get(3)?,
-            source_currency_id: row.get(4)?,
-            source_currency_code: row.get(5)?,
-            source_currency_minor_units: row.get(6)?,
-        })
-    })?;
+    let rows = stmt.query_map(
+        params![params.bucket_account_id, params.as_of_date],
+        |row| {
+            Ok(BucketLink {
+                id: row.get(0)?,
+                event_id: row.get(1)?,
+                source_account_id: row.get(2)?,
+                source_account_name: row.get(3)?,
+                source_currency_id: row.get(4)?,
+                source_currency_code: row.get(5)?,
+                source_currency_minor_units: row.get(6)?,
+            })
+        },
+    )?;
     rows.collect()
 }
 
@@ -148,8 +178,7 @@ pub fn list_all_latest_bucket_links(
 
 pub fn carry_forward_bucket_links(
     conn: &Connection,
-    bucket_id: i64,
-    new_event_id: i64,
+    params: CarryForwardBucketLinksParams,
 ) -> rusqlite::Result<()> {
     conn.execute(
         "INSERT OR IGNORE INTO bucket_event_link (event_id, source_account_id)
@@ -166,17 +195,14 @@ pub fn carry_forward_bucket_links(
              ORDER BY ed.event_date DESC, e.created_at DESC
              LIMIT 1
          )",
-        params![new_event_id, bucket_id],
+        params![params.new_event_id, params.bucket_id],
     )?;
     Ok(())
 }
 
 pub fn check_single_link_conflict(
     conn: &Connection,
-    source_account_id: i64,
-    target_bucket_id: i64,
-    new_event_id: i64,
-    new_event_date: &str,
+    params: CheckSingleLinkConflictParams,
 ) -> rusqlite::Result<Option<LinkConflict>> {
     // Query A: all non-deleted balance_update events linking source_account_id
     // across any bucket, excluding the new event being created/updated.
@@ -193,9 +219,10 @@ pub fn check_single_link_conflict(
          ORDER BY ed.event_date",
     )?;
     let a_rows: Vec<(i64, String, String)> = stmt_a
-        .query_map(params![source_account_id, new_event_id], |row| {
-            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
-        })?
+        .query_map(
+            params![params.source_account_id, params.new_event_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )?
         .collect::<rusqlite::Result<_>>()?;
 
     if a_rows.is_empty() {
@@ -203,7 +230,7 @@ pub fn check_single_link_conflict(
     }
 
     // Collect unique bucket_ids for Query B: target first, then all from Query A.
-    let mut bucket_ids: Vec<i64> = vec![target_bucket_id];
+    let mut bucket_ids: Vec<i64> = vec![params.target_bucket_id];
     for (bid, _, _) in &a_rows {
         if !bucket_ids.contains(bid) {
             bucket_ids.push(*bid);
@@ -228,7 +255,7 @@ pub fn check_single_link_conflict(
     );
     // params: all bucket_ids first, then new_event_id at the end.
     let mut b_params: Vec<i64> = bucket_ids.clone();
-    b_params.push(new_event_id);
+    b_params.push(params.new_event_id);
 
     let mut stmt_b = conn.prepare(&query_b_sql)?;
     let b_rows: Vec<(i64, String)> = stmt_b
@@ -246,13 +273,17 @@ pub fn check_single_link_conflict(
     // The new event's active range: [new_event_date, target_active_end).
     let infinity = "9999-12-31T23:59:59".to_string();
     let target_active_end: String = bucket_timeline
-        .get(&target_bucket_id)
-        .and_then(|dates| dates.iter().find(|d| d.as_str() > new_event_date))
+        .get(&params.target_bucket_id)
+        .and_then(|dates| {
+            dates
+                .iter()
+                .find(|d| d.as_str() > params.new_event_date.as_str())
+        })
         .cloned()
         .unwrap_or_else(|| infinity.clone());
 
     for (other_bucket_id, other_bucket_name, other_event_date) in &a_rows {
-        if *other_bucket_id == target_bucket_id {
+        if *other_bucket_id == params.target_bucket_id {
             // Same bucket — not a cross-bucket conflict.
             continue;
         }
@@ -270,23 +301,23 @@ pub fn check_single_link_conflict(
 
         // Overlap condition: ranges [A, B) and [C, D) overlap iff A < D && C < B.
         if other_event_date.as_str() < target_active_end.as_str()
-            && other_active_end.as_str() > new_event_date
+            && other_active_end.as_str() > params.new_event_date.as_str()
         {
             let source_account_name: String = conn.query_row(
                 "SELECT name FROM account WHERE id = ?1",
-                params![source_account_id],
+                params![params.source_account_id],
                 |row| row.get(0),
             )?;
 
-            let conflict_date_raw = if other_event_date.as_str() > new_event_date {
+            let conflict_date_raw = if other_event_date.as_str() > params.new_event_date.as_str() {
                 other_event_date.as_str()
             } else {
-                new_event_date
+                params.new_event_date.as_str()
             };
             let conflict_date = conflict_date_raw[..10.min(conflict_date_raw.len())].to_string();
 
             return Ok(Some(LinkConflict {
-                source_account_id,
+                source_account_id: params.source_account_id,
                 source_account_name,
                 conflict_date,
                 other_bucket_id: *other_bucket_id,
@@ -300,18 +331,17 @@ pub fn check_single_link_conflict(
 
 pub fn check_link_conflicts(
     conn: &Connection,
-    target_bucket_id: i64,
-    new_event_id: i64,
-    new_event_date: &str,
-    proposed_account_ids: &[i64],
+    params: CheckLinkConflictsParams,
 ) -> rusqlite::Result<Option<LinkConflict>> {
-    for &source_account_id in proposed_account_ids {
+    for &source_account_id in &params.proposed_account_ids {
         if let Some(conflict) = check_single_link_conflict(
             conn,
-            source_account_id,
-            target_bucket_id,
-            new_event_id,
-            new_event_date,
+            CheckSingleLinkConflictParams {
+                source_account_id,
+                target_bucket_id: params.target_bucket_id,
+                new_event_id: params.new_event_id,
+                new_event_date: params.new_event_date.clone(),
+            },
         )? {
             return Ok(Some(conflict));
         }
@@ -360,12 +390,27 @@ mod tests {
 
         // Create first event for the bucket and link the account.
         let event1 = create_balance_update(&conn, bucket_id, 0, "2025-01-01", None).unwrap();
-        set_bucket_event_links(&conn, event1, &[account_id]).unwrap();
+        set_bucket_event_links(
+            &conn,
+            SetBucketEventLinksParams {
+                event_id: event1,
+                account_ids: vec![account_id],
+            },
+        )
+        .unwrap();
 
         // Create a second event to check: same bucket, same account — not a conflict.
         let event2 = create_balance_update(&conn, bucket_id, 0, "2025-06-01", None).unwrap();
-        let result =
-            check_single_link_conflict(&conn, account_id, bucket_id, event2, "2025-06-01").unwrap();
+        let result = check_single_link_conflict(
+            &conn,
+            CheckSingleLinkConflictParams {
+                source_account_id: account_id,
+                target_bucket_id: bucket_id,
+                new_event_id: event2,
+                new_event_date: "2025-06-01".to_owned(),
+            },
+        )
+        .unwrap();
         assert!(result.is_none());
     }
 
@@ -386,12 +431,27 @@ mod tests {
         .unwrap();
 
         let event_b1 = create_balance_update(&conn, bucket1, 0, "2025-01-01", None).unwrap();
-        set_bucket_event_links(&conn, event_b1, &[account_id]).unwrap();
+        set_bucket_event_links(
+            &conn,
+            SetBucketEventLinksParams {
+                event_id: event_b1,
+                account_ids: vec![account_id],
+            },
+        )
+        .unwrap();
 
         // Propose linking account to bucket2 on the same date.
         let event_b2 = create_balance_update(&conn, bucket2, 0, "2025-01-01", None).unwrap();
-        let result =
-            check_single_link_conflict(&conn, account_id, bucket2, event_b2, "2025-01-01").unwrap();
+        let result = check_single_link_conflict(
+            &conn,
+            CheckSingleLinkConflictParams {
+                source_account_id: account_id,
+                target_bucket_id: bucket2,
+                new_event_id: event_b2,
+                new_event_date: "2025-01-01".to_owned(),
+            },
+        )
+        .unwrap();
         assert!(result.is_some());
         let conflict = result.unwrap();
         assert_eq!(conflict.source_account_id, account_id);
@@ -416,16 +476,38 @@ mod tests {
 
         // Link account to bucket1 starting 2025-01-01.
         let event_b1_jan = create_balance_update(&conn, bucket1, 0, "2025-01-01", None).unwrap();
-        set_bucket_event_links(&conn, event_b1_jan, &[account_id]).unwrap();
+        set_bucket_event_links(
+            &conn,
+            SetBucketEventLinksParams {
+                event_id: event_b1_jan,
+                account_ids: vec![account_id],
+            },
+        )
+        .unwrap();
 
         // Bucket1 gets a new event on 2025-06-01 WITHOUT the account (terminates the link).
         let event_b1_jun = create_balance_update(&conn, bucket1, 0, "2025-06-01", None).unwrap();
-        set_bucket_event_links(&conn, event_b1_jun, &[]).unwrap();
+        set_bucket_event_links(
+            &conn,
+            SetBucketEventLinksParams {
+                event_id: event_b1_jun,
+                account_ids: vec![],
+            },
+        )
+        .unwrap();
 
         // Propose linking account to bucket2 starting 2025-06-01.
         let event_b2 = create_balance_update(&conn, bucket2, 0, "2025-06-01", None).unwrap();
-        let result =
-            check_single_link_conflict(&conn, account_id, bucket2, event_b2, "2025-06-01").unwrap();
+        let result = check_single_link_conflict(
+            &conn,
+            CheckSingleLinkConflictParams {
+                source_account_id: account_id,
+                target_bucket_id: bucket2,
+                new_event_id: event_b2,
+                new_event_date: "2025-06-01".to_owned(),
+            },
+        )
+        .unwrap();
         assert!(
             result.is_none(),
             "expected no conflict but got {:?}",
@@ -440,10 +522,24 @@ mod tests {
         let bucket_id = mk_bucket(&conn);
 
         let event1 = create_balance_update(&conn, bucket_id, 0, "2025-01-01", None).unwrap();
-        set_bucket_event_links(&conn, event1, &[account_id]).unwrap();
+        set_bucket_event_links(
+            &conn,
+            SetBucketEventLinksParams {
+                event_id: event1,
+                account_ids: vec![account_id],
+            },
+        )
+        .unwrap();
 
         let event2 = create_balance_update(&conn, bucket_id, 0, "2025-06-01", None).unwrap();
-        carry_forward_bucket_links(&conn, bucket_id, event2).unwrap();
+        carry_forward_bucket_links(
+            &conn,
+            CarryForwardBucketLinksParams {
+                bucket_id,
+                new_event_id: event2,
+            },
+        )
+        .unwrap();
 
         let links = list_links_for_event(&conn, event2).unwrap();
         assert_eq!(links.len(), 1);
@@ -456,7 +552,14 @@ mod tests {
         let bucket_id = mk_bucket(&conn);
 
         let event1 = create_balance_update(&conn, bucket_id, 0, "2025-01-01", None).unwrap();
-        carry_forward_bucket_links(&conn, bucket_id, event1).unwrap();
+        carry_forward_bucket_links(
+            &conn,
+            CarryForwardBucketLinksParams {
+                bucket_id,
+                new_event_id: event1,
+            },
+        )
+        .unwrap();
 
         let links = list_links_for_event(&conn, event1).unwrap();
         assert!(links.is_empty());

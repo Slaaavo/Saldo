@@ -90,10 +90,12 @@ pub fn create_bucket_balance_update(
 
         if let Some(conflict) = repository::check_link_conflicts(
             &conn,
-            input.account_id,
-            event_id,
-            &input.event_date,
-            &input.linked_account_ids,
+            repository::CheckLinkConflictsParams {
+                target_bucket_id: input.account_id,
+                new_event_id: event_id,
+                new_event_date: input.event_date.clone(),
+                proposed_account_ids: input.linked_account_ids.clone(),
+            },
         )? {
             return Err(AppError {
                 code: "LINK_CONFLICT".into(),
@@ -101,7 +103,13 @@ pub fn create_bucket_balance_update(
             });
         }
 
-        repository::set_bucket_event_links(&conn, event_id, &input.linked_account_ids)?;
+        repository::set_bucket_event_links(
+            &conn,
+            repository::SetBucketEventLinksParams {
+                event_id,
+                account_ids: input.linked_account_ids,
+            },
+        )?;
 
         Ok(event_id)
     })
@@ -174,10 +182,12 @@ pub fn update_bucket_balance_update(
 
         if let Some(conflict) = repository::check_link_conflicts(
             &conn,
-            bucket_id,
-            input.event_id,
-            &input.event_date,
-            &input.linked_account_ids,
+            repository::CheckLinkConflictsParams {
+                target_bucket_id: bucket_id,
+                new_event_id: input.event_id,
+                new_event_date: input.event_date.clone(),
+                proposed_account_ids: input.linked_account_ids.clone(),
+            },
         )? {
             return Err(AppError {
                 code: "LINK_CONFLICT".into(),
@@ -197,7 +207,13 @@ pub fn update_bucket_balance_update(
             message: s,
         })?;
 
-        repository::set_bucket_event_links(&conn, input.event_id, &input.linked_account_ids)?;
+        repository::set_bucket_event_links(
+            &conn,
+            repository::SetBucketEventLinksParams {
+                event_id: input.event_id,
+                account_ids: input.linked_account_ids,
+            },
+        )?;
 
         Ok(())
     })
@@ -219,8 +235,14 @@ pub fn get_latest_bucket_links(
     as_of_date: String,
 ) -> Result<Vec<BucketLink>, AppError> {
     let conn = state.conn()?;
-    repository::list_latest_links_for_bucket(&conn, bucket_account_id, &as_of_date)
-        .map_err(AppError::from)
+    repository::list_latest_links_for_bucket(
+        &conn,
+        repository::ListLatestLinksParams {
+            bucket_account_id,
+            as_of_date,
+        },
+    )
+    .map_err(AppError::from)
 }
 
 fn format_conflict_message(conflict: &LinkConflict) -> String {

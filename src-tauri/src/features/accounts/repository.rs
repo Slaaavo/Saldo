@@ -276,7 +276,7 @@ mod tests {
     use super::*;
     use crate::db::initialize_in_memory;
     use crate::features::assets::repository::{create_custom_unit, CreateCustomUnitParams};
-    use crate::features::buckets::repository::set_bucket_event_links;
+    use crate::features::buckets::repository::{set_bucket_event_links, SetBucketEventLinksParams};
     use crate::features::currency::repository::set_fx_rate_manual;
     use crate::features::transactions::repository::{
         create_balance_update, get_accounts_snapshot, list_events, ListEventsQuery,
@@ -437,7 +437,14 @@ mod tests {
         create_balance_update(&conn, source_id, 10000, "2024-01-01", None).unwrap();
         // Create a bucket balance update event that links the source account.
         let event_id = create_balance_update(&conn, bucket_id, 0, "2024-01-01", None).unwrap();
-        set_bucket_event_links(&conn, event_id, &[source_id]).unwrap();
+        set_bucket_event_links(
+            &conn,
+            SetBucketEventLinksParams {
+                event_id,
+                account_ids: vec![source_id],
+            },
+        )
+        .unwrap();
 
         // Attempting to delete the source account should fail.
         let result = delete_account(&conn, source_id);
@@ -467,7 +474,14 @@ mod tests {
         create_balance_update(&conn, source_id, 10000, "2024-01-01", None).unwrap();
         // Create a bucket balance update event that links the source account.
         let event_id = create_balance_update(&conn, bucket_id, 0, "2024-01-01", None).unwrap();
-        set_bucket_event_links(&conn, event_id, &[source_id]).unwrap();
+        set_bucket_event_links(
+            &conn,
+            SetBucketEventLinksParams {
+                event_id,
+                account_ids: vec![source_id],
+            },
+        )
+        .unwrap();
 
         // Deleting the bucket hard-deletes its events, which cascade to bucket_event_link rows.
         delete_account(&conn, bucket_id).unwrap();
@@ -503,11 +517,25 @@ mod tests {
 
         // Event 1: link the source account.
         let event1 = create_balance_update(&conn, bucket_id, 0, "2024-01-01", None).unwrap();
-        set_bucket_event_links(&conn, event1, &[source_id]).unwrap();
+        set_bucket_event_links(
+            &conn,
+            SetBucketEventLinksParams {
+                event_id: event1,
+                account_ids: vec![source_id],
+            },
+        )
+        .unwrap();
 
         // Event 2 (newer): no links — this is the "unlink".
         let event2 = create_balance_update(&conn, bucket_id, 0, "2024-06-01", None).unwrap();
-        set_bucket_event_links(&conn, event2, &[]).unwrap();
+        set_bucket_event_links(
+            &conn,
+            SetBucketEventLinksParams {
+                event_id: event2,
+                account_ids: vec![],
+            },
+        )
+        .unwrap();
 
         // After unlinking via a newer event, delete should succeed.
         let result = delete_account(&conn, source_id);
@@ -550,7 +578,14 @@ mod tests {
 
         // Link account without creating a newer event to unlink.
         let event_id = create_balance_update(&conn, bucket_id, 0, "2024-01-01", None).unwrap();
-        set_bucket_event_links(&conn, event_id, &[source_id]).unwrap();
+        set_bucket_event_links(
+            &conn,
+            SetBucketEventLinksParams {
+                event_id,
+                account_ids: vec![source_id],
+            },
+        )
+        .unwrap();
 
         let result = delete_account(&conn, source_id);
         assert!(result.is_err());
