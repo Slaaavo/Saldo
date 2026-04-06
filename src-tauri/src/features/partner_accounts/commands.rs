@@ -42,9 +42,11 @@ pub fn create_partner_account(
     let conn = state.conn()?;
     repository::create_partner_account(
         &conn,
-        input.name.trim(),
-        input.iban.trim(),
-        input.currency_id,
+        repository::CreatePartnerAccountParams {
+            name: input.name.trim().to_owned(),
+            iban: input.iban.trim().to_owned(),
+            currency_id: input.currency_id,
+        },
     )
 }
 
@@ -76,9 +78,11 @@ pub fn update_partner_account(
     let conn = state.conn()?;
     repository::update_partner_account(
         &conn,
-        input.account_id,
-        input.name.trim(),
-        input.iban.trim(),
+        repository::UpdatePartnerAccountParams {
+            account_id: input.account_id,
+            name: input.name.trim().to_owned(),
+            iban: input.iban.trim().to_owned(),
+        },
     )
 }
 

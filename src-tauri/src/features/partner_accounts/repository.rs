@@ -3,13 +3,23 @@ use crate::features::partner_accounts::models::PartnerAccountRow;
 use crate::shared::{is_duplicate_iban_error, validate_iban, with_savepoint_app};
 use rusqlite::{params, Connection};
 
+pub struct CreatePartnerAccountParams {
+    pub name: String,
+    pub iban: String,
+    pub currency_id: i64,
+}
+
+pub struct UpdatePartnerAccountParams {
+    pub account_id: i64,
+    pub name: String,
+    pub iban: String,
+}
+
 pub fn create_partner_account(
     conn: &Connection,
-    name: &str,
-    iban: &str,
-    currency_id: i64,
+    params: CreatePartnerAccountParams,
 ) -> Result<i64, AppError> {
-    let normalised_iban = validate_iban(iban)?;
+    let normalised_iban = validate_iban(params.iban.as_str())?;
     with_savepoint_app(conn, || {
         let next_sort_order: i64 = conn.query_row(
             "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM account WHERE account_type = 'partner'",
@@ -18,7 +28,7 @@ pub fn create_partner_account(
         )?;
         conn.execute(
             "INSERT INTO account (name, currency_id, account_type, sort_order, iban) VALUES (?1, ?2, 'partner', ?3, ?4)",
-            params![name, currency_id, next_sort_order, normalised_iban],
+            params![params.name.as_str(), params.currency_id, next_sort_order, normalised_iban],
         ).map_err(|e| {
             if is_duplicate_iban_error(&e) {
                 AppError {
@@ -55,15 +65,13 @@ pub fn list_partner_accounts(conn: &Connection) -> rusqlite::Result<Vec<PartnerA
 
 pub fn update_partner_account(
     conn: &Connection,
-    account_id: i64,
-    name: &str,
-    iban: &str,
+    params: UpdatePartnerAccountParams,
 ) -> Result<(), AppError> {
-    let normalised_iban = validate_iban(iban)?;
+    let normalised_iban = validate_iban(params.iban.as_str())?;
     with_savepoint_app(conn, || {
         let affected = conn.execute(
             "UPDATE account SET name = ?1, iban = ?2 WHERE id = ?3 AND account_type = 'partner'",
-            params![name, normalised_iban, account_id],
+            params![params.name.as_str(), normalised_iban, params.account_id],
         ).map_err(|e| {
             if is_duplicate_iban_error(&e) {
                 AppError {
