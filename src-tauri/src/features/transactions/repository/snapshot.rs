@@ -1,7 +1,7 @@
 use crate::features::assets::repository::get_all_account_asset_link_ids;
 use crate::features::buckets::repository::list_all_latest_bucket_links;
 use crate::features::currency::repository::{
-    get_consolidation_currency, get_fx_rate_for_conversion,
+    get_consolidation_currency, get_fx_rate_for_conversion, GetFxRateForConversionParams,
 };
 use crate::features::transactions::models::SnapshotRow;
 use crate::shared::convert_balance;
@@ -109,7 +109,14 @@ pub fn get_accounts_snapshot(
         let (converted_balance_minor, fx_rate_missing) = if currency_id == consolidation.id {
             (balance_minor, false)
         } else {
-            match get_fx_rate_for_conversion(conn, consolidation.id, currency_id, snapshot_date)? {
+            match get_fx_rate_for_conversion(
+                conn,
+                GetFxRateForConversionParams {
+                    from_currency_id: consolidation.id,
+                    to_currency_id: currency_id,
+                    date: snapshot_date.to_owned(),
+                },
+            )? {
                 Some((mantissa, exponent, is_direct)) => {
                     let converted = convert_balance(
                         balance_minor,
@@ -201,9 +208,11 @@ pub fn get_accounts_snapshot(
         } else {
             match get_fx_rate_for_conversion(
                 conn,
-                consolidation.id,
-                source_currency_id,
-                snapshot_date,
+                GetFxRateForConversionParams {
+                    from_currency_id: consolidation.id,
+                    to_currency_id: source_currency_id,
+                    date: snapshot_date.to_owned(),
+                },
             )? {
                 Some((mantissa, exponent, is_direct)) => convert_balance(
                     source_balance,
@@ -271,9 +280,11 @@ pub fn get_accounts_snapshot(
             } else {
                 match get_fx_rate_for_conversion(
                     conn,
-                    consolidation.id,
-                    currency_id,
-                    snapshot_date,
+                    GetFxRateForConversionParams {
+                        from_currency_id: consolidation.id,
+                        to_currency_id: currency_id,
+                        date: snapshot_date.to_owned(),
+                    },
                 )? {
                     Some((mantissa, exponent, is_direct)) => convert_balance(
                         tagged_total,

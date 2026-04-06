@@ -277,7 +277,7 @@ mod tests {
     use crate::db::initialize_in_memory;
     use crate::features::assets::repository::{create_custom_unit, CreateCustomUnitParams};
     use crate::features::buckets::repository::{set_bucket_event_links, SetBucketEventLinksParams};
-    use crate::features::currency::repository::set_fx_rate_manual;
+    use crate::features::currency::repository::{set_fx_rate_manual, SetFxRateManualParams};
     use crate::features::transactions::repository::{
         create_balance_update, get_accounts_snapshot, list_events, ListEventsQuery,
     };
@@ -357,7 +357,18 @@ mod tests {
                 row.get(0)
             })
             .unwrap();
-        set_fx_rate_manual(&conn, eur_id, unit_id, "2026-03-11", 1, -2, true).unwrap();
+        set_fx_rate_manual(
+            &conn,
+            SetFxRateManualParams {
+                from_currency_id: eur_id,
+                to_currency_id: unit_id,
+                date: "2026-03-11".to_owned(),
+                rate_mantissa: 1,
+                rate_exponent: -2,
+                is_direct: true,
+            },
+        )
+        .unwrap();
 
         // Delete the account
         delete_account(&conn, account_id).unwrap();

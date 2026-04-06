@@ -77,9 +77,11 @@ pub async fn smart_fetch_fx_rates(
         let conn = state.conn()?;
         let has_all = features::currency::repository::has_all_fx_rates_for_date(
             &conn,
-            consolidation.id,
-            &active_currencies,
-            date,
+            features::currency::repository::HasAllFxRatesForDateParams {
+                consolidation_id: consolidation.id,
+                active_currencies: active_currencies.clone(),
+                date: date.to_owned(),
+            },
         )?;
         if has_all {
             return Ok(features::currency::repository::list_fx_rates(
@@ -296,8 +298,10 @@ async fn startup_auto_fetch(handle: tauri::AppHandle) {
         for (_, id) in &active_currencies {
             let latest = match features::currency::repository::get_latest_fx_rate_date(
                 &conn,
-                consolidation_id,
-                *id,
+                features::currency::repository::GetLatestFxRateDateParams {
+                    from_currency_id: consolidation_id,
+                    to_currency_id: *id,
+                },
             ) {
                 Ok(d) => d,
                 Err(e) => {

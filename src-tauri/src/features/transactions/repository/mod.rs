@@ -25,7 +25,7 @@ mod tests {
     use super::*;
     use crate::db::initialize_in_memory;
     use crate::features::accounts::repository::{create_account, CreateAccountParams};
-    use crate::features::currency::repository::set_fx_rate_manual;
+    use crate::features::currency::repository::{set_fx_rate_manual, SetFxRateManualParams};
     use rusqlite::{params, Connection};
 
     fn mk_account(conn: &Connection) -> i64 {
@@ -384,7 +384,18 @@ mod tests {
         .unwrap();
         create_balance_update(&conn, acc, 108420, "2026-03-01", None).unwrap();
         // Store rate: 1 EUR = 1.0842 USD (mantissa=10842, exponent=-4)
-        set_fx_rate_manual(&conn, eur, usd, "2026-03-01", 10842, -4, false).unwrap();
+        set_fx_rate_manual(
+            &conn,
+            SetFxRateManualParams {
+                from_currency_id: eur,
+                to_currency_id: usd,
+                date: "2026-03-01".to_owned(),
+                rate_mantissa: 10842,
+                rate_exponent: -4,
+                is_direct: false,
+            },
+        )
+        .unwrap();
         let snapshot = get_accounts_snapshot(&conn, "2026-03-01T23:59:59").unwrap();
         let row = snapshot.iter().find(|r| r.account_id == acc).unwrap();
         assert_eq!(row.balance_minor, 108420);

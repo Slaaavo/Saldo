@@ -65,12 +65,14 @@ pub fn set_fx_rate_manual(
     let conn = state.conn()?;
     repository::set_fx_rate_manual(
         &conn,
-        input.from_currency_id,
-        input.to_currency_id,
-        &input.date,
-        input.rate_mantissa,
-        input.rate_exponent,
-        input.is_direct,
+        repository::SetFxRateManualParams {
+            from_currency_id: input.from_currency_id,
+            to_currency_id: input.to_currency_id,
+            date: input.date,
+            rate_mantissa: input.rate_mantissa,
+            rate_exponent: input.rate_exponent,
+            is_direct: input.is_direct,
+        },
     )?;
     Ok(())
 }

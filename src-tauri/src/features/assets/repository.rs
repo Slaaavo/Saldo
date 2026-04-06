@@ -35,12 +35,14 @@ pub(crate) fn store_asset_price(
 
     crate::features::currency::repository::set_fx_rate_manual(
         conn,
-        consolidation.id,
-        asset_currency_id,
-        date,
-        rate_mantissa,
-        rate_exponent,
-        true,
+        crate::features::currency::repository::SetFxRateManualParams {
+            from_currency_id: consolidation.id,
+            to_currency_id: asset_currency_id,
+            date: date.to_owned(),
+            rate_mantissa,
+            rate_exponent,
+            is_direct: true,
+        },
     )
     .map_err(AppError::from)?;
 
