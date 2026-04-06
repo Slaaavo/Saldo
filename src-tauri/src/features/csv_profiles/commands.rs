@@ -25,7 +25,14 @@ pub fn create_import_profile(
         });
     }
     let conn = state.conn()?;
-    repository::create_import_profile(&conn, name.trim(), &column_mapping_json, &rules)
+    repository::create_import_profile(
+        &conn,
+        repository::CreateImportProfileParams {
+            name: name.trim().to_owned(),
+            column_mapping_json,
+            rules,
+        },
+    )
 }
 
 #[tauri::command]
@@ -43,7 +50,15 @@ pub fn update_import_profile(
         });
     }
     let conn = state.conn()?;
-    repository::update_import_profile(&conn, profile_id, name.trim(), &column_mapping_json, &rules)
+    repository::update_import_profile(
+        &conn,
+        repository::UpdateImportProfileParams {
+            profile_id,
+            name: name.trim().to_owned(),
+            column_mapping_json,
+            rules,
+        },
+    )
 }
 
 #[tauri::command]
@@ -68,5 +83,11 @@ pub fn set_preferred_profile(
     profile_id: Option<i64>,
 ) -> Result<(), AppError> {
     let conn = state.conn()?;
-    repository::set_preferred_profile(&conn, account_id, profile_id)
+    repository::set_preferred_profile(
+        &conn,
+        repository::SetPreferredProfileParams {
+            account_id,
+            profile_id,
+        },
+    )
 }

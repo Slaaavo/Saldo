@@ -3,6 +3,25 @@ use crate::features::csv_profiles::models::{ImportProfileRow, ImportProfileRuleR
 use crate::shared::{local_now, with_savepoint_app};
 use rusqlite::{params, Connection, OptionalExtension};
 
+pub struct CreateImportProfileParams {
+    pub name: String,
+    pub column_mapping_json: String,
+    pub rules: Vec<RuleInput>,
+}
+
+pub struct UpdateImportProfileParams {
+    pub profile_id: i64,
+    pub name: String,
+    pub column_mapping_json: String,
+    pub rules: Vec<RuleInput>,
+}
+
+#[derive(Default)]
+pub struct SetPreferredProfileParams {
+    pub account_id: i64,
+    pub profile_id: Option<i64>,
+}
+
 fn load_rules_for_profile(
     conn: &Connection,
     profile_id: i64,
@@ -56,19 +75,17 @@ pub fn list_import_profiles(conn: &Connection) -> Result<Vec<ImportProfileRow>, 
 
 pub fn create_import_profile(
     conn: &Connection,
-    name: &str,
-    column_mapping_json: &str,
-    rules: &[RuleInput],
+    params: CreateImportProfileParams,
 ) -> Result<i64, AppError> {
     with_savepoint_app(conn, || {
         let now = local_now();
         conn.execute(
             "INSERT INTO import_profile (name, column_mapping_json, created_at, updated_at) VALUES (?1, ?2, ?3, ?4)",
-            params![name, column_mapping_json, now, now],
+            params![params.name.as_str(), params.column_mapping_json.as_str(), now, now],
         )
         .map_err(AppError::from)?;
         let profile_id = conn.last_insert_rowid();
-        for rule in rules {
+        for rule in &params.rules {
             conn.execute(
                 "INSERT INTO import_profile_rule (profile_id, rule_type, sort_order, params_json) VALUES (?1, ?2, ?3, ?4)",
                 params![profile_id, rule.rule_type, rule.sort_order, rule.params_json],
@@ -81,17 +98,14 @@ pub fn create_import_profile(
 
 pub fn update_import_profile(
     conn: &Connection,
-    profile_id: i64,
-    name: &str,
-    column_mapping_json: &str,
-    rules: &[RuleInput],
+    params: UpdateImportProfileParams,
 ) -> Result<(), AppError> {
     with_savepoint_app(conn, || {
         let now = local_now();
         let affected = conn
             .execute(
                 "UPDATE import_profile SET name = ?1, column_mapping_json = ?2, updated_at = ?3 WHERE id = ?4",
-                params![name, column_mapping_json, now, profile_id],
+                params![params.name.as_str(), params.column_mapping_json.as_str(), now, params.profile_id],
             )
             .map_err(AppError::from)?;
         if affected == 0 {
@@ -102,13 +116,13 @@ pub fn update_import_profile(
         }
         conn.execute(
             "DELETE FROM import_profile_rule WHERE profile_id = ?1",
-            params![profile_id],
+            params![params.profile_id],
         )
         .map_err(AppError::from)?;
-        for rule in rules {
+        for rule in &params.rules {
             conn.execute(
                 "INSERT INTO import_profile_rule (profile_id, rule_type, sort_order, params_json) VALUES (?1, ?2, ?3, ?4)",
-                params![profile_id, rule.rule_type, rule.sort_order, rule.params_json],
+                params![params.profile_id, rule.rule_type, rule.sort_order, rule.params_json],
             )
             .map_err(AppError::from)?;
         }
@@ -184,12 +198,11 @@ pub fn get_preferred_profile(
 
 pub fn set_preferred_profile(
     conn: &Connection,
-    account_id: i64,
-    profile_id: Option<i64>,
+    params: SetPreferredProfileParams,
 ) -> Result<(), AppError> {
     conn.execute(
         "UPDATE account SET preferred_profile_id = ?1 WHERE id = ?2",
-        params![profile_id, account_id],
+        params![params.profile_id, params.account_id],
     )
     .map_err(AppError::from)?;
     Ok(())
