@@ -82,10 +82,12 @@ pub fn create_bucket_balance_update(
     with_savepoint_app(&conn, || {
         let event_id = crate::features::transactions::repository::create_balance_update_inner(
             &conn,
-            input.account_id,
-            input.amount_minor,
-            &input.event_date,
-            input.note.as_deref(),
+            crate::features::transactions::repository::CreateBalanceUpdateParams {
+                account_id: input.account_id,
+                amount_minor: input.amount_minor,
+                event_date: input.event_date.clone(),
+                note: input.note.clone(),
+            },
         )?;
 
         if let Some(conflict) = repository::check_link_conflicts(
@@ -176,8 +178,10 @@ pub fn update_bucket_balance_update(
     with_savepoint_app(&conn, || {
         crate::features::transactions::repository::check_event_split_group_date_conflict(
             &conn,
-            input.event_id,
-            &input.event_date,
+            crate::features::transactions::repository::CheckEventSplitGroupDateConflictParams {
+                event_id: input.event_id,
+                new_date: input.event_date.clone(),
+            },
         )?;
 
         if let Some(conflict) = repository::check_link_conflicts(
@@ -197,10 +201,12 @@ pub fn update_bucket_balance_update(
 
         crate::features::transactions::repository::update_event(
             &conn,
-            input.event_id,
-            input.amount_minor,
-            &input.event_date,
-            input.note.as_deref(),
+            crate::features::transactions::repository::UpdateEventParams {
+                event_id: input.event_id,
+                amount_minor: input.amount_minor,
+                event_date: input.event_date.clone(),
+                note: input.note.clone(),
+            },
         )
         .map_err(|s| AppError {
             code: "APP_ERROR".into(),

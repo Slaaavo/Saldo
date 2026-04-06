@@ -5,12 +5,21 @@ use crate::features::transactions::models::SplitGroupEntry;
 use crate::shared::with_savepoint_app;
 use rusqlite::{params, Connection, OptionalExtension};
 
+pub struct CreateSplitGroupWithLegsParams {
+    pub account_id: i64,
+    pub group_note: Option<String>,
+    pub legs: Vec<SplitGroupEntry>,
+}
+
 pub fn create_split_group_with_legs(
     conn: &Connection,
-    account_id: i64,
-    group_note: Option<&str>,
-    legs: &[SplitGroupEntry],
+    params: CreateSplitGroupWithLegsParams,
 ) -> Result<i64, AppError> {
+    let CreateSplitGroupWithLegsParams {
+        account_id,
+        group_note,
+        legs,
+    } = params;
     with_savepoint_app(conn, || {
         conn.execute(
             "INSERT INTO split_group (note) VALUES (?1)",
@@ -18,7 +27,7 @@ pub fn create_split_group_with_legs(
         )?;
         let split_group_id = conn.last_insert_rowid();
 
-        for leg in legs {
+        for leg in &legs {
             let counterpart_type = match leg.counterpart_account_id {
                 Some(cp_id) => get_account_type(conn, cp_id)?,
                 None => None,
@@ -89,11 +98,19 @@ pub fn create_split_group_with_legs(
     })
 }
 
+pub struct UpdateSplitGroupDateParams {
+    pub split_group_id: i64,
+    pub new_date: String,
+}
+
 pub fn update_split_group_date(
     conn: &Connection,
-    split_group_id: i64,
-    new_date: &str,
+    params: UpdateSplitGroupDateParams,
 ) -> Result<(), AppError> {
+    let UpdateSplitGroupDateParams {
+        split_group_id,
+        new_date,
+    } = params;
     with_savepoint_app(conn, || {
         let mut stmt = conn.prepare(
             "SELECT e.id FROM event e WHERE e.split_group_id = ?1 AND e.deleted_at IS NULL",
@@ -122,11 +139,16 @@ pub fn update_split_group_date(
     })
 }
 
+pub struct CheckEventSplitGroupDateConflictParams {
+    pub event_id: i64,
+    pub new_date: String,
+}
+
 pub fn check_event_split_group_date_conflict(
     conn: &Connection,
-    event_id: i64,
-    new_date: &str,
+    params: CheckEventSplitGroupDateConflictParams,
 ) -> Result<(), AppError> {
+    let CheckEventSplitGroupDateConflictParams { event_id, new_date } = params;
     let result: Option<(Option<i64>, String)> = conn
         .query_row(
             "SELECT e.split_group_id, ed.event_date

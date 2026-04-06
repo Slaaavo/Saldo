@@ -2,13 +2,20 @@ use crate::error::AppError;
 use crate::shared::{local_now, with_savepoint, with_savepoint_app};
 use rusqlite::{params, Connection, OptionalExtension};
 
-pub fn update_event(
-    conn: &Connection,
-    event_id: i64,
-    amount_minor: i64,
-    event_date: &str,
-    note: Option<&str>,
-) -> Result<(), String> {
+pub struct UpdateEventParams {
+    pub event_id: i64,
+    pub amount_minor: i64,
+    pub event_date: String,
+    pub note: Option<String>,
+}
+
+pub fn update_event(conn: &Connection, params: UpdateEventParams) -> Result<(), String> {
+    let UpdateEventParams {
+        event_id,
+        amount_minor,
+        event_date,
+        note,
+    } = params;
     let maybe_deleted_at: Option<Option<String>> = conn
         .query_row(
             "SELECT deleted_at FROM event WHERE id = ?1",

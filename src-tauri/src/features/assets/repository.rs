@@ -213,10 +213,12 @@ pub fn update_asset_value(
         if let Some(amount) = params.amount_minor {
             crate::features::transactions::repository::create_balance_update_inner(
                 conn,
-                params.account_id,
-                amount,
-                &params.event_date,
-                params.note.as_deref(),
+                crate::features::transactions::repository::CreateBalanceUpdateParams {
+                    account_id: params.account_id,
+                    amount_minor: amount,
+                    event_date: params.event_date.clone(),
+                    note: params.note.clone(),
+                },
             )
             .map_err(AppError::from)?;
         }
@@ -370,7 +372,9 @@ mod tests {
     use super::*;
     use crate::db::initialize_in_memory;
     use crate::features::accounts::repository::{create_account, CreateAccountParams};
-    use crate::features::transactions::repository::{create_balance_update, get_accounts_snapshot};
+    use crate::features::transactions::repository::{
+        create_balance_update, get_accounts_snapshot, CreateBalanceUpdateParams,
+    };
 
     fn mk_account(conn: &Connection) -> i64 {
         create_account(
@@ -535,11 +539,29 @@ mod tests {
         )
         .unwrap();
 
-        create_balance_update(&conn, account_id, 20_000, "2024-01-01", None).unwrap();
+        create_balance_update(
+            &conn,
+            CreateBalanceUpdateParams {
+                account_id,
+                amount_minor: 20_000,
+                event_date: "2024-01-01".to_owned(),
+                note: None,
+            },
+        )
+        .unwrap();
         // Link the account to the asset.
         set_account_asset_links(&conn, account_id, &[asset_id]).unwrap();
         // Link the account to the bucket via an event-bound bucket link.
-        let event_id = create_balance_update(&conn, bucket_id, 0, "2024-01-01", None).unwrap();
+        let event_id = create_balance_update(
+            &conn,
+            CreateBalanceUpdateParams {
+                account_id: bucket_id,
+                amount_minor: 0,
+                event_date: "2024-01-01".to_owned(),
+                note: None,
+            },
+        )
+        .unwrap();
         crate::features::buckets::repository::set_bucket_event_links(
             &conn,
             crate::features::buckets::repository::SetBucketEventLinksParams {

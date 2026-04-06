@@ -6,14 +6,21 @@ mod snapshot;
 mod split_groups;
 
 pub(crate) use balance_updates::create_balance_update_inner;
-pub use balance_updates::{bulk_create_balance_updates, create_balance_update};
+pub use balance_updates::{
+    bulk_create_balance_updates, create_balance_update, BulkCreateBalanceUpdatesParams,
+    CreateBalanceUpdateParams,
+};
 
 pub use cashflows::{bulk_create_cashflows, create_cashflow, create_transfer, CashflowEntry};
 
-pub use events::{delete_event, update_event, update_transfer, UpdateTransferParams};
+pub use events::{
+    delete_event, update_event, update_transfer, UpdateEventParams, UpdateTransferParams,
+};
 
 pub use split_groups::{
     check_event_split_group_date_conflict, create_split_group_with_legs, update_split_group_date,
+    CheckEventSplitGroupDateConflictParams, CreateSplitGroupWithLegsParams,
+    UpdateSplitGroupDateParams,
 };
 
 pub use queries::{get_event_by_id, list_events, ListEventsQuery};
@@ -55,7 +62,16 @@ mod tests {
     fn snapshot_reflects_balance_update() {
         let conn = initialize_in_memory().expect("DB init failed");
         let account_id = mk_account(&conn);
-        create_balance_update(&conn, account_id, 5000, "2026-03-01", None).unwrap();
+        create_balance_update(
+            &conn,
+            CreateBalanceUpdateParams {
+                account_id,
+                amount_minor: 5000,
+                event_date: "2026-03-01".to_owned(),
+                note: None,
+            },
+        )
+        .unwrap();
         let snapshot = get_accounts_snapshot(&conn, "2026-03-01T23:59:59").unwrap();
         assert_eq!(snapshot[0].balance_minor, 5000);
     }
@@ -64,7 +80,16 @@ mod tests {
     fn snapshot_ignores_future_events() {
         let conn = initialize_in_memory().expect("DB init failed");
         let account_id = mk_account(&conn);
-        create_balance_update(&conn, account_id, 5000, "2026-06-01", None).unwrap();
+        create_balance_update(
+            &conn,
+            CreateBalanceUpdateParams {
+                account_id,
+                amount_minor: 5000,
+                event_date: "2026-06-01".to_owned(),
+                note: None,
+            },
+        )
+        .unwrap();
         let snapshot = get_accounts_snapshot(&conn, "2026-03-01T23:59:59").unwrap();
         assert_eq!(snapshot[0].balance_minor, 0);
     }
@@ -73,8 +98,26 @@ mod tests {
     fn snapshot_uses_latest_event_by_date() {
         let conn = initialize_in_memory().expect("DB init failed");
         let account_id = mk_account(&conn);
-        create_balance_update(&conn, account_id, 3000, "2026-01-01", None).unwrap();
-        create_balance_update(&conn, account_id, 7000, "2026-02-01", None).unwrap();
+        create_balance_update(
+            &conn,
+            CreateBalanceUpdateParams {
+                account_id,
+                amount_minor: 3000,
+                event_date: "2026-01-01".to_owned(),
+                note: None,
+            },
+        )
+        .unwrap();
+        create_balance_update(
+            &conn,
+            CreateBalanceUpdateParams {
+                account_id,
+                amount_minor: 7000,
+                event_date: "2026-02-01".to_owned(),
+                note: None,
+            },
+        )
+        .unwrap();
         let snapshot = get_accounts_snapshot(&conn, "2026-03-01T23:59:59").unwrap();
         assert_eq!(snapshot[0].balance_minor, 7000);
     }
@@ -83,7 +126,16 @@ mod tests {
     fn snapshot_ignores_soft_deleted_events() {
         let conn = initialize_in_memory().expect("DB init failed");
         let account_id = mk_account(&conn);
-        let event_id = create_balance_update(&conn, account_id, 5000, "2026-03-01", None).unwrap();
+        let event_id = create_balance_update(
+            &conn,
+            CreateBalanceUpdateParams {
+                account_id,
+                amount_minor: 5000,
+                event_date: "2026-03-01".to_owned(),
+                note: None,
+            },
+        )
+        .unwrap();
         delete_event(&conn, event_id).unwrap();
         let snapshot = get_accounts_snapshot(&conn, "2026-03-01T23:59:59").unwrap();
         assert_eq!(snapshot[0].balance_minor, 0);
@@ -93,8 +145,26 @@ mod tests {
     fn update_event_creates_new_data_row() {
         let conn = initialize_in_memory().expect("DB init failed");
         let account_id = mk_account(&conn);
-        let event_id = create_balance_update(&conn, account_id, 5000, "2026-03-01", None).unwrap();
-        update_event(&conn, event_id, 9999, "2026-03-01", None).unwrap();
+        let event_id = create_balance_update(
+            &conn,
+            CreateBalanceUpdateParams {
+                account_id,
+                amount_minor: 5000,
+                event_date: "2026-03-01".to_owned(),
+                note: None,
+            },
+        )
+        .unwrap();
+        update_event(
+            &conn,
+            UpdateEventParams {
+                event_id,
+                amount_minor: 9999,
+                event_date: "2026-03-01".to_owned(),
+                note: None,
+            },
+        )
+        .unwrap();
         let snapshot = get_accounts_snapshot(&conn, "2026-03-01T23:59:59").unwrap();
         assert_eq!(snapshot[0].balance_minor, 9999);
     }
@@ -103,9 +173,26 @@ mod tests {
     fn update_event_rejects_deleted_event() {
         let conn = initialize_in_memory().expect("DB init failed");
         let account_id = mk_account(&conn);
-        let event_id = create_balance_update(&conn, account_id, 5000, "2026-03-01", None).unwrap();
+        let event_id = create_balance_update(
+            &conn,
+            CreateBalanceUpdateParams {
+                account_id,
+                amount_minor: 5000,
+                event_date: "2026-03-01".to_owned(),
+                note: None,
+            },
+        )
+        .unwrap();
         delete_event(&conn, event_id).unwrap();
-        let result = update_event(&conn, event_id, 9999, "2026-03-01", None);
+        let result = update_event(
+            &conn,
+            UpdateEventParams {
+                event_id,
+                amount_minor: 9999,
+                event_date: "2026-03-01".to_owned(),
+                note: None,
+            },
+        );
         assert!(result.is_err());
         assert!(result
             .unwrap_err()
@@ -115,7 +202,15 @@ mod tests {
     #[test]
     fn update_event_rejects_nonexistent_event() {
         let conn = initialize_in_memory().expect("DB init failed");
-        let result = update_event(&conn, 999, 9999, "2026-03-01", None);
+        let result = update_event(
+            &conn,
+            UpdateEventParams {
+                event_id: 999,
+                amount_minor: 9999,
+                event_date: "2026-03-01".to_owned(),
+                note: None,
+            },
+        );
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Event not found"));
     }
@@ -124,8 +219,26 @@ mod tests {
     fn list_events_returns_all_non_deleted() {
         let conn = initialize_in_memory().expect("DB init failed");
         let account_id = mk_account(&conn);
-        create_balance_update(&conn, account_id, 1000, "2026-01-01", None).unwrap();
-        create_balance_update(&conn, account_id, 2000, "2026-02-01", None).unwrap();
+        create_balance_update(
+            &conn,
+            CreateBalanceUpdateParams {
+                account_id,
+                amount_minor: 1000,
+                event_date: "2026-01-01".to_owned(),
+                note: None,
+            },
+        )
+        .unwrap();
+        create_balance_update(
+            &conn,
+            CreateBalanceUpdateParams {
+                account_id,
+                amount_minor: 2000,
+                event_date: "2026-02-01".to_owned(),
+                note: None,
+            },
+        )
+        .unwrap();
         let result = list_events(&conn, ListEventsQuery::default()).unwrap();
         assert_eq!(result.events.len(), 2);
     }
@@ -144,8 +257,26 @@ mod tests {
             },
         )
         .unwrap();
-        create_balance_update(&conn, acc1, 1000, "2026-01-01", None).unwrap();
-        create_balance_update(&conn, acc2, 2000, "2026-02-01", None).unwrap();
+        create_balance_update(
+            &conn,
+            CreateBalanceUpdateParams {
+                account_id: acc1,
+                amount_minor: 1000,
+                event_date: "2026-01-01".to_owned(),
+                note: None,
+            },
+        )
+        .unwrap();
+        create_balance_update(
+            &conn,
+            CreateBalanceUpdateParams {
+                account_id: acc2,
+                amount_minor: 2000,
+                event_date: "2026-02-01".to_owned(),
+                note: None,
+            },
+        )
+        .unwrap();
 
         let result_acc1 = list_events(
             &conn,
@@ -174,8 +305,26 @@ mod tests {
     fn list_events_filters_by_date() {
         let conn = initialize_in_memory().expect("DB init failed");
         let account_id = mk_account(&conn);
-        create_balance_update(&conn, account_id, 1000, "2026-01-15", None).unwrap();
-        create_balance_update(&conn, account_id, 2000, "2026-03-15", None).unwrap();
+        create_balance_update(
+            &conn,
+            CreateBalanceUpdateParams {
+                account_id,
+                amount_minor: 1000,
+                event_date: "2026-01-15".to_owned(),
+                note: None,
+            },
+        )
+        .unwrap();
+        create_balance_update(
+            &conn,
+            CreateBalanceUpdateParams {
+                account_id,
+                amount_minor: 2000,
+                event_date: "2026-03-15".to_owned(),
+                note: None,
+            },
+        )
+        .unwrap();
         let result = list_events(
             &conn,
             ListEventsQuery {
@@ -230,7 +379,16 @@ mod tests {
             },
         )
         .unwrap();
-        create_balance_update(&conn, bucket_id, 15000, "2026-03-01", None).unwrap();
+        create_balance_update(
+            &conn,
+            CreateBalanceUpdateParams {
+                account_id: bucket_id,
+                amount_minor: 15000,
+                event_date: "2026-03-01".to_owned(),
+                note: None,
+            },
+        )
+        .unwrap();
         let snapshot = get_accounts_snapshot(&conn, "2026-03-01T23:59:59").unwrap();
         let bucket = snapshot.iter().find(|r| r.account_id == bucket_id).unwrap();
         assert_eq!(bucket.balance_minor, 15000);
@@ -249,7 +407,16 @@ mod tests {
             },
         )
         .unwrap();
-        create_balance_update(&conn, bucket_id, 5000, "2026-03-01", None).unwrap();
+        create_balance_update(
+            &conn,
+            CreateBalanceUpdateParams {
+                account_id: bucket_id,
+                amount_minor: 5000,
+                event_date: "2026-03-01".to_owned(),
+                note: None,
+            },
+        )
+        .unwrap();
         let result = list_events(
             &conn,
             ListEventsQuery {
@@ -350,7 +517,16 @@ mod tests {
             },
         )
         .unwrap();
-        create_balance_update(&conn, acc, 108420, "2026-03-01", None).unwrap();
+        create_balance_update(
+            &conn,
+            CreateBalanceUpdateParams {
+                account_id: acc,
+                amount_minor: 108420,
+                event_date: "2026-03-01".to_owned(),
+                note: None,
+            },
+        )
+        .unwrap();
         let snapshot = get_accounts_snapshot(&conn, "2026-03-01T23:59:59").unwrap();
         let row = snapshot.iter().find(|r| r.account_id == acc).unwrap();
         assert_eq!(row.balance_minor, 108420);
@@ -382,7 +558,16 @@ mod tests {
             },
         )
         .unwrap();
-        create_balance_update(&conn, acc, 108420, "2026-03-01", None).unwrap();
+        create_balance_update(
+            &conn,
+            CreateBalanceUpdateParams {
+                account_id: acc,
+                amount_minor: 108420,
+                event_date: "2026-03-01".to_owned(),
+                note: None,
+            },
+        )
+        .unwrap();
         // Store rate: 1 EUR = 1.0842 USD (mantissa=10842, exponent=-4)
         set_fx_rate_manual(
             &conn,
@@ -407,7 +592,16 @@ mod tests {
     fn list_events_includes_currency_fields() {
         let conn = initialize_in_memory().expect("DB init failed");
         let account_id = mk_account(&conn);
-        create_balance_update(&conn, account_id, 5000, "2026-03-01", None).unwrap();
+        create_balance_update(
+            &conn,
+            CreateBalanceUpdateParams {
+                account_id,
+                amount_minor: 5000,
+                event_date: "2026-03-01".to_owned(),
+                note: None,
+            },
+        )
+        .unwrap();
         let result = list_events(
             &conn,
             ListEventsQuery {
@@ -424,11 +618,56 @@ mod tests {
     fn list_events_returns_correct_total_count_with_limit() {
         let conn = initialize_in_memory().expect("DB init failed");
         let account_id = mk_account(&conn);
-        create_balance_update(&conn, account_id, 1000, "2026-01-01", None).unwrap();
-        create_balance_update(&conn, account_id, 2000, "2026-02-01", None).unwrap();
-        create_balance_update(&conn, account_id, 3000, "2026-03-01", None).unwrap();
-        create_balance_update(&conn, account_id, 4000, "2026-04-01", None).unwrap();
-        create_balance_update(&conn, account_id, 5000, "2026-05-01", None).unwrap();
+        create_balance_update(
+            &conn,
+            CreateBalanceUpdateParams {
+                account_id,
+                amount_minor: 1000,
+                event_date: "2026-01-01".to_owned(),
+                note: None,
+            },
+        )
+        .unwrap();
+        create_balance_update(
+            &conn,
+            CreateBalanceUpdateParams {
+                account_id,
+                amount_minor: 2000,
+                event_date: "2026-02-01".to_owned(),
+                note: None,
+            },
+        )
+        .unwrap();
+        create_balance_update(
+            &conn,
+            CreateBalanceUpdateParams {
+                account_id,
+                amount_minor: 3000,
+                event_date: "2026-03-01".to_owned(),
+                note: None,
+            },
+        )
+        .unwrap();
+        create_balance_update(
+            &conn,
+            CreateBalanceUpdateParams {
+                account_id,
+                amount_minor: 4000,
+                event_date: "2026-04-01".to_owned(),
+                note: None,
+            },
+        )
+        .unwrap();
+        create_balance_update(
+            &conn,
+            CreateBalanceUpdateParams {
+                account_id,
+                amount_minor: 5000,
+                event_date: "2026-05-01".to_owned(),
+                note: None,
+            },
+        )
+        .unwrap();
         let result = list_events(
             &conn,
             ListEventsQuery {
@@ -445,7 +684,16 @@ mod tests {
     fn snapshot_cashflow_after_balance_update_is_summed() {
         let conn = initialize_in_memory().expect("DB init failed");
         let account_id = mk_account(&conn);
-        create_balance_update(&conn, account_id, 5000, "2026-03-01T10:00:00", None).unwrap();
+        create_balance_update(
+            &conn,
+            CreateBalanceUpdateParams {
+                account_id,
+                amount_minor: 5000,
+                event_date: "2026-03-01T10:00:00".to_owned(),
+                note: None,
+            },
+        )
+        .unwrap();
         create_cashflow(
             &conn,
             &CashflowEntry {
@@ -486,7 +734,16 @@ mod tests {
             },
         )
         .unwrap();
-        create_balance_update(&conn, account_id, 5000, "2026-03-01T00:00:00", None).unwrap();
+        create_balance_update(
+            &conn,
+            CreateBalanceUpdateParams {
+                account_id,
+                amount_minor: 5000,
+                event_date: "2026-03-01T00:00:00".to_owned(),
+                note: None,
+            },
+        )
+        .unwrap();
         let snapshot = get_accounts_snapshot(&conn, "2026-12-31T23:59:59").unwrap();
         // The cashflow at 2026-01-01 is before the anchor; only the anchor balance counts.
         assert_eq!(snapshot[0].balance_minor, 5000);
@@ -656,8 +913,26 @@ mod tests {
             },
         )
         .unwrap();
-        create_balance_update(&conn, acc_a, 10000, "2026-01-10T09:00:00", None).unwrap();
-        create_balance_update(&conn, acc_b, 5000, "2026-01-10T09:00:00", None).unwrap();
+        create_balance_update(
+            &conn,
+            CreateBalanceUpdateParams {
+                account_id: acc_a,
+                amount_minor: 10000,
+                event_date: "2026-01-10T09:00:00".to_owned(),
+                note: None,
+            },
+        )
+        .unwrap();
+        create_balance_update(
+            &conn,
+            CreateBalanceUpdateParams {
+                account_id: acc_b,
+                amount_minor: 5000,
+                event_date: "2026-01-10T09:00:00".to_owned(),
+                note: None,
+            },
+        )
+        .unwrap();
         create_transfer(
             &conn,
             &CashflowEntry {
@@ -695,8 +970,26 @@ mod tests {
             },
         )
         .unwrap();
-        create_balance_update(&conn, acc_a, 10000, "2026-01-10T09:00:00", None).unwrap();
-        create_balance_update(&conn, acc_b, 5000, "2026-01-10T09:00:00", None).unwrap();
+        create_balance_update(
+            &conn,
+            CreateBalanceUpdateParams {
+                account_id: acc_a,
+                amount_minor: 10000,
+                event_date: "2026-01-10T09:00:00".to_owned(),
+                note: None,
+            },
+        )
+        .unwrap();
+        create_balance_update(
+            &conn,
+            CreateBalanceUpdateParams {
+                account_id: acc_b,
+                amount_minor: 5000,
+                event_date: "2026-01-10T09:00:00".to_owned(),
+                note: None,
+            },
+        )
+        .unwrap();
         let (source_id, _) = create_transfer(
             &conn,
             &CashflowEntry {
@@ -725,7 +1018,16 @@ mod tests {
     fn snapshot_ignores_soft_deleted_cashflows() {
         let conn = initialize_in_memory().expect("DB init failed");
         let account_id = mk_account(&conn);
-        create_balance_update(&conn, account_id, 10000, "2026-03-01T10:00:00", None).unwrap();
+        create_balance_update(
+            &conn,
+            CreateBalanceUpdateParams {
+                account_id,
+                amount_minor: 10000,
+                event_date: "2026-03-01T10:00:00".to_owned(),
+                note: None,
+            },
+        )
+        .unwrap();
         let cashflow_id = create_cashflow(
             &conn,
             &CashflowEntry {
@@ -1042,7 +1344,16 @@ mod tests {
     fn get_event_by_id_returns_event() {
         let conn = initialize_in_memory().expect("DB init failed");
         let account_id = mk_account(&conn);
-        let event_id = create_balance_update(&conn, account_id, 7500, "2026-03-01", None).unwrap();
+        let event_id = create_balance_update(
+            &conn,
+            CreateBalanceUpdateParams {
+                account_id,
+                amount_minor: 7500,
+                event_date: "2026-03-01".to_owned(),
+                note: None,
+            },
+        )
+        .unwrap();
 
         let maybe_event = get_event_by_id(&conn, event_id).unwrap();
         assert!(maybe_event.is_some());

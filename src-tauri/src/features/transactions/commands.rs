@@ -114,10 +114,12 @@ pub fn create_balance_update(
     }
     let event_id = repository::create_balance_update(
         &conn,
-        input.account_id,
-        input.amount_minor,
-        &input.event_date,
-        input.note.as_deref(),
+        repository::CreateBalanceUpdateParams {
+            account_id: input.account_id,
+            amount_minor: input.amount_minor,
+            event_date: input.event_date,
+            note: input.note,
+        },
     )?;
     Ok(event_id)
 }
@@ -162,13 +164,21 @@ pub fn list_events(
 pub fn update_event(state: State<'_, AppState>, input: UpdateEventInput) -> Result<(), AppError> {
     crate::shared::validate_event_date(&input.event_date)?;
     let conn = state.conn()?;
-    repository::check_event_split_group_date_conflict(&conn, input.event_id, &input.event_date)?;
+    repository::check_event_split_group_date_conflict(
+        &conn,
+        repository::CheckEventSplitGroupDateConflictParams {
+            event_id: input.event_id,
+            new_date: input.event_date.clone(),
+        },
+    )?;
     repository::update_event(
         &conn,
-        input.event_id,
-        input.amount_minor,
-        &input.event_date,
-        input.note.as_deref(),
+        repository::UpdateEventParams {
+            event_id: input.event_id,
+            amount_minor: input.amount_minor,
+            event_date: input.event_date,
+            note: input.note,
+        },
     )?;
     Ok(())
 }
@@ -212,9 +222,11 @@ pub fn bulk_create_balance_updates(
         .collect();
     let ids = repository::bulk_create_balance_updates(
         &conn,
-        &entries,
-        &input.event_date,
-        input.note.as_deref(),
+        repository::BulkCreateBalanceUpdatesParams {
+            entries,
+            event_date: input.event_date,
+            note: input.note,
+        },
     )?;
     Ok(ids)
 }
@@ -363,9 +375,11 @@ pub fn create_split_group(
     }
     let split_group_id = repository::create_split_group_with_legs(
         &conn,
-        input.account_id,
-        input.group_note.as_deref(),
-        &input.legs,
+        repository::CreateSplitGroupWithLegsParams {
+            account_id: input.account_id,
+            group_note: input.group_note,
+            legs: input.legs,
+        },
     )?;
     Ok(split_group_id)
 }
@@ -377,7 +391,13 @@ pub fn update_split_group_date(
 ) -> Result<(), AppError> {
     crate::shared::validate_event_date(&input.new_date)?;
     let conn = state.conn()?;
-    repository::update_split_group_date(&conn, input.split_group_id, &input.new_date)?;
+    repository::update_split_group_date(
+        &conn,
+        repository::UpdateSplitGroupDateParams {
+            split_group_id: input.split_group_id,
+            new_date: input.new_date,
+        },
+    )?;
     Ok(())
 }
 

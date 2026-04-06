@@ -58,7 +58,13 @@ pub fn create_account(conn: &Connection, params: CreateAccountParams) -> Result<
         if let Some(amount) = params.initial_balance_minor {
             let now = local_now();
             crate::features::transactions::repository::create_balance_update_inner(
-                conn, account_id, amount, &now, None,
+                conn,
+                crate::features::transactions::repository::CreateBalanceUpdateParams {
+                    account_id,
+                    amount_minor: amount,
+                    event_date: now,
+                    note: None,
+                },
             )?;
         }
 
@@ -279,7 +285,8 @@ mod tests {
     use crate::features::buckets::repository::{set_bucket_event_links, SetBucketEventLinksParams};
     use crate::features::currency::repository::{set_fx_rate_manual, SetFxRateManualParams};
     use crate::features::transactions::repository::{
-        create_balance_update, get_accounts_snapshot, list_events, ListEventsQuery,
+        create_balance_update, get_accounts_snapshot, list_events, CreateBalanceUpdateParams,
+        ListEventsQuery,
     };
 
     fn mk_account(conn: &Connection) -> i64 {
@@ -299,7 +306,16 @@ mod tests {
     fn delete_account_cascades_events() {
         let conn = initialize_in_memory().expect("DB init failed");
         let account_id = mk_account(&conn);
-        create_balance_update(&conn, account_id, 5000, "2026-03-01", None).unwrap();
+        create_balance_update(
+            &conn,
+            CreateBalanceUpdateParams {
+                account_id,
+                amount_minor: 5000,
+                event_date: "2026-03-01".to_owned(),
+                note: None,
+            },
+        )
+        .unwrap();
         delete_account(&conn, account_id).unwrap();
         let snapshot = get_accounts_snapshot(&conn, "2099-12-31T23:59:59").unwrap();
         assert!(snapshot.iter().all(|r| r.account_id != account_id));
@@ -349,7 +365,16 @@ mod tests {
         .unwrap();
 
         // Store a balance event for the asset
-        create_balance_update(&conn, account_id, 10_000, "2026-03-11", None).unwrap();
+        create_balance_update(
+            &conn,
+            CreateBalanceUpdateParams {
+                account_id,
+                amount_minor: 10_000,
+                event_date: "2026-03-11".to_owned(),
+                note: None,
+            },
+        )
+        .unwrap();
 
         // Store an fx_rate for the custom unit (EUR → TSLA)
         let eur_id: i64 = conn
@@ -445,9 +470,27 @@ mod tests {
             },
         )
         .unwrap();
-        create_balance_update(&conn, source_id, 10000, "2024-01-01", None).unwrap();
+        create_balance_update(
+            &conn,
+            CreateBalanceUpdateParams {
+                account_id: source_id,
+                amount_minor: 10000,
+                event_date: "2024-01-01".to_owned(),
+                note: None,
+            },
+        )
+        .unwrap();
         // Create a bucket balance update event that links the source account.
-        let event_id = create_balance_update(&conn, bucket_id, 0, "2024-01-01", None).unwrap();
+        let event_id = create_balance_update(
+            &conn,
+            CreateBalanceUpdateParams {
+                account_id: bucket_id,
+                amount_minor: 0,
+                event_date: "2024-01-01".to_owned(),
+                note: None,
+            },
+        )
+        .unwrap();
         set_bucket_event_links(
             &conn,
             SetBucketEventLinksParams {
@@ -482,9 +525,27 @@ mod tests {
             },
         )
         .unwrap();
-        create_balance_update(&conn, source_id, 10000, "2024-01-01", None).unwrap();
+        create_balance_update(
+            &conn,
+            CreateBalanceUpdateParams {
+                account_id: source_id,
+                amount_minor: 10000,
+                event_date: "2024-01-01".to_owned(),
+                note: None,
+            },
+        )
+        .unwrap();
         // Create a bucket balance update event that links the source account.
-        let event_id = create_balance_update(&conn, bucket_id, 0, "2024-01-01", None).unwrap();
+        let event_id = create_balance_update(
+            &conn,
+            CreateBalanceUpdateParams {
+                account_id: bucket_id,
+                amount_minor: 0,
+                event_date: "2024-01-01".to_owned(),
+                note: None,
+            },
+        )
+        .unwrap();
         set_bucket_event_links(
             &conn,
             SetBucketEventLinksParams {
@@ -524,10 +585,28 @@ mod tests {
             },
         )
         .unwrap();
-        create_balance_update(&conn, source_id, 10000, "2024-01-01", None).unwrap();
+        create_balance_update(
+            &conn,
+            CreateBalanceUpdateParams {
+                account_id: source_id,
+                amount_minor: 10000,
+                event_date: "2024-01-01".to_owned(),
+                note: None,
+            },
+        )
+        .unwrap();
 
         // Event 1: link the source account.
-        let event1 = create_balance_update(&conn, bucket_id, 0, "2024-01-01", None).unwrap();
+        let event1 = create_balance_update(
+            &conn,
+            CreateBalanceUpdateParams {
+                account_id: bucket_id,
+                amount_minor: 0,
+                event_date: "2024-01-01".to_owned(),
+                note: None,
+            },
+        )
+        .unwrap();
         set_bucket_event_links(
             &conn,
             SetBucketEventLinksParams {
@@ -538,7 +617,16 @@ mod tests {
         .unwrap();
 
         // Event 2 (newer): no links — this is the "unlink".
-        let event2 = create_balance_update(&conn, bucket_id, 0, "2024-06-01", None).unwrap();
+        let event2 = create_balance_update(
+            &conn,
+            CreateBalanceUpdateParams {
+                account_id: bucket_id,
+                amount_minor: 0,
+                event_date: "2024-06-01".to_owned(),
+                note: None,
+            },
+        )
+        .unwrap();
         set_bucket_event_links(
             &conn,
             SetBucketEventLinksParams {
@@ -585,10 +673,28 @@ mod tests {
             },
         )
         .unwrap();
-        create_balance_update(&conn, source_id, 10000, "2024-01-01", None).unwrap();
+        create_balance_update(
+            &conn,
+            CreateBalanceUpdateParams {
+                account_id: source_id,
+                amount_minor: 10000,
+                event_date: "2024-01-01".to_owned(),
+                note: None,
+            },
+        )
+        .unwrap();
 
         // Link account without creating a newer event to unlink.
-        let event_id = create_balance_update(&conn, bucket_id, 0, "2024-01-01", None).unwrap();
+        let event_id = create_balance_update(
+            &conn,
+            CreateBalanceUpdateParams {
+                account_id: bucket_id,
+                amount_minor: 0,
+                event_date: "2024-01-01".to_owned(),
+                note: None,
+            },
+        )
+        .unwrap();
         set_bucket_event_links(
             &conn,
             SetBucketEventLinksParams {

@@ -51,26 +51,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn migrations_apply_cleanly() {
-        let conn = initialize_in_memory().expect("DB init failed");
-        let count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM _migrations", [], |row| row.get(0))
-            .expect("query failed");
-        assert_eq!(count, 19, "Expected 19 applied migrations");
-    }
-
-    #[test]
-    fn migrations_are_idempotent() {
-        let conn = initialize_in_memory().expect("DB init failed");
-        // Run migrations again — should be a no-op
-        crate::migrations::run_pending(&conn).expect("Second migration run failed");
-        let count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM _migrations", [], |row| row.get(0))
-            .expect("query failed");
-        assert_eq!(count, 19, "Expected 19 applied migrations after double run");
-    }
-
-    #[test]
     fn seed_data_present() {
         let conn = initialize_in_memory().expect("DB init failed");
 

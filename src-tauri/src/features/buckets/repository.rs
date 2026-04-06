@@ -354,7 +354,9 @@ mod tests {
     use super::*;
     use crate::db::initialize_in_memory;
     use crate::features::accounts::repository::{create_account, CreateAccountParams};
-    use crate::features::transactions::repository::create_balance_update;
+    use crate::features::transactions::repository::{
+        create_balance_update, CreateBalanceUpdateParams,
+    };
 
     fn mk_account(conn: &Connection) -> i64 {
         create_account(
@@ -389,7 +391,16 @@ mod tests {
         let bucket_id = mk_bucket(&conn);
 
         // Create first event for the bucket and link the account.
-        let event1 = create_balance_update(&conn, bucket_id, 0, "2025-01-01", None).unwrap();
+        let event1 = create_balance_update(
+            &conn,
+            CreateBalanceUpdateParams {
+                account_id: bucket_id,
+                amount_minor: 0,
+                event_date: "2025-01-01".to_owned(),
+                note: None,
+            },
+        )
+        .unwrap();
         set_bucket_event_links(
             &conn,
             SetBucketEventLinksParams {
@@ -400,7 +411,16 @@ mod tests {
         .unwrap();
 
         // Create a second event to check: same bucket, same account — not a conflict.
-        let event2 = create_balance_update(&conn, bucket_id, 0, "2025-06-01", None).unwrap();
+        let event2 = create_balance_update(
+            &conn,
+            CreateBalanceUpdateParams {
+                account_id: bucket_id,
+                amount_minor: 0,
+                event_date: "2025-06-01".to_owned(),
+                note: None,
+            },
+        )
+        .unwrap();
         let result = check_single_link_conflict(
             &conn,
             CheckSingleLinkConflictParams {
@@ -430,7 +450,16 @@ mod tests {
         )
         .unwrap();
 
-        let event_b1 = create_balance_update(&conn, bucket1, 0, "2025-01-01", None).unwrap();
+        let event_b1 = create_balance_update(
+            &conn,
+            CreateBalanceUpdateParams {
+                account_id: bucket1,
+                amount_minor: 0,
+                event_date: "2025-01-01".to_owned(),
+                note: None,
+            },
+        )
+        .unwrap();
         set_bucket_event_links(
             &conn,
             SetBucketEventLinksParams {
@@ -441,7 +470,16 @@ mod tests {
         .unwrap();
 
         // Propose linking account to bucket2 on the same date.
-        let event_b2 = create_balance_update(&conn, bucket2, 0, "2025-01-01", None).unwrap();
+        let event_b2 = create_balance_update(
+            &conn,
+            CreateBalanceUpdateParams {
+                account_id: bucket2,
+                amount_minor: 0,
+                event_date: "2025-01-01".to_owned(),
+                note: None,
+            },
+        )
+        .unwrap();
         let result = check_single_link_conflict(
             &conn,
             CheckSingleLinkConflictParams {
@@ -475,7 +513,16 @@ mod tests {
         .unwrap();
 
         // Link account to bucket1 starting 2025-01-01.
-        let event_b1_jan = create_balance_update(&conn, bucket1, 0, "2025-01-01", None).unwrap();
+        let event_b1_jan = create_balance_update(
+            &conn,
+            CreateBalanceUpdateParams {
+                account_id: bucket1,
+                amount_minor: 0,
+                event_date: "2025-01-01".to_owned(),
+                note: None,
+            },
+        )
+        .unwrap();
         set_bucket_event_links(
             &conn,
             SetBucketEventLinksParams {
@@ -486,7 +533,16 @@ mod tests {
         .unwrap();
 
         // Bucket1 gets a new event on 2025-06-01 WITHOUT the account (terminates the link).
-        let event_b1_jun = create_balance_update(&conn, bucket1, 0, "2025-06-01", None).unwrap();
+        let event_b1_jun = create_balance_update(
+            &conn,
+            CreateBalanceUpdateParams {
+                account_id: bucket1,
+                amount_minor: 0,
+                event_date: "2025-06-01".to_owned(),
+                note: None,
+            },
+        )
+        .unwrap();
         set_bucket_event_links(
             &conn,
             SetBucketEventLinksParams {
@@ -497,7 +553,16 @@ mod tests {
         .unwrap();
 
         // Propose linking account to bucket2 starting 2025-06-01.
-        let event_b2 = create_balance_update(&conn, bucket2, 0, "2025-06-01", None).unwrap();
+        let event_b2 = create_balance_update(
+            &conn,
+            CreateBalanceUpdateParams {
+                account_id: bucket2,
+                amount_minor: 0,
+                event_date: "2025-06-01".to_owned(),
+                note: None,
+            },
+        )
+        .unwrap();
         let result = check_single_link_conflict(
             &conn,
             CheckSingleLinkConflictParams {
@@ -521,7 +586,16 @@ mod tests {
         let account_id = mk_account(&conn);
         let bucket_id = mk_bucket(&conn);
 
-        let event1 = create_balance_update(&conn, bucket_id, 0, "2025-01-01", None).unwrap();
+        let event1 = create_balance_update(
+            &conn,
+            CreateBalanceUpdateParams {
+                account_id: bucket_id,
+                amount_minor: 0,
+                event_date: "2025-01-01".to_owned(),
+                note: None,
+            },
+        )
+        .unwrap();
         set_bucket_event_links(
             &conn,
             SetBucketEventLinksParams {
@@ -531,7 +605,16 @@ mod tests {
         )
         .unwrap();
 
-        let event2 = create_balance_update(&conn, bucket_id, 0, "2025-06-01", None).unwrap();
+        let event2 = create_balance_update(
+            &conn,
+            CreateBalanceUpdateParams {
+                account_id: bucket_id,
+                amount_minor: 0,
+                event_date: "2025-06-01".to_owned(),
+                note: None,
+            },
+        )
+        .unwrap();
         carry_forward_bucket_links(
             &conn,
             CarryForwardBucketLinksParams {
@@ -551,7 +634,16 @@ mod tests {
         let conn = initialize_in_memory().expect("DB init failed");
         let bucket_id = mk_bucket(&conn);
 
-        let event1 = create_balance_update(&conn, bucket_id, 0, "2025-01-01", None).unwrap();
+        let event1 = create_balance_update(
+            &conn,
+            CreateBalanceUpdateParams {
+                account_id: bucket_id,
+                amount_minor: 0,
+                event_date: "2025-01-01".to_owned(),
+                note: None,
+            },
+        )
+        .unwrap();
         carry_forward_bucket_links(
             &conn,
             CarryForwardBucketLinksParams {
