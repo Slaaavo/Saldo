@@ -4,6 +4,7 @@ mod events;
 mod queries;
 mod snapshot;
 mod split_groups;
+mod taxable_events;
 
 pub(crate) use balance_updates::create_balance_update_inner;
 pub use balance_updates::{
@@ -26,6 +27,13 @@ pub use split_groups::{
 pub use queries::{get_event_by_id, list_events, ListEventsQuery};
 
 pub use snapshot::{get_accounts_snapshot, GetSnapshotParams};
+
+pub use taxable_events::{
+    create_taxable_event, create_taxable_split_group_with_legs, delete_split_group,
+    update_taxable_event, update_taxable_split_group, CreateTaxableEventParams,
+    CreateTaxableSplitGroupWithLegsParams, NewSplitLeg, TaxableEventLeg, UpdateTaxableEventParams,
+    UpdateTaxableSplitGroupParams, UpdatedSplitLeg,
+};
 
 #[cfg(test)]
 mod tests {
@@ -1790,5 +1798,465 @@ mod tests {
             2,
             "both accounts should be returned when person_id is None"
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // Taxable event tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn create_taxable_event_appears_in_list_events() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let account_id = mk_account(&conn);
+
+        let event_id = create_taxable_event(
+            &conn,
+            CreateTaxableEventParams {
+                account_id,
+                event_type: "revenue".to_owned(),
+                amount_minor: 50000,
+                event_date: "2026-05-01".to_owned(),
+                note: Some("consulting fee".to_owned()),
+                vat_rate_bps: Some(2300),
+                ..Default::default()
+            },
+        )
+        .expect("create_taxable_event failed");
+
+        let result = list_events(&conn, ListEventsQuery::default()).unwrap();
+        assert_eq!(result.events.len(), 1);
+        let ev = &result.events[0];
+        assert_eq!(ev.id, event_id);
+        assert_eq!(ev.event_type, "revenue");
+        assert_eq!(ev.amount_minor, 50000);
+        assert_eq!(ev.vat_rate_bps, Some(2300));
+        assert_eq!(ev.vat_deductible_pct_bps, None);
+        assert_eq!(ev.expense_deductible_pct_bps, None);
+        assert_eq!(ev.prepaid_period_months, None);
+        assert_eq!(ev.note.as_deref(), Some("consulting fee"));
+    }
+
+    #[test]
+    fn create_taxable_split_group_two_expense_legs() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let account_id = mk_account(&conn);
+
+        let split_group_id = create_taxable_split_group_with_legs(
+            &conn,
+            CreateTaxableSplitGroupWithLegsParams {
+                account_id,
+                event_type: "expense".to_owned(),
+                group_note: Some("office expenses".to_owned()),
+                legs: vec![
+                    TaxableEventLeg {
+                        amount_minor: -12000,
+                        event_date: "2026-06-01".to_owned(),
+                        note: Some("stationery".to_owned()),
+                        vat_rate_bps: Some(2300),
+                        vat_deductible_pct_bps: Some(10000),
+                        expense_deductible_pct_bps: Some(10000),
+                        prepaid_period_months: None,
+                    },
+                    TaxableEventLeg {
+                        amount_minor: -8000,
+                        event_date: "2026-06-01".to_owned(),
+                        note: Some("coffee".to_owned()),
+                        vat_rate_bps: Some(2300),
+                        vat_deductible_pct_bps: Some(5000),
+                        expense_deductible_pct_bps: Some(5000),
+                        prepaid_period_months: None,
+                    },
+                ],
+            },
+        )
+        .expect("create_taxable_split_group_with_legs failed");
+
+        let result = list_events(
+            &conn,
+            ListEventsQuery {
+                account_id: Some(account_id),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(result.events.len(), 2, "both legs should appear");
+
+        for ev in &result.events {
+            assert_eq!(ev.event_type, "expense");
+            assert_eq!(ev.split_group_id, Some(split_group_id));
+            assert_eq!(ev.vat_rate_bps, Some(2300));
+        }
+
+        let amounts: Vec<i64> = result.events.iter().map(|e| e.amount_minor).collect();
+        assert!(amounts.contains(&-12000));
+        assert!(amounts.contains(&-8000));
+    }
+
+    #[test]
+    fn taxable_event_does_not_affect_snapshot_balance() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let account_id = mk_account(&conn);
+
+        // Set a baseline balance.
+        create_balance_update(
+            &conn,
+            CreateBalanceUpdateParams {
+                account_id,
+                amount_minor: 10000,
+                event_date: "2026-01-01".to_owned(),
+                note: None,
+            },
+        )
+        .unwrap();
+
+        // Create a revenue event — should NOT change the balance.
+        create_taxable_event(
+            &conn,
+            CreateTaxableEventParams {
+                account_id,
+                event_type: "revenue".to_owned(),
+                amount_minor: 5000,
+                event_date: "2026-05-01".to_owned(),
+                note: None,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        let snapshot = get_accounts_snapshot(
+            &conn,
+            GetSnapshotParams {
+                selected_datetime: "2099-12-31T23:59:59".to_owned(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let row = snapshot
+            .iter()
+            .find(|r| r.account_id == account_id)
+            .unwrap();
+        assert_eq!(
+            row.balance_minor, 10000,
+            "revenue event must not change balance"
+        );
+    }
+
+    #[test]
+    fn update_taxable_event_inserts_new_event_data_row() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let account_id = mk_account(&conn);
+
+        let event_id = create_taxable_event(
+            &conn,
+            CreateTaxableEventParams {
+                account_id,
+                event_type: "revenue".to_owned(),
+                amount_minor: 30000,
+                event_date: "2026-04-01".to_owned(),
+                note: None,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        update_taxable_event(
+            &conn,
+            UpdateTaxableEventParams {
+                event_id,
+                amount_minor: 35000,
+                event_date: "2026-04-15".to_owned(),
+                note: Some("updated".to_owned()),
+                vat_rate_bps: Some(1000),
+                ..Default::default()
+            },
+        )
+        .expect("update_taxable_event failed");
+
+        // Two event_data rows should exist.
+        let data_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM event_data WHERE event_id = ?1",
+                params![event_id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(data_count, 2, "update should insert a new event_data row");
+
+        // latest_data_id should point to the updated row.
+        let ev = get_event_by_id(&conn, event_id).unwrap().unwrap();
+        assert_eq!(ev.amount_minor, 35000);
+        assert_eq!(ev.event_date, "2026-04-15");
+        assert_eq!(ev.vat_rate_bps, Some(1000));
+        assert_eq!(ev.note.as_deref(), Some("updated"));
+    }
+
+    #[test]
+    fn update_taxable_split_group_applies_all_changes() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let account_id = mk_account(&conn);
+
+        // Create a split group with 3 legs.
+        let split_group_id = create_taxable_split_group_with_legs(
+            &conn,
+            CreateTaxableSplitGroupWithLegsParams {
+                account_id,
+                event_type: "expense".to_owned(),
+                group_note: Some("original note".to_owned()),
+                legs: vec![
+                    TaxableEventLeg {
+                        amount_minor: -1000,
+                        event_date: "2026-07-01".to_owned(),
+                        note: None,
+                        vat_rate_bps: None,
+                        vat_deductible_pct_bps: None,
+                        expense_deductible_pct_bps: None,
+                        prepaid_period_months: None,
+                    },
+                    TaxableEventLeg {
+                        amount_minor: -2000,
+                        event_date: "2026-07-01".to_owned(),
+                        note: None,
+                        vat_rate_bps: None,
+                        vat_deductible_pct_bps: None,
+                        expense_deductible_pct_bps: None,
+                        prepaid_period_months: None,
+                    },
+                    TaxableEventLeg {
+                        amount_minor: -3000,
+                        event_date: "2026-07-01".to_owned(),
+                        note: None,
+                        vat_rate_bps: None,
+                        vat_deductible_pct_bps: None,
+                        expense_deductible_pct_bps: None,
+                        prepaid_period_months: None,
+                    },
+                ],
+            },
+        )
+        .unwrap();
+
+        // Retrieve the three leg event IDs.
+        let mut leg_ids: Vec<i64> = conn
+            .prepare(
+                "SELECT id FROM event WHERE split_group_id = ?1 AND deleted_at IS NULL ORDER BY id",
+            )
+            .unwrap()
+            .query_map(params![split_group_id], |r| r.get(0))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap();
+        assert_eq!(leg_ids.len(), 3);
+
+        let leg_to_remove = leg_ids.remove(2); // remove leg 3
+        let leg_to_update = leg_ids[0]; // update leg 1
+
+        // Update: remove leg 3, update leg 1, add a new leg.
+        update_taxable_split_group(
+            &conn,
+            UpdateTaxableSplitGroupParams {
+                split_group_id,
+                group_note: Some("updated note".to_owned()),
+                updated_legs: vec![UpdatedSplitLeg {
+                    event_id: leg_to_update,
+                    amount_minor: -9999,
+                    event_date: "2026-07-15".to_owned(),
+                    note: Some("updated leg".to_owned()),
+                    vat_rate_bps: Some(500),
+                    vat_deductible_pct_bps: None,
+                    expense_deductible_pct_bps: None,
+                    prepaid_period_months: None,
+                }],
+                new_legs: vec![NewSplitLeg {
+                    amount_minor: -4000,
+                    event_date: "2026-07-20".to_owned(),
+                    note: None,
+                    vat_rate_bps: None,
+                    vat_deductible_pct_bps: None,
+                    expense_deductible_pct_bps: None,
+                    prepaid_period_months: None,
+                }],
+                removed_leg_ids: vec![leg_to_remove],
+            },
+        )
+        .expect("update_taxable_split_group failed");
+
+        // Verify: removed leg is soft-deleted.
+        let removed_deleted_at: Option<String> = conn
+            .query_row(
+                "SELECT deleted_at FROM event WHERE id = ?1",
+                params![leg_to_remove],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(
+            removed_deleted_at.is_some(),
+            "removed leg should be soft-deleted"
+        );
+
+        // Verify: updated leg has 2 event_data rows and latest reflects the update.
+        let updated_data_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM event_data WHERE event_id = ?1",
+                params![leg_to_update],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(updated_data_count, 2, "updated leg should have 2 data rows");
+        let updated_ev = get_event_by_id(&conn, leg_to_update).unwrap().unwrap();
+        assert_eq!(updated_ev.amount_minor, -9999);
+        assert_eq!(updated_ev.vat_rate_bps, Some(500));
+
+        // Verify: 3 non-deleted legs total (leg 1 updated, leg 2 unchanged, 1 new).
+        let active_legs: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM event WHERE split_group_id = ?1 AND deleted_at IS NULL",
+                params![split_group_id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(active_legs, 3);
+
+        // Verify: split_group.note was updated.
+        let group_note: Option<String> = conn
+            .query_row(
+                "SELECT note FROM split_group WHERE id = ?1",
+                params![split_group_id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(group_note.as_deref(), Some("updated note"));
+    }
+
+    #[test]
+    fn update_taxable_split_group_rejects_when_too_few_legs_remain() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let account_id = mk_account(&conn);
+
+        // Create a split group with exactly 2 legs.
+        let split_group_id = create_taxable_split_group_with_legs(
+            &conn,
+            CreateTaxableSplitGroupWithLegsParams {
+                account_id,
+                event_type: "revenue".to_owned(),
+                group_note: None,
+                legs: vec![
+                    TaxableEventLeg {
+                        amount_minor: 5000,
+                        event_date: "2026-08-01".to_owned(),
+                        note: None,
+                        vat_rate_bps: None,
+                        vat_deductible_pct_bps: None,
+                        expense_deductible_pct_bps: None,
+                        prepaid_period_months: None,
+                    },
+                    TaxableEventLeg {
+                        amount_minor: 3000,
+                        event_date: "2026-08-01".to_owned(),
+                        note: None,
+                        vat_rate_bps: None,
+                        vat_deductible_pct_bps: None,
+                        expense_deductible_pct_bps: None,
+                        prepaid_period_months: None,
+                    },
+                ],
+            },
+        )
+        .unwrap();
+
+        let leg_ids: Vec<i64> = conn
+            .prepare(
+                "SELECT id FROM event WHERE split_group_id = ?1 AND deleted_at IS NULL ORDER BY id",
+            )
+            .unwrap()
+            .query_map(params![split_group_id], |r| r.get(0))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap();
+
+        // Attempt to remove 1 leg and add 0 new ones → 1 remaining → error.
+        let result = update_taxable_split_group(
+            &conn,
+            UpdateTaxableSplitGroupParams {
+                split_group_id,
+                group_note: None,
+                updated_legs: vec![],
+                new_legs: vec![],
+                removed_leg_ids: vec![leg_ids[0]],
+            },
+        );
+
+        assert!(
+            result.is_err(),
+            "should error when fewer than 2 legs remain"
+        );
+        let err = result.unwrap_err();
+        assert_eq!(err.code, "VALIDATION");
+        assert!(err.message.contains("at least 2"));
+
+        // Verify neither leg was soft-deleted (transaction was rolled back).
+        let active_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM event WHERE split_group_id = ?1 AND deleted_at IS NULL",
+                params![split_group_id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(active_count, 2, "rollback should leave both legs intact");
+    }
+
+    #[test]
+    fn delete_split_group_deletes_all_legs() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let account_id = mk_account(&conn);
+
+        let split_group_id = create_taxable_split_group_with_legs(
+            &conn,
+            CreateTaxableSplitGroupWithLegsParams {
+                account_id,
+                event_type: "expense".to_owned(),
+                group_note: None,
+                legs: vec![
+                    TaxableEventLeg {
+                        amount_minor: -1000,
+                        event_date: "2026-01-01".to_owned(),
+                        note: None,
+                        vat_rate_bps: None,
+                        vat_deductible_pct_bps: None,
+                        expense_deductible_pct_bps: None,
+                        prepaid_period_months: None,
+                    },
+                    TaxableEventLeg {
+                        amount_minor: -2000,
+                        event_date: "2026-01-01".to_owned(),
+                        note: None,
+                        vat_rate_bps: None,
+                        vat_deductible_pct_bps: None,
+                        expense_deductible_pct_bps: None,
+                        prepaid_period_months: None,
+                    },
+                ],
+            },
+        )
+        .expect("create_taxable_split_group_with_legs failed");
+
+        delete_split_group(&conn, split_group_id).expect("delete_split_group failed");
+
+        let deleted_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM event WHERE split_group_id = ?1 AND deleted_at IS NOT NULL",
+                params![split_group_id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(deleted_count, 2, "both legs should be soft-deleted");
+
+        let active_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM event WHERE split_group_id = ?1 AND deleted_at IS NULL",
+                params![split_group_id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(active_count, 0, "no legs should remain active");
     }
 }

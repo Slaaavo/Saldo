@@ -144,7 +144,11 @@ pub fn list_events(
           orig_c.code AS original_currency_code,
           orig_c.minor_units AS original_currency_minor_units,
           e.split_group_id,
-          sg.note AS split_group_note
+          sg.note AS split_group_note,
+          ed.vat_rate_bps,
+          ed.vat_deductible_pct_bps,
+          ed.expense_deductible_pct_bps,
+          ed.prepaid_period_months
         {}{}",
         base, where_suffix
     );
@@ -182,6 +186,10 @@ pub fn list_events(
             original_currency_minor_units: row.get(21)?,
             split_group_id: row.get(22)?,
             split_group_note: row.get(23)?,
+            vat_rate_bps: row.get(24)?,
+            vat_deductible_pct_bps: row.get(25)?,
+            expense_deductible_pct_bps: row.get(26)?,
+            prepaid_period_months: row.get(27)?,
         })
     })?;
 
@@ -222,7 +230,11 @@ pub fn get_event_by_id(
           orig_c.code AS original_currency_code,
           orig_c.minor_units AS original_currency_minor_units,
           e.split_group_id,
-          sg.note AS split_group_note
+          sg.note AS split_group_note,
+          ed.vat_rate_bps,
+          ed.vat_deductible_pct_bps,
+          ed.expense_deductible_pct_bps,
+          ed.prepaid_period_months
         FROM event e
         JOIN account a ON a.id = e.account_id
         JOIN currency c ON c.id = a.currency_id
@@ -259,6 +271,10 @@ pub fn get_event_by_id(
                 original_currency_minor_units: row.get(21)?,
                 split_group_id: row.get(22)?,
                 split_group_note: row.get(23)?,
+                vat_rate_bps: row.get(24)?,
+                vat_deductible_pct_bps: row.get(25)?,
+                expense_deductible_pct_bps: row.get(26)?,
+                prepaid_period_months: row.get(27)?,
             })
         },
     )

@@ -22,6 +22,11 @@ import ReorderModal from '../shared/ui/ReorderModal'
 import ManageLinkedAssetsModal from '../features/assets/ManageLinkedAssetsModal'
 import CsvImportModal from '../features/transactions/CsvImportModal'
 import EditTransferModal from '../features/transactions/EditTransferModal'
+import AddEventsPickerModal from '../features/transactions/AddEventsPickerModal'
+import CreateRevenueModal from '../features/transactions/CreateRevenueModal'
+import CreateExpenseModal from '../features/transactions/CreateExpenseModal'
+import EditTaxableEventModal from '../features/transactions/EditTaxableEventModal'
+import EditTaxableSplitGroupModal from '../features/transactions/EditTaxableSplitGroupModal'
 
 interface AppModalsProps {
   selectedDate: string
@@ -51,6 +56,7 @@ const AppModals = ({ selectedDate, dbLocation }: AppModalsProps) => {
     handleCreateBalanceUpdate,
     handleEditBalanceUpdate,
     handleDeleteEvent,
+    handleDeleteSplitGroup,
     handleCreateAccount,
     handleEditAccount,
     handleDeleteAccount,
@@ -107,6 +113,11 @@ const AppModals = ({ selectedDate, dbLocation }: AppModalsProps) => {
           accountType={modalState.accountType}
           currentIban={modalState.currentIban}
           currentPersonId={modalState.currentPersonId}
+          isCustomUnit={modalState.isCustomUnit}
+          currencyMinorUnits={modalState.currencyMinorUnits}
+          currentPurchasePriceMinor={modalState.currentPurchasePriceMinor}
+          currentPurchaseDate={modalState.currentPurchaseDate}
+          currentDepreciationPeriodMonths={modalState.currentDepreciationPeriodMonths}
           onSubmit={handleEditAccount}
           onClose={closeModal}
         />
@@ -137,6 +148,9 @@ const AppModals = ({ selectedDate, dbLocation }: AppModalsProps) => {
 
     case 'confirmDeleteEvent':
       return <ConfirmDialog message={t('modals.confirm.deleteEvent')} onConfirm={() => handleDeleteEvent(modalState.eventId)} onCancel={closeModal} />
+
+    case 'confirmDeleteSplitGroup':
+      return <ConfirmDialog message={t('modals.confirm.deleteSplitGroup')} onConfirm={() => handleDeleteSplitGroup(modalState.splitGroupId)} onCancel={closeModal} />
 
     case 'confirmDeleteTransferEvent':
       return <ConfirmDialog message={t('modals.confirm.deleteTransferEvent')} onConfirm={() => handleDeleteEvent(modalState.eventId)} onCancel={closeModal} />
@@ -233,6 +247,37 @@ const AppModals = ({ selectedDate, dbLocation }: AppModalsProps) => {
             await queryClient.invalidateQueries({ queryKey: ['snapshot'] })
             await queryClient.invalidateQueries({ queryKey: ['events'] })
           }}
+        />
+      )
+
+    case 'addEvents':
+      return (
+        <AddEventsPickerModal
+          onBulkUpdate={() => setModalState({ type: 'bulkUpdateBalance' })}
+          onRevenue={() => setModalState({ type: 'createRevenue' })}
+          onExpense={() => setModalState({ type: 'createExpense' })}
+          onClose={closeModal}
+        />
+      )
+
+    case 'createRevenue':
+      return <CreateRevenueModal accounts={snapshot} preselectedAccountId={modalState.preselectedAccountId} onClose={closeModal} />
+
+    case 'createExpense':
+      return <CreateExpenseModal accounts={snapshot} preselectedAccountId={modalState.preselectedAccountId} onClose={closeModal} />
+
+    case 'editTaxableEvent':
+      return <EditTaxableEventModal event={modalState.event} onClose={closeModal} />
+
+    case 'editTaxableSplitGroup':
+      return (
+        <EditTaxableSplitGroupModal
+          splitGroupId={modalState.splitGroupId}
+          eventType={modalState.eventType}
+          legs={modalState.legs}
+          groupNote={modalState.groupNote}
+          accountId={modalState.accountId}
+          onClose={closeModal}
         />
       )
 

@@ -28,6 +28,11 @@ export type ModalState =
       accountType: string
       currentIban?: string | null
       currentPersonId?: number | null
+      isCustomUnit: boolean
+      currencyMinorUnits: number
+      currentPurchasePriceMinor: number | null
+      currentPurchaseDate: string | null
+      currentDepreciationPeriodMonths: number | null
     }
   | {
       type: 'confirmDeleteAccount'
@@ -36,6 +41,7 @@ export type ModalState =
       accountType?: 'account' | 'bucket' | 'asset'
     }
   | { type: 'confirmDeleteEvent'; eventId: number }
+  | { type: 'confirmDeleteSplitGroup'; splitGroupId: number }
   | { type: 'confirmDeleteTransferEvent'; eventId: number; linkedEventId: number }
   | { type: 'bulkUpdateBalance' }
   | { type: 'fetchFxRatePrompt'; date: string }
@@ -56,6 +62,18 @@ export type ModalState =
     }
   | { type: 'manageLinkedAssets'; accountId: number; accountName: string }
   | { type: 'csvImport' }
+  | { type: 'addEvents' }
+  | { type: 'createRevenue'; preselectedAccountId?: number }
+  | { type: 'createExpense'; preselectedAccountId?: number }
+  | { type: 'editTaxableEvent'; event: EventWithData }
+  | {
+      type: 'editTaxableSplitGroup'
+      splitGroupId: number
+      eventType: 'revenue' | 'expense'
+      legs: EventWithData[]
+      groupNote: string | null
+      accountId: number
+    }
 
 export interface Currency {
   id: number
@@ -97,6 +115,10 @@ export interface EventWithData {
   linkedEventId: number | null
   splitGroupId: number | null
   splitGroupNote: string | null
+  vatRateBps: number | null
+  vatDeductiblePctBps: number | null
+  expenseDeductiblePctBps: number | null
+  prepaidPeriodMonths: number | null
 }
 
 export interface ListEventsResult {
@@ -140,6 +162,9 @@ export interface SnapshotRow {
   linkedBalanceMinor: number
   cashflowTaggedMinor: number
   personId: number | null
+  purchasePriceMinor: number | null
+  purchaseDate: string | null
+  depreciationPeriodMonths: number | null
 }
 
 export interface FxRateRow {

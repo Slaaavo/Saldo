@@ -79,6 +79,7 @@ assets:
 ledger:
   title: Účtovná kniha
   updateBalances: Aktualizovať zostatky
+  addEvents: Pridať udalosti
   empty: Žiadne udalosti na zobrazenie.
   valueUpdate: Aktualizácia hodnoty
   viewAll: "Zobrazených {{shown}} z {{total}} udalostí. Zobraziť všetko"
@@ -101,6 +102,8 @@ ledgerPage:
     balanceUpdates: "Aktualizácie zostatkov"
     cashflows: "Transakcie"
     transfers: "Prevody"
+    revenue: "Výnosy"
+    expense: "Náklady"
 
 # ──── Typy udalostí ────
 events:
@@ -108,9 +111,15 @@ events:
     cashflow: "Transakcia"
     transfer: "Prevod"
     balanceUpdate: "Aktualizácia zostatku"
+    revenue: "Výnos"
+    expense: "Náklad"
   counterpart: "Protistrana"
   foreignAmount: "{{amount}} {{currency}}"
   bucketTag: "Obálka: {{name}}"
+  vatRate: "DPH {{rate}}%"
+  vatDeductible: "Odpočet DPH {{pct}}%"
+  expenseDeductible: "Odpočet nákladu {{pct}}%"
+  prepaidPeriod: "{{months}} mesiacov záloha"
 
 # ──── Modálne okná ────
 modals:
@@ -217,6 +226,7 @@ modals:
     deleteAssetWithLinks: 'Naozaj chcete vymazať {{entityType}} "{{name}}"? Nasledujúce účty sú prepojené s týmto aktívom a budú odpojené: {{accounts}}. Budú opäť zahrnuté do Voľných prostriedkov.'
     deleteEvent: Naozaj chcete vymazať túto udalosť?
     deleteTransferEvent: "Naozaj chcete vymazať tento prevod? Prepojený prevod na druhom účte bude tiež vymazaný."
+    deleteSplitGroup: "Naozaj chcete vymazať túto rozdelenú skupinu? Všetky časti budú vymazané."
 
   fetchFxRatePrompt:
     message: "Pre {{date}} chýba kurz meny. Načítať kurzy pre tento dátum?"
@@ -256,6 +266,83 @@ modals:
     assetsSection: "Aktíva"
     cancel: "Zrušiť"
     save: "Uložiť"
+
+  addEvents:
+    title: "Pridať udalosti"
+    bulkBalanceUpdate: "Hromadná aktualizácia zostatkov"
+    bulkBalanceUpdateDesc: "Aktualizujte zostatky všetkých účtov naraz"
+    revenue: "Výnos"
+    revenueDesc: "Zaznamenajte zdaniteľný výnos (nárastový základ)"
+    expense: "Náklad"
+    expenseDesc: "Zaznamenajte daňovo-uznateľný náklad (nárastový základ)"
+
+  createRevenue:
+    title: "Pridať výnos"
+    account: "Účet"
+    selectAccount: "Vyberte účet"
+    date: "Dátum"
+    amount: "Suma"
+    vatRate: "Sadzba DPH (voliteľná)"
+    vatRatePlaceholder: "napr. 23"
+    note: "Poznámka"
+    notePlaceholder: "Voliteľná poznámka"
+    split: "Rozdeliť"
+    addLeg: "Pridať riadok"
+    removeLeg: "Odstrániť"
+    groupNote: "Skupinová poznámka (voliteľná)"
+    total: "Celkom"
+    cancel: "Zrušiť"
+    submit: "Uložiť"
+
+  createExpense:
+    title: "Pridať náklad"
+    account: "Účet"
+    selectAccount: "Vyberte účet"
+    date: "Dátum"
+    amount: "Suma"
+    vatRate: "Sadzba DPH (voliteľná)"
+    vatRatePlaceholder: "napr. 23"
+    vatDeductiblePct: "% odpočtu DPH (voliteľné)"
+    vatDeductiblePctPlaceholder: "napr. 100"
+    expenseDeductiblePct: "% odpočtu nákladu (voliteľné)"
+    expenseDeductiblePctPlaceholder: "napr. 100"
+    prepaidPeriodMonths: "Záloha v mesiacoch (voliteľná)"
+    prepaidPeriodHelper: "Počet mesiacov, ktoré tento náklad pokrýva (napr. 12 pre ročné poistné)"
+    note: "Poznámka"
+    notePlaceholder: "Voliteľná poznámka"
+    split: "Rozdeliť"
+    addLeg: "Pridať riadok"
+    removeLeg: "Odstrániť"
+    groupNote: "Skupinová poznámka (voliteľná)"
+    total: "Celkom"
+    cancel: "Zrušiť"
+    submit: "Uložiť"
+
+  editTaxableEvent:
+    title: "Upraviť udalosť"
+    accountReadOnly: "Účet (iba na čítanie)"
+    cancel: "Zrušiť"
+    submit: "Uložiť"
+
+  editTaxableSplitGroup:
+    title: "Upraviť rozdelenú udalosť"
+    accountReadOnly: "Účet (iba na čítanie)"
+    legHeader: "Riadok {{n}}"
+    groupNote: "Skupinová poznámka (voliteľná)"
+    minLegsError: "Rozdelená udalosť musí mať aspoň 2 riadky."
+    cancel: "Zrušiť"
+    submit: "Uložiť"
+
+  assetDepreciation:
+    sectionTitle: "Odpisy (voliteľné)"
+    purchasePrice: "Obstarávacia cena"
+    purchaseDate: "Dátum obstarania"
+    depreciationPeriodMonths: "Doba odpisovania (mesiace)"
+    depreciationPeriodHelper: "0 = okamžitý odpis. Nechajte prázdne, ak nie je odpisovateľné."
+    presetInstant: "Okamžite (0)"
+    preset4y: "4 r. (48)"
+    preset5y: "5 r. (60)"
+    preset20y: "20 r. (240)"
 
   editTransfer:
     title: Upraviť prevod
@@ -360,6 +447,7 @@ errors:
   createBalanceUpdate: "Nepodarilo sa vytvoriť aktualizáciu zostatku: {{error}}"
   updateEvent: "Nepodarilo sa aktualizovať udalosť: {{error}}"
   deleteEvent: "Nepodarilo sa vymazať udalosť: {{error}}"
+  deleteSplitGroup: "Nepodarilo sa vymazať rozdelenú skupinu: {{error}}"
   createAccount: "Nepodarilo sa vytvoriť účet: {{error}}"
   renameAccount: "Nepodarilo sa premenovať účet: {{error}}"
   deleteAccount: "Nepodarilo sa vymazať účet: {{error}}"

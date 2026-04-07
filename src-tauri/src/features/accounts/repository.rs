@@ -13,6 +13,9 @@ pub struct CreateAccountParams {
     pub price_per_unit: Option<String>,
     pub iban: Option<String>,
     pub person_id: Option<i64>,
+    pub purchase_price_minor: Option<i64>,
+    pub purchase_date: Option<String>,
+    pub depreciation_period_months: Option<i64>,
 }
 
 pub struct UpdateAccountParams {
@@ -20,6 +23,9 @@ pub struct UpdateAccountParams {
     pub name: String,
     pub iban: Option<String>,
     pub person_id: Option<i64>,
+    pub purchase_price_minor: Option<i64>,
+    pub purchase_date: Option<String>,
+    pub depreciation_period_months: Option<i64>,
 }
 
 pub struct UpdateSortOrderParams {
@@ -43,8 +49,8 @@ pub fn create_account(conn: &Connection, params: CreateAccountParams) -> Result<
             |row| row.get(0),
         )?;
         conn.execute(
-            "INSERT INTO account (name, currency_id, account_type, sort_order, iban, person_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            params![params.name.as_str(), params.currency_id, params.account_type.as_str(), next_sort_order, normalised_iban, params.person_id],
+            "INSERT INTO account (name, currency_id, account_type, sort_order, iban, person_id, purchase_price_minor, purchase_date, depreciation_period_months) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![params.name.as_str(), params.currency_id, params.account_type.as_str(), next_sort_order, normalised_iban, params.person_id, params.purchase_price_minor, params.purchase_date.as_deref(), params.depreciation_period_months],
         ).map_err(|e| {
             if is_duplicate_iban_error(&e) {
                 AppError {
@@ -113,11 +119,14 @@ pub fn update_account(conn: &Connection, params: UpdateAccountParams) -> Result<
             let normalised = validate_iban(raw)?;
             let rows = conn
                 .execute(
-                    "UPDATE account SET name = ?1, iban = ?2, person_id = ?3 WHERE id = ?4",
+                    "UPDATE account SET name = ?1, iban = ?2, person_id = ?3, purchase_price_minor = ?4, purchase_date = ?5, depreciation_period_months = ?6 WHERE id = ?7",
                     params![
                         params.name.as_str(),
                         normalised,
                         params.person_id,
+                        params.purchase_price_minor,
+                        params.purchase_date.as_deref(),
+                        params.depreciation_period_months,
                         params.account_id
                     ],
                 )
@@ -140,8 +149,8 @@ pub fn update_account(conn: &Connection, params: UpdateAccountParams) -> Result<
             // Empty string — clear the IBAN
             let rows = conn
                 .execute(
-                    "UPDATE account SET name = ?1, iban = NULL, person_id = ?2 WHERE id = ?3",
-                    params![params.name.as_str(), params.person_id, params.account_id],
+                    "UPDATE account SET name = ?1, iban = NULL, person_id = ?2, purchase_price_minor = ?3, purchase_date = ?4, depreciation_period_months = ?5 WHERE id = ?6",
+                    params![params.name.as_str(), params.person_id, params.purchase_price_minor, params.purchase_date.as_deref(), params.depreciation_period_months, params.account_id],
                 )
                 .map_err(AppError::from)?;
             if rows == 0 {
@@ -149,11 +158,11 @@ pub fn update_account(conn: &Connection, params: UpdateAccountParams) -> Result<
             }
         }
         None => {
-            // No IBAN update — name only
+            // No IBAN update
             let rows = conn
                 .execute(
-                    "UPDATE account SET name = ?1, person_id = ?2 WHERE id = ?3",
-                    params![params.name.as_str(), params.person_id, params.account_id],
+                    "UPDATE account SET name = ?1, person_id = ?2, purchase_price_minor = ?3, purchase_date = ?4, depreciation_period_months = ?5 WHERE id = ?6",
+                    params![params.name.as_str(), params.person_id, params.purchase_price_minor, params.purchase_date.as_deref(), params.depreciation_period_months, params.account_id],
                 )
                 .map_err(AppError::from)?;
             if rows == 0 {

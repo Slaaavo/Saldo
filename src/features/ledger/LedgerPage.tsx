@@ -8,7 +8,7 @@ import LedgerEventList from '../../shared/ui/LedgerEventList'
 import PortfolioItemFilter from './PortfolioItemFilter'
 import { DatePicker } from '../../shared/ui/date-picker'
 import { Button } from '../../shared/ui/button'
-import { RefreshCw, Upload } from 'lucide-react'
+import { Plus, Upload } from 'lucide-react'
 import { useSnapshotQuery } from '../../shared/hooks/useSnapshotQuery'
 import { useConsolidationCurrencyQuery } from '../../shared/hooks/useConsolidationCurrencyQuery'
 import { useModal } from '../../app/useModal'
@@ -31,6 +31,24 @@ const LedgerPage = () => {
       setModalState({ type: 'editBalanceUpdate', event })
       return
     }
+    if (event.eventType === 'revenue' || event.eventType === 'expense') {
+      if (event.splitGroupId != null) {
+        const groupId = event.splitGroupId
+        const legs = events.filter((e) => e.splitGroupId === groupId)
+        const groupNote = event.splitGroupNote ?? null
+        setModalState({
+          type: 'editTaxableSplitGroup',
+          splitGroupId: groupId,
+          eventType: event.eventType as 'revenue' | 'expense',
+          legs,
+          groupNote,
+          accountId: event.accountId,
+        })
+      } else {
+        setModalState({ type: 'editTaxableEvent', event })
+      }
+      return
+    }
     if (event.eventType === 'transfer') {
       if (!event.linkedEventId) {
         toast.error(t('errors.loadData'))
@@ -51,16 +69,24 @@ const LedgerPage = () => {
     }
   }
 
+  const handleEditTaxableSplitGroup = (splitGroupId: number, eventType: string, legs: EventWithData[], groupNote: string | null, accountId: number) => {
+    setModalState({ type: 'editTaxableSplitGroup', splitGroupId, eventType: eventType as 'revenue' | 'expense', legs, groupNote, accountId })
+  }
+
   const handleDeleteEvent = (eventId: number) => {
     setModalState({ type: 'confirmDeleteEvent', eventId })
+  }
+
+  const handleDeleteSplitGroup = (splitGroupId: number) => {
+    setModalState({ type: 'confirmDeleteSplitGroup', splitGroupId })
   }
 
   const handleDeleteTransferEvent = (eventId: number, linkedEventId: number) => {
     setModalState({ type: 'confirmDeleteTransferEvent', eventId, linkedEventId })
   }
 
-  const handleUpdateBalances = () => {
-    setModalState({ type: 'bulkUpdateBalance' })
+  const handleAddEvents = () => {
+    setModalState({ type: 'addEvents' })
   }
 
   const handleImportCsv = () => {
@@ -85,9 +111,9 @@ const LedgerPage = () => {
             <Upload className="h-4 w-4" />
             {t('import.title')}
           </Button>
-          <Button onClick={handleUpdateBalances} size="sm">
-            <RefreshCw className="h-4 w-4" />
-            {t('ledger.updateBalances')}
+          <Button onClick={handleAddEvents} size="sm">
+            <Plus className="h-4 w-4" />
+            {t('ledger.addEvents')}
           </Button>
         </div>
       </div>
@@ -100,6 +126,8 @@ const LedgerPage = () => {
             { value: 'balance_update', label: t('ledgerPage.filterType.balanceUpdates') },
             { value: 'cashflow', label: t('ledgerPage.filterType.cashflows') },
             { value: 'transfer', label: t('ledgerPage.filterType.transfers') },
+            { value: 'revenue', label: t('ledgerPage.filterType.revenue') },
+            { value: 'expense', label: t('ledgerPage.filterType.expense') },
           ] as const
         ).map(({ value, label }) => (
           <Button key={value} variant={eventTypeFilter === value ? 'default' : 'outline'} size="sm" onClick={() => setEventTypeFilter(value)}>
@@ -118,6 +146,8 @@ const LedgerPage = () => {
           onEditEvent={handleEditEvent}
           onDeleteEvent={handleDeleteEvent}
           onDeleteTransferEvent={handleDeleteTransferEvent}
+          onDeleteSplitGroup={handleDeleteSplitGroup}
+          onEditTaxableSplitGroup={handleEditTaxableSplitGroup}
         />
       )}
     </section>

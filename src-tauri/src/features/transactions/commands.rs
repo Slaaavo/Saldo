@@ -200,6 +200,13 @@ pub fn delete_event(state: State<'_, AppState>, event_id: i64) -> Result<(), App
 }
 
 #[tauri::command]
+pub fn delete_split_group(state: State<'_, AppState>, split_group_id: i64) -> Result<(), AppError> {
+    let conn = state.conn()?;
+    repository::delete_split_group(&conn, split_group_id).map_err(AppError::from)?;
+    Ok(())
+}
+
+#[tauri::command]
 pub fn bulk_create_balance_updates(
     state: State<'_, AppState>,
     input: BulkCreateBalanceUpdatesInput,
@@ -476,6 +483,353 @@ pub fn update_transfer(
             original_amount_minor_for_from_leg,
             fx_rate_mantissa: input.fx_rate_mantissa,
             fx_rate_exponent: input.fx_rate_exponent,
+        },
+    )?;
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Taxable event commands (revenue / expense)
+// ---------------------------------------------------------------------------
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateTaxableEventInput {
+    pub account_id: i64,
+    pub event_type: String,
+    pub amount_minor: i64,
+    pub event_date: String,
+    pub note: Option<String>,
+    pub vat_rate_bps: Option<i64>,
+    pub vat_deductible_pct_bps: Option<i64>,
+    pub expense_deductible_pct_bps: Option<i64>,
+    pub prepaid_period_months: Option<i64>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SplitTaxableLegInput {
+    pub amount_minor: i64,
+    pub event_date: String,
+    pub note: Option<String>,
+    pub vat_rate_bps: Option<i64>,
+    pub vat_deductible_pct_bps: Option<i64>,
+    pub expense_deductible_pct_bps: Option<i64>,
+    pub prepaid_period_months: Option<i64>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateTaxableSplitGroupInput {
+    pub account_id: i64,
+    pub event_type: String,
+    pub group_note: Option<String>,
+    pub legs: Vec<SplitTaxableLegInput>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateTaxableEventInput {
+    pub event_id: i64,
+    pub event_type: String,
+    pub amount_minor: i64,
+    pub event_date: String,
+    pub note: Option<String>,
+    pub vat_rate_bps: Option<i64>,
+    pub vat_deductible_pct_bps: Option<i64>,
+    pub expense_deductible_pct_bps: Option<i64>,
+    pub prepaid_period_months: Option<i64>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdatedSplitLegInput {
+    pub event_id: i64,
+    pub amount_minor: i64,
+    pub event_date: String,
+    pub note: Option<String>,
+    pub vat_rate_bps: Option<i64>,
+    pub vat_deductible_pct_bps: Option<i64>,
+    pub expense_deductible_pct_bps: Option<i64>,
+    pub prepaid_period_months: Option<i64>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NewSplitLegInput {
+    pub amount_minor: i64,
+    pub event_date: String,
+    pub note: Option<String>,
+    pub vat_rate_bps: Option<i64>,
+    pub vat_deductible_pct_bps: Option<i64>,
+    pub expense_deductible_pct_bps: Option<i64>,
+    pub prepaid_period_months: Option<i64>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateTaxableSplitGroupInput {
+    pub split_group_id: i64,
+    pub event_type: String,
+    pub group_note: Option<String>,
+    pub updated_legs: Vec<UpdatedSplitLegInput>,
+    pub new_legs: Vec<NewSplitLegInput>,
+    pub removed_leg_ids: Vec<i64>,
+}
+
+fn validate_event_type_taxable(event_type: &str) -> Result<(), AppError> {
+    if event_type != "revenue" && event_type != "expense" {
+        return Err(AppError {
+            code: "VALIDATION".into(),
+            message: "event_type must be 'revenue' or 'expense'".into(),
+        });
+    }
+    Ok(())
+}
+
+fn validate_taxable_field_ranges(
+    vat_rate_bps: Option<i64>,
+    vat_deductible_pct_bps: Option<i64>,
+    expense_deductible_pct_bps: Option<i64>,
+) -> Result<(), AppError> {
+    for (name, val) in [
+        ("vat_rate_bps", vat_rate_bps),
+        ("vat_deductible_pct_bps", vat_deductible_pct_bps),
+        ("expense_deductible_pct_bps", expense_deductible_pct_bps),
+    ] {
+        if let Some(v) = val {
+            if !(0..=10000).contains(&v) {
+                return Err(AppError {
+                    code: "VALIDATION".into(),
+                    message: format!("{} must be in range [0, 10000] bps", name),
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_expense_only_fields(
+    event_type: &str,
+    vat_deductible_pct_bps: Option<i64>,
+    expense_deductible_pct_bps: Option<i64>,
+    prepaid_period_months: Option<i64>,
+) -> Result<(), AppError> {
+    if event_type != "expense"
+        && (vat_deductible_pct_bps.is_some()
+            || expense_deductible_pct_bps.is_some()
+            || prepaid_period_months.is_some())
+    {
+        return Err(AppError {
+            code: "VALIDATION".into(),
+            message:
+                "vat_deductible_pct_bps, expense_deductible_pct_bps, and prepaid_period_months are only valid for expense events"
+                    .into(),
+        });
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn create_taxable_event(
+    state: State<'_, AppState>,
+    input: CreateTaxableEventInput,
+) -> Result<i64, AppError> {
+    validate_event_type_taxable(&input.event_type)?;
+    crate::shared::validate_event_date(&input.event_date)?;
+    validate_expense_only_fields(
+        &input.event_type,
+        input.vat_deductible_pct_bps,
+        input.expense_deductible_pct_bps,
+        input.prepaid_period_months,
+    )?;
+    validate_taxable_field_ranges(
+        input.vat_rate_bps,
+        input.vat_deductible_pct_bps,
+        input.expense_deductible_pct_bps,
+    )?;
+    let conn = state.conn()?;
+    let id = repository::create_taxable_event(
+        &conn,
+        repository::CreateTaxableEventParams {
+            account_id: input.account_id,
+            event_type: input.event_type,
+            amount_minor: input.amount_minor,
+            event_date: input.event_date,
+            note: input.note,
+            vat_rate_bps: input.vat_rate_bps,
+            vat_deductible_pct_bps: input.vat_deductible_pct_bps,
+            expense_deductible_pct_bps: input.expense_deductible_pct_bps,
+            prepaid_period_months: input.prepaid_period_months,
+        },
+    )?;
+    Ok(id)
+}
+
+#[tauri::command]
+pub fn create_taxable_split_group(
+    state: State<'_, AppState>,
+    input: CreateTaxableSplitGroupInput,
+) -> Result<i64, AppError> {
+    validate_event_type_taxable(&input.event_type)?;
+    if input.legs.len() < 2 {
+        return Err(AppError {
+            code: "VALIDATION".into(),
+            message: "A split group requires at least 2 legs".into(),
+        });
+    }
+    for leg in &input.legs {
+        crate::shared::validate_event_date(&leg.event_date)?;
+        validate_expense_only_fields(
+            &input.event_type,
+            leg.vat_deductible_pct_bps,
+            leg.expense_deductible_pct_bps,
+            leg.prepaid_period_months,
+        )?;
+        validate_taxable_field_ranges(
+            leg.vat_rate_bps,
+            leg.vat_deductible_pct_bps,
+            leg.expense_deductible_pct_bps,
+        )?;
+    }
+    let conn = state.conn()?;
+    let legs = input
+        .legs
+        .into_iter()
+        .map(|l| repository::TaxableEventLeg {
+            amount_minor: l.amount_minor,
+            event_date: l.event_date,
+            note: l.note,
+            vat_rate_bps: l.vat_rate_bps,
+            vat_deductible_pct_bps: l.vat_deductible_pct_bps,
+            expense_deductible_pct_bps: l.expense_deductible_pct_bps,
+            prepaid_period_months: l.prepaid_period_months,
+        })
+        .collect();
+    let id = repository::create_taxable_split_group_with_legs(
+        &conn,
+        repository::CreateTaxableSplitGroupWithLegsParams {
+            account_id: input.account_id,
+            event_type: input.event_type,
+            group_note: input.group_note,
+            legs,
+        },
+    )?;
+    Ok(id)
+}
+
+#[tauri::command]
+pub fn update_taxable_event(
+    state: State<'_, AppState>,
+    input: UpdateTaxableEventInput,
+) -> Result<(), AppError> {
+    validate_event_type_taxable(&input.event_type)?;
+    validate_expense_only_fields(
+        &input.event_type,
+        input.vat_deductible_pct_bps,
+        input.expense_deductible_pct_bps,
+        input.prepaid_period_months,
+    )?;
+    validate_taxable_field_ranges(
+        input.vat_rate_bps,
+        input.vat_deductible_pct_bps,
+        input.expense_deductible_pct_bps,
+    )?;
+    crate::shared::validate_event_date(&input.event_date)?;
+    let conn = state.conn()?;
+    repository::check_event_split_group_date_conflict(
+        &conn,
+        repository::CheckEventSplitGroupDateConflictParams {
+            event_id: input.event_id,
+            new_date: input.event_date.clone(),
+        },
+    )?;
+    repository::update_taxable_event(
+        &conn,
+        repository::UpdateTaxableEventParams {
+            event_id: input.event_id,
+            amount_minor: input.amount_minor,
+            event_date: input.event_date,
+            note: input.note,
+            vat_rate_bps: input.vat_rate_bps,
+            vat_deductible_pct_bps: input.vat_deductible_pct_bps,
+            expense_deductible_pct_bps: input.expense_deductible_pct_bps,
+            prepaid_period_months: input.prepaid_period_months,
+        },
+    )?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn update_taxable_split_group(
+    state: State<'_, AppState>,
+    input: UpdateTaxableSplitGroupInput,
+) -> Result<(), AppError> {
+    validate_event_type_taxable(&input.event_type)?;
+    for leg in &input.updated_legs {
+        crate::shared::validate_event_date(&leg.event_date)?;
+        validate_expense_only_fields(
+            &input.event_type,
+            leg.vat_deductible_pct_bps,
+            leg.expense_deductible_pct_bps,
+            leg.prepaid_period_months,
+        )?;
+        validate_taxable_field_ranges(
+            leg.vat_rate_bps,
+            leg.vat_deductible_pct_bps,
+            leg.expense_deductible_pct_bps,
+        )?;
+    }
+    for leg in &input.new_legs {
+        crate::shared::validate_event_date(&leg.event_date)?;
+        validate_expense_only_fields(
+            &input.event_type,
+            leg.vat_deductible_pct_bps,
+            leg.expense_deductible_pct_bps,
+            leg.prepaid_period_months,
+        )?;
+        validate_taxable_field_ranges(
+            leg.vat_rate_bps,
+            leg.vat_deductible_pct_bps,
+            leg.expense_deductible_pct_bps,
+        )?;
+    }
+    let conn = state.conn()?;
+    let updated_legs = input
+        .updated_legs
+        .into_iter()
+        .map(|l| repository::UpdatedSplitLeg {
+            event_id: l.event_id,
+            amount_minor: l.amount_minor,
+            event_date: l.event_date,
+            note: l.note,
+            vat_rate_bps: l.vat_rate_bps,
+            vat_deductible_pct_bps: l.vat_deductible_pct_bps,
+            expense_deductible_pct_bps: l.expense_deductible_pct_bps,
+            prepaid_period_months: l.prepaid_period_months,
+        })
+        .collect();
+    let new_legs = input
+        .new_legs
+        .into_iter()
+        .map(|l| repository::NewSplitLeg {
+            amount_minor: l.amount_minor,
+            event_date: l.event_date,
+            note: l.note,
+            vat_rate_bps: l.vat_rate_bps,
+            vat_deductible_pct_bps: l.vat_deductible_pct_bps,
+            expense_deductible_pct_bps: l.expense_deductible_pct_bps,
+            prepaid_period_months: l.prepaid_period_months,
+        })
+        .collect();
+    repository::update_taxable_split_group(
+        &conn,
+        repository::UpdateTaxableSplitGroupParams {
+            split_group_id: input.split_group_id,
+            group_note: input.group_note,
+            updated_legs,
+            new_legs,
+            removed_leg_ids: input.removed_leg_ids,
         },
     )?;
     Ok(())

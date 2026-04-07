@@ -22,6 +22,9 @@ const makeSnapshotRow = (overrides?: Partial<SnapshotRow>): SnapshotRow => {
     isLinkedToAsset: false,
     linkedAssetIds: [],
     personId: null,
+    purchasePriceMinor: null,
+    purchaseDate: null,
+    depreciationPeriodMonths: null,
     ...overrides,
   }
 }

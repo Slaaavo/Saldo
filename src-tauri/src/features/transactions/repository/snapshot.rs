@@ -19,6 +19,9 @@ type SnapshotRawRow = (
     i64,
     i64,
     Option<i64>,
+    Option<i64>,
+    Option<String>,
+    Option<i64>,
 );
 
 #[derive(Default)]
@@ -80,7 +83,10 @@ pub fn get_accounts_snapshot(
                 )),
              0
            ) AS balance_minor,
-           a.person_id
+           a.person_id,
+           a.purchase_price_minor,
+           a.purchase_date,
+           a.depreciation_period_months
          FROM account a
          JOIN currency c ON c.id = a.currency_id
          WHERE a.account_type IN ('account', 'bucket', 'asset')
@@ -101,6 +107,9 @@ pub fn get_accounts_snapshot(
                 row.get(7)?,
                 row.get(8)?,
                 row.get(9)?,
+                row.get(10)?,
+                row.get(11)?,
+                row.get(12)?,
             ))
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -117,6 +126,9 @@ pub fn get_accounts_snapshot(
         currency_is_custom,
         balance_minor,
         person_id_row,
+        purchase_price_minor,
+        purchase_date,
+        depreciation_period_months,
     ) in row_data
     {
         let (converted_balance_minor, fx_rate_missing) = if currency_id == consolidation.id {
@@ -174,6 +186,9 @@ pub fn get_accounts_snapshot(
             linked_balance_minor: 0,
             cashflow_tagged_minor: 0,
             person_id: person_id_row,
+            purchase_price_minor,
+            purchase_date,
+            depreciation_period_months,
         });
     }
 

@@ -8,6 +8,7 @@ import {
   deleteAccount,
   updateEvent,
   deleteEvent,
+  deleteSplitGroup,
   bulkCreateBalanceUpdates,
   listFxRates,
   updateSortOrder,
@@ -77,6 +78,17 @@ export const useModalActions = ({ closeModal, onFxRatePrompt }: UseModalActionsO
     }
   }
 
+  const handleDeleteSplitGroup = async (splitGroupId: number) => {
+    try {
+      await deleteSplitGroup(splitGroupId)
+      closeModal()
+      await queryClient.invalidateQueries({ queryKey: ['snapshot'] })
+      await queryClient.invalidateQueries({ queryKey: ['events'] })
+    } catch (err) {
+      toast.error(t('errors.deleteSplitGroup', { error: extractErrorMessage(err) }))
+    }
+  }
+
   const handleCreateAccount = async (
     name: string,
     currencyId: number,
@@ -96,9 +108,17 @@ export const useModalActions = ({ closeModal, onFxRatePrompt }: UseModalActionsO
     }
   }
 
-  const handleEditAccount = async (accountId: number, name: string, iban?: string, personId?: number) => {
+  const handleEditAccount = async (
+    accountId: number,
+    name: string,
+    iban?: string,
+    personId?: number,
+    purchasePriceMinor?: number | null,
+    purchaseDate?: string | null,
+    depreciationPeriodMonths?: number | null,
+  ) => {
     try {
-      await updateAccount(accountId, name, iban, personId)
+      await updateAccount(accountId, name, iban, personId, purchasePriceMinor, purchaseDate, depreciationPeriodMonths)
       closeModal()
       await queryClient.invalidateQueries({ queryKey: ['snapshot'] })
       await queryClient.invalidateQueries({ queryKey: ['events'] })
@@ -214,6 +234,7 @@ export const useModalActions = ({ closeModal, onFxRatePrompt }: UseModalActionsO
     handleCreateBalanceUpdate,
     handleEditBalanceUpdate,
     handleDeleteEvent,
+    handleDeleteSplitGroup,
     handleCreateAccount,
     handleEditAccount,
     handleDeleteAccount,

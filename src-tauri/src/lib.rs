@@ -171,6 +171,7 @@ pub fn run() {
             features::delete_account,
             features::update_event,
             features::delete_event,
+            features::delete_split_group,
             features::bulk_create_balance_updates,
             features::create_cashflow,
             features::bulk_create_cashflows,
@@ -222,6 +223,10 @@ pub fn run() {
             features::list_persons,
             features::update_person,
             features::delete_person,
+            features::create_taxable_event,
+            features::create_taxable_split_group,
+            features::update_taxable_event,
+            features::update_taxable_split_group,
         ])
         .run({
             let mut ctx = tauri::generate_context!();

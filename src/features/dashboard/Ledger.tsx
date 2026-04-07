@@ -2,7 +2,7 @@ import { useTranslation } from 'react-i18next'
 import type { EventWithData, SnapshotRow, Currency } from '../../shared/types'
 import LedgerEventList from '../../shared/ui/LedgerEventList'
 import { Button } from '../../shared/ui/button'
-import { RefreshCw, Upload } from 'lucide-react'
+import { Plus, Upload } from 'lucide-react'
 
 interface Props {
   events: EventWithData[]
@@ -11,13 +11,28 @@ interface Props {
   onEditEvent: (event: EventWithData) => void
   onDeleteEvent: (eventId: number) => void
   onDeleteTransferEvent?: (eventId: number, linkedEventId: number) => void
-  onUpdateBalances: () => void
+  onDeleteSplitGroup?: (splitGroupId: number) => void
+  onAddEvents: () => void
   totalEvents?: number
   onViewAll?: () => void
   onImportCsv?: () => void
+  onEditTaxableSplitGroup?: (splitGroupId: number, eventType: string, legs: EventWithData[], groupNote: string | null, accountId: number) => void
 }
 
-const Ledger = ({ events, accounts, consolidationCurrency, onEditEvent, onDeleteEvent, onDeleteTransferEvent, onUpdateBalances, totalEvents, onViewAll, onImportCsv }: Props) => {
+const Ledger = ({
+  events,
+  accounts,
+  consolidationCurrency,
+  onEditEvent,
+  onDeleteEvent,
+  onDeleteTransferEvent,
+  onDeleteSplitGroup,
+  onAddEvents,
+  totalEvents,
+  onViewAll,
+  onImportCsv,
+  onEditTaxableSplitGroup,
+}: Props) => {
   const { t } = useTranslation()
 
   const showViewAll = totalEvents !== undefined && events.length < totalEvents && onViewAll !== undefined
@@ -33,9 +48,9 @@ const Ledger = ({ events, accounts, consolidationCurrency, onEditEvent, onDelete
               {t('import.title')}
             </Button>
           )}
-          <Button onClick={onUpdateBalances} size="sm">
-            <RefreshCw className="h-4 w-4" />
-            {t('ledger.updateBalances')}
+          <Button onClick={onAddEvents} size="sm">
+            <Plus className="h-4 w-4" />
+            {t('ledger.addEvents')}
           </Button>
         </div>
       </div>
@@ -47,6 +62,8 @@ const Ledger = ({ events, accounts, consolidationCurrency, onEditEvent, onDelete
         onEditEvent={onEditEvent}
         onDeleteEvent={onDeleteEvent}
         onDeleteTransferEvent={onDeleteTransferEvent}
+        onDeleteSplitGroup={onDeleteSplitGroup}
+        onEditTaxableSplitGroup={onEditTaxableSplitGroup}
       />
 
       {showViewAll && (

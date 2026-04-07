@@ -30,6 +30,10 @@ pub struct EventWithData {
     pub linked_event_id: Option<i64>,
     pub split_group_id: Option<i64>,
     pub split_group_note: Option<String>,
+    pub vat_rate_bps: Option<i64>,
+    pub vat_deductible_pct_bps: Option<i64>,
+    pub expense_deductible_pct_bps: Option<i64>,
+    pub prepaid_period_months: Option<i64>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -67,6 +71,10 @@ pub struct SnapshotRow {
     /// For bucket-type rows: converted sum of cashflows tagged to this bucket via event_data.bucket_id (consolidation currency).
     pub cashflow_tagged_minor: i64,
     pub person_id: Option<i64>,
+    /// Asset depreciation fields — only populated for asset accounts with standard currencies.
+    pub purchase_price_minor: Option<i64>,
+    pub purchase_date: Option<String>,
+    pub depreciation_period_months: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]

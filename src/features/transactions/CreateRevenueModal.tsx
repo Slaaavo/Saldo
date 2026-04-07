@@ -1,0 +1,238 @@
+import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
+import { useQueryClient } from '@tanstack/react-query'
+import type { SnapshotRow } from '../../shared/types'
+import { todayIso, toMinorUnits, getMinorUnitsStep } from '../../shared/utils/format'
+import { extractErrorMessage } from '../../shared/utils/errors'
+import { createTaxableEvent, createTaxableSplitGroup } from '../../shared/api'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogBody, DialogFooter } from '../../shared/ui/dialog'
+import { Button } from '../../shared/ui/button'
+import { CurrencyInput } from '../../shared/ui/CurrencyInput'
+import { Input } from '../../shared/ui/input'
+import { PercentageInput } from '../../shared/ui/PercentageInput'
+import { Label } from '../../shared/ui/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../shared/ui/select'
+import { DatePicker } from '../../shared/ui/date-picker'
+import TaxableEventSplitEditor from './TaxableEventSplitEditor'
+import { SplitLegDraft, makeEmptyLeg } from './splitLegDraft'
+
+interface Props {
+  accounts: SnapshotRow[]
+  preselectedAccountId?: number
+  onClose: () => void
+}
+
+const VAT_QUICK_FILLS = ['0', '5', '10', '20', '23']
+
+const pctToBps = (str: string): number | null => {
+  const trimmed = str.trim()
+  if (!trimmed) return null
+  const n = parseFloat(trimmed)
+  if (isNaN(n)) return null
+  return Math.round(n * 100)
+}
+
+const CreateRevenueModal = ({ accounts, preselectedAccountId, onClose }: Props) => {
+  const { t } = useTranslation()
+  const queryClient = useQueryClient()
+
+  const eligibleAccounts = accounts.filter((a) => a.accountType !== 'partner')
+  const initialAccountId = preselectedAccountId ?? eligibleAccounts[0]?.accountId ?? 0
+
+  const [accountId, setAccountId] = useState<number>(initialAccountId)
+  const [date, setDate] = useState(todayIso())
+  const [amount, setAmount] = useState('')
+  const [vatRate, setVatRate] = useState('')
+  const [note, setNote] = useState('')
+  const [isSplit, setIsSplit] = useState(false)
+  const [legs, setLegs] = useState<SplitLegDraft[]>(() => [makeEmptyLeg(todayIso()), makeEmptyLeg(todayIso())])
+  const [groupNote, setGroupNote] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+
+  const selectedAccount = eligibleAccounts.find((a) => a.accountId === accountId)
+  const currencyCode = selectedAccount?.currencyCode ?? ''
+  const currencyMinorUnits = selectedAccount?.currencyMinorUnits ?? 2
+
+  const handleLegsChange = (newLegs: SplitLegDraft[]) => {
+    setLegs(newLegs.map((l) => ({ ...l, eventDate: l.eventDate || date })))
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!accountId) {
+      toast.error(t('validation.nameRequired', { entity: t('common.account') }))
+      return
+    }
+    setSubmitting(true)
+    try {
+      if (isSplit) {
+        if (legs.length < 2) {
+          toast.error(t('modals.editTaxableSplitGroup.minLegsError'))
+          setSubmitting(false)
+          return
+        }
+        await createTaxableSplitGroup({
+          accountId,
+          eventType: 'revenue',
+          groupNote: groupNote.trim() || null,
+          legs: legs.map((leg) => ({
+            amountMinor: toMinorUnits(leg.amount, currencyMinorUnits),
+            eventDate: leg.eventDate || date,
+            note: leg.note.trim() || null,
+            vatRateBps: pctToBps(leg.vatRate),
+            vatDeductiblePctBps: null,
+            expenseDeductiblePctBps: null,
+            prepaidPeriodMonths: null,
+          })),
+        })
+      } else {
+        const parsed = parseFloat(amount)
+        if (isNaN(parsed)) {
+          toast.error(t('validation.invalidAmount'))
+          setSubmitting(false)
+          return
+        }
+        await createTaxableEvent({
+          accountId,
+          eventType: 'revenue',
+          amountMinor: toMinorUnits(amount, currencyMinorUnits),
+          eventDate: date,
+          note: note.trim() || null,
+          vatRateBps: pctToBps(vatRate),
+          vatDeductiblePctBps: null,
+          expenseDeductiblePctBps: null,
+          prepaidPeriodMonths: null,
+        })
+      }
+      setSubmitting(false)
+      await queryClient.invalidateQueries({ queryKey: ['events'] })
+      await queryClient.invalidateQueries({ queryKey: ['snapshot'] })
+      onClose()
+    } catch (err) {
+      toast.error(extractErrorMessage(err))
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <Dialog
+      open={true}
+      onOpenChange={(open) => {
+        if (!open) onClose()
+      }}
+    >
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{t('modals.createRevenue.title')}</DialogTitle>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="flex flex-col flex-1 overflow-hidden min-h-0 gap-4">
+          <DialogBody className="flex flex-col gap-4">
+            {/* Account selector */}
+            <div className="flex flex-col gap-2">
+              <Label>{t('modals.createRevenue.account')}</Label>
+              <Select value={String(accountId)} onValueChange={(v) => setAccountId(Number(v))}>
+                <SelectTrigger>
+                  <SelectValue placeholder={t('modals.createRevenue.selectAccount')} />
+                </SelectTrigger>
+                <SelectContent>
+                  {eligibleAccounts.map((a) => (
+                    <SelectItem key={a.accountId} value={String(a.accountId)}>
+                      {a.accountName}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Date */}
+            <div className="flex flex-col gap-2">
+              <Label>{t('modals.createRevenue.date')}</Label>
+              <DatePicker value={date} onChange={(d) => setDate(d ?? todayIso())} />
+            </div>
+
+            {/* Split toggle */}
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setIsSplit((v) => !v)}
+                className={`px-3 py-1 rounded-md text-sm font-medium border transition-colors ${
+                  isSplit ? 'bg-primary text-primary-foreground border-primary' : 'bg-background text-muted-foreground border-border hover:bg-muted'
+                }`}
+              >
+                {t('modals.createRevenue.split')}
+              </button>
+            </div>
+
+            {isSplit ? (
+              <TaxableEventSplitEditor
+                eventType="revenue"
+                currencyCode={currencyCode}
+                currencyMinorUnits={currencyMinorUnits}
+                legs={legs}
+                onLegsChange={handleLegsChange}
+                groupNote={groupNote}
+                onGroupNoteChange={setGroupNote}
+              />
+            ) : (
+              <>
+                {/* Amount */}
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor="create-revenue-amount">{t('modals.createRevenue.amount')}</Label>
+                  <CurrencyInput
+                    id="create-revenue-amount"
+                    type="number"
+                    step={getMinorUnitsStep(currencyMinorUnits)}
+                    value={amount}
+                    onChange={(e) => setAmount(e.target.value)}
+                    placeholder="0"
+                    currencyCode={currencyCode}
+                    required
+                  />
+                </div>
+
+                {/* VAT rate */}
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor="create-revenue-vat">{t('modals.createRevenue.vatRate')}</Label>
+                  <PercentageInput
+                    id="create-revenue-vat"
+                    type="number"
+                    step="0.01"
+                    min={0}
+                    max={100}
+                    value={vatRate}
+                    onChange={(e) => setVatRate(e.target.value)}
+                    placeholder={t('modals.createRevenue.vatRatePlaceholder')}
+                  />
+                  <div className="flex gap-1 flex-wrap">
+                    {VAT_QUICK_FILLS.map((v) => (
+                      <button key={v} type="button" onClick={() => setVatRate(v)} className="text-xs px-2 py-0.5 rounded bg-muted hover:bg-accent transition-colors">
+                        {v}%
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Note */}
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor="create-revenue-note">{t('modals.createRevenue.note')}</Label>
+                  <Input id="create-revenue-note" type="text" value={note} onChange={(e) => setNote(e.target.value)} placeholder={t('modals.createRevenue.notePlaceholder')} />
+                </div>
+              </>
+            )}
+          </DialogBody>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={onClose}>
+              {t('modals.createRevenue.cancel')}
+            </Button>
+            <Button type="submit" disabled={submitting}>
+              {t('modals.createRevenue.submit')}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+export default CreateRevenueModal

@@ -21,6 +21,9 @@ const makeSnapshot = (overrides?: Partial<SnapshotRow>): SnapshotRow => {
     linkedBalanceMinor: 0,
     cashflowTaggedMinor: 0,
     personId: null,
+    purchasePriceMinor: null,
+    purchaseDate: null,
+    depreciationPeriodMonths: null,
     ...overrides,
   }
 }

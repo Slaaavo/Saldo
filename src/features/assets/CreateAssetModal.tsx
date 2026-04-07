@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { useQuery } from '@tanstack/react-query'
 import { PINNED_CURRENCY_CODES } from '../../shared/config/constants'
-import { toMinorUnits, getMinorUnitsStep } from '../../shared/utils/format'
+import { toMinorUnits, getMinorUnitsStep, todayIso } from '../../shared/utils/format'
 import type { Currency } from '../../shared/types'
 import { listCurrencies, getConsolidationCurrency, listCustomUnits, createCustomUnit, createAccount, listPersons } from '../../shared/api'
 import { useSelectedPerson } from '../../app/useSelectedPerson'
@@ -32,6 +32,7 @@ const CreateAssetModal = ({ onSuccess, onClose }: Props) => {
   // undefined = auto-derive from default person; number = explicitly chosen
   const [personIdOverride, setPersonIdOverride] = useState<number | undefined>(selectedPersonId ?? undefined)
   const personId: number | null = personIdOverride !== undefined ? personIdOverride : (persons?.find((p) => p.isDefault)?.id ?? null)
+  const selectedPerson = persons?.find((p) => p.id === personId)
 
   const [denomination, setDenomination] = useState<Denomination>('currency')
 
@@ -53,6 +54,11 @@ const CreateAssetModal = ({ onSuccess, onClose }: Props) => {
   const [consolidationCurrency, setConsolidationCurrency] = useState<Currency | null>(null)
 
   const [submitting, setSubmitting] = useState(false)
+
+  // Depreciation state (currency path only)
+  const [purchasePrice, setPurchasePrice] = useState('')
+  const [purchaseDate, setPurchaseDate] = useState(todayIso().slice(0, 10))
+  const [depreciationPeriod, setDepreciationPeriod] = useState('')
 
   const isCreatingNewUnit = selectedUnitId === NEW_UNIT_VALUE
   const selectedUnit = customUnits.find((u) => String(u.id) === selectedUnitId) ?? null
@@ -104,7 +110,22 @@ const CreateAssetModal = ({ onSuccess, onClose }: Props) => {
     }
     setSubmitting(true)
     try {
-      await createAccount(assetName.trim(), selectedCurrency.id, initialBalanceMinor, 'asset', undefined, undefined, undefined, personId ?? undefined)
+      const purchasePriceMinor = purchasePrice.trim() ? toMinorUnits(purchasePrice, selectedCurrency.minorUnits) : null
+      const purchaseDateValue = purchaseDate.trim() ? purchaseDate.trim() : null
+      const periodMonths = depreciationPeriod.trim() !== '' ? Math.max(0, parseInt(depreciationPeriod, 10)) : null
+      await createAccount(
+        assetName.trim(),
+        selectedCurrency.id,
+        initialBalanceMinor,
+        'asset',
+        undefined,
+        undefined,
+        undefined,
+        personId ?? undefined,
+        purchasePriceMinor,
+        purchaseDateValue,
+        periodMonths,
+      )
       onSuccess()
     } catch (err) {
       toast.error(t('errors.createAccount', { error: extractErrorMessage(err) }))
@@ -246,6 +267,53 @@ const CreateAssetModal = ({ onSuccess, onClose }: Props) => {
                   currencyCode={selectedCurrency?.code}
                 />
               </div>
+              {selectedPerson?.personType === 'legal' && (
+                <>
+                  <h3 className="text-base font-semibold border-t border-border pt-2 mt-1">{t('modals.assetDepreciation.sectionTitle')}</h3>
+                  <div className="flex flex-col gap-2">
+                    <Label htmlFor="create-asset-purchase-price">{t('modals.assetDepreciation.purchasePrice')}</Label>
+                    <CurrencyInput
+                      id="create-asset-purchase-price"
+                      type="number"
+                      step={getMinorUnitsStep(selectedCurrency?.minorUnits ?? 2)}
+                      value={purchasePrice}
+                      onChange={(e) => setPurchasePrice(e.target.value)}
+                      placeholder="0"
+                      currencyCode={selectedCurrency?.code}
+                    />
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <Label htmlFor="create-asset-purchase-date">{t('modals.assetDepreciation.purchaseDate')}</Label>
+                    <Input id="create-asset-purchase-date" type="date" value={purchaseDate} onChange={(e) => setPurchaseDate(e.target.value)} />
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <Label htmlFor="create-asset-depreciation-period">{t('modals.assetDepreciation.depreciationPeriodMonths')}</Label>
+                    <Input
+                      id="create-asset-depreciation-period"
+                      type="number"
+                      min="0"
+                      value={depreciationPeriod}
+                      onChange={(e) => setDepreciationPeriod(e.target.value)}
+                      placeholder=""
+                    />
+                    <p className="text-xs text-muted-foreground">{t('modals.assetDepreciation.depreciationPeriodHelper')}</p>
+                    <div className="flex gap-2 flex-wrap">
+                      {(
+                        [
+                          ['presetInstant', '0'],
+                          ['preset4y', '48'],
+                          ['preset5y', '60'],
+                          ['preset20y', '240'],
+                        ] as const
+                      ).map(([key, val]) => (
+                        <Button key={key} type="button" variant="outline" size="sm" onClick={() => setDepreciationPeriod(val)}>
+                          {t(`modals.assetDepreciation.${key}`)}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              )}
             </DialogBody>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={onClose}>

@@ -7,7 +7,7 @@ import NumberValue from './NumberValue'
 import BucketAmountWithTooltip from '../../features/buckets/BucketAmountWithTooltip'
 import { Button } from './button'
 import { Card, CardContent } from './card'
-import { Pencil, Trash2, ArrowUpDown, Receipt, ChevronDown } from 'lucide-react'
+import { Pencil, Trash2, ArrowUpDown, Receipt, ChevronDown, TrendingUp, TrendingDown } from 'lucide-react'
 import { groupSplitEvents } from './splitGroupUtils'
 import type { SplitGroupRow } from './splitGroupUtils'
 
@@ -20,9 +20,11 @@ interface Props {
   onEditEvent: (event: EventWithData) => void
   onDeleteEvent: (eventId: number) => void
   onDeleteTransferEvent?: (eventId: number, linkedEventId: number) => void
+  onDeleteSplitGroup?: (splitGroupId: number) => void
+  onEditTaxableSplitGroup?: (splitGroupId: number, eventType: string, legs: EventWithData[], groupNote: string | null, accountId: number) => void
 }
 
-const LedgerEventList = ({ events, accounts, consolidationCurrency, onEditEvent, onDeleteEvent, onDeleteTransferEvent }: Props) => {
+const LedgerEventList = ({ events, accounts, consolidationCurrency, onEditEvent, onDeleteEvent, onDeleteTransferEvent, onDeleteSplitGroup, onEditTaxableSplitGroup }: Props) => {
   const { t } = useTranslation()
   const [expandedGroups, setExpandedGroups] = useState<Set<number>>(new Set())
 
@@ -101,6 +103,18 @@ const LedgerEventList = ({ events, accounts, consolidationCurrency, onEditEvent,
                             <span className="inline-flex items-center gap-1 rounded-full bg-purple-100 px-2 py-0.5 text-xs font-medium text-purple-700 dark:bg-purple-900/30 dark:text-purple-400">
                               {t('ledger.splitGroup.badge', { n: item.legCount })}
                             </span>
+                            {item.legs[0]?.eventType === 'revenue' && (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+                                <TrendingUp className="h-3 w-3" />
+                                {t('events.type.revenue')}
+                              </span>
+                            )}
+                            {item.legs[0]?.eventType === 'expense' && (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-rose-100 px-2 py-0.5 text-xs font-medium text-rose-700 dark:bg-rose-900/30 dark:text-rose-400">
+                                <TrendingDown className="h-3 w-3" />
+                                {t('events.type.expense')}
+                              </span>
+                            )}
                           </div>
                           {item.groupNote && <p className="text-xs text-muted-foreground italic truncate">{item.groupNote}</p>}
                         </div>
@@ -112,7 +126,17 @@ const LedgerEventList = ({ events, accounts, consolidationCurrency, onEditEvent,
                             className={cn('text-sm font-bold tabular-nums', item.groupTotal < 0 && 'text-destructive')}
                           />
                           <div className="flex items-center gap-1">
-                            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => item.legs.forEach((leg) => onDeleteEvent(leg.id))}>
+                            {onEditTaxableSplitGroup && (item.legs[0]?.eventType === 'revenue' || item.legs[0]?.eventType === 'expense') && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8"
+                                onClick={() => onEditTaxableSplitGroup(item.splitGroupId, item.legs[0].eventType, item.legs, item.groupNote, item.accountId)}
+                              >
+                                <Pencil className="h-4 w-4" />
+                              </Button>
+                            )}
+                            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => onDeleteSplitGroup?.(item.splitGroupId)}>
                               <Trash2 className="h-4 w-4" />
                             </Button>
                           </div>
@@ -144,6 +168,18 @@ const LedgerEventList = ({ events, accounts, consolidationCurrency, onEditEvent,
                                     {t('events.type.cashflow')}
                                   </span>
                                 )}
+                                {leg.eventType === 'revenue' && (
+                                  <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+                                    <TrendingUp className="h-3 w-3" />
+                                    {t('events.type.revenue')}
+                                  </span>
+                                )}
+                                {leg.eventType === 'expense' && (
+                                  <span className="inline-flex items-center gap-1 rounded-full bg-rose-100 px-2 py-0.5 text-xs font-medium text-rose-700 dark:bg-rose-900/30 dark:text-rose-400">
+                                    <TrendingDown className="h-3 w-3" />
+                                    {t('events.type.expense')}
+                                  </span>
+                                )}
                               </div>
                               {leg.counterpartAccountName && (
                                 <p className="text-xs text-muted-foreground truncate">
@@ -151,6 +187,16 @@ const LedgerEventList = ({ events, accounts, consolidationCurrency, onEditEvent,
                                 </p>
                               )}
                               {leg.note && <p className="text-xs text-muted-foreground italic truncate">{leg.note}</p>}
+                              {leg.vatRateBps !== null && <p className="text-xs text-muted-foreground">{t('events.vatRate', { rate: leg.vatRateBps / 100 })}</p>}
+                              {leg.vatDeductiblePctBps !== null && leg.vatDeductiblePctBps < 10000 && (
+                                <p className="text-xs text-muted-foreground">{t('events.vatDeductible', { pct: leg.vatDeductiblePctBps / 100 })}</p>
+                              )}
+                              {leg.expenseDeductiblePctBps !== null && leg.expenseDeductiblePctBps < 10000 && (
+                                <p className="text-xs text-muted-foreground">{t('events.expenseDeductible', { pct: leg.expenseDeductiblePctBps / 100 })}</p>
+                              )}
+                              {leg.prepaidPeriodMonths !== null && (
+                                <p className="text-xs text-muted-foreground">{t('events.prepaidPeriod', { months: leg.prepaidPeriodMonths })}</p>
+                              )}
                               {leg.bucketName && (
                                 <span className="inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground mt-0.5">{leg.bucketName}</span>
                               )}
@@ -191,6 +237,18 @@ const LedgerEventList = ({ events, accounts, consolidationCurrency, onEditEvent,
                             {t('events.type.cashflow')}
                           </span>
                         )}
+                        {ev.eventType === 'revenue' && (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+                            <TrendingUp className="h-3 w-3" />
+                            {t('events.type.revenue')}
+                          </span>
+                        )}
+                        {ev.eventType === 'expense' && (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-rose-100 px-2 py-0.5 text-xs font-medium text-rose-700 dark:bg-rose-900/30 dark:text-rose-400">
+                            <TrendingDown className="h-3 w-3" />
+                            {t('events.type.expense')}
+                          </span>
+                        )}
                       </div>
                       {ev.accountType === 'asset' && <p className="text-xs text-muted-foreground truncate">{t('ledger.valueUpdate')}</p>}
                       {ev.counterpartAccountName && (
@@ -199,6 +257,14 @@ const LedgerEventList = ({ events, accounts, consolidationCurrency, onEditEvent,
                         </p>
                       )}
                       {ev.note && <p className="text-xs text-muted-foreground italic truncate">{ev.note}</p>}
+                      {ev.vatRateBps !== null && <p className="text-xs text-muted-foreground">{t('events.vatRate', { rate: ev.vatRateBps / 100 })}</p>}
+                      {ev.vatDeductiblePctBps !== null && ev.vatDeductiblePctBps < 10000 && (
+                        <p className="text-xs text-muted-foreground">{t('events.vatDeductible', { pct: ev.vatDeductiblePctBps / 100 })}</p>
+                      )}
+                      {ev.expenseDeductiblePctBps !== null && ev.expenseDeductiblePctBps < 10000 && (
+                        <p className="text-xs text-muted-foreground">{t('events.expenseDeductible', { pct: ev.expenseDeductiblePctBps / 100 })}</p>
+                      )}
+                      {ev.prepaidPeriodMonths !== null && <p className="text-xs text-muted-foreground">{t('events.prepaidPeriod', { months: ev.prepaidPeriodMonths })}</p>}
                       {ev.bucketName && <span className="inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground mt-0.5">{ev.bucketName}</span>}
                     </div>
                     <div className="flex items-center gap-6">
@@ -232,7 +298,7 @@ const LedgerEventList = ({ events, accounts, consolidationCurrency, onEditEvent,
                         )}
                       </div>
                       <div className="flex items-center gap-1">
-                        {(ev.eventType === 'balance_update' || ev.eventType === 'transfer') && (
+                        {(ev.eventType === 'balance_update' || ev.eventType === 'transfer' || ev.eventType === 'revenue' || ev.eventType === 'expense') && (
                           <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => onEditEvent(ev)}>
                             <Pencil className="h-4 w-4" />
                           </Button>

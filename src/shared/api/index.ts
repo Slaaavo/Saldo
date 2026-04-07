@@ -64,6 +64,9 @@ export const createAccount = (
   linkedAssetIds?: number[],
   iban?: string,
   personId?: number,
+  purchasePriceMinor?: number | null,
+  purchaseDate?: string | null,
+  depreciationPeriodMonths?: number | null,
 ): Promise<number> => {
   return invoke('create_account', {
     input: {
@@ -75,13 +78,32 @@ export const createAccount = (
       linkedAssetIds: linkedAssetIds ?? null,
       iban: iban ?? null,
       personId: personId ?? null,
+      purchasePriceMinor: purchasePriceMinor ?? null,
+      purchaseDate: purchaseDate ?? null,
+      depreciationPeriodMonths: depreciationPeriodMonths ?? null,
     },
   })
 }
 
-export const updateAccount = (accountId: number, name: string, iban?: string | null, personId?: number | null): Promise<void> => {
+export const updateAccount = (
+  accountId: number,
+  name: string,
+  iban?: string | null,
+  personId?: number | null,
+  purchasePriceMinor?: number | null,
+  purchaseDate?: string | null,
+  depreciationPeriodMonths?: number | null,
+): Promise<void> => {
   return invoke('update_account', {
-    input: { accountId, name, iban: iban ?? null, personId: personId ?? null },
+    input: {
+      accountId,
+      name,
+      iban: iban ?? null,
+      personId: personId ?? null,
+      purchasePriceMinor: purchasePriceMinor ?? null,
+      purchaseDate: purchaseDate ?? null,
+      depreciationPeriodMonths: depreciationPeriodMonths ?? null,
+    },
   })
 }
 
@@ -118,6 +140,10 @@ export const updateEvent = (eventId: number, amountMinor: number, eventDate: str
 
 export const deleteEvent = (eventId: number): Promise<void> => {
   return invoke('delete_event', { eventId })
+}
+
+export const deleteSplitGroup = (splitGroupId: number): Promise<void> => {
+  return invoke('delete_split_group', { splitGroupId })
 }
 
 // Fetches the counterpart leg of a transfer for the edit-transfer modal.
@@ -398,4 +424,66 @@ export const updatePerson = (personId: number, name: string, personType: string)
 
 export const deletePerson = (personId: number): Promise<void> => {
   return invoke('delete_person', { personId })
+}
+
+export interface TaxableEventLegInput {
+  amountMinor: number
+  eventDate: string
+  note: string | null
+  vatRateBps: number | null
+  vatDeductiblePctBps: number | null
+  expenseDeductiblePctBps: number | null
+  prepaidPeriodMonths: number | null
+}
+
+export const createTaxableEvent = (payload: {
+  accountId: number
+  eventType: string
+  amountMinor: number
+  eventDate: string
+  note: string | null
+  vatRateBps: number | null
+  vatDeductiblePctBps: number | null
+  expenseDeductiblePctBps: number | null
+  prepaidPeriodMonths: number | null
+}): Promise<number> => {
+  return invoke('create_taxable_event', { input: payload })
+}
+
+export const createTaxableSplitGroup = (payload: { accountId: number; eventType: string; groupNote: string | null; legs: TaxableEventLegInput[] }): Promise<number> => {
+  return invoke('create_taxable_split_group', { input: payload })
+}
+
+export const updateTaxableEvent = (payload: {
+  eventId: number
+  eventType: string
+  amountMinor: number
+  eventDate: string
+  note: string | null
+  vatRateBps: number | null
+  vatDeductiblePctBps: number | null
+  expenseDeductiblePctBps: number | null
+  prepaidPeriodMonths: number | null
+}): Promise<void> => {
+  return invoke('update_taxable_event', { input: payload })
+}
+
+export const updateTaxableSplitGroup = (payload: {
+  splitGroupId: number
+  eventType: string
+  groupNote: string | null
+  updatedLegs: Array<{
+    eventId: number
+    amountMinor: number
+    eventDate: string
+    note: string | null
+    vatRateBps: number | null
+    vatDeductiblePctBps: number | null
+    expenseDeductiblePctBps: number | null
+    prepaidPeriodMonths: number | null
+  }>
+  newLegs: TaxableEventLegInput[]
+  removedLegIds: number[]
+}): Promise<void> => {
+  return invoke('update_taxable_split_group', { input: payload })
 }

@@ -80,6 +80,11 @@ const DashboardView = () => {
       accountType: row?.accountType ?? 'account',
       currentIban: row?.iban,
       currentPersonId: row?.personId,
+      isCustomUnit: row?.isCustom ?? false,
+      currencyMinorUnits: row?.currencyMinorUnits ?? 2,
+      currentPurchasePriceMinor: row?.purchasePriceMinor ?? null,
+      currentPurchaseDate: row?.purchaseDate ?? null,
+      currentDepreciationPeriodMonths: row?.depreciationPeriodMonths ?? null,
     })
   }
 
@@ -110,6 +115,10 @@ const DashboardView = () => {
       setModalState({ type: 'editBalanceUpdate', event })
       return
     }
+    if (event.eventType === 'revenue' || event.eventType === 'expense') {
+      setModalState({ type: 'editTaxableEvent', event })
+      return
+    }
     if (event.eventType === 'transfer') {
       if (!event.linkedEventId) {
         toast.error(t('errors.loadData'))
@@ -128,6 +137,10 @@ const DashboardView = () => {
         toast.error(extractErrorMessage(err))
       }
     }
+  }
+
+  const handleEditTaxableSplitGroup = (splitGroupId: number, eventType: string, legs: EventWithData[], groupNote: string | null, accountId: number) => {
+    setModalState({ type: 'editTaxableSplitGroup', splitGroupId, eventType: eventType as 'revenue' | 'expense', legs, groupNote, accountId })
   }
 
   return (
@@ -230,7 +243,9 @@ const DashboardView = () => {
               onEditEvent={handleEditEvent}
               onDeleteEvent={(eventId) => setModalState({ type: 'confirmDeleteEvent', eventId })}
               onDeleteTransferEvent={(eventId, linkedEventId) => setModalState({ type: 'confirmDeleteTransferEvent', eventId, linkedEventId })}
-              onUpdateBalances={() => setModalState({ type: 'bulkUpdateBalance' })}
+              onDeleteSplitGroup={(splitGroupId) => setModalState({ type: 'confirmDeleteSplitGroup', splitGroupId })}
+              onAddEvents={() => setModalState({ type: 'addEvents' })}
+              onEditTaxableSplitGroup={handleEditTaxableSplitGroup}
               onImportCsv={() => setModalState({ type: 'csvImport' })}
               totalEvents={totalEvents}
               onViewAll={() => navigate({ to: '/ledger' })}

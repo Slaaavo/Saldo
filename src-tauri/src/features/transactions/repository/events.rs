@@ -35,11 +35,15 @@ pub fn update_event(conn: &Connection, params: UpdateEventParams) -> Result<(), 
         "INSERT INTO event_data (
             event_id, amount_minor, event_date, note,
             counterpart_account_id, bucket_id, original_currency_id,
-            original_amount_minor, fx_rate_mantissa, fx_rate_exponent
+            original_amount_minor, fx_rate_mantissa, fx_rate_exponent,
+            vat_rate_bps, vat_deductible_pct_bps,
+            expense_deductible_pct_bps, prepaid_period_months
         )
         SELECT ?1, ?2, ?3, ?4,
             counterpart_account_id, bucket_id, original_currency_id,
-            original_amount_minor, fx_rate_mantissa, fx_rate_exponent
+            original_amount_minor, fx_rate_mantissa, fx_rate_exponent,
+            vat_rate_bps, vat_deductible_pct_bps,
+            expense_deductible_pct_bps, prepaid_period_months
         FROM event_data
         WHERE id = (SELECT latest_data_id FROM event WHERE id = ?1)",
         params![event_id, amount_minor, event_date, note],

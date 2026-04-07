@@ -16,6 +16,9 @@ pub struct CreateAccountInput {
     pub linked_asset_ids: Option<Vec<i64>>,
     pub iban: Option<String>,
     pub person_id: Option<i64>,
+    pub purchase_price_minor: Option<i64>,
+    pub purchase_date: Option<String>,
+    pub depreciation_period_months: Option<i64>,
 }
 
 #[derive(Deserialize)]
@@ -25,6 +28,9 @@ pub struct UpdateAccountInput {
     pub name: String,
     pub iban: Option<String>,
     pub person_id: Option<i64>,
+    pub purchase_price_minor: Option<i64>,
+    pub purchase_date: Option<String>,
+    pub depreciation_period_months: Option<i64>,
 }
 
 #[derive(Deserialize)]
@@ -64,6 +70,24 @@ pub fn create_account(
             message: "price_per_unit can only be used with asset accounts".into(),
         });
     }
+    // Depreciation fields only valid for asset accounts
+    let has_depreciation = input.purchase_price_minor.is_some()
+        || input.purchase_date.is_some()
+        || input.depreciation_period_months.is_some();
+    if has_depreciation && account_type != "asset" {
+        return Err(AppError {
+            code: "VALIDATION".into(),
+            message: "Depreciation fields can only be set on asset accounts".into(),
+        });
+    }
+    if let Some(months) = input.depreciation_period_months {
+        if months < 0 {
+            return Err(AppError {
+                code: "VALIDATION".into(),
+                message: "depreciation_period_months must be >= 0".into(),
+            });
+        }
+    }
     // IBAN is only valid for regular accounts
     if input.iban.as_ref().is_some_and(|v| !v.is_empty()) && account_type != "account" {
         return Err(AppError {
@@ -88,6 +112,9 @@ pub fn create_account(
             price_per_unit: input.price_per_unit.clone(),
             iban: input.iban.clone(),
             person_id: input.person_id,
+            purchase_price_minor: input.purchase_price_minor,
+            purchase_date: input.purchase_date.clone(),
+            depreciation_period_months: input.depreciation_period_months,
         },
     )?;
 
@@ -122,6 +149,9 @@ pub fn update_account(
             name: input.name.trim().to_owned(),
             iban: input.iban.clone(),
             person_id: input.person_id,
+            purchase_price_minor: input.purchase_price_minor,
+            purchase_date: input.purchase_date.clone(),
+            depreciation_period_months: input.depreciation_period_months,
         },
     )?;
     Ok(())

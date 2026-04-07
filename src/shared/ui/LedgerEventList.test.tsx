@@ -29,6 +29,10 @@ const makeEvent = (overrides?: Partial<EventWithData>): EventWithData => {
     linkedEventId: null,
     splitGroupId: null,
     splitGroupNote: null,
+    vatRateBps: null,
+    vatDeductiblePctBps: null,
+    expenseDeductiblePctBps: null,
+    prepaidPeriodMonths: null,
     ...overrides,
   }
 }

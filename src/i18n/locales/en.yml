@@ -80,6 +80,7 @@ assets:
 ledger:
   title: Ledger
   updateBalances: Update Balances
+  addEvents: Add Events
   empty: No events to display.
   valueUpdate: Value update
   viewAll: "Showing {{shown}} of {{total}} events. View all"
@@ -102,6 +103,8 @@ ledgerPage:
     balanceUpdates: "Balance Updates"
     cashflows: "Cashflows"
     transfers: "Transfers"
+    revenue: "Revenue"
+    expense: "Expenses"
 
 # ──── Event types ────
 events:
@@ -109,9 +112,15 @@ events:
     cashflow: "Cashflow"
     transfer: "Transfer"
     balanceUpdate: "Balance Update"
+    revenue: "Revenue"
+    expense: "Expense"
   counterpart: "Counterpart"
   foreignAmount: "{{amount}} {{currency}}"
   bucketTag: "Bucket: {{name}}"
+  vatRate: "VAT {{rate}}%"
+  vatDeductible: "VAT deductible {{pct}}%"
+  expenseDeductible: "Deductible {{pct}}%"
+  prepaidPeriod: "{{months}} months prepaid"
 
 # ──── Modals ────
 modals:
@@ -218,6 +227,7 @@ modals:
     deleteAssetWithLinks: 'Are you sure you want to delete {{entityType}} "{{name}}"? The following accounts are linked to this asset and will be unlinked: {{accounts}}. They will be included in Left to Spend again.'
     deleteEvent: Are you sure you want to delete this event?
     deleteTransferEvent: "Are you sure you want to delete this transfer? The linked transfer on the other account will also be deleted."
+    deleteSplitGroup: "Are you sure you want to delete this split group? All legs will be deleted."
 
   fetchFxRatePrompt:
     message: "No FX rate for {{date}}. Fetch rates for this date?"
@@ -257,6 +267,83 @@ modals:
     assetsSection: "Assets"
     cancel: "Cancel"
     save: "Save"
+
+  addEvents:
+    title: "Add Events"
+    bulkBalanceUpdate: "Bulk Balance Update"
+    bulkBalanceUpdateDesc: "Update all account balances at once"
+    revenue: "Revenue"
+    revenueDesc: "Record taxable income (accrual basis)"
+    expense: "Expense"
+    expenseDesc: "Record a tax-deductible cost (accrual basis)"
+
+  createRevenue:
+    title: "Add Revenue"
+    account: "Account"
+    selectAccount: "Select account"
+    date: "Date"
+    amount: "Amount"
+    vatRate: "VAT Rate (optional)"
+    vatRatePlaceholder: "e.g. 23"
+    note: "Note"
+    notePlaceholder: "Optional note"
+    split: "Split"
+    addLeg: "Add line"
+    removeLeg: "Remove"
+    groupNote: "Group note (optional)"
+    total: "Total"
+    cancel: "Cancel"
+    submit: "Save"
+
+  createExpense:
+    title: "Add Expense"
+    account: "Account"
+    selectAccount: "Select account"
+    date: "Date"
+    amount: "Amount"
+    vatRate: "VAT Rate (optional)"
+    vatRatePlaceholder: "e.g. 23"
+    vatDeductiblePct: "VAT-deductible % (optional)"
+    vatDeductiblePctPlaceholder: "e.g. 100"
+    expenseDeductiblePct: "Expense-deductible % (optional)"
+    expenseDeductiblePctPlaceholder: "e.g. 100"
+    prepaidPeriodMonths: "Prepaid period in months (optional)"
+    prepaidPeriodHelper: "Number of months this expense covers (e.g. 12 for an annual insurance premium)"
+    note: "Note"
+    notePlaceholder: "Optional note"
+    split: "Split"
+    addLeg: "Add line"
+    removeLeg: "Remove"
+    groupNote: "Group note (optional)"
+    total: "Total"
+    cancel: "Cancel"
+    submit: "Save"
+
+  editTaxableEvent:
+    title: "Edit Event"
+    accountReadOnly: "Account (read-only)"
+    cancel: "Cancel"
+    submit: "Save"
+
+  editTaxableSplitGroup:
+    title: "Edit Split Event"
+    accountReadOnly: "Account (read-only)"
+    legHeader: "Leg {{n}}"
+    groupNote: "Group note (optional)"
+    minLegsError: "A split event must have at least 2 legs."
+    cancel: "Cancel"
+    submit: "Save"
+
+  assetDepreciation:
+    sectionTitle: "Depreciation (optional)"
+    purchasePrice: "Purchase price"
+    purchaseDate: "Purchase date"
+    depreciationPeriodMonths: "Depreciation period (months)"
+    depreciationPeriodHelper: "0 = instant write-off. Leave blank if not depreciable."
+    presetInstant: "Instant (0)"
+    preset4y: "4 yr (48)"
+    preset5y: "5 yr (60)"
+    preset20y: "20 yr (240)"
 
   editTransfer:
     title: Edit Transfer
@@ -363,6 +450,7 @@ errors:
   createBalanceUpdate: "Failed to create balance update: {{error}}"
   updateEvent: "Failed to update event: {{error}}"
   deleteEvent: "Failed to delete event: {{error}}"
+  deleteSplitGroup: "Failed to delete split group: {{error}}"
   createAccount: "Failed to create account: {{error}}"
   renameAccount: "Failed to rename account: {{error}}"
   deleteAccount: "Failed to delete account: {{error}}"

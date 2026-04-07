@@ -422,6 +422,9 @@ const makeSnapshot = (overrides?: Partial<SnapshotRow>): SnapshotRow => {
     linkedBalanceMinor: 0,
     cashflowTaggedMinor: 0,
     personId: null,
+    purchasePriceMinor: null,
+    purchaseDate: null,
+    depreciationPeriodMonths: null,
     ...overrides,
   }
 }
@@ -474,6 +477,10 @@ const makeEvent = (overrides?: Partial<EventWithData>): EventWithData => {
     linkedEventId: null,
     splitGroupId: null,
     splitGroupNote: null,
+    vatRateBps: null,
+    vatDeductiblePctBps: null,
+    expenseDeductiblePctBps: null,
+    prepaidPeriodMonths: null,
     ...overrides,
   }
 }
@@ -877,6 +884,11 @@ describe('App', () => {
         accountId: 1,
         currentName: 'Test',
         accountType: 'account',
+        isCustomUnit: false,
+        currencyMinorUnits: 2,
+        currentPurchasePriceMinor: null,
+        currentPurchaseDate: null,
+        currentDepreciationPeriodMonths: null,
       }
       renderApp()
       await waitFor(() => {
