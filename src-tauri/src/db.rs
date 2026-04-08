@@ -62,12 +62,13 @@ mod tests {
         assert_eq!(currency_code, "EUR");
 
         // Migration 008 deletes "Main Account" when no events exist (fresh DB).
+        // Migration 024 creates 2 hidden default taxable accounts for the default person.
         let account_count: i64 = conn
             .query_row("SELECT COUNT(*) FROM account", [], |row| row.get(0))
             .expect("account count query failed");
         assert_eq!(
-            account_count, 0,
-            "Expected 0 accounts after migration 008 removes Main Account from empty DB"
+            account_count, 2,
+            "Expected 2 accounts: migration 008 removes Main Account, migration 024 adds default taxable accounts for the default person"
         );
     }
 

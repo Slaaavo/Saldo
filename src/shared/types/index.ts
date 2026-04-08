@@ -4,6 +4,8 @@ export interface PersonRow {
   personType: string
   isDefault: boolean
   createdAt: string
+  defaultRevenueAccountId: number
+  defaultExpenseAccountId: number
 }
 
 export interface AccountAssetLink {
@@ -63,8 +65,8 @@ export type ModalState =
   | { type: 'manageLinkedAssets'; accountId: number; accountName: string }
   | { type: 'csvImport' }
   | { type: 'addEvents' }
-  | { type: 'createRevenue'; preselectedAccountId?: number }
-  | { type: 'createExpense'; preselectedAccountId?: number }
+  | { type: 'createRevenue' }
+  | { type: 'createExpense' }
   | { type: 'editTaxableEvent'; event: EventWithData }
   | {
       type: 'editTaxableSplitGroup'

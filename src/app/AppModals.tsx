@@ -261,10 +261,10 @@ const AppModals = ({ selectedDate, dbLocation }: AppModalsProps) => {
       )
 
     case 'createRevenue':
-      return <CreateRevenueModal accounts={snapshot} preselectedAccountId={modalState.preselectedAccountId} onClose={closeModal} />
+      return <CreateRevenueModal onClose={closeModal} />
 
     case 'createExpense':
-      return <CreateExpenseModal accounts={snapshot} preselectedAccountId={modalState.preselectedAccountId} onClose={closeModal} />
+      return <CreateExpenseModal onClose={closeModal} />
 
     case 'editTaxableEvent':
       return <EditTaxableEventModal event={modalState.event} onClose={closeModal} />

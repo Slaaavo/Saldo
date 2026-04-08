@@ -8,4 +8,6 @@ pub struct PersonRow {
     pub person_type: String,
     pub is_default: bool,
     pub created_at: String,
+    pub default_revenue_account_id: i64,
+    pub default_expense_account_id: i64,
 }

@@ -1,4 +1,5 @@
 use crate::error::AppError;
+use crate::features::persons::repository::resolve_default_taxable_account;
 use crate::AppState;
 use serde::Deserialize;
 use tauri::State;
@@ -495,7 +496,7 @@ pub fn update_transfer(
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateTaxableEventInput {
-    pub account_id: i64,
+    pub person_id: i64,
     pub event_type: String,
     pub amount_minor: i64,
     pub event_date: String,
@@ -521,7 +522,7 @@ pub struct SplitTaxableLegInput {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateTaxableSplitGroupInput {
-    pub account_id: i64,
+    pub person_id: i64,
     pub event_type: String,
     pub group_note: Option<String>,
     pub legs: Vec<SplitTaxableLegInput>,
@@ -649,10 +650,11 @@ pub fn create_taxable_event(
         input.expense_deductible_pct_bps,
     )?;
     let conn = state.conn()?;
+    let account_id = resolve_default_taxable_account(&conn, input.person_id, &input.event_type)?;
     let id = repository::create_taxable_event(
         &conn,
         repository::CreateTaxableEventParams {
-            account_id: input.account_id,
+            account_id,
             event_type: input.event_type,
             amount_minor: input.amount_minor,
             event_date: input.event_date,
@@ -693,6 +695,7 @@ pub fn create_taxable_split_group(
         )?;
     }
     let conn = state.conn()?;
+    let account_id = resolve_default_taxable_account(&conn, input.person_id, &input.event_type)?;
     let legs = input
         .legs
         .into_iter()
@@ -709,7 +712,7 @@ pub fn create_taxable_split_group(
     let id = repository::create_taxable_split_group_with_legs(
         &conn,
         repository::CreateTaxableSplitGroupWithLegsParams {
-            account_id: input.account_id,
+            account_id,
             event_type: input.event_type,
             group_note: input.group_note,
             legs,

@@ -70,3 +70,18 @@ export const formatDisplayDate = (dateStr: string, locale = 'en-GB'): string => 
     day: 'numeric',
   })
 }
+
+/** Converts a percentage string (e.g. "23") to basis points integer (e.g. 2300). Returns null for empty/invalid input. */
+export const pctToBps = (str: string): number | null => {
+  const trimmed = str.trim()
+  if (!trimmed) return null
+  const n = parseFloat(trimmed)
+  if (isNaN(n)) return null
+  return Math.round(n * 100)
+}
+
+/** Converts a basis points integer (e.g. 2300) to a percentage string (e.g. "23"). Returns empty string for null. */
+export const bpsToPct = (bps: number | null): string => {
+  if (bps === null) return ''
+  return String(bps / 100)
+}

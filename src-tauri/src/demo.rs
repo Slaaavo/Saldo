@@ -288,11 +288,11 @@ mod tests {
         let conn = initialize_in_memory().expect("DB init failed");
         seed_demo_data(&conn, None, None).expect("seed failed");
 
-        // 8 accounts total (4 regular + 3 bucket + 1 asset)
+        // 10 accounts total (4 regular + 3 bucket + 1 asset + 2 hidden default taxable for the default person)
         let account_count: i64 = conn
             .query_row("SELECT COUNT(*) FROM account", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(account_count, 8);
+        assert_eq!(account_count, 10);
 
         // 4 regular accounts
         let regular_count: i64 = conn

@@ -2,8 +2,7 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { useQueryClient } from '@tanstack/react-query'
-import type { SnapshotRow } from '../../shared/types'
-import { todayIso, toMinorUnits, getMinorUnitsStep } from '../../shared/utils/format'
+import { todayIso, toMinorUnits, getMinorUnitsStep, pctToBps } from '../../shared/utils/format'
 import { extractErrorMessage } from '../../shared/utils/errors'
 import { createTaxableEvent, createTaxableSplitGroup } from '../../shared/api'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogBody, DialogFooter } from '../../shared/ui/dialog'
@@ -12,14 +11,14 @@ import { CurrencyInput } from '../../shared/ui/CurrencyInput'
 import { Input } from '../../shared/ui/input'
 import { PercentageInput } from '../../shared/ui/PercentageInput'
 import { Label } from '../../shared/ui/label'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../shared/ui/select'
 import { DatePicker } from '../../shared/ui/date-picker'
 import TaxableEventSplitEditor from './TaxableEventSplitEditor'
 import { SplitLegDraft, makeEmptyLeg } from './splitLegDraft'
+import { useConsolidationCurrencyQuery } from '../../shared/hooks/useConsolidationCurrencyQuery'
+import { useResolvedPersonId } from './useResolvedPersonId'
+import PersonPickerField from './PersonPickerField'
 
 interface Props {
-  accounts: SnapshotRow[]
-  preselectedAccountId?: number
   onClose: () => void
 }
 
@@ -27,22 +26,15 @@ const VAT_QUICK_FILLS = ['0', '5', '10', '20', '23']
 const VAT_DEDUCTIBLE_QUICK_FILLS = ['100', '50']
 const EXPENSE_DEDUCTIBLE_QUICK_FILLS = ['100', '80', '50']
 
-const pctToBps = (str: string): number | null => {
-  const trimmed = str.trim()
-  if (!trimmed) return null
-  const n = parseFloat(trimmed)
-  if (isNaN(n)) return null
-  return Math.round(n * 100)
-}
-
-const CreateExpenseModal = ({ accounts, preselectedAccountId, onClose }: Props) => {
+const CreateExpenseModal = ({ onClose }: Props) => {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
+  const { personId, resolvedPersonId, localPersonId, setLocalPersonId, persons, showPicker } = useResolvedPersonId()
 
-  const eligibleAccounts = accounts.filter((a) => a.accountType !== 'partner')
-  const initialAccountId = preselectedAccountId ?? eligibleAccounts[0]?.accountId ?? 0
+  const consolidationCurrencyQuery = useConsolidationCurrencyQuery()
+  const currencyCode = consolidationCurrencyQuery.data?.code ?? ''
+  const currencyMinorUnits = consolidationCurrencyQuery.data?.minorUnits ?? 2
 
-  const [accountId, setAccountId] = useState<number>(initialAccountId)
   const [date, setDate] = useState(todayIso())
   const [amount, setAmount] = useState('')
   const [vatRate, setVatRate] = useState('')
@@ -55,18 +47,14 @@ const CreateExpenseModal = ({ accounts, preselectedAccountId, onClose }: Props) 
   const [groupNote, setGroupNote] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
-  const selectedAccount = eligibleAccounts.find((a) => a.accountId === accountId)
-  const currencyCode = selectedAccount?.currencyCode ?? ''
-  const currencyMinorUnits = selectedAccount?.currencyMinorUnits ?? 2
-
   const handleLegsChange = (newLegs: SplitLegDraft[]) => {
     setLegs(newLegs.map((l) => ({ ...l, eventDate: l.eventDate || date })))
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!accountId) {
-      toast.error(t('validation.nameRequired', { entity: t('common.account') }))
+    if (!personId) {
+      toast.error(t('validation.nameRequired', { entity: t('persons.selector') }))
       return
     }
     setSubmitting(true)
@@ -78,7 +66,7 @@ const CreateExpenseModal = ({ accounts, preselectedAccountId, onClose }: Props) 
           return
         }
         await createTaxableSplitGroup({
-          accountId,
+          personId,
           eventType: 'expense',
           groupNote: groupNote.trim() || null,
           legs: legs.map((leg) => ({
@@ -100,7 +88,7 @@ const CreateExpenseModal = ({ accounts, preselectedAccountId, onClose }: Props) 
         }
         const prepaidInt = prepaidPeriodMonths.trim() ? parseInt(prepaidPeriodMonths) : null
         await createTaxableEvent({
-          accountId,
+          personId,
           eventType: 'expense',
           amountMinor: toMinorUnits(amount, currencyMinorUnits),
           eventDate: date,
@@ -134,22 +122,7 @@ const CreateExpenseModal = ({ accounts, preselectedAccountId, onClose }: Props) 
         </DialogHeader>
         <form onSubmit={handleSubmit} className="flex flex-col flex-1 overflow-hidden min-h-0 gap-4">
           <DialogBody className="flex flex-col gap-4">
-            {/* Account selector */}
-            <div className="flex flex-col gap-2">
-              <Label>{t('modals.createExpense.account')}</Label>
-              <Select value={String(accountId)} onValueChange={(v) => setAccountId(Number(v))}>
-                <SelectTrigger>
-                  <SelectValue placeholder={t('modals.createExpense.selectAccount')} />
-                </SelectTrigger>
-                <SelectContent>
-                  {eligibleAccounts.map((a) => (
-                    <SelectItem key={a.accountId} value={String(a.accountId)}>
-                      {a.accountName}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            <PersonPickerField showPicker={showPicker} resolvedPersonId={resolvedPersonId} localPersonId={localPersonId} persons={persons} onPersonChange={setLocalPersonId} />
 
             {/* Date */}
             <div className="flex flex-col gap-2">

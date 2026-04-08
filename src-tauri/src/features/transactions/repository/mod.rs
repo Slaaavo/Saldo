@@ -2259,4 +2259,93 @@ mod tests {
             .unwrap();
         assert_eq!(active_count, 0, "no legs should remain active");
     }
+
+    // -----------------------------------------------------------------------
+    // Default taxable accounts tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn snapshot_excludes_default_taxable_accounts() {
+        use crate::features::persons::repository::{create_person, CreatePersonParams};
+
+        let conn = initialize_in_memory().expect("DB init failed");
+        let person_id = create_person(
+            &conn,
+            CreatePersonParams {
+                name: "Snapshot Filter Test".to_owned(),
+                person_type: "physical".to_owned(),
+            },
+        )
+        .expect("create_person failed");
+
+        let snapshot = get_accounts_snapshot(
+            &conn,
+            GetSnapshotParams {
+                selected_datetime: "2099-12-31T23:59:59".to_owned(),
+                person_id: Some(person_id),
+            },
+        )
+        .expect("get_accounts_snapshot failed");
+
+        for row in &snapshot {
+            assert!(
+                row.account_type != "default_revenue" && row.account_type != "default_expense",
+                "snapshot should not include default_revenue or default_expense accounts, found: {}",
+                row.account_type
+            );
+        }
+    }
+
+    #[test]
+    fn list_events_shows_person_name_for_default_account_events() {
+        use crate::features::persons::repository::{
+            create_person, list_persons, CreatePersonParams,
+        };
+
+        let conn = initialize_in_memory().expect("DB init failed");
+        let person_id = create_person(
+            &conn,
+            CreatePersonParams {
+                name: "Invoice Person".to_owned(),
+                person_type: "physical".to_owned(),
+            },
+        )
+        .expect("create_person failed");
+
+        let persons = list_persons(&conn).expect("list_persons failed");
+        let person = persons
+            .iter()
+            .find(|p| p.id == person_id)
+            .expect("person not found");
+        let revenue_account_id = person.default_revenue_account_id;
+
+        let _event_id = create_taxable_event(
+            &conn,
+            CreateTaxableEventParams {
+                account_id: revenue_account_id,
+                event_type: "revenue".to_owned(),
+                amount_minor: 150000,
+                event_date: "2026-07-01".to_owned(),
+                note: Some("test invoice".to_owned()),
+                ..Default::default()
+            },
+        )
+        .expect("create_taxable_event failed");
+
+        let result = list_events(
+            &conn,
+            ListEventsQuery {
+                account_id: Some(revenue_account_id),
+                ..Default::default()
+            },
+        )
+        .expect("list_events failed");
+
+        assert_eq!(result.events.len(), 1);
+        assert_eq!(
+            result.events[0].account_name.as_str(),
+            "Invoice Person",
+            "account_name for default_revenue account should be the person's name"
+        );
+    }
 }

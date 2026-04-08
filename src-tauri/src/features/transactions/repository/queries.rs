@@ -123,7 +123,9 @@ pub fn list_events(
         "SELECT
           e.id,
           e.account_id,
-          a.name AS account_name,
+          CASE WHEN a.account_type IN ('default_revenue', 'default_expense')
+               THEN (SELECT p.name FROM person p WHERE p.id = a.person_id)
+               ELSE a.name END AS account_name,
           a.account_type,
           e.event_type,
           ed.event_date,
@@ -209,7 +211,9 @@ pub fn get_event_by_id(
         "SELECT
           e.id,
           e.account_id,
-          a.name AS account_name,
+          CASE WHEN a.account_type IN ('default_revenue', 'default_expense')
+               THEN (SELECT p.name FROM person p WHERE p.id = a.person_id)
+               ELSE a.name END AS account_name,
           a.account_type,
           e.event_type,
           ed.event_date,

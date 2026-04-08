@@ -437,7 +437,7 @@ export interface TaxableEventLegInput {
 }
 
 export const createTaxableEvent = (payload: {
-  accountId: number
+  personId: number
   eventType: string
   amountMinor: number
   eventDate: string
@@ -450,7 +450,7 @@ export const createTaxableEvent = (payload: {
   return invoke('create_taxable_event', { input: payload })
 }
 
-export const createTaxableSplitGroup = (payload: { accountId: number; eventType: string; groupNote: string | null; legs: TaxableEventLegInput[] }): Promise<number> => {
+export const createTaxableSplitGroup = (payload: { personId: number; eventType: string; groupNote: string | null; legs: TaxableEventLegInput[] }): Promise<number> => {
   return invoke('create_taxable_split_group', { input: payload })
 }
 

@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { useQueryClient } from '@tanstack/react-query'
 import type { EventWithData } from '../../shared/types'
-import { fromMinorUnits, toMinorUnits, getMinorUnitsStep } from '../../shared/utils/format'
+import { fromMinorUnits, toMinorUnits, getMinorUnitsStep, pctToBps, bpsToPct } from '../../shared/utils/format'
 import { extractErrorMessage } from '../../shared/utils/errors'
 import { updateTaxableEvent } from '../../shared/api'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogBody, DialogFooter } from '../../shared/ui/dialog'
@@ -22,19 +22,6 @@ interface Props {
 const VAT_QUICK_FILLS = ['0', '5', '10', '20', '23']
 const VAT_DEDUCTIBLE_QUICK_FILLS = ['100', '50']
 const EXPENSE_DEDUCTIBLE_QUICK_FILLS = ['100', '80', '50']
-
-const bpsToPct = (bps: number | null): string => {
-  if (bps === null) return ''
-  return String(bps / 100)
-}
-
-const pctToBps = (str: string): number | null => {
-  const trimmed = str.trim()
-  if (!trimmed) return null
-  const n = parseFloat(trimmed)
-  if (isNaN(n)) return null
-  return Math.round(n * 100)
-}
 
 const EditTaxableEventModal = ({ event, onClose }: Props) => {
   const { t } = useTranslation()
