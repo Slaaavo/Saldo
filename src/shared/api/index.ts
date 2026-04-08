@@ -487,3 +487,29 @@ export const updateTaxableSplitGroup = (payload: {
 }): Promise<void> => {
   return invoke('update_taxable_split_group', { input: payload })
 }
+
+export const linkCashflowsToTaxable = (taxableEventId: number, cashflowEventIds: number[]): Promise<void> => {
+  return invoke('link_cashflows_to_taxable', {
+    input: { taxableEventId, cashflowEventIds },
+  })
+}
+
+export const unlinkCashflowFromTaxable = (taxableEventId: number, cashflowEventId: number): Promise<void> => {
+  return invoke('unlink_cashflow_from_taxable', {
+    input: { taxableEventId, cashflowEventId },
+  })
+}
+
+export const listLinkedCashflows = (taxableEventId: number): Promise<EventWithData[]> => {
+  return invoke('list_linked_cashflows', { taxableEventId })
+}
+
+export const listEligibleCashflows = (personId: number, amountMinor?: number, excludeAlreadyLinked?: boolean): Promise<EventWithData[]> => {
+  return invoke('list_eligible_cashflows', {
+    input: {
+      personId,
+      amountMinor: amountMinor ?? null,
+      excludeAlreadyLinked: excludeAlreadyLinked ?? false,
+    },
+  })
+}

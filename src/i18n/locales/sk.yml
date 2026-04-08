@@ -364,6 +364,7 @@ common:
   account: účet
   bucket: obálku
   asset: aktívum
+  loading: Načítava sa...
 # ──── Výber dátumu ────
 datePicker:
   today: Dnes
@@ -590,7 +591,18 @@ import:
       dateExample: "Príklad: (\\d{2}\\.\\d{2}\\.\\d{4}) extrahuje 15.03.2026"
       regexHint: "Referencia regulárnych výrazov"
     invalidRegex: "Neplatný regulárny výraz"
-    unmatchedColumn: "Stĺpec „{{name}}\" sa nenašiel v CSV"
+    unmatchedColumn: "Stļpec „{{name}}\" sa nenašiel v CSV"
+
+# ──── Prepojenie daňovej udalosti s peňažným tokom ────
+taxable:
+  linkedCashflows: Prepojené peňažné toky
+  noLinkedCashflows: Žiadne prepojené peňažné toky
+  unlinkCashflow: Odpojiť
+  eligibleCashflows: Vhodné peňažné toky
+  showMatchingOnly: Zobraziť len zodpovedajúce
+  showAll: Zobraziť všetky
+  linkCashflow: Prepojiť
+  noEligibleCashflows: Žiadne vhodné peňažné toky
 
 # ──── Výber jazyka ────
 language:

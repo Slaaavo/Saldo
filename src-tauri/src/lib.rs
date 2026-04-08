@@ -227,6 +227,10 @@ pub fn run() {
             features::create_taxable_split_group,
             features::update_taxable_event,
             features::update_taxable_split_group,
+            features::link_cashflows_to_taxable,
+            features::unlink_cashflow_from_taxable,
+            features::list_linked_cashflows,
+            features::list_eligible_cashflows,
         ])
         .run({
             let mut ctx = tauri::generate_context!();

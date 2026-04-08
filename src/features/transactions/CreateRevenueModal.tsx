@@ -1,10 +1,10 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { todayIso, toMinorUnits, getMinorUnitsStep, pctToBps } from '../../shared/utils/format'
 import { extractErrorMessage } from '../../shared/utils/errors'
-import { createTaxableEvent, createTaxableSplitGroup } from '../../shared/api'
+import { createTaxableEvent, createTaxableSplitGroup, listEligibleCashflows, linkCashflowsToTaxable } from '../../shared/api'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogBody, DialogFooter } from '../../shared/ui/dialog'
 import { Button } from '../../shared/ui/button'
 import { CurrencyInput } from '../../shared/ui/CurrencyInput'
@@ -17,6 +17,7 @@ import { SplitLegDraft, makeEmptyLeg } from './splitLegDraft'
 import { useConsolidationCurrencyQuery } from '../../shared/hooks/useConsolidationCurrencyQuery'
 import { useResolvedPersonId } from './useResolvedPersonId'
 import PersonPickerField from './PersonPickerField'
+import NumberValue from '../../shared/ui/NumberValue'
 
 interface Props {
   onClose: () => void
@@ -41,6 +42,18 @@ const CreateRevenueModal = ({ onClose }: Props) => {
   const [legs, setLegs] = useState<SplitLegDraft[]>(() => [makeEmptyLeg(todayIso()), makeEmptyLeg(todayIso())])
   const [groupNote, setGroupNote] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [selectedCashflowIds, setSelectedCashflowIds] = useState<number[]>([])
+
+  const amountMinorForFilter = (() => {
+    const parsed = parseFloat(amount)
+    return !isNaN(parsed) ? toMinorUnits(amount, currencyMinorUnits) : undefined
+  })()
+
+  const eligibleCashflowsQuery = useQuery({
+    queryKey: ['eligible-cashflows', personId, amountMinorForFilter],
+    queryFn: () => (personId !== null ? listEligibleCashflows(personId, amountMinorForFilter, true) : Promise.resolve([])),
+    enabled: personId !== null && !isSplit,
+  })
 
   const handleLegsChange = (newLegs: SplitLegDraft[]) => {
     setLegs(newLegs.map((l) => ({ ...l, eventDate: l.eventDate || date })))
@@ -81,7 +94,7 @@ const CreateRevenueModal = ({ onClose }: Props) => {
           setSubmitting(false)
           return
         }
-        await createTaxableEvent({
+        const newEventId = await createTaxableEvent({
           personId,
           eventType: 'revenue',
           amountMinor: toMinorUnits(amount, currencyMinorUnits),
@@ -92,6 +105,11 @@ const CreateRevenueModal = ({ onClose }: Props) => {
           expenseDeductiblePctBps: null,
           prepaidPeriodMonths: null,
         })
+        if (selectedCashflowIds.length > 0) {
+          await linkCashflowsToTaxable(newEventId, selectedCashflowIds).catch((err) => {
+            toast.warning(extractErrorMessage(err))
+          })
+        }
       }
       setSubmitting(false)
       await queryClient.invalidateQueries({ queryKey: ['events'] })
@@ -191,6 +209,36 @@ const CreateRevenueModal = ({ onClose }: Props) => {
                   <Label htmlFor="create-revenue-note">{t('modals.createRevenue.note')}</Label>
                   <Input id="create-revenue-note" type="text" value={note} onChange={(e) => setNote(e.target.value)} placeholder={t('modals.createRevenue.notePlaceholder')} />
                 </div>
+
+                {/* Eligible cashflows picker */}
+                {personId !== null && (
+                  <div className="flex flex-col gap-2 pt-2 border-t">
+                    <Label>{t('taxable.eligibleCashflows')}</Label>
+                    {eligibleCashflowsQuery.isLoading ? (
+                      <p className="text-xs text-muted-foreground">{t('common.loading')}</p>
+                    ) : (eligibleCashflowsQuery.data ?? []).length === 0 ? (
+                      <p className="text-xs text-muted-foreground">{t('taxable.noEligibleCashflows')}</p>
+                    ) : (
+                      <ul className="flex flex-col gap-1 max-h-40 overflow-y-auto">
+                        {(eligibleCashflowsQuery.data ?? []).map((cf) => {
+                          const selected = selectedCashflowIds.includes(cf.id)
+                          return (
+                            <li
+                              key={cf.id}
+                              className={`flex items-center gap-2 rounded border px-2 py-1 cursor-pointer text-sm transition-colors ${selected ? 'border-primary bg-primary/5' : 'hover:bg-muted'}`}
+                              onClick={() => setSelectedCashflowIds((ids) => (selected ? ids.filter((id) => id !== cf.id) : [...ids, cf.id]))}
+                            >
+                              <input type="checkbox" readOnly checked={selected} className="pointer-events-none" />
+                              <span className="text-muted-foreground">{cf.eventDate.slice(0, 10)}</span>
+                              <NumberValue value={cf.amountMinor} minorUnits={cf.currencyMinorUnits} currencyCode={cf.currencyCode} className="font-medium tabular-nums" />
+                              {cf.note && <span className="flex-1 truncate text-muted-foreground">{cf.note}</span>}
+                            </li>
+                          )
+                        })}
+                      </ul>
+                    )}
+                  </div>
+                )}
               </>
             )}
           </DialogBody>

@@ -365,6 +365,7 @@ common:
   account: account
   bucket: bucket
   asset: asset
+  loading: Loading...
 
 # ──── Settings panel ────
 settings:
@@ -634,3 +635,14 @@ persons:
   all: "All Persons"
   selector: "Person"
   manage: "Manage Persons"
+
+# ──── Taxable event cashflow linking ────
+taxable:
+  linkedCashflows: Linked Cashflows
+  noLinkedCashflows: No linked cashflows
+  unlinkCashflow: Unlink
+  eligibleCashflows: Eligible Cashflows
+  showMatchingOnly: Show matching only
+  showAll: Show all
+  linkCashflow: Link
+  noEligibleCashflows: No eligible cashflows

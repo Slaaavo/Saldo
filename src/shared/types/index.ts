@@ -16,6 +16,13 @@ export interface AccountAssetLink {
   assetName: string
 }
 
+export interface TaxableCashflowLink {
+  id: number
+  taxableEventId: number
+  cashflowEventId: number
+  createdAt: string
+}
+
 export type ModalState =
   | { type: 'none' }
   | { type: 'createBalanceUpdate'; preselectedAccountId?: number }

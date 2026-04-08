@@ -5,6 +5,7 @@ mod queries;
 mod snapshot;
 mod split_groups;
 mod taxable_events;
+pub mod taxable_links;
 
 pub(crate) use balance_updates::create_balance_update_inner;
 pub use balance_updates::{
@@ -34,6 +35,94 @@ pub use taxable_events::{
     CreateTaxableSplitGroupWithLegsParams, NewSplitLeg, TaxableEventLeg, UpdateTaxableEventParams,
     UpdateTaxableSplitGroupParams, UpdatedSplitLeg,
 };
+
+pub use taxable_links::{
+    link_cashflows_to_taxable, list_eligible_cashflows, list_linked_cashflows,
+    unlink_cashflow_from_taxable, EligibleCashflowsParams, LinkCashflowsParams,
+};
+
+// ---------------------------------------------------------------------------
+// Shared EventWithData query infrastructure
+// Used by queries.rs and taxable_links.rs to avoid duplicating the 28-column
+// SELECT list, JOIN block, and row mapper.
+// ---------------------------------------------------------------------------
+
+pub(super) const EVENT_SELECT: &str = "
+          e.id,
+          e.account_id,
+          CASE WHEN a.account_type IN ('default_revenue', 'default_expense')
+               THEN (SELECT p.name FROM person p WHERE p.id = a.person_id)
+               ELSE a.name END AS account_name,
+          a.account_type,
+          e.event_type,
+          ed.event_date,
+          ed.amount_minor,
+          ed.note,
+          e.created_at,
+          c.code AS currency_code,
+          c.minor_units AS currency_minor_units,
+          e.linked_event_id,
+          ed.counterpart_account_id,
+          ed.bucket_id,
+          ed.original_currency_id,
+          ed.original_amount_minor,
+          ed.fx_rate_mantissa,
+          ed.fx_rate_exponent,
+          counter_a.name AS counterpart_account_name,
+          bucket_a.name AS bucket_name,
+          orig_c.code AS original_currency_code,
+          orig_c.minor_units AS original_currency_minor_units,
+          e.split_group_id,
+          sg.note AS split_group_note,
+          ed.vat_rate_bps,
+          ed.vat_deductible_pct_bps,
+          ed.expense_deductible_pct_bps,
+          ed.prepaid_period_months";
+
+pub(super) const EVENT_JOINS: &str = "
+        JOIN account a ON a.id = e.account_id
+        JOIN currency c ON c.id = a.currency_id
+        JOIN event_data ed ON ed.id = e.latest_data_id
+        LEFT JOIN account counter_a ON counter_a.id = ed.counterpart_account_id
+        LEFT JOIN account bucket_a ON bucket_a.id = ed.bucket_id
+        LEFT JOIN currency orig_c ON orig_c.id = ed.original_currency_id
+        LEFT JOIN split_group sg ON sg.id = e.split_group_id";
+
+pub(super) fn map_event_row(
+    row: &rusqlite::Row,
+) -> rusqlite::Result<crate::features::transactions::models::EventWithData> {
+    use crate::features::transactions::models::EventWithData;
+    Ok(EventWithData {
+        id: row.get(0)?,
+        account_id: row.get(1)?,
+        account_name: row.get(2)?,
+        account_type: row.get(3)?,
+        event_type: row.get(4)?,
+        event_date: row.get(5)?,
+        amount_minor: row.get(6)?,
+        note: row.get(7)?,
+        created_at: row.get(8)?,
+        currency_code: row.get(9)?,
+        currency_minor_units: row.get(10)?,
+        linked_event_id: row.get(11)?,
+        counterpart_account_id: row.get(12)?,
+        bucket_id: row.get(13)?,
+        original_currency_id: row.get(14)?,
+        original_amount_minor: row.get(15)?,
+        fx_rate_mantissa: row.get(16)?,
+        fx_rate_exponent: row.get(17)?,
+        counterpart_account_name: row.get(18)?,
+        bucket_name: row.get(19)?,
+        original_currency_code: row.get(20)?,
+        original_currency_minor_units: row.get(21)?,
+        split_group_id: row.get(22)?,
+        split_group_note: row.get(23)?,
+        vat_rate_bps: row.get(24)?,
+        vat_deductible_pct_bps: row.get(25)?,
+        expense_deductible_pct_bps: row.get(26)?,
+        prepaid_period_months: row.get(27)?,
+    })
+}
 
 #[cfg(test)]
 mod tests {

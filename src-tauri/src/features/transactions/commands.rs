@@ -837,3 +837,88 @@ pub fn update_taxable_split_group(
     )?;
     Ok(())
 }
+
+// ---------------------------------------------------------------------------
+// Taxable-cashflow link commands (Phase 2)
+// ---------------------------------------------------------------------------
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LinkCashflowsInput {
+    pub taxable_event_id: i64,
+    pub cashflow_event_ids: Vec<i64>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UnlinkCashflowInput {
+    pub taxable_event_id: i64,
+    pub cashflow_event_id: i64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListEligibleCashflowsInput {
+    pub person_id: i64,
+    pub amount_minor: Option<i64>,
+    pub exclude_already_linked: bool,
+}
+
+#[tauri::command]
+pub fn link_cashflows_to_taxable(
+    state: State<'_, AppState>,
+    input: LinkCashflowsInput,
+) -> Result<(), AppError> {
+    let conn = state.conn()?;
+    repository::link_cashflows_to_taxable(
+        &conn,
+        repository::LinkCashflowsParams {
+            taxable_event_id: input.taxable_event_id,
+            cashflow_event_ids: input.cashflow_event_ids,
+        },
+    )?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn unlink_cashflow_from_taxable(
+    state: State<'_, AppState>,
+    input: UnlinkCashflowInput,
+) -> Result<(), AppError> {
+    let conn = state.conn()?;
+    repository::unlink_cashflow_from_taxable(
+        &conn,
+        input.taxable_event_id,
+        input.cashflow_event_id,
+    )?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn list_linked_cashflows(
+    state: State<'_, AppState>,
+    taxable_event_id: i64,
+) -> Result<Vec<EventWithData>, AppError> {
+    let conn = state.conn()?;
+    let events =
+        repository::list_linked_cashflows(&conn, taxable_event_id).map_err(AppError::from)?;
+    Ok(events)
+}
+
+#[tauri::command]
+pub fn list_eligible_cashflows(
+    state: State<'_, AppState>,
+    input: ListEligibleCashflowsInput,
+) -> Result<Vec<EventWithData>, AppError> {
+    let conn = state.conn()?;
+    let events = repository::list_eligible_cashflows(
+        &conn,
+        repository::EligibleCashflowsParams {
+            person_id: input.person_id,
+            amount_minor: input.amount_minor,
+            exclude_already_linked: input.exclude_already_linked,
+        },
+    )
+    .map_err(AppError::from)?;
+    Ok(events)
+}
