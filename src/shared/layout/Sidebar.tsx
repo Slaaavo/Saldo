@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { LayoutDashboard, Settings, ArrowLeftRight, ChevronsLeft, ChevronsRight, Layers, BookOpen, Users, FileText } from 'lucide-react'
+import { LayoutDashboard, Settings, ArrowLeftRight, ChevronsLeft, ChevronsRight, Layers, BookOpen, Users, FileText, Calculator } from 'lucide-react'
 import { cn } from '@/shared/lib/utils'
 import { Link } from '@tanstack/react-router'
 import SaldoLogo from './SaldoLogo'
@@ -24,6 +24,7 @@ const Sidebar = ({ collapsed, onToggleCollapse }: SidebarProps) => {
     { to: '/dashboard' as const, icon: LayoutDashboard, label: t('sidebar.dashboard') },
     { to: '/ledger' as const, icon: BookOpen, label: t('sidebar.ledger') },
     { to: '/persons' as const, icon: Users, label: t('sidebar.persons') },
+    { to: '/tax-models' as const, icon: Calculator, label: t('sidebar.taxModels') },
     { to: '/partners' as const, icon: Users, label: t('sidebar.partners') },
     { to: '/import-profiles' as const, icon: FileText, label: t('sidebar.importProfiles') },
     { to: '/settings' as const, icon: Settings, label: t('sidebar.settings') },

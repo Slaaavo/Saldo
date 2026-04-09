@@ -1,0 +1,418 @@
+use crate::error::AppError;
+use crate::features::tax_models::models::{TaxModelBracketRow, TaxModelDetail, TaxModelRow};
+use crate::shared::{local_now, with_savepoint_app};
+use rusqlite::{params, Connection, OptionalExtension};
+
+pub struct BracketInput {
+    pub sort_order: i64,
+    pub lower_bound_minor: i64,
+    pub rate_type: String,
+    pub flat_rate_bps: Option<i64>,
+    pub tiers_json: Option<String>,
+}
+
+pub struct CreateTaxModelParams {
+    pub name: String,
+    pub calendar_year: i64,
+    pub person_id: i64,
+    pub vat_status: String,
+    pub vat_from_date: Option<String>,
+    pub reserve_fund_current_minor: Option<i64>,
+    pub reserve_fund_pct_bps: Option<i64>,
+    pub reserve_fund_max_minor: Option<i64>,
+    pub dividend_tax_rate_bps: Option<i64>,
+    pub brackets: Vec<BracketInput>,
+}
+
+pub struct UpdateTaxModelParams {
+    pub model_id: i64,
+    pub name: String,
+    pub calendar_year: i64,
+    pub person_id: i64,
+    pub vat_status: String,
+    pub vat_from_date: Option<String>,
+    pub reserve_fund_current_minor: Option<i64>,
+    pub reserve_fund_pct_bps: Option<i64>,
+    pub reserve_fund_max_minor: Option<i64>,
+    pub dividend_tax_rate_bps: Option<i64>,
+    pub brackets: Vec<BracketInput>,
+}
+
+fn insert_brackets(
+    conn: &Connection,
+    model_id: i64,
+    brackets: &[BracketInput],
+) -> Result<(), AppError> {
+    for b in brackets {
+        conn.execute(
+            "INSERT INTO tax_model_bracket
+             (tax_model_id, sort_order, lower_bound_minor, rate_type, flat_rate_bps, tiers_json)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                model_id,
+                b.sort_order,
+                b.lower_bound_minor,
+                b.rate_type,
+                b.flat_rate_bps,
+                b.tiers_json,
+            ],
+        )
+        .map_err(AppError::from)?;
+    }
+    Ok(())
+}
+
+pub fn create_tax_model(conn: &Connection, p: CreateTaxModelParams) -> Result<i64, AppError> {
+    let now = local_now();
+    with_savepoint_app(conn, || {
+        conn.execute(
+            "INSERT INTO tax_model
+             (name, calendar_year, person_id, vat_status, vat_from_date,
+              reserve_fund_current_minor, reserve_fund_pct_bps, reserve_fund_max_minor,
+              dividend_tax_rate_bps, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            params![
+                p.name,
+                p.calendar_year,
+                p.person_id,
+                p.vat_status,
+                p.vat_from_date,
+                p.reserve_fund_current_minor,
+                p.reserve_fund_pct_bps,
+                p.reserve_fund_max_minor,
+                p.dividend_tax_rate_bps,
+                now,
+                now,
+            ],
+        )
+        .map_err(AppError::from)?;
+        let model_id = conn.last_insert_rowid();
+        insert_brackets(conn, model_id, &p.brackets)?;
+        Ok(model_id)
+    })
+}
+
+pub fn list_tax_models(conn: &Connection) -> rusqlite::Result<Vec<TaxModelRow>> {
+    let mut stmt = conn.prepare(
+        "SELECT tm.id, tm.name, tm.calendar_year, tm.person_id,
+                p.name AS person_name, p.person_type,
+                tm.vat_status, tm.vat_from_date,
+                tm.reserve_fund_current_minor, tm.reserve_fund_pct_bps,
+                tm.reserve_fund_max_minor, tm.dividend_tax_rate_bps,
+                tm.created_at, tm.updated_at
+         FROM tax_model tm
+         JOIN person p ON p.id = tm.person_id
+         ORDER BY tm.calendar_year DESC, tm.name ASC",
+    )?;
+    let rows = stmt.query_map([], |row| {
+        Ok(TaxModelRow {
+            id: row.get(0)?,
+            name: row.get(1)?,
+            calendar_year: row.get(2)?,
+            person_id: row.get(3)?,
+            person_name: row.get(4)?,
+            person_type: row.get(5)?,
+            vat_status: row.get(6)?,
+            vat_from_date: row.get(7)?,
+            reserve_fund_current_minor: row.get(8)?,
+            reserve_fund_pct_bps: row.get(9)?,
+            reserve_fund_max_minor: row.get(10)?,
+            dividend_tax_rate_bps: row.get(11)?,
+            created_at: row.get(12)?,
+            updated_at: row.get(13)?,
+        })
+    })?;
+    rows.collect()
+}
+
+pub fn get_tax_model(conn: &Connection, model_id: i64) -> Result<TaxModelDetail, AppError> {
+    let maybe_row: Option<TaxModelRow> = conn
+        .query_row(
+            "SELECT tm.id, tm.name, tm.calendar_year, tm.person_id,
+                    p.name AS person_name, p.person_type,
+                    tm.vat_status, tm.vat_from_date,
+                    tm.reserve_fund_current_minor, tm.reserve_fund_pct_bps,
+                    tm.reserve_fund_max_minor, tm.dividend_tax_rate_bps,
+                    tm.created_at, tm.updated_at
+             FROM tax_model tm
+             JOIN person p ON p.id = tm.person_id
+             WHERE tm.id = ?1",
+            params![model_id],
+            |row| {
+                Ok(TaxModelRow {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    calendar_year: row.get(2)?,
+                    person_id: row.get(3)?,
+                    person_name: row.get(4)?,
+                    person_type: row.get(5)?,
+                    vat_status: row.get(6)?,
+                    vat_from_date: row.get(7)?,
+                    reserve_fund_current_minor: row.get(8)?,
+                    reserve_fund_pct_bps: row.get(9)?,
+                    reserve_fund_max_minor: row.get(10)?,
+                    dividend_tax_rate_bps: row.get(11)?,
+                    created_at: row.get(12)?,
+                    updated_at: row.get(13)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(AppError::from)?;
+
+    let row = maybe_row.ok_or_else(|| AppError {
+        code: "NOT_FOUND".into(),
+        message: "Tax model not found.".into(),
+    })?;
+
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, sort_order, lower_bound_minor, rate_type, flat_rate_bps, tiers_json
+             FROM tax_model_bracket
+             WHERE tax_model_id = ?1
+             ORDER BY sort_order ASC",
+        )
+        .map_err(AppError::from)?;
+
+    let brackets: Vec<TaxModelBracketRow> = stmt
+        .query_map(params![model_id], |r| {
+            Ok(TaxModelBracketRow {
+                id: r.get(0)?,
+                sort_order: r.get(1)?,
+                lower_bound_minor: r.get(2)?,
+                rate_type: r.get(3)?,
+                flat_rate_bps: r.get(4)?,
+                tiers_json: r.get(5)?,
+            })
+        })
+        .map_err(AppError::from)?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(AppError::from)?;
+
+    Ok(TaxModelDetail {
+        id: row.id,
+        name: row.name,
+        calendar_year: row.calendar_year,
+        person_id: row.person_id,
+        person_name: row.person_name,
+        person_type: row.person_type,
+        vat_status: row.vat_status,
+        vat_from_date: row.vat_from_date,
+        reserve_fund_current_minor: row.reserve_fund_current_minor,
+        reserve_fund_pct_bps: row.reserve_fund_pct_bps,
+        reserve_fund_max_minor: row.reserve_fund_max_minor,
+        dividend_tax_rate_bps: row.dividend_tax_rate_bps,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+        brackets,
+    })
+}
+
+pub fn update_tax_model(conn: &Connection, p: UpdateTaxModelParams) -> Result<(), AppError> {
+    let now = local_now();
+    with_savepoint_app(conn, || {
+        let affected = conn
+            .execute(
+                "UPDATE tax_model
+                 SET name = ?1, calendar_year = ?2, person_id = ?3,
+                     vat_status = ?4, vat_from_date = ?5,
+                     reserve_fund_current_minor = ?6, reserve_fund_pct_bps = ?7,
+                     reserve_fund_max_minor = ?8, dividend_tax_rate_bps = ?9,
+                     updated_at = ?10
+                 WHERE id = ?11",
+                params![
+                    p.name,
+                    p.calendar_year,
+                    p.person_id,
+                    p.vat_status,
+                    p.vat_from_date,
+                    p.reserve_fund_current_minor,
+                    p.reserve_fund_pct_bps,
+                    p.reserve_fund_max_minor,
+                    p.dividend_tax_rate_bps,
+                    now,
+                    p.model_id,
+                ],
+            )
+            .map_err(AppError::from)?;
+        if affected == 0 {
+            return Err(AppError {
+                code: "NOT_FOUND".into(),
+                message: "Tax model not found.".into(),
+            });
+        }
+        conn.execute(
+            "DELETE FROM tax_model_bracket WHERE tax_model_id = ?1",
+            params![p.model_id],
+        )
+        .map_err(AppError::from)?;
+        insert_brackets(conn, p.model_id, &p.brackets)?;
+        Ok(())
+    })
+}
+
+pub fn delete_tax_model(conn: &Connection, model_id: i64) -> Result<(), AppError> {
+    let affected = conn
+        .execute("DELETE FROM tax_model WHERE id = ?1", params![model_id])
+        .map_err(AppError::from)?;
+    if affected == 0 {
+        return Err(AppError {
+            code: "NOT_FOUND".into(),
+            message: "Tax model not found.".into(),
+        });
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::initialize_in_memory;
+
+    fn get_default_person_id(conn: &Connection) -> i64 {
+        conn.query_row("SELECT id FROM person WHERE is_default = 1", [], |row| {
+            row.get(0)
+        })
+        .expect("default person not found")
+    }
+
+    fn flat_bracket(sort_order: i64, lower_minor: i64, rate_bps: i64) -> BracketInput {
+        BracketInput {
+            sort_order,
+            lower_bound_minor: lower_minor,
+            rate_type: "flat".to_owned(),
+            flat_rate_bps: Some(rate_bps),
+            tiers_json: None,
+        }
+    }
+
+    #[test]
+    fn test_create_and_get_tax_model() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let person_id = get_default_person_id(&conn);
+
+        let id = create_tax_model(
+            &conn,
+            CreateTaxModelParams {
+                name: "My Tax Model".to_owned(),
+                calendar_year: 2025,
+                person_id,
+                vat_status: "none".to_owned(),
+                vat_from_date: None,
+                reserve_fund_current_minor: None,
+                reserve_fund_pct_bps: None,
+                reserve_fund_max_minor: None,
+                dividend_tax_rate_bps: None,
+                brackets: vec![flat_bracket(0, 0, 1900)],
+            },
+        )
+        .expect("create_tax_model failed");
+
+        let detail = get_tax_model(&conn, id).expect("get_tax_model failed");
+        assert_eq!(detail.id, id);
+        assert_eq!(detail.name, "My Tax Model");
+        assert_eq!(detail.calendar_year, 2025);
+        assert_eq!(detail.person_id, person_id);
+        assert_eq!(detail.vat_status, "none");
+        assert_eq!(detail.brackets.len(), 1);
+        assert_eq!(detail.brackets[0].sort_order, 0);
+        assert_eq!(detail.brackets[0].flat_rate_bps, Some(1900));
+    }
+
+    #[test]
+    fn test_update_replaces_brackets() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let person_id = get_default_person_id(&conn);
+
+        let id = create_tax_model(
+            &conn,
+            CreateTaxModelParams {
+                name: "To Update".to_owned(),
+                calendar_year: 2024,
+                person_id,
+                vat_status: "none".to_owned(),
+                vat_from_date: None,
+                reserve_fund_current_minor: None,
+                reserve_fund_pct_bps: None,
+                reserve_fund_max_minor: None,
+                dividend_tax_rate_bps: None,
+                brackets: vec![flat_bracket(0, 0, 1500)],
+            },
+        )
+        .expect("create_tax_model failed");
+
+        update_tax_model(
+            &conn,
+            UpdateTaxModelParams {
+                model_id: id,
+                name: "Updated Model".to_owned(),
+                calendar_year: 2024,
+                person_id,
+                vat_status: "all_year".to_owned(),
+                vat_from_date: None,
+                reserve_fund_current_minor: None,
+                reserve_fund_pct_bps: None,
+                reserve_fund_max_minor: None,
+                dividend_tax_rate_bps: None,
+                brackets: vec![flat_bracket(0, 0, 1500), flat_bracket(1, 1_000_000, 2500)],
+            },
+        )
+        .expect("update_tax_model failed");
+
+        let detail = get_tax_model(&conn, id).expect("get_tax_model failed");
+        assert_eq!(detail.name, "Updated Model");
+        assert_eq!(detail.vat_status, "all_year");
+        assert_eq!(detail.brackets.len(), 2);
+        assert_eq!(detail.brackets[1].lower_bound_minor, 1_000_000);
+        assert_eq!(detail.brackets[1].flat_rate_bps, Some(2500));
+    }
+
+    #[test]
+    fn test_delete_tax_model() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let person_id = get_default_person_id(&conn);
+
+        let id = create_tax_model(
+            &conn,
+            CreateTaxModelParams {
+                name: "To Delete".to_owned(),
+                calendar_year: 2023,
+                person_id,
+                vat_status: "none".to_owned(),
+                vat_from_date: None,
+                reserve_fund_current_minor: None,
+                reserve_fund_pct_bps: None,
+                reserve_fund_max_minor: None,
+                dividend_tax_rate_bps: None,
+                brackets: vec![flat_bracket(0, 0, 2000)],
+            },
+        )
+        .expect("create_tax_model failed");
+
+        delete_tax_model(&conn, id).expect("delete_tax_model failed");
+
+        let result = get_tax_model(&conn, id);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().code, "NOT_FOUND");
+
+        let bracket_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM tax_model_bracket WHERE tax_model_id = ?1",
+                params![id],
+                |row| row.get(0),
+            )
+            .expect("bracket count query failed");
+        assert_eq!(
+            bracket_count, 0,
+            "ON DELETE CASCADE did not remove brackets"
+        );
+    }
+
+    #[test]
+    fn test_not_found() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let result = get_tax_model(&conn, 999_999);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().code, "NOT_FOUND");
+    }
+}

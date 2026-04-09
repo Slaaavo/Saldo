@@ -12,6 +12,8 @@ import type {
   EventWithData,
   ImportProfileRow,
   PersonRow,
+  TaxModelRow,
+  TaxModelDetail,
 } from '../types'
 
 export const createBalanceUpdate = (accountId: number, amountMinor: number, eventDate: string, note?: string): Promise<number> => {
@@ -518,4 +520,49 @@ export const listEligibleCashflows = (personId: number, amountMinor?: number, ex
 
 export const getUnmatchedCashflowCount = (personId?: number): Promise<number> => {
   return invoke('get_unmatched_cashflow_count', { personId: personId ?? null })
+}
+
+export interface BracketInput {
+  sortOrder: number
+  lowerBoundMinor: number
+  rateType: string
+  flatRateBps: number | null
+  tiersJson: string | null
+}
+
+export interface CreateTaxModelInput {
+  name: string
+  calendarYear: number
+  personId: number
+  vatStatus: string
+  vatFromDate: string | null
+  reserveFundCurrentMinor: number | null
+  reserveFundPctBps: number | null
+  reserveFundMaxMinor: number | null
+  dividendTaxRateBps: number | null
+  brackets: BracketInput[]
+}
+
+export interface UpdateTaxModelInput extends CreateTaxModelInput {
+  modelId: number
+}
+
+export const listTaxModels = (): Promise<TaxModelRow[]> => {
+  return invoke('list_tax_models')
+}
+
+export const getTaxModel = (modelId: number): Promise<TaxModelDetail> => {
+  return invoke('get_tax_model', { modelId })
+}
+
+export const createTaxModel = (input: CreateTaxModelInput): Promise<number> => {
+  return invoke('create_tax_model', { input })
+}
+
+export const updateTaxModel = (input: UpdateTaxModelInput): Promise<void> => {
+  return invoke('update_tax_model', { input })
+}
+
+export const deleteTaxModel = (modelId: number): Promise<void> => {
+  return invoke('delete_tax_model', { modelId })
 }

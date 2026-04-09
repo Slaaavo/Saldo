@@ -8,6 +8,9 @@ import SettingsPage from '../features/settings/SettingsPage'
 import PartnersPage from '../features/partners/PartnersPage'
 import ImportProfilesPage from '../features/csv-profiles/ImportProfilesPage'
 import PersonsPage from '../features/persons/PersonsPage'
+import TaxModelsPage from '../features/tax-models/TaxModelsPage'
+import TaxModelFormPage from '../features/tax-models/TaxModelFormPage'
+import TaxModelResultsPage from '../features/tax-models/TaxModelResultsPage'
 
 // Root route — App is the shell layout (renders Outlet inside)
 const rootRoute = createRootRoute({
@@ -72,7 +75,45 @@ const personsRoute = createRoute({
   component: PersonsPage,
 })
 
-export const routeTree = rootRoute.addChildren([indexRoute, dashboardRoute, ledgerRoute, fxRatesRoute, unitsRoute, settingsRoute, partnersRoute, importProfilesRoute, personsRoute])
+const taxModelsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/tax-models',
+  component: TaxModelsPage,
+})
+
+const taxModelNewRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/tax-models/new',
+  component: TaxModelFormPage,
+})
+
+const taxModelEditRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/tax-models/$modelId/edit',
+  component: TaxModelFormPage,
+})
+
+const taxModelResultsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/tax-models/$modelId/results',
+  component: TaxModelResultsPage,
+})
+
+export const routeTree = rootRoute.addChildren([
+  indexRoute,
+  dashboardRoute,
+  ledgerRoute,
+  fxRatesRoute,
+  unitsRoute,
+  settingsRoute,
+  partnersRoute,
+  importProfilesRoute,
+  personsRoute,
+  taxModelsRoute,
+  taxModelNewRoute,
+  taxModelEditRoute,
+  taxModelResultsRoute,
+])
 
 const memoryHistory = createMemoryHistory({ initialEntries: ['/dashboard'] })
 

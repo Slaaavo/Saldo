@@ -6,6 +6,7 @@ pub mod currency;
 pub mod partner_accounts;
 pub mod persons;
 pub mod settings;
+pub mod tax_models;
 pub mod transactions;
 
 pub use accounts::*;
@@ -16,4 +17,5 @@ pub use currency::*;
 pub use partner_accounts::*;
 pub use persons::*;
 pub use settings::*;
+pub use tax_models::*;
 pub use transactions::*;

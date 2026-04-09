@@ -245,3 +245,33 @@ export type ImportRule =
       type: 'override_date_from_description'
       sortOrder: number
     } & OverrideDateFromDescriptionParams)
+
+export interface TaxModelRow {
+  id: number
+  name: string
+  calendarYear: number
+  personId: number
+  personName: string
+  personType: string
+  vatStatus: string
+  vatFromDate: string | null
+  reserveFundCurrentMinor: number | null
+  reserveFundPctBps: number | null
+  reserveFundMaxMinor: number | null
+  dividendTaxRateBps: number | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface TaxModelBracketRow {
+  id: number
+  sortOrder: number
+  lowerBoundMinor: number
+  rateType: string
+  flatRateBps: number | null
+  tiersJson: string | null
+}
+
+export interface TaxModelDetail extends TaxModelRow {
+  brackets: TaxModelBracketRow[]
+}

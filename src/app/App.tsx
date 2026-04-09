@@ -15,6 +15,8 @@ import { useModal } from './useModal'
 import { DemoProvider } from './DemoContext'
 import { SelectedDateProvider } from './SelectedDateContext'
 import { SelectedPersonProvider } from './SelectedPersonContext'
+import { PageHeaderProvider } from './PageHeaderContext'
+import { usePageHeader } from './usePageHeader'
 
 const PAGE_TITLES: Record<string, string> = {
   dashboard: 'sidebar.dashboard',
@@ -25,7 +27,10 @@ const PAGE_TITLES: Record<string, string> = {
   partners: 'sidebar.partners',
   'import-profiles': 'sidebar.importProfiles',
   persons: 'sidebar.persons',
+  'tax-models': 'sidebar.taxModels',
 }
+
+const PAGE_TITLE_PREFIXES: Array<[string, string]> = [['tax-models/', 'sidebar.taxModels']]
 
 const AppShell = () => {
   const { t } = useTranslation()
@@ -47,7 +52,10 @@ const AppShell = () => {
   })
 
   const routerState = useRouterState()
-  const pageTitle = t(PAGE_TITLES[routerState.location.pathname.slice(1)] ?? 'sidebar.dashboard')
+  const { titleOverride } = usePageHeader()
+  const _path = routerState.location.pathname.slice(1)
+  const _prefixMatch = PAGE_TITLE_PREFIXES.find(([prefix]) => _path.startsWith(prefix))
+  const pageTitle = titleOverride ?? t(PAGE_TITLES[_path] ?? (_prefixMatch ? _prefixMatch[1] : 'sidebar.dashboard'))
 
   return (
     <SelectedPersonProvider>
@@ -82,7 +90,9 @@ const AppShell = () => {
 const App = () => {
   return (
     <ModalProvider>
-      <AppShell />
+      <PageHeaderProvider>
+        <AppShell />
+      </PageHeaderProvider>
     </ModalProvider>
   )
 }

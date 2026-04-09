@@ -9,6 +9,7 @@ sidebar:
   partners: "Partners"
   importProfiles: "Import Profiles"
   persons: "Persons"
+  taxModels: "Tax Models"
   collapse: "Collapse sidebar"
   expand: "Expand sidebar"
 
@@ -657,3 +658,60 @@ taxable:
   cashflowPickerCount: "{{count}} selected"
   cashflowPickerEligible: Matching
   cashflowPickerOther: Other cashflows
+
+# ──── Tax Models ────
+taxModels:
+  title: "Tax Models"
+  empty: "No tax models yet"
+  createModel: "Create Tax Model"
+  name: "Name"
+  year: "Year"
+  person: "Person"
+  deleteConfirm: "Are you sure you want to delete this tax model?"
+  personTypeBadgePhysical: "Physical"
+  personTypeBadgeLegal: "Legal"
+  formTitleCreate: "Create Tax Model"
+  formTitleEdit: "Edit Tax Model"
+  generalSettings: "General Settings"
+  nameLabel: "Name"
+  yearLabel: "Year"
+  personLabel: "Person"
+  taxSettings: "Tax Settings"
+  bracket: "Bracket"
+  bracketUpperBound: "Upper Bound"
+  bracketLowerBound: "Lower Bound"
+  bracketRateType: "Rate Type"
+  flatRate: "Flat Rate"
+  progressiveRate: "Progressive"
+  bracketUpperBoundPlaceholder: "No limit"
+  tierThreshold: "Tier Threshold"
+  tierRate: "Tier Rate"
+  addTier: "Add Tier"
+  removeTier: "Remove Tier"
+  legalPersonSettings: "Legal Person Settings"
+  reserveFundCurrent: "Reserve Fund Current Amount"
+  reserveFundPct: "Reserve Fund Allocation %"
+  reserveFundMax: "Reserve Fund Maximum Amount"
+  dividendTaxRate: "Dividend Tax Rate"
+  vatStatus: "VAT Payer Status"
+  vatNone: "None"
+  vatAllYear: "All Year"
+  vatFromDate: "From Date"
+  vatFromDateLabel: "VAT Start Date"
+  saveAndCalculate: "Save and Calculate"
+  backToList: "Back to List"
+  resultsTitle: Tax Model Results
+  adjustSettings: Adjust Settings
+  totalIncome: Total Income
+  totalExpenses: Total Expenses
+  deductibleExpenses: Deductible Expenses
+  nonDeductibleExpenses: Non-Deductible Expenses
+  grossProfit: Gross Profit
+  totalTax: Total Tax
+  netProfit: Net Profit
+  reserveFundAllocation: Reserve Fund Allocation
+  dividendAmount: Dividend Amount
+  withholdingTax: Withholding Tax on Dividends
+  monthlyTaxBurden: Monthly Tax Burden
+  netPayout: Net Payout
+  mockDataNotice: "These are placeholder values. Actual calculation will be available in a future update."

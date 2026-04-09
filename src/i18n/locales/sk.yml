@@ -11,6 +11,7 @@ sidebar:
   collapse: "Zbaliť panel"
   expand: "Rozbaliť panel"
   persons: "Osoby"
+  taxModels: "Daňové modely"
 # ──── Partneri ────
 partners:
   title: "Partneri"
@@ -655,3 +656,60 @@ demo:
   emptyCta: "Vyskúšať demo režim"
   emptyTitle: "Zatiaľ žiadne účty"
   emptyDesc: "Vytvorte svoj prvý účet alebo preskúmajte aplikáciu so vzorovými údajmi."
+
+# ──── Daňové modely ────
+taxModels:
+  title: "Daňové modely"
+  empty: "Žiadne daňové modely"
+  createModel: "Vytvoriť daňový model"
+  name: "Názov"
+  year: "Rok"
+  person: "Osoba"
+  deleteConfirm: "Naozaj chcete vymazať tento daňový model?"
+  personTypeBadgePhysical: "Fyzická osoba"
+  personTypeBadgeLegal: "Právnická osoba"
+  formTitleCreate: "Vytvoriť daňový model"
+  formTitleEdit: "Upraviť daňový model"
+  generalSettings: "Všeobecné nastavenia"
+  nameLabel: "Názov"
+  yearLabel: "Rok"
+  personLabel: "Osoba"
+  taxSettings: "Daňové nastavenia"
+  bracket: "Pásmo"
+  bracketUpperBound: "Horná hranica"
+  bracketLowerBound: "Spodná hranica"
+  bracketRateType: "Typ sadzby"
+  flatRate: "Paušálna sadzba"
+  progressiveRate: "Progresívna"
+  bracketUpperBoundPlaceholder: "Bez obmedzenia"
+  tierThreshold: "Hranica stupňa"
+  tierRate: "Sadzba stupňa"
+  addTier: "Pridať stupeň"
+  removeTier: "Odstrániť stupeň"
+  legalPersonSettings: "Nastavenia právnickej osoby"
+  reserveFundCurrent: "Aktuálna výška rezervného fondu"
+  reserveFundPct: "Príspevok do rezervného fondu %"
+  reserveFundMax: "Maximálna výška rezervného fondu"
+  dividendTaxRate: "Sadzba dane z dividend"
+  vatStatus: "Platiteľ DPH"
+  vatNone: "Nie"
+  vatAllYear: "Celý rok"
+  vatFromDate: "Od dátumu"
+  vatFromDateLabel: "Dátum registrácie DPH"
+  saveAndCalculate: "Uložiť a vypočítať"
+  backToList: "Späť na zoznam"
+  resultsTitle: Výsledky daňového modelu
+  adjustSettings: Upraviť nastavenia
+  totalIncome: Celkové príjmy
+  totalExpenses: Celkové výdavky
+  deductibleExpenses: Odpočítateľné výdavky
+  nonDeductibleExpenses: Neodpočítateľné výdavky
+  grossProfit: Hrubý zisk
+  totalTax: Celková daň
+  netProfit: Čistý zisk
+  reserveFundAllocation: Príspevok do rezervného fondu
+  dividendAmount: Výška dividendy
+  withholdingTax: Zrážková daň z dividend
+  monthlyTaxBurden: Mesačné daňové zaťaženie
+  netPayout: Čistá výplata
+  mockDataNotice: "Toto sú zástupné hodnoty. Skutočný výpočet bude dostupný v budúcej aktualizácii."
