@@ -1,5 +1,6 @@
 mod balance_updates;
 mod cashflows;
+pub(crate) mod depreciation;
 mod events;
 mod queries;
 mod snapshot;
@@ -25,7 +26,10 @@ pub use split_groups::{
     UpdateSplitGroupDateParams,
 };
 
-pub use queries::{get_event_by_id, list_events, ListEventsQuery};
+pub use queries::{
+    check_event_not_system_generated, check_split_group_not_system_generated, get_event_by_id,
+    list_events, ListEventsQuery,
+};
 
 pub use snapshot::{get_accounts_snapshot, GetSnapshotParams};
 
@@ -37,9 +41,13 @@ pub use taxable_events::{
 };
 
 pub use taxable_links::{
-    link_cashflows_to_taxable, list_eligible_cashflows, list_linked_cashflows,
-    unlink_cashflow_from_taxable, EligibleCashflowsParams, LinkCashflowsParams,
+    count_unmatched_cashflows, link_cashflows_to_taxable, list_eligible_cashflows,
+    list_linked_cashflows, unlink_cashflow_from_taxable, EligibleCashflowsParams,
+    LinkCashflowsParams,
 };
+
+pub use depreciation::generate_depreciation_events;
+pub(crate) use depreciation::recalculate_depreciation_for_asset;
 
 // ---------------------------------------------------------------------------
 // Shared EventWithData query infrastructure
@@ -77,7 +85,24 @@ pub(super) const EVENT_SELECT: &str = "
           ed.vat_rate_bps,
           ed.vat_deductible_pct_bps,
           ed.expense_deductible_pct_bps,
-          ed.prepaid_period_months";
+          ed.prepaid_period_months,
+          EXISTS(
+            SELECT 1 FROM taxable_cashflow_link tcl
+            JOIN event te ON te.id = tcl.taxable_event_id AND te.deleted_at IS NULL
+            WHERE tcl.cashflow_event_id = e.id
+          ) AS is_linked_to_taxable,
+          (
+            SELECT tcl.taxable_event_id FROM taxable_cashflow_link tcl
+            JOIN event te ON te.id = tcl.taxable_event_id AND te.deleted_at IS NULL
+            WHERE tcl.cashflow_event_id = e.id LIMIT 1
+          ) AS linked_taxable_event_id,
+          (
+            SELECT COUNT(*) FROM taxable_cashflow_link tcl
+            JOIN event ce ON ce.id = tcl.cashflow_event_id AND ce.deleted_at IS NULL
+            WHERE tcl.taxable_event_id = e.id
+          ) AS linked_cashflow_count,
+          e.linked_asset_id,
+          e.is_system_generated";
 
 pub(super) const EVENT_JOINS: &str = "
         JOIN account a ON a.id = e.account_id
@@ -92,6 +117,7 @@ pub(super) fn map_event_row(
     row: &rusqlite::Row,
 ) -> rusqlite::Result<crate::features::transactions::models::EventWithData> {
     use crate::features::transactions::models::EventWithData;
+    let linked_cashflow_count: i64 = row.get(30)?;
     Ok(EventWithData {
         id: row.get(0)?,
         account_id: row.get(1)?,
@@ -121,6 +147,12 @@ pub(super) fn map_event_row(
         vat_deductible_pct_bps: row.get(25)?,
         expense_deductible_pct_bps: row.get(26)?,
         prepaid_period_months: row.get(27)?,
+        is_linked_to_taxable: row.get(28)?,
+        linked_taxable_event_id: row.get(29)?,
+        linked_cashflow_count,
+        has_linked_cashflows: linked_cashflow_count > 0,
+        linked_asset_id: row.get(31)?,
+        is_system_generated: row.get(32)?,
     })
 }
 
@@ -2436,5 +2468,122 @@ mod tests {
             "Invoice Person",
             "account_name for default_revenue account should be the person's name"
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // Phase 6: linked_asset_id / is_system_generated mapping and guards
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn list_events_maps_linked_asset_id_and_is_system_generated() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let account_id = mk_account(&conn);
+        let event_id = create_balance_update(
+            &conn,
+            CreateBalanceUpdateParams {
+                account_id,
+                amount_minor: 1000,
+                event_date: "2026-01-01".to_owned(),
+                note: None,
+            },
+        )
+        .unwrap();
+
+        // Defaults: linked_asset_id is None, is_system_generated is false
+        let result = list_events(&conn, ListEventsQuery::default()).unwrap();
+        assert_eq!(result.events.len(), 1);
+        assert_eq!(result.events[0].linked_asset_id, None);
+        assert!(!result.events[0].is_system_generated);
+
+        // Mark the event as system-generated
+        conn.execute(
+            "UPDATE event SET is_system_generated = 1 WHERE id = ?1",
+            params![event_id],
+        )
+        .unwrap();
+
+        let result = list_events(&conn, ListEventsQuery::default()).unwrap();
+        assert!(result.events[0].is_system_generated);
+    }
+
+    #[test]
+    fn check_event_not_system_generated_rejects_system_events() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let account_id = mk_account(&conn);
+        let event_id = create_balance_update(
+            &conn,
+            CreateBalanceUpdateParams {
+                account_id,
+                amount_minor: 1000,
+                event_date: "2026-01-01".to_owned(),
+                note: None,
+            },
+        )
+        .unwrap();
+
+        // Normal event: should pass
+        assert!(check_event_not_system_generated(&conn, event_id).is_ok());
+
+        // Mark as system-generated
+        conn.execute(
+            "UPDATE event SET is_system_generated = 1 WHERE id = ?1",
+            params![event_id],
+        )
+        .unwrap();
+
+        let err = check_event_not_system_generated(&conn, event_id).unwrap_err();
+        assert_eq!(err.code, "VALIDATION");
+        assert!(err.message.contains("System-generated"));
+    }
+
+    #[test]
+    fn check_split_group_not_system_generated_rejects_system_legs() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let account_id = mk_account(&conn);
+
+        let split_group_id = create_taxable_split_group_with_legs(
+            &conn,
+            CreateTaxableSplitGroupWithLegsParams {
+                account_id,
+                event_type: "expense".to_owned(),
+                group_note: None,
+                legs: vec![
+                    TaxableEventLeg {
+                        amount_minor: -1000,
+                        event_date: "2026-01-01".to_owned(),
+                        note: None,
+                        vat_rate_bps: None,
+                        vat_deductible_pct_bps: None,
+                        expense_deductible_pct_bps: None,
+                        prepaid_period_months: None,
+                    },
+                    TaxableEventLeg {
+                        amount_minor: -2000,
+                        event_date: "2026-01-01".to_owned(),
+                        note: None,
+                        vat_rate_bps: None,
+                        vat_deductible_pct_bps: None,
+                        expense_deductible_pct_bps: None,
+                        prepaid_period_months: None,
+                    },
+                ],
+            },
+        )
+        .unwrap();
+
+        // Normal split group: should pass
+        assert!(check_split_group_not_system_generated(&conn, split_group_id).is_ok());
+
+        // Mark one leg as system-generated
+        conn.execute(
+            "UPDATE event SET is_system_generated = 1 \
+             WHERE id = (SELECT id FROM event WHERE split_group_id = ?1 AND deleted_at IS NULL LIMIT 1)",
+            params![split_group_id],
+        )
+        .unwrap();
+
+        let err = check_split_group_not_system_generated(&conn, split_group_id).unwrap_err();
+        assert_eq!(err.code, "VALIDATION");
+        assert!(err.message.contains("System-generated"));
     }
 }

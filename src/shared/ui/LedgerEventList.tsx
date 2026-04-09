@@ -7,9 +7,10 @@ import NumberValue from './NumberValue'
 import BucketAmountWithTooltip from '../../features/buckets/BucketAmountWithTooltip'
 import { Button } from './button'
 import { Card, CardContent } from './card'
-import { Pencil, Trash2, ArrowUpDown, Receipt, ChevronDown, TrendingUp, TrendingDown } from 'lucide-react'
+import { Pencil, Trash2, ArrowUpDown, Receipt, ChevronDown, TrendingUp, TrendingDown, CheckCircle2 } from 'lucide-react'
 import { groupSplitEvents } from './splitGroupUtils'
 import type { SplitGroupRow } from './splitGroupUtils'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './tooltip'
 
 export type { SplitGroupRow } from './splitGroupUtils'
 
@@ -237,6 +238,20 @@ const LedgerEventList = ({ events, accounts, consolidationCurrency, onEditEvent,
                             {t('events.type.cashflow')}
                           </span>
                         )}
+                        {ev.eventType === 'cashflow' && ev.isLinkedToTaxable && (
+                          <TooltipProvider delayDuration={300}>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span className="inline-flex items-center cursor-default">
+                                  <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400" />
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p className="text-xs">{t('taxable.linked')}</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        )}
                         {ev.eventType === 'revenue' && (
                           <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
                             <TrendingUp className="h-3 w-3" />
@@ -247,6 +262,25 @@ const LedgerEventList = ({ events, accounts, consolidationCurrency, onEditEvent,
                           <span className="inline-flex items-center gap-1 rounded-full bg-rose-100 px-2 py-0.5 text-xs font-medium text-rose-700 dark:bg-rose-900/30 dark:text-rose-400">
                             <TrendingDown className="h-3 w-3" />
                             {t('events.type.expense')}
+                          </span>
+                        )}
+                        {(ev.eventType === 'revenue' || ev.eventType === 'expense') && ev.hasLinkedCashflows && (
+                          <TooltipProvider delayDuration={300}>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span className="inline-flex items-center cursor-default">
+                                  <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400" />
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p className="text-xs">{t('taxable.linkedCount', { count: ev.linkedCashflowCount })}</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        )}
+                        {ev.isSystemGenerated && (
+                          <span className="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600 dark:bg-gray-800/50 dark:text-gray-400">
+                            {t('assets.systemGenerated')}
                           </span>
                         )}
                       </div>
@@ -298,25 +332,28 @@ const LedgerEventList = ({ events, accounts, consolidationCurrency, onEditEvent,
                         )}
                       </div>
                       <div className="flex items-center gap-1">
-                        {(ev.eventType === 'balance_update' || ev.eventType === 'transfer' || ev.eventType === 'revenue' || ev.eventType === 'expense') && (
-                          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => onEditEvent(ev)}>
-                            <Pencil className="h-4 w-4" />
+                        {!ev.isSystemGenerated &&
+                          (ev.eventType === 'balance_update' || ev.eventType === 'transfer' || ev.eventType === 'revenue' || ev.eventType === 'expense') && (
+                            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => onEditEvent(ev)}>
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                          )}
+                        {!ev.isSystemGenerated && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            onClick={() => {
+                              if (ev.linkedEventId !== null && onDeleteTransferEvent) {
+                                onDeleteTransferEvent(ev.id, ev.linkedEventId)
+                              } else {
+                                onDeleteEvent(ev.id)
+                              }
+                            }}
+                          >
+                            <Trash2 className="h-4 w-4" />
                           </Button>
                         )}
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8"
-                          onClick={() => {
-                            if (ev.linkedEventId !== null && onDeleteTransferEvent) {
-                              onDeleteTransferEvent(ev.id, ev.linkedEventId)
-                            } else {
-                              onDeleteEvent(ev.id)
-                            }
-                          }}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
                       </div>
                     </div>
                   </CardContent>

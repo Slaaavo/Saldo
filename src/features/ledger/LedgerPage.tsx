@@ -1,7 +1,8 @@
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
+import { useQuery } from '@tanstack/react-query'
 import type { EventWithData } from '../../shared/types'
-import { getEventById } from '../../shared/api'
+import { getEventById, getUnmatchedCashflowCount } from '../../shared/api'
 import { extractErrorMessage } from '../../shared/utils/errors'
 import { useLedgerData } from './useLedgerData'
 import LedgerEventList from '../../shared/ui/LedgerEventList'
@@ -13,16 +14,37 @@ import { useSnapshotQuery } from '../../shared/hooks/useSnapshotQuery'
 import { useConsolidationCurrencyQuery } from '../../shared/hooks/useConsolidationCurrencyQuery'
 import { useModal } from '../../app/useModal'
 import { todayIso } from '../../shared/utils/format'
+import { useSelectedPerson } from '../../app/useSelectedPerson'
 
 const LedgerPage = () => {
   const { t } = useTranslation()
   const { setModalState } = useModal()
+  const { selectedPersonId } = useSelectedPerson()
   const snapshotQuery = useSnapshotQuery(todayIso())
   const snapshot = snapshotQuery.data ?? []
   const consolidationCurrencyQuery = useConsolidationCurrencyQuery()
   const consolidationCurrency = consolidationCurrencyQuery.data ?? null
 
-  const { fromDate, setFromDate, toDate, setToDate, selectedAccountIds, setSelectedAccountIds, eventTypeFilter, setEventTypeFilter, events, loading } = useLedgerData({
+  const unmatchedCountQuery = useQuery({
+    queryKey: ['unmatched-cashflow-count', selectedPersonId],
+    queryFn: () => getUnmatchedCashflowCount(selectedPersonId ?? undefined),
+  })
+  const unmatchedCount = unmatchedCountQuery.data ?? 0
+
+  const {
+    fromDate,
+    setFromDate,
+    toDate,
+    setToDate,
+    selectedAccountIds,
+    setSelectedAccountIds,
+    eventTypeFilter,
+    setEventTypeFilter,
+    unmatchedOnly,
+    setUnmatchedOnly,
+    events,
+    loading,
+  } = useLedgerData({
     snapshot,
   })
 
@@ -130,10 +152,21 @@ const LedgerPage = () => {
             { value: 'expense', label: t('ledgerPage.filterType.expense') },
           ] as const
         ).map(({ value, label }) => (
-          <Button key={value} variant={eventTypeFilter === value ? 'default' : 'outline'} size="sm" onClick={() => setEventTypeFilter(value)}>
+          <Button
+            key={value}
+            variant={!unmatchedOnly && eventTypeFilter === value ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => {
+              setUnmatchedOnly(false)
+              setEventTypeFilter(value)
+            }}
+          >
             {label}
           </Button>
         ))}
+        <Button variant={unmatchedOnly ? 'default' : 'outline'} size="sm" onClick={() => setUnmatchedOnly(!unmatchedOnly)}>
+          {t('ledger.filterUnmatched')} ({unmatchedCount})
+        </Button>
       </div>
 
       {loading ? (

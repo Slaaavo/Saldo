@@ -1,3 +1,4 @@
+use crate::error::AppError;
 use crate::features::transactions::models::{EventWithData, ListEventsResult};
 use rusqlite::{params, Connection, OptionalExtension};
 
@@ -11,6 +12,7 @@ pub struct ListEventsQuery {
     pub limit: Option<i64>,
     pub bucket_ids: Option<Vec<i64>>,
     pub person_id: Option<i64>,
+    pub unmatched_only: bool,
 }
 
 pub fn list_events(
@@ -25,6 +27,7 @@ pub fn list_events(
     let limit = query.limit;
     let bucket_ids = query.bucket_ids.as_deref();
     let person_id = query.person_id;
+    let unmatched_only = query.unmatched_only;
     let base = format!(
         "FROM event e {} WHERE e.deleted_at IS NULL",
         super::EVENT_JOINS
@@ -43,12 +46,16 @@ pub fn list_events(
         let acct_placeholders = std::iter::repeat_n("?", acct_ids.len())
             .collect::<Vec<_>>()
             .join(", ");
+        let linked_placeholders = acct_placeholders.clone();
         let bkt_placeholders = std::iter::repeat_n("?", bkt_ids.len())
             .collect::<Vec<_>>()
             .join(", ");
         where_suffix.push_str(&format!(
-            " AND (e.account_id IN ({acct_placeholders}) OR ed.bucket_id IN ({bkt_placeholders}))"
+            " AND (e.account_id IN ({acct_placeholders}) OR e.linked_asset_id IN ({linked_placeholders}) OR ed.bucket_id IN ({bkt_placeholders}))"
         ));
+        for &id in acct_ids {
+            params.push(Box::new(id));
+        }
         for &id in acct_ids {
             params.push(Box::new(id));
         }
@@ -60,7 +67,11 @@ pub fn list_events(
         let placeholders = std::iter::repeat_n("?", ids.len())
             .collect::<Vec<_>>()
             .join(", ");
-        where_suffix.push_str(&format!(" AND e.account_id IN ({placeholders})"));
+        let linked_placeholders = placeholders.clone();
+        where_suffix.push_str(&format!(" AND (e.account_id IN ({placeholders}) OR e.linked_asset_id IN ({linked_placeholders}))"));
+        for &id in ids {
+            params.push(Box::new(id));
+        }
         for &id in ids {
             params.push(Box::new(id));
         }
@@ -74,7 +85,8 @@ pub fn list_events(
             params.push(Box::new(id));
         }
     } else if let Some(id) = account_id {
-        where_suffix.push_str(" AND e.account_id = ?");
+        where_suffix.push_str(" AND (e.account_id = ? OR e.linked_asset_id = ?)");
+        params.push(Box::new(id));
         params.push(Box::new(id));
     }
 
@@ -103,6 +115,17 @@ pub fn list_events(
     if let Some(pid) = person_id {
         where_suffix.push_str(" AND a.person_id = ?");
         params.push(Box::new(pid));
+    }
+
+    if unmatched_only {
+        where_suffix.push_str(
+            " AND e.event_type = 'cashflow' \
+             AND NOT EXISTS ( \
+               SELECT 1 FROM taxable_cashflow_link tcl \
+               JOIN event te ON te.id = tcl.taxable_event_id AND te.deleted_at IS NULL \
+               WHERE tcl.cashflow_event_id = e.id \
+             )",
+        );
     }
 
     // Count query: same conditions, no ORDER BY or LIMIT
@@ -147,4 +170,55 @@ pub fn get_event_by_id(
     );
     conn.query_row(&sql, params![event_id], super::map_event_row)
         .optional()
+}
+
+/// Returns a VALIDATION error if the event with `event_id` has `is_system_generated = 1`.
+pub fn check_event_not_system_generated(conn: &Connection, event_id: i64) -> Result<(), AppError> {
+    let is_system_generated: Option<bool> = conn
+        .query_row(
+            "SELECT is_system_generated FROM event WHERE id = ?1",
+            params![event_id],
+            |row| row.get::<_, bool>(0),
+        )
+        .optional()
+        .map_err(AppError::from)?;
+
+    match is_system_generated {
+        None => Err(AppError {
+            code: "NOT_FOUND".into(),
+            message: "Event not found".into(),
+        }),
+        Some(true) => Err(AppError {
+            code: "VALIDATION".into(),
+            message: "System-generated events cannot be modified".into(),
+        }),
+        Some(false) => Ok(()),
+    }
+}
+
+/// Returns a VALIDATION error if any non-deleted leg of `split_group_id` is system-generated.
+pub fn check_split_group_not_system_generated(
+    conn: &Connection,
+    split_group_id: i64,
+) -> Result<(), AppError> {
+    let has_system_generated: bool = conn
+        .query_row(
+            "SELECT EXISTS(\
+               SELECT 1 FROM event \
+               WHERE split_group_id = ?1 \
+               AND deleted_at IS NULL \
+               AND is_system_generated = 1\
+             )",
+            params![split_group_id],
+            |row| row.get(0),
+        )
+        .map_err(AppError::from)?;
+
+    if has_system_generated {
+        return Err(AppError {
+            code: "VALIDATION".into(),
+            message: "System-generated events cannot be modified".into(),
+        });
+    }
+    Ok(())
 }

@@ -75,6 +75,10 @@ assets:
   updateValue: Update Value
   empty: No assets yet.
   equity: Equity
+  systemGenerated: "System-generated (read-only)"
+  depreciationNote: "Depreciation: {{assetName}} ({{month}}/{{year}})"
+  validationDepreciationRequiresPrice: "Purchase price is required when depreciation period is set"
+  validationDepreciationRequiresDate: "Purchase date is required when depreciation period is set"
 
 # ──── Ledger ────
 ledger:
@@ -84,6 +88,7 @@ ledger:
   empty: No events to display.
   valueUpdate: Value update
   viewAll: "Showing {{shown}} of {{total}} events. View all"
+  filterUnmatched: "Unmatched cashflows"
   splitGroup:
     badge: "Split ×{{n}}"
     splitLabel: "Split {{n}}"
@@ -646,3 +651,9 @@ taxable:
   showAll: Show all
   linkCashflow: Link
   noEligibleCashflows: No eligible cashflows
+  linked: Linked
+  linkedCount: Linked to {{count}} cashflow(s)
+  cashflowPickerTrigger: Select cashflows
+  cashflowPickerCount: "{{count}} selected"
+  cashflowPickerEligible: Matching
+  cashflowPickerOther: Other cashflows

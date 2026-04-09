@@ -84,7 +84,7 @@ pub struct UpdateTaxableSplitGroupParams {
 // The trigger trg_eventdata_after_insert automatically updates event.latest_data_id.
 // ---------------------------------------------------------------------------
 #[allow(clippy::too_many_arguments)]
-fn insert_taxable_event_data(
+pub(crate) fn insert_taxable_event_data(
     conn: &Connection,
     event_id: i64,
     amount_minor: i64,

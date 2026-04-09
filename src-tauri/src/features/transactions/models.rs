@@ -34,6 +34,12 @@ pub struct EventWithData {
     pub vat_deductible_pct_bps: Option<i64>,
     pub expense_deductible_pct_bps: Option<i64>,
     pub prepaid_period_months: Option<i64>,
+    pub is_linked_to_taxable: bool,
+    pub linked_taxable_event_id: Option<i64>,
+    pub has_linked_cashflows: bool,
+    pub linked_cashflow_count: i64,
+    pub linked_asset_id: Option<i64>,
+    pub is_system_generated: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

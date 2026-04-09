@@ -80,14 +80,12 @@ pub fn create_account(
             message: "Depreciation fields can only be set on asset accounts".into(),
         });
     }
-    if let Some(months) = input.depreciation_period_months {
-        if months < 0 {
-            return Err(AppError {
-                code: "VALIDATION".into(),
-                message: "depreciation_period_months must be >= 0".into(),
-            });
-        }
-    }
+    // Normalize: treat Some(0) as no depreciation (None)
+    let depreciation_period_months = validate_and_normalize_depreciation(
+        input.depreciation_period_months,
+        input.purchase_price_minor,
+        input.purchase_date.as_deref(),
+    )?;
     // IBAN is only valid for regular accounts
     if input.iban.as_ref().is_some_and(|v| !v.is_empty()) && account_type != "account" {
         return Err(AppError {
@@ -114,7 +112,7 @@ pub fn create_account(
             person_id: input.person_id,
             purchase_price_minor: input.purchase_price_minor,
             purchase_date: input.purchase_date.clone(),
-            depreciation_period_months: input.depreciation_period_months,
+            depreciation_period_months,
         },
     )?;
 
@@ -125,6 +123,11 @@ pub fn create_account(
                 crate::features::assets::repository::set_account_asset_links(&conn, id, asset_ids)?;
             }
         }
+    }
+
+    // Generate depreciation events immediately for new asset accounts.
+    if account_type == "asset" {
+        crate::features::transactions::repository::recalculate_depreciation_for_asset(&conn, id)?;
     }
 
     Ok(id)
@@ -141,6 +144,11 @@ pub fn update_account(
             message: "Account name is required".into(),
         });
     }
+    let depreciation_period_months = validate_and_normalize_depreciation(
+        input.depreciation_period_months,
+        input.purchase_price_minor,
+        input.purchase_date.as_deref(),
+    )?;
     let conn = state.conn()?;
     repository::update_account(
         &conn,
@@ -151,9 +159,21 @@ pub fn update_account(
             person_id: input.person_id,
             purchase_price_minor: input.purchase_price_minor,
             purchase_date: input.purchase_date.clone(),
-            depreciation_period_months: input.depreciation_period_months,
+            depreciation_period_months,
         },
     )?;
+
+    // If this is an asset account, recalculate depreciation events so they stay
+    // in sync with any metadata change (price, date, period — or clearing them).
+    let account_type =
+        repository::get_account_type(&conn, input.account_id).map_err(AppError::from)?;
+    if account_type.as_deref() == Some("asset") {
+        crate::features::transactions::repository::recalculate_depreciation_for_asset(
+            &conn,
+            input.account_id,
+        )?;
+    }
+
     Ok(())
 }
 
@@ -183,4 +203,89 @@ pub fn update_sort_order(
         .collect();
     repository::update_sort_order(&conn, repository::UpdateSortOrderParams { updates: pairs })?;
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Validation helpers
+// ---------------------------------------------------------------------------
+
+/// Normalises `depreciation_period_months` (`Some(0)` → `None`) and validates
+/// that when a positive period is set the purchase price and date are also provided.
+fn validate_and_normalize_depreciation(
+    depreciation_period_months: Option<i64>,
+    purchase_price_minor: Option<i64>,
+    purchase_date: Option<&str>,
+) -> Result<Option<i64>, AppError> {
+    // Some(0) means "no depreciation" — treat as None so the DB stores NULL.
+    let months = depreciation_period_months.and_then(|m| if m == 0 { None } else { Some(m) });
+    if let Some(n) = months {
+        if n < 0 {
+            return Err(AppError {
+                code: "VALIDATION".into(),
+                message: "Depreciation period cannot be negative".into(),
+            });
+        }
+    }
+    if months.is_some() {
+        if purchase_price_minor.is_none() {
+            return Err(AppError {
+                code: "VALIDATION".into(),
+                message: "Purchase price is required when depreciation period is set".into(),
+            });
+        }
+        if purchase_date.is_none() {
+            return Err(AppError {
+                code: "VALIDATION".into(),
+                message: "Purchase date is required when depreciation period is set".into(),
+            });
+        }
+    }
+    Ok(months)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn depreciation_zero_normalizes_to_none() {
+        let result = validate_and_normalize_depreciation(Some(0), None, None).unwrap();
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn depreciation_positive_requires_price() {
+        let err =
+            validate_and_normalize_depreciation(Some(12), None, Some("2026-01-01")).unwrap_err();
+        assert_eq!(err.code, "VALIDATION");
+        assert!(err.message.contains("price"));
+    }
+
+    #[test]
+    fn depreciation_positive_requires_date() {
+        let err = validate_and_normalize_depreciation(Some(12), Some(100_000), None).unwrap_err();
+        assert_eq!(err.code, "VALIDATION");
+        assert!(err.message.contains("date"));
+    }
+
+    #[test]
+    fn depreciation_positive_with_all_fields_is_valid() {
+        let result =
+            validate_and_normalize_depreciation(Some(12), Some(100_000), Some("2026-01-01"))
+                .unwrap();
+        assert_eq!(result, Some(12));
+    }
+
+    #[test]
+    fn depreciation_none_is_valid_without_price_or_date() {
+        let result = validate_and_normalize_depreciation(None, None, None).unwrap();
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn update_account_rejects_negative_depreciation_period() {
+        let err = validate_and_normalize_depreciation(Some(-3), None, None).unwrap_err();
+        assert_eq!(err.code, "VALIDATION");
+        assert!(err.message.contains("negative"));
+    }
 }

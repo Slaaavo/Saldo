@@ -163,6 +163,12 @@ pub fn update_person(conn: &Connection, params: UpdatePersonParams) -> Result<()
     Ok(())
 }
 
+/// Returns the default expense account ID for the given person.
+/// Returns NOT_FOUND if the person does not exist, DOMAIN_ERROR if the FK is NULL.
+pub fn get_default_expense_account_id(conn: &Connection, person_id: i64) -> Result<i64, AppError> {
+    resolve_default_taxable_account(conn, person_id, "expense")
+}
+
 pub fn get_person_accounts(conn: &Connection, person_id: i64) -> rusqlite::Result<Vec<i64>> {
     let mut stmt = conn.prepare("SELECT id FROM account WHERE person_id = ?1")?;
     let rows = stmt.query_map(params![person_id], |row| row.get(0))?;

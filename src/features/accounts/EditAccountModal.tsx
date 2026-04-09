@@ -7,6 +7,7 @@ import { fromMinorUnits, toMinorUnits } from '../../shared/utils/format'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogBody, DialogFooter } from '../../shared/ui/dialog'
 import { Button } from '../../shared/ui/button'
 import { Input } from '../../shared/ui/input'
+import { DatePicker } from '../../shared/ui/date-picker'
 import { Label } from '../../shared/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../shared/ui/select'
 import { CurrencyInput } from '../../shared/ui/CurrencyInput'
@@ -130,7 +131,7 @@ const EditAccountModal = ({
                 </div>
                 <div className="flex flex-col gap-2">
                   <Label htmlFor="edit-purchase-date">{t('modals.assetDepreciation.purchaseDate')}</Label>
-                  <Input id="edit-purchase-date" type="date" value={purchaseDate} onChange={(e) => setPurchaseDate(e.target.value)} />
+                  <DatePicker id="edit-purchase-date" value={purchaseDate} onChange={setPurchaseDate} />
                 </div>
                 <div className="flex flex-col gap-2">
                   <Label htmlFor="edit-depreciation-period">{t('modals.assetDepreciation.depreciationPeriodMonths')}</Label>

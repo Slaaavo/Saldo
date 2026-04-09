@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogBody, DialogFoo
 import { Button } from '../../shared/ui/button'
 import { CurrencyInput } from '../../shared/ui/CurrencyInput'
 import { Input } from '../../shared/ui/input'
+import { DatePicker } from '../../shared/ui/date-picker'
 import { Label } from '../../shared/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../shared/ui/select'
 import CurrencySelect from '../currency/CurrencySelect'
@@ -284,7 +285,7 @@ const CreateAssetModal = ({ onSuccess, onClose }: Props) => {
                   </div>
                   <div className="flex flex-col gap-2">
                     <Label htmlFor="create-asset-purchase-date">{t('modals.assetDepreciation.purchaseDate')}</Label>
-                    <Input id="create-asset-purchase-date" type="date" value={purchaseDate} onChange={(e) => setPurchaseDate(e.target.value)} />
+                    <DatePicker id="create-asset-purchase-date" value={purchaseDate} onChange={setPurchaseDate} />
                   </div>
                   <div className="flex flex-col gap-2">
                     <Label htmlFor="create-asset-depreciation-period">{t('modals.assetDepreciation.depreciationPeriodMonths')}</Label>

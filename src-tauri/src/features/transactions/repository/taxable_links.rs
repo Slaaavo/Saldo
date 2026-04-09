@@ -236,6 +236,32 @@ pub fn list_eligible_cashflows(
     rows.collect()
 }
 
+/// Count cashflow events (not deleted) with no row in `taxable_cashflow_link`
+/// pointing to a non-deleted taxable event. Optionally filtered by person.
+pub fn count_unmatched_cashflows(
+    conn: &Connection,
+    person_id: Option<i64>,
+) -> rusqlite::Result<i64> {
+    let mut sql = "SELECT COUNT(*)
+         FROM event e
+         JOIN account a ON a.id = e.account_id
+         WHERE e.deleted_at IS NULL
+           AND e.event_type = 'cashflow'
+           AND NOT EXISTS (
+             SELECT 1 FROM taxable_cashflow_link tcl
+             JOIN event te ON te.id = tcl.taxable_event_id AND te.deleted_at IS NULL
+             WHERE tcl.cashflow_event_id = e.id
+           )"
+    .to_string();
+
+    if let Some(pid) = person_id {
+        sql.push_str(" AND a.person_id = ?1");
+        conn.query_row(&sql, params![pid], |row| row.get(0))
+    } else {
+        conn.query_row(&sql, [], |row| row.get(0))
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -530,5 +556,212 @@ mod tests {
             1,
             "cashflow should be eligible since linked taxable is deleted"
         );
+    }
+
+    #[test]
+    fn count_unmatched_cashflows_basic() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let person_id = mk_person(&conn, "Alice");
+        let account_id = mk_account(&conn, person_id);
+
+        // No cashflows yet — count should be 0
+        let count = count_unmatched_cashflows(&conn, None).expect("count failed");
+        assert_eq!(count, 0);
+
+        // Add two unlinked cashflows
+        let cf1 = mk_cashflow(&conn, account_id, 1000);
+        let cf2 = mk_cashflow(&conn, account_id, 2000);
+        let _ = cf2;
+
+        let count = count_unmatched_cashflows(&conn, None).expect("count failed");
+        assert_eq!(count, 2);
+
+        // Link one cashflow to a taxable event
+        let taxable_id = mk_expense(&conn, person_id, 1000);
+        link_cashflows_to_taxable(
+            &conn,
+            LinkCashflowsParams {
+                taxable_event_id: taxable_id,
+                cashflow_event_ids: vec![cf1],
+            },
+        )
+        .expect("link should succeed");
+
+        let count = count_unmatched_cashflows(&conn, None).expect("count failed");
+        assert_eq!(count, 1, "only one cashflow should remain unmatched");
+    }
+
+    #[test]
+    fn count_unmatched_cashflows_person_filter() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let person_a = mk_person(&conn, "Alice");
+        let person_b = mk_person(&conn, "Bob");
+        let acct_a = mk_account(&conn, person_a);
+        let acct_b = mk_account(&conn, person_b);
+
+        mk_cashflow(&conn, acct_a, 1000);
+        mk_cashflow(&conn, acct_b, 2000);
+        mk_cashflow(&conn, acct_b, 3000);
+
+        let count_all = count_unmatched_cashflows(&conn, None).expect("count all failed");
+        assert_eq!(count_all, 3);
+
+        let count_a = count_unmatched_cashflows(&conn, Some(person_a)).expect("count a failed");
+        assert_eq!(count_a, 1);
+
+        let count_b = count_unmatched_cashflows(&conn, Some(person_b)).expect("count b failed");
+        assert_eq!(count_b, 2);
+    }
+
+    #[test]
+    fn list_events_unmatched_only_filter() {
+        use crate::features::transactions::repository::queries::{list_events, ListEventsQuery};
+
+        let conn = initialize_in_memory().expect("DB init failed");
+        let person_id = mk_person(&conn, "Alice");
+        let account_id = mk_account(&conn, person_id);
+
+        let cf1 = mk_cashflow(&conn, account_id, 1000);
+        let cf2 = mk_cashflow(&conn, account_id, 2000);
+        let taxable_id = mk_expense(&conn, person_id, 1000);
+
+        // Link cf1 to the taxable event
+        link_cashflows_to_taxable(
+            &conn,
+            LinkCashflowsParams {
+                taxable_event_id: taxable_id,
+                cashflow_event_ids: vec![cf1],
+            },
+        )
+        .expect("link should succeed");
+
+        let result = list_events(
+            &conn,
+            ListEventsQuery {
+                unmatched_only: true,
+                ..Default::default()
+            },
+        )
+        .expect("list_events failed");
+
+        // Only cf2 should appear — cf1 is linked, taxable event is not a cashflow
+        assert_eq!(result.events.len(), 1);
+        assert_eq!(result.events[0].id, cf2);
+    }
+
+    #[test]
+    fn list_events_returns_is_linked_to_taxable_for_linked_cashflow() {
+        use crate::features::transactions::repository::queries::{list_events, ListEventsQuery};
+
+        let conn = initialize_in_memory().expect("DB init failed");
+        let person_id = mk_person(&conn, "Alice");
+        let account_id = mk_account(&conn, person_id);
+
+        let cashflow_id = mk_cashflow(&conn, account_id, 5000);
+        let taxable_id = mk_expense(&conn, person_id, 5000);
+
+        // Before linking — should be false
+        let result_before = list_events(&conn, ListEventsQuery::default()).expect("list failed");
+        let cf_before = result_before
+            .events
+            .iter()
+            .find(|e| e.id == cashflow_id)
+            .unwrap();
+        assert!(!cf_before.is_linked_to_taxable);
+        assert!(cf_before.linked_taxable_event_id.is_none());
+
+        link_cashflows_to_taxable(
+            &conn,
+            LinkCashflowsParams {
+                taxable_event_id: taxable_id,
+                cashflow_event_ids: vec![cashflow_id],
+            },
+        )
+        .expect("link should succeed");
+
+        // After linking — cashflow should be marked as linked
+        let result_after = list_events(&conn, ListEventsQuery::default()).expect("list failed");
+        let cf_after = result_after
+            .events
+            .iter()
+            .find(|e| e.id == cashflow_id)
+            .unwrap();
+        assert!(cf_after.is_linked_to_taxable);
+        assert_eq!(cf_after.linked_taxable_event_id, Some(taxable_id));
+    }
+
+    #[test]
+    fn list_events_returns_has_linked_cashflows_and_count_for_taxable() {
+        use crate::features::transactions::repository::queries::{list_events, ListEventsQuery};
+
+        let conn = initialize_in_memory().expect("DB init failed");
+        let person_id = mk_person(&conn, "Alice");
+        let account_id = mk_account(&conn, person_id);
+
+        let cf1 = mk_cashflow(&conn, account_id, 3000);
+        let cf2 = mk_cashflow(&conn, account_id, 2000);
+        let taxable_id = mk_expense(&conn, person_id, 5000);
+
+        // Before linking
+        let result_before = list_events(&conn, ListEventsQuery::default()).expect("list failed");
+        let tx_before = result_before
+            .events
+            .iter()
+            .find(|e| e.id == taxable_id)
+            .unwrap();
+        assert!(!tx_before.has_linked_cashflows);
+        assert_eq!(tx_before.linked_cashflow_count, 0);
+
+        link_cashflows_to_taxable(
+            &conn,
+            LinkCashflowsParams {
+                taxable_event_id: taxable_id,
+                cashflow_event_ids: vec![cf1, cf2],
+            },
+        )
+        .expect("link should succeed");
+
+        // After linking — taxable event should report 2 linked cashflows
+        let result_after = list_events(&conn, ListEventsQuery::default()).expect("list failed");
+        let tx_after = result_after
+            .events
+            .iter()
+            .find(|e| e.id == taxable_id)
+            .unwrap();
+        assert!(tx_after.has_linked_cashflows);
+        assert_eq!(tx_after.linked_cashflow_count, 2);
+    }
+
+    #[test]
+    fn link_status_reverts_to_false_after_unlink() {
+        use crate::features::transactions::repository::queries::{list_events, ListEventsQuery};
+
+        let conn = initialize_in_memory().expect("DB init failed");
+        let person_id = mk_person(&conn, "Alice");
+        let account_id = mk_account(&conn, person_id);
+
+        let cashflow_id = mk_cashflow(&conn, account_id, 5000);
+        let taxable_id = mk_expense(&conn, person_id, 5000);
+
+        link_cashflows_to_taxable(
+            &conn,
+            LinkCashflowsParams {
+                taxable_event_id: taxable_id,
+                cashflow_event_ids: vec![cashflow_id],
+            },
+        )
+        .expect("link should succeed");
+
+        unlink_cashflow_from_taxable(&conn, taxable_id, cashflow_id)
+            .expect("unlink should succeed");
+
+        let result = list_events(&conn, ListEventsQuery::default()).expect("list failed");
+        let cf = result.events.iter().find(|e| e.id == cashflow_id).unwrap();
+        assert!(!cf.is_linked_to_taxable);
+        assert!(cf.linked_taxable_event_id.is_none());
+
+        let tx = result.events.iter().find(|e| e.id == taxable_id).unwrap();
+        assert!(!tx.has_linked_cashflows);
+        assert_eq!(tx.linked_cashflow_count, 0);
     }
 }

@@ -38,6 +38,7 @@ export interface ListEventsFilter {
   limit?: number
   eventTypes?: string[]
   personId?: number
+  unmatchedOnly?: boolean
 }
 
 export const listEvents = (filter?: ListEventsFilter): Promise<ListEventsResult> => {
@@ -51,6 +52,7 @@ export const listEvents = (filter?: ListEventsFilter): Promise<ListEventsResult>
       limit: filter?.limit ?? null,
       eventTypes: filter?.eventTypes ?? null,
       personId: filter?.personId ?? null,
+      unmatchedOnly: filter?.unmatchedOnly ?? null,
     },
   })
 }
@@ -512,4 +514,8 @@ export const listEligibleCashflows = (personId: number, amountMinor?: number, ex
       excludeAlreadyLinked: excludeAlreadyLinked ?? false,
     },
   })
+}
+
+export const getUnmatchedCashflowCount = (personId?: number): Promise<number> => {
+  return invoke('get_unmatched_cashflow_count', { personId: personId ?? null })
 }

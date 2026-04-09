@@ -47,6 +47,28 @@ pub fn local_now() -> String {
     chrono::Local::now().format("%Y-%m-%d").to_string()
 }
 
+/// Returns the last calendar day of the given month, handling leap years.
+pub fn last_day_of_month(year: i32, month: u32) -> u32 {
+    match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 => {
+            if (year % 4 == 0 && year % 100 != 0) || year % 400 == 0 {
+                29
+            } else {
+                28
+            }
+        }
+        _ => panic!("last_day_of_month: invalid month {}", month),
+    }
+}
+
+/// Returns `"YYYY-MM-DDT23:59:59"` where DD is the last calendar day of the given month.
+pub fn format_end_of_month(year: i32, month: u32) -> String {
+    let last_day = last_day_of_month(year, month);
+    format!("{:04}-{:02}-{:02}T23:59:59", year, month, last_day)
+}
+
 pub fn validate_event_date(date_str: &str) -> Result<(), AppError> {
     if date_str.is_empty() {
         return Err(AppError {

@@ -5,7 +5,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { EventWithData } from '../../shared/types'
 import { fromMinorUnits, toMinorUnits, getMinorUnitsStep, pctToBps, bpsToPct } from '../../shared/utils/format'
 import { extractErrorMessage } from '../../shared/utils/errors'
-import { updateTaxableEvent, listLinkedCashflows, listEligibleCashflows, linkCashflowsToTaxable, unlinkCashflowFromTaxable, listPersons } from '../../shared/api'
+import { updateTaxableEvent, listLinkedCashflows, linkCashflowsToTaxable, unlinkCashflowFromTaxable, listPersons } from '../../shared/api'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogBody, DialogFooter } from '../../shared/ui/dialog'
 import { Button } from '../../shared/ui/button'
 import { CurrencyInput } from '../../shared/ui/CurrencyInput'
@@ -14,6 +14,7 @@ import { PercentageInput } from '../../shared/ui/PercentageInput'
 import { Label } from '../../shared/ui/label'
 import { DatePicker } from '../../shared/ui/date-picker'
 import NumberValue from '../../shared/ui/NumberValue'
+import CashflowPicker from './CashflowPicker'
 
 interface Props {
   event: EventWithData
@@ -38,7 +39,6 @@ const EditTaxableEventModal = ({ event, onClose }: Props) => {
   const [prepaidPeriodMonths, setPrepaidPeriodMonths] = useState(event.prepaidPeriodMonths !== null ? String(event.prepaidPeriodMonths) : '')
   const [note, setNote] = useState(event.note ?? '')
   const [submitting, setSubmitting] = useState(false)
-  const [showAllCashflows, setShowAllCashflows] = useState(false)
 
   // Resolve person_id from persons list — needed for eligible cashflows query
   const { data: persons = [] } = useQuery({ queryKey: ['persons'], queryFn: listPersons })
@@ -49,18 +49,13 @@ const EditTaxableEventModal = ({ event, onClose }: Props) => {
     queryFn: () => listLinkedCashflows(event.id),
   })
 
-  const eligibleCashflowsQuery = useQuery({
-    queryKey: ['eligible-cashflows', personId, showAllCashflows, event.amountMinor],
-    queryFn: () => (personId !== null ? listEligibleCashflows(personId, showAllCashflows ? undefined : event.amountMinor, true) : Promise.resolve([])),
-    enabled: personId !== null,
-  })
-
   const handleLink = async (cashflowId: number) => {
     try {
       await linkCashflowsToTaxable(event.id, [cashflowId])
       await queryClient.invalidateQueries({ queryKey: ['linked-cashflows', event.id] })
       await queryClient.invalidateQueries({ queryKey: ['eligible-cashflows'] })
       await queryClient.invalidateQueries({ queryKey: ['events'] })
+      await queryClient.invalidateQueries({ queryKey: ['unmatched-cashflow-count'] })
     } catch (err) {
       toast.error(extractErrorMessage(err))
     }
@@ -72,6 +67,7 @@ const EditTaxableEventModal = ({ event, onClose }: Props) => {
       await queryClient.invalidateQueries({ queryKey: ['linked-cashflows', event.id] })
       await queryClient.invalidateQueries({ queryKey: ['eligible-cashflows'] })
       await queryClient.invalidateQueries({ queryKey: ['events'] })
+      await queryClient.invalidateQueries({ queryKey: ['unmatched-cashflow-count'] })
     } catch (err) {
       toast.error(extractErrorMessage(err))
     }
@@ -109,7 +105,6 @@ const EditTaxableEventModal = ({ event, onClose }: Props) => {
   }
 
   const linkedCashflows = linkedCashflowsQuery.data ?? []
-  const eligibleCashflows = eligibleCashflowsQuery.data ?? []
 
   return (
     <Dialog
@@ -262,35 +257,15 @@ const EditTaxableEventModal = ({ event, onClose }: Props) => {
                 <p className="text-xs text-muted-foreground">{t('taxable.noLinkedCashflows')}</p>
               )}
 
-              {/* Eligible cashflows picker */}
+              {/* Cashflow picker */}
               {personId !== null && (
-                <div className="flex flex-col gap-1">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-medium text-muted-foreground">{t('taxable.eligibleCashflows')}</span>
-                    <button type="button" onClick={() => setShowAllCashflows((v) => !v)} className="text-xs text-primary underline-offset-2 hover:underline">
-                      {showAllCashflows ? t('taxable.showMatchingOnly') : t('taxable.showAll')}
-                    </button>
-                  </div>
-
-                  {eligibleCashflowsQuery.isLoading ? (
-                    <p className="text-xs text-muted-foreground">{t('common.loading')}</p>
-                  ) : eligibleCashflows.length === 0 ? (
-                    <p className="text-xs text-muted-foreground">{t('taxable.noEligibleCashflows')}</p>
-                  ) : (
-                    <ul className="flex flex-col gap-1 max-h-40 overflow-y-auto">
-                      {eligibleCashflows.map((cf) => (
-                        <li key={cf.id} className="flex items-center justify-between text-sm gap-2 rounded border px-2 py-1">
-                          <span className="text-muted-foreground">{cf.eventDate.slice(0, 10)}</span>
-                          <NumberValue value={cf.amountMinor} minorUnits={cf.currencyMinorUnits} currencyCode={cf.currencyCode} className="font-medium tabular-nums" />
-                          {cf.note && <span className="flex-1 truncate text-muted-foreground">{cf.note}</span>}
-                          <Button type="button" size="sm" variant="outline" onClick={() => handleLink(cf.id)} className="h-6 px-2 text-xs">
-                            {t('taxable.linkCashflow')}
-                          </Button>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
+                <CashflowPicker
+                  personId={personId}
+                  eligibleAmountMinor={isExpense ? -event.amountMinor : event.amountMinor}
+                  onLink={handleLink}
+                  currencyMinorUnits={minorUnits}
+                  currencyCode={event.currencyCode}
+                />
               )}
             </div>
           </DialogBody>

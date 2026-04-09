@@ -74,6 +74,10 @@ assets:
   updateValue: Aktualizovať hodnotu
   empty: Zatiaľ žiadne aktíva.
   equity: Vlastný kapitál
+  systemGenerated: "Automaticky generované (iba na čítanie)"
+  depreciationNote: "Odpis: {{assetName}} ({{month}}/{{year}})"
+  validationDepreciationRequiresPrice: "Kúpna cena je povinná, keď je nastavená doba odpisovania"
+  validationDepreciationRequiresDate: "Dátum kúpy je povinný, keď je nastavená doba odpisovania"
 
 # ──── Účtovná kniha ────
 ledger:
@@ -83,6 +87,7 @@ ledger:
   empty: Žiadne udalosti na zobrazenie.
   valueUpdate: Aktualizácia hodnoty
   viewAll: "Zobrazených {{shown}} z {{total}} udalostí. Zobraziť všetko"
+  filterUnmatched: "Nespárované transakcie"
   splitGroup:
     badge: "Rozdelené ×{{n}}"
     splitLabel: "Časť {{n}}"
@@ -603,6 +608,12 @@ taxable:
   showAll: Zobraziť všetky
   linkCashflow: Prepojiť
   noEligibleCashflows: Žiadne vhodné peňažné toky
+  linked: Prepojené
+  linkedCount: Prepojené s {{count}} peňažným(i) tokom(okmi)
+  cashflowPickerTrigger: Vybrať transakcie
+  cashflowPickerCount: "{{count}} vybraných"
+  cashflowPickerEligible: Zodpovedajúce
+  cashflowPickerOther: Ostatné transakcie
 
 # ──── Výber jazyka ────
 language:

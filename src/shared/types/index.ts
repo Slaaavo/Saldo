@@ -128,6 +128,12 @@ export interface EventWithData {
   vatDeductiblePctBps: number | null
   expenseDeductiblePctBps: number | null
   prepaidPeriodMonths: number | null
+  isLinkedToTaxable: boolean
+  linkedTaxableEventId: number | null
+  hasLinkedCashflows: boolean
+  linkedCashflowCount: number
+  linkedAssetId: number | null
+  isSystemGenerated: boolean
 }
 
 export interface ListEventsResult {

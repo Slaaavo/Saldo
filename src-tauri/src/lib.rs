@@ -145,6 +145,11 @@ pub fn run() {
 
             let conn = db::initialize_db(&db_path).expect("failed to initialize database");
 
+            if let Err(e) = features::transactions::repository::generate_depreciation_events(&conn)
+            {
+                eprintln!("Depreciation check failed: {}", e.message);
+            }
+
             app.manage(AppState {
                 db: Mutex::new(conn),
                 persistent_db: Mutex::new(None),
@@ -231,6 +236,7 @@ pub fn run() {
             features::unlink_cashflow_from_taxable,
             features::list_linked_cashflows,
             features::list_eligible_cashflows,
+            features::get_unmatched_cashflow_count,
         ])
         .run({
             let mut ctx = tauri::generate_context!();

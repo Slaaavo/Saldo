@@ -14,6 +14,7 @@ export const useLedgerData = ({ snapshot }: UseLedgerDataOptions = {}) => {
   const [toDate, setToDate] = useState('')
   const [selectedAccountIds, setSelectedAccountIds] = useState<number[]>([])
   const [eventTypeFilter, setEventTypeFilter] = useState<string>('all')
+  const [unmatchedOnly, setUnmatchedOnly] = useState(false)
   const { selectedPersonId } = useSelectedPerson()
 
   useEffect(() => {
@@ -34,7 +35,7 @@ export const useLedgerData = ({ snapshot }: UseLedgerDataOptions = {}) => {
   }, [snapshot])
 
   const { data, isPending, isFetching } = useQuery({
-    queryKey: ['events', 'ledger', fromDate, toDate, selectedAccountIds, eventTypeFilter, selectedPersonId],
+    queryKey: ['events', 'ledger', fromDate, toDate, selectedAccountIds, eventTypeFilter, unmatchedOnly, selectedPersonId],
     queryFn: async () => {
       const filter: Parameters<typeof listEvents>[0] = {}
       if (fromDate) filter.fromDate = `${fromDate}T00:00:00`
@@ -46,7 +47,11 @@ export const useLedgerData = ({ snapshot }: UseLedgerDataOptions = {}) => {
         // Bucket IDs additionally go to bucketIds (for cashflows tagged to the bucket)
         if (bucketFilterIds.length > 0) filter.bucketIds = bucketFilterIds
       }
-      if (eventTypeFilter !== 'all') filter.eventTypes = [eventTypeFilter]
+      if (unmatchedOnly) {
+        filter.unmatchedOnly = true
+      } else if (eventTypeFilter !== 'all') {
+        filter.eventTypes = [eventTypeFilter]
+      }
       if (selectedPersonId !== null) filter.personId = selectedPersonId
       const { events: evts } = await listEvents(filter)
       return evts
@@ -62,6 +67,8 @@ export const useLedgerData = ({ snapshot }: UseLedgerDataOptions = {}) => {
     setSelectedAccountIds,
     eventTypeFilter,
     setEventTypeFilter,
+    unmatchedOnly,
+    setUnmatchedOnly,
     events: data ?? [],
     loading: isPending || isFetching,
   }

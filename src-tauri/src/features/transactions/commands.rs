@@ -53,6 +53,7 @@ pub struct ListEventsFilter {
     pub event_types: Option<Vec<String>>,
     pub limit: Option<i64>,
     pub person_id: Option<i64>,
+    pub unmatched_only: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -165,6 +166,7 @@ pub fn list_events(
             limit: filter.limit,
             bucket_ids: filter.bucket_ids,
             person_id: filter.person_id,
+            unmatched_only: filter.unmatched_only.unwrap_or(false),
         },
     )?;
     Ok(result)
@@ -174,6 +176,7 @@ pub fn list_events(
 pub fn update_event(state: State<'_, AppState>, input: UpdateEventInput) -> Result<(), AppError> {
     crate::shared::validate_event_date(&input.event_date)?;
     let conn = state.conn()?;
+    repository::check_event_not_system_generated(&conn, input.event_id)?;
     repository::check_event_split_group_date_conflict(
         &conn,
         repository::CheckEventSplitGroupDateConflictParams {
@@ -196,6 +199,7 @@ pub fn update_event(state: State<'_, AppState>, input: UpdateEventInput) -> Resu
 #[tauri::command]
 pub fn delete_event(state: State<'_, AppState>, event_id: i64) -> Result<(), AppError> {
     let conn = state.conn()?;
+    repository::check_event_not_system_generated(&conn, event_id)?;
     repository::delete_event(&conn, event_id)?;
     Ok(())
 }
@@ -203,6 +207,7 @@ pub fn delete_event(state: State<'_, AppState>, event_id: i64) -> Result<(), App
 #[tauri::command]
 pub fn delete_split_group(state: State<'_, AppState>, split_group_id: i64) -> Result<(), AppError> {
     let conn = state.conn()?;
+    repository::check_split_group_not_system_generated(&conn, split_group_id)?;
     repository::delete_split_group(&conn, split_group_id).map_err(AppError::from)?;
     Ok(())
 }
@@ -740,6 +745,7 @@ pub fn update_taxable_event(
     )?;
     crate::shared::validate_event_date(&input.event_date)?;
     let conn = state.conn()?;
+    repository::check_event_not_system_generated(&conn, input.event_id)?;
     repository::check_event_split_group_date_conflict(
         &conn,
         repository::CheckEventSplitGroupDateConflictParams {
@@ -798,6 +804,7 @@ pub fn update_taxable_split_group(
         )?;
     }
     let conn = state.conn()?;
+    repository::check_split_group_not_system_generated(&conn, input.split_group_id)?;
     let updated_legs = input
         .updated_legs
         .into_iter()
@@ -921,4 +928,13 @@ pub fn list_eligible_cashflows(
     )
     .map_err(AppError::from)?;
     Ok(events)
+}
+
+#[tauri::command]
+pub fn get_unmatched_cashflow_count(
+    state: State<'_, AppState>,
+    person_id: Option<i64>,
+) -> Result<i64, AppError> {
+    let conn = state.conn()?;
+    repository::count_unmatched_cashflows(&conn, person_id).map_err(AppError::from)
 }
