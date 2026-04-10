@@ -6,18 +6,20 @@ import { Button } from '../../shared/ui/button'
 import { Input } from '../../shared/ui/input'
 import { Label } from '../../shared/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../shared/ui/select'
+import { Checkbox } from '../../shared/ui/checkbox'
 import { extractErrorMessage } from '../../shared/utils/errors'
 
 interface Props {
   open: boolean
   onOpenChange: (v: boolean) => void
-  onSubmit: (name: string, personType: string) => Promise<void>
+  onSubmit: (name: string, personType: string, vatPayer: boolean) => Promise<void>
 }
 
 const CreatePersonDialog = ({ open, onOpenChange, onSubmit }: Props) => {
   const { t } = useTranslation()
   const [name, setName] = useState('')
   const [personType, setPersonType] = useState('physical')
+  const [vatPayer, setVatPayer] = useState(false)
   const [submitting, setSubmitting] = useState(false)
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -28,9 +30,10 @@ const CreatePersonDialog = ({ open, onOpenChange, onSubmit }: Props) => {
     }
     setSubmitting(true)
     try {
-      await onSubmit(name.trim(), personType)
+      await onSubmit(name.trim(), personType, vatPayer)
       setName('')
       setPersonType('physical')
+      setVatPayer(false)
       setSubmitting(false)
       onOpenChange(false)
     } catch (err) {
@@ -62,6 +65,10 @@ const CreatePersonDialog = ({ open, onOpenChange, onSubmit }: Props) => {
                   <SelectItem value="legal">{t('persons.typeLegal')}</SelectItem>
                 </SelectContent>
               </Select>
+            </div>
+            <div className="flex items-center gap-2">
+              <Checkbox id="create-person-vat-payer" checked={vatPayer} onCheckedChange={(v) => setVatPayer(v === true)} />
+              <Label htmlFor="create-person-vat-payer">{t('persons.vatPayer')}</Label>
             </div>
           </DialogBody>
           <DialogFooter>

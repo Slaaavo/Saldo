@@ -14,9 +14,10 @@ pub struct CreateTaxableEventParams {
     pub event_date: String,
     pub note: Option<String>,
     pub vat_rate_bps: Option<i64>,
-    pub vat_deductible_pct_bps: Option<i64>,
+    pub vat_reclaimable_pct_bps: Option<i64>,
     pub expense_deductible_pct_bps: Option<i64>,
     pub prepaid_period_months: Option<i64>,
+    pub reclaimed_vat: Option<bool>,
 }
 
 pub struct TaxableEventLeg {
@@ -24,9 +25,10 @@ pub struct TaxableEventLeg {
     pub event_date: String,
     pub note: Option<String>,
     pub vat_rate_bps: Option<i64>,
-    pub vat_deductible_pct_bps: Option<i64>,
+    pub vat_reclaimable_pct_bps: Option<i64>,
     pub expense_deductible_pct_bps: Option<i64>,
     pub prepaid_period_months: Option<i64>,
+    pub reclaimed_vat: Option<bool>,
 }
 
 #[derive(Default)]
@@ -44,9 +46,10 @@ pub struct UpdateTaxableEventParams {
     pub event_date: String,
     pub note: Option<String>,
     pub vat_rate_bps: Option<i64>,
-    pub vat_deductible_pct_bps: Option<i64>,
+    pub vat_reclaimable_pct_bps: Option<i64>,
     pub expense_deductible_pct_bps: Option<i64>,
     pub prepaid_period_months: Option<i64>,
+    pub reclaimed_vat: Option<bool>,
 }
 
 pub struct UpdatedSplitLeg {
@@ -55,9 +58,10 @@ pub struct UpdatedSplitLeg {
     pub event_date: String,
     pub note: Option<String>,
     pub vat_rate_bps: Option<i64>,
-    pub vat_deductible_pct_bps: Option<i64>,
+    pub vat_reclaimable_pct_bps: Option<i64>,
     pub expense_deductible_pct_bps: Option<i64>,
     pub prepaid_period_months: Option<i64>,
+    pub reclaimed_vat: Option<bool>,
 }
 
 pub struct NewSplitLeg {
@@ -65,9 +69,10 @@ pub struct NewSplitLeg {
     pub event_date: String,
     pub note: Option<String>,
     pub vat_rate_bps: Option<i64>,
-    pub vat_deductible_pct_bps: Option<i64>,
+    pub vat_reclaimable_pct_bps: Option<i64>,
     pub expense_deductible_pct_bps: Option<i64>,
     pub prepaid_period_months: Option<i64>,
+    pub reclaimed_vat: Option<bool>,
 }
 
 #[derive(Default)]
@@ -91,25 +96,27 @@ pub(crate) fn insert_taxable_event_data(
     event_date: &str,
     note: Option<&str>,
     vat_rate_bps: Option<i64>,
-    vat_deductible_pct_bps: Option<i64>,
+    vat_reclaimable_pct_bps: Option<i64>,
     expense_deductible_pct_bps: Option<i64>,
     prepaid_period_months: Option<i64>,
+    reclaimed_vat: Option<bool>,
 ) -> rusqlite::Result<()> {
     conn.execute(
         "INSERT INTO event_data (
             event_id, amount_minor, event_date, note,
-            vat_rate_bps, vat_deductible_pct_bps,
-            expense_deductible_pct_bps, prepaid_period_months
-         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            vat_rate_bps, vat_reclaimable_pct_bps,
+            expense_deductible_pct_bps, prepaid_period_months, reclaimed_vat
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
         params![
             event_id,
             amount_minor,
             event_date,
             note,
             vat_rate_bps,
-            vat_deductible_pct_bps,
+            vat_reclaimable_pct_bps,
             expense_deductible_pct_bps,
             prepaid_period_months,
+            reclaimed_vat.map(|v| v as i64),
         ],
     )?;
     Ok(())
@@ -138,9 +145,10 @@ pub fn create_taxable_event(
             params.event_date.as_str(),
             params.note.as_deref(),
             params.vat_rate_bps,
-            params.vat_deductible_pct_bps,
+            params.vat_reclaimable_pct_bps,
             params.expense_deductible_pct_bps,
             params.prepaid_period_months,
+            params.reclaimed_vat,
         )
         .map_err(AppError::from)?;
 
@@ -178,9 +186,10 @@ pub fn create_taxable_split_group_with_legs(
                 leg.event_date.as_str(),
                 leg.note.as_deref(),
                 leg.vat_rate_bps,
-                leg.vat_deductible_pct_bps,
+                leg.vat_reclaimable_pct_bps,
                 leg.expense_deductible_pct_bps,
                 leg.prepaid_period_months,
+                leg.reclaimed_vat,
             )
             .map_err(AppError::from)?;
         }
@@ -232,9 +241,10 @@ pub fn update_taxable_event(
         params.event_date.as_str(),
         params.note.as_deref(),
         params.vat_rate_bps,
-        params.vat_deductible_pct_bps,
+        params.vat_reclaimable_pct_bps,
         params.expense_deductible_pct_bps,
         params.prepaid_period_months,
+        params.reclaimed_vat,
     )
     .map_err(AppError::from)?;
 
@@ -368,9 +378,10 @@ pub fn update_taxable_split_group(
                 leg.event_date.as_str(),
                 leg.note.as_deref(),
                 leg.vat_rate_bps,
-                leg.vat_deductible_pct_bps,
+                leg.vat_reclaimable_pct_bps,
                 leg.expense_deductible_pct_bps,
                 leg.prepaid_period_months,
+                leg.reclaimed_vat,
             )?;
         }
 
@@ -389,9 +400,10 @@ pub fn update_taxable_split_group(
                 leg.event_date.as_str(),
                 leg.note.as_deref(),
                 leg.vat_rate_bps,
-                leg.vat_deductible_pct_bps,
+                leg.vat_reclaimable_pct_bps,
                 leg.expense_deductible_pct_bps,
                 leg.prepaid_period_months,
+                leg.reclaimed_vat,
             )?;
         }
 

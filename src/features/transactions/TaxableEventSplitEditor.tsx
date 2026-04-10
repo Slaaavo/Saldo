@@ -3,6 +3,7 @@ import { CurrencyInput } from '../../shared/ui/CurrencyInput'
 import { Input } from '../../shared/ui/input'
 import { PercentageInput } from '../../shared/ui/PercentageInput'
 import { Label } from '../../shared/ui/label'
+import { Checkbox } from '../../shared/ui/checkbox'
 import { Button } from '../../shared/ui/button'
 import NumberValue from '../../shared/ui/NumberValue'
 import { toMinorUnits, todayIso, getMinorUnitsStep } from '../../shared/utils/format'
@@ -97,22 +98,22 @@ const TaxableEventSplitEditor = ({ eventType, currencyCode, currencyMinorUnits, 
           {eventType === 'expense' && (
             <>
               <div className="flex flex-col gap-1">
-                <Label className="text-xs">{t('modals.createExpense.vatDeductiblePct')}</Label>
+                <Label className="text-xs">{t('modals.createExpense.vatReclaimablePct')}</Label>
                 <PercentageInput
                   type="number"
                   step="0.01"
                   min={0}
                   max={100}
-                  value={leg.vatDeductiblePct}
-                  onChange={(e) => updateLeg(index, { vatDeductiblePct: e.target.value })}
-                  placeholder={t('modals.createExpense.vatDeductiblePctPlaceholder')}
+                  value={leg.vatReclaimablePct}
+                  onChange={(e) => updateLeg(index, { vatReclaimablePct: e.target.value })}
+                  placeholder={t('modals.createExpense.vatReclaimablePctPlaceholder')}
                 />
                 <div className="flex gap-1 flex-wrap">
                   {VAT_DEDUCTIBLE_QUICK_FILLS.map((v) => (
                     <button
                       key={v}
                       type="button"
-                      onClick={() => updateLeg(index, { vatDeductiblePct: v })}
+                      onClick={() => updateLeg(index, { vatReclaimablePct: v })}
                       className="text-xs px-2 py-0.5 rounded bg-muted hover:bg-accent transition-colors"
                     >
                       {v}%
@@ -144,6 +145,14 @@ const TaxableEventSplitEditor = ({ eventType, currencyCode, currencyMinorUnits, 
                     </button>
                   ))}
                 </div>
+              </div>
+
+              {/* VAT reclaimed */}
+              <div className="flex items-center gap-2">
+                <Checkbox id={`leg-reclaimed-vat-${index}`} checked={leg.reclaimedVat === true} onCheckedChange={(v) => updateLeg(index, { reclaimedVat: v === true })} />
+                <Label htmlFor={`leg-reclaimed-vat-${index}`} className="text-xs">
+                  {t('modals.createExpense.reclaimedVat')}
+                </Label>
               </div>
             </>
           )}

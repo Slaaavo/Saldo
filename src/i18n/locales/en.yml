@@ -124,9 +124,10 @@ events:
   foreignAmount: "{{amount}} {{currency}}"
   bucketTag: "Bucket: {{name}}"
   vatRate: "VAT {{rate}}%"
-  vatDeductible: "VAT deductible {{pct}}%"
+  vatReclaimable: "VAT reclaimable {{pct}}%"
   expenseDeductible: "Deductible {{pct}}%"
   prepaidPeriod: "{{months}} months prepaid"
+  reclaimedVat: "VAT reclaimed"
 
 # ──── Modals ────
 modals:
@@ -309,12 +310,13 @@ modals:
     amount: "Amount"
     vatRate: "VAT Rate (optional)"
     vatRatePlaceholder: "e.g. 23"
-    vatDeductiblePct: "VAT-deductible % (optional)"
-    vatDeductiblePctPlaceholder: "e.g. 100"
+    vatReclaimablePct: "VAT-reclaimable % (optional)"
+    vatReclaimablePctPlaceholder: "e.g. 100"
     expenseDeductiblePct: "Expense-deductible % (optional)"
     expenseDeductiblePctPlaceholder: "e.g. 100"
     prepaidPeriodMonths: "Prepaid period in months (optional)"
     prepaidPeriodHelper: "Number of months this expense covers (e.g. 12 for an annual insurance premium)"
+    reclaimedVat: "VAT reclaimed"
     note: "Note"
     notePlaceholder: "Optional note"
     split: "Split"
@@ -641,6 +643,8 @@ persons:
   all: "All Persons"
   selector: "Person"
   manage: "Manage Persons"
+  vatPayer: "VAT payer"
+  save: "Save"
 
 # ──── Taxable event cashflow linking ────
 taxable:
@@ -713,5 +717,18 @@ taxModels:
   dividendAmount: Dividend Amount
   withholdingTax: Withholding Tax on Dividends
   monthlyTaxBurden: Monthly Tax Burden
-  netPayout: Net Payout
-  mockDataNotice: "These are placeholder values. Actual calculation will be available in a future update."
+  netDividend: Net Dividend
+  noEventsForYear: "No taxable events found for this year. Add revenue or expense events to see the calculation."
+  breakdownSection: "Event Breakdown"
+  breakdownDate: "Date"
+  breakdownNote: "Note"
+  breakdownType: "Type"
+  breakdownAmount: "Amount"
+  breakdownNetAmount: "Net Amount"
+  breakdownVat: "VAT"
+  breakdownReclaimableVat: "Reclaimable VAT"
+  breakdownDeductibleCost: "Deductible Cost"
+  breakdownNonDeductibleCost: "Non-Deductible Cost"
+  breakdownTotal: "Total"
+  revenueGroup: "Revenue"
+  expenseGroup: "Expenses"

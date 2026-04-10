@@ -1,10 +1,10 @@
 use crate::error::AppError;
-use crate::features::tax_models::models::{TaxModelDetail, TaxModelRow};
+use crate::features::tax_models::models::{TaxCalculationResult, TaxModelDetail, TaxModelRow};
 use crate::AppState;
 use serde::Deserialize;
 use tauri::State;
 
-use super::repository;
+use super::{calculation, repository};
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -321,4 +321,22 @@ pub fn update_tax_model(
 pub fn delete_tax_model(state: State<'_, AppState>, model_id: i64) -> Result<(), AppError> {
     let conn = state.conn()?;
     repository::delete_tax_model(&conn, model_id)
+}
+
+#[tauri::command]
+pub fn calculate_tax_model(
+    state: State<'_, AppState>,
+    model_id: i64,
+) -> Result<TaxCalculationResult, AppError> {
+    let conn = state.conn()?;
+    let model = repository::get_tax_model(&conn, model_id)?;
+    let events = repository::list_taxable_events_for_model(
+        &conn,
+        repository::ListTaxableEventsForModelParams {
+            person_id: model.person_id,
+            calendar_year: model.calendar_year as i32,
+        },
+    )?;
+    let result = calculation::calculate_tax_model_results(&model, &events);
+    Ok(result)
 }

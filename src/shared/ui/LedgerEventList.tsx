@@ -189,14 +189,17 @@ const LedgerEventList = ({ events, accounts, consolidationCurrency, onEditEvent,
                               )}
                               {leg.note && <p className="text-xs text-muted-foreground italic truncate">{leg.note}</p>}
                               {leg.vatRateBps !== null && <p className="text-xs text-muted-foreground">{t('events.vatRate', { rate: leg.vatRateBps / 100 })}</p>}
-                              {leg.vatDeductiblePctBps !== null && leg.vatDeductiblePctBps < 10000 && (
-                                <p className="text-xs text-muted-foreground">{t('events.vatDeductible', { pct: leg.vatDeductiblePctBps / 100 })}</p>
+                              {leg.vatReclaimablePctBps !== null && leg.vatReclaimablePctBps < 10000 && (
+                                <p className="text-xs text-muted-foreground">{t('events.vatReclaimable', { pct: leg.vatReclaimablePctBps / 100 })}</p>
                               )}
                               {leg.expenseDeductiblePctBps !== null && leg.expenseDeductiblePctBps < 10000 && (
                                 <p className="text-xs text-muted-foreground">{t('events.expenseDeductible', { pct: leg.expenseDeductiblePctBps / 100 })}</p>
                               )}
                               {leg.prepaidPeriodMonths !== null && (
                                 <p className="text-xs text-muted-foreground">{t('events.prepaidPeriod', { months: leg.prepaidPeriodMonths })}</p>
+                              )}
+                              {leg.eventType === 'expense' && leg.reclaimedVat === true && (
+                                <span className="inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground mt-0.5">{t('events.reclaimedVat')}</span>
                               )}
                               {leg.bucketName && (
                                 <span className="inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground mt-0.5">{leg.bucketName}</span>
@@ -292,13 +295,16 @@ const LedgerEventList = ({ events, accounts, consolidationCurrency, onEditEvent,
                       )}
                       {ev.note && <p className="text-xs text-muted-foreground italic truncate">{ev.note}</p>}
                       {ev.vatRateBps !== null && <p className="text-xs text-muted-foreground">{t('events.vatRate', { rate: ev.vatRateBps / 100 })}</p>}
-                      {ev.vatDeductiblePctBps !== null && ev.vatDeductiblePctBps < 10000 && (
-                        <p className="text-xs text-muted-foreground">{t('events.vatDeductible', { pct: ev.vatDeductiblePctBps / 100 })}</p>
+                      {ev.vatReclaimablePctBps !== null && ev.vatReclaimablePctBps < 10000 && (
+                        <p className="text-xs text-muted-foreground">{t('events.vatReclaimable', { pct: ev.vatReclaimablePctBps / 100 })}</p>
                       )}
                       {ev.expenseDeductiblePctBps !== null && ev.expenseDeductiblePctBps < 10000 && (
                         <p className="text-xs text-muted-foreground">{t('events.expenseDeductible', { pct: ev.expenseDeductiblePctBps / 100 })}</p>
                       )}
                       {ev.prepaidPeriodMonths !== null && <p className="text-xs text-muted-foreground">{t('events.prepaidPeriod', { months: ev.prepaidPeriodMonths })}</p>}
+                      {ev.eventType === 'expense' && ev.reclaimedVat === true && (
+                        <span className="inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground mt-0.5">{t('events.reclaimedVat')}</span>
+                      )}
                       {ev.bucketName && <span className="inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground mt-0.5">{ev.bucketName}</span>}
                     </div>
                     <div className="flex items-center gap-6">

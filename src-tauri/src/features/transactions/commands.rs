@@ -1,5 +1,5 @@
 use crate::error::AppError;
-use crate::features::persons::repository::resolve_default_taxable_account;
+use crate::features::persons::repository::{get_person_vat_payer, resolve_default_taxable_account};
 use crate::AppState;
 use serde::Deserialize;
 use tauri::State;
@@ -507,9 +507,10 @@ pub struct CreateTaxableEventInput {
     pub event_date: String,
     pub note: Option<String>,
     pub vat_rate_bps: Option<i64>,
-    pub vat_deductible_pct_bps: Option<i64>,
+    pub vat_reclaimable_pct_bps: Option<i64>,
     pub expense_deductible_pct_bps: Option<i64>,
     pub prepaid_period_months: Option<i64>,
+    pub reclaimed_vat: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -519,9 +520,10 @@ pub struct SplitTaxableLegInput {
     pub event_date: String,
     pub note: Option<String>,
     pub vat_rate_bps: Option<i64>,
-    pub vat_deductible_pct_bps: Option<i64>,
+    pub vat_reclaimable_pct_bps: Option<i64>,
     pub expense_deductible_pct_bps: Option<i64>,
     pub prepaid_period_months: Option<i64>,
+    pub reclaimed_vat: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -542,9 +544,10 @@ pub struct UpdateTaxableEventInput {
     pub event_date: String,
     pub note: Option<String>,
     pub vat_rate_bps: Option<i64>,
-    pub vat_deductible_pct_bps: Option<i64>,
+    pub vat_reclaimable_pct_bps: Option<i64>,
     pub expense_deductible_pct_bps: Option<i64>,
     pub prepaid_period_months: Option<i64>,
+    pub reclaimed_vat: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -555,9 +558,10 @@ pub struct UpdatedSplitLegInput {
     pub event_date: String,
     pub note: Option<String>,
     pub vat_rate_bps: Option<i64>,
-    pub vat_deductible_pct_bps: Option<i64>,
+    pub vat_reclaimable_pct_bps: Option<i64>,
     pub expense_deductible_pct_bps: Option<i64>,
     pub prepaid_period_months: Option<i64>,
+    pub reclaimed_vat: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -567,9 +571,10 @@ pub struct NewSplitLegInput {
     pub event_date: String,
     pub note: Option<String>,
     pub vat_rate_bps: Option<i64>,
-    pub vat_deductible_pct_bps: Option<i64>,
+    pub vat_reclaimable_pct_bps: Option<i64>,
     pub expense_deductible_pct_bps: Option<i64>,
     pub prepaid_period_months: Option<i64>,
+    pub reclaimed_vat: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -595,12 +600,12 @@ fn validate_event_type_taxable(event_type: &str) -> Result<(), AppError> {
 
 fn validate_taxable_field_ranges(
     vat_rate_bps: Option<i64>,
-    vat_deductible_pct_bps: Option<i64>,
+    vat_reclaimable_pct_bps: Option<i64>,
     expense_deductible_pct_bps: Option<i64>,
 ) -> Result<(), AppError> {
     for (name, val) in [
         ("vat_rate_bps", vat_rate_bps),
-        ("vat_deductible_pct_bps", vat_deductible_pct_bps),
+        ("vat_reclaimable_pct_bps", vat_reclaimable_pct_bps),
         ("expense_deductible_pct_bps", expense_deductible_pct_bps),
     ] {
         if let Some(v) = val {
@@ -617,19 +622,19 @@ fn validate_taxable_field_ranges(
 
 fn validate_expense_only_fields(
     event_type: &str,
-    vat_deductible_pct_bps: Option<i64>,
+    vat_reclaimable_pct_bps: Option<i64>,
     expense_deductible_pct_bps: Option<i64>,
     prepaid_period_months: Option<i64>,
 ) -> Result<(), AppError> {
     if event_type != "expense"
-        && (vat_deductible_pct_bps.is_some()
+        && (vat_reclaimable_pct_bps.is_some()
             || expense_deductible_pct_bps.is_some()
             || prepaid_period_months.is_some())
     {
         return Err(AppError {
             code: "VALIDATION".into(),
             message:
-                "vat_deductible_pct_bps, expense_deductible_pct_bps, and prepaid_period_months are only valid for expense events"
+                "vat_reclaimable_pct_bps, expense_deductible_pct_bps, and prepaid_period_months are only valid for expense events"
                     .into(),
         });
     }
@@ -645,17 +650,22 @@ pub fn create_taxable_event(
     crate::shared::validate_event_date(&input.event_date)?;
     validate_expense_only_fields(
         &input.event_type,
-        input.vat_deductible_pct_bps,
+        input.vat_reclaimable_pct_bps,
         input.expense_deductible_pct_bps,
         input.prepaid_period_months,
     )?;
     validate_taxable_field_ranges(
         input.vat_rate_bps,
-        input.vat_deductible_pct_bps,
+        input.vat_reclaimable_pct_bps,
         input.expense_deductible_pct_bps,
     )?;
     let conn = state.conn()?;
     let account_id = resolve_default_taxable_account(&conn, input.person_id, &input.event_type)?;
+    let resolved_reclaimed_vat = if input.event_type == "expense" && input.reclaimed_vat.is_none() {
+        Some(get_person_vat_payer(&conn, input.person_id)?)
+    } else {
+        input.reclaimed_vat
+    };
     let id = repository::create_taxable_event(
         &conn,
         repository::CreateTaxableEventParams {
@@ -665,9 +675,10 @@ pub fn create_taxable_event(
             event_date: input.event_date,
             note: input.note,
             vat_rate_bps: input.vat_rate_bps,
-            vat_deductible_pct_bps: input.vat_deductible_pct_bps,
+            vat_reclaimable_pct_bps: input.vat_reclaimable_pct_bps,
             expense_deductible_pct_bps: input.expense_deductible_pct_bps,
             prepaid_period_months: input.prepaid_period_months,
+            reclaimed_vat: resolved_reclaimed_vat,
         },
     )?;
     Ok(id)
@@ -689,18 +700,23 @@ pub fn create_taxable_split_group(
         crate::shared::validate_event_date(&leg.event_date)?;
         validate_expense_only_fields(
             &input.event_type,
-            leg.vat_deductible_pct_bps,
+            leg.vat_reclaimable_pct_bps,
             leg.expense_deductible_pct_bps,
             leg.prepaid_period_months,
         )?;
         validate_taxable_field_ranges(
             leg.vat_rate_bps,
-            leg.vat_deductible_pct_bps,
+            leg.vat_reclaimable_pct_bps,
             leg.expense_deductible_pct_bps,
         )?;
     }
     let conn = state.conn()?;
     let account_id = resolve_default_taxable_account(&conn, input.person_id, &input.event_type)?;
+    let default_reclaimed_vat = if input.event_type == "expense" {
+        Some(get_person_vat_payer(&conn, input.person_id)?)
+    } else {
+        None
+    };
     let legs = input
         .legs
         .into_iter()
@@ -709,9 +725,10 @@ pub fn create_taxable_split_group(
             event_date: l.event_date,
             note: l.note,
             vat_rate_bps: l.vat_rate_bps,
-            vat_deductible_pct_bps: l.vat_deductible_pct_bps,
+            vat_reclaimable_pct_bps: l.vat_reclaimable_pct_bps,
             expense_deductible_pct_bps: l.expense_deductible_pct_bps,
             prepaid_period_months: l.prepaid_period_months,
+            reclaimed_vat: l.reclaimed_vat.or(default_reclaimed_vat),
         })
         .collect();
     let id = repository::create_taxable_split_group_with_legs(
@@ -734,13 +751,13 @@ pub fn update_taxable_event(
     validate_event_type_taxable(&input.event_type)?;
     validate_expense_only_fields(
         &input.event_type,
-        input.vat_deductible_pct_bps,
+        input.vat_reclaimable_pct_bps,
         input.expense_deductible_pct_bps,
         input.prepaid_period_months,
     )?;
     validate_taxable_field_ranges(
         input.vat_rate_bps,
-        input.vat_deductible_pct_bps,
+        input.vat_reclaimable_pct_bps,
         input.expense_deductible_pct_bps,
     )?;
     crate::shared::validate_event_date(&input.event_date)?;
@@ -761,9 +778,10 @@ pub fn update_taxable_event(
             event_date: input.event_date,
             note: input.note,
             vat_rate_bps: input.vat_rate_bps,
-            vat_deductible_pct_bps: input.vat_deductible_pct_bps,
+            vat_reclaimable_pct_bps: input.vat_reclaimable_pct_bps,
             expense_deductible_pct_bps: input.expense_deductible_pct_bps,
             prepaid_period_months: input.prepaid_period_months,
+            reclaimed_vat: input.reclaimed_vat,
         },
     )?;
     Ok(())
@@ -779,13 +797,13 @@ pub fn update_taxable_split_group(
         crate::shared::validate_event_date(&leg.event_date)?;
         validate_expense_only_fields(
             &input.event_type,
-            leg.vat_deductible_pct_bps,
+            leg.vat_reclaimable_pct_bps,
             leg.expense_deductible_pct_bps,
             leg.prepaid_period_months,
         )?;
         validate_taxable_field_ranges(
             leg.vat_rate_bps,
-            leg.vat_deductible_pct_bps,
+            leg.vat_reclaimable_pct_bps,
             leg.expense_deductible_pct_bps,
         )?;
     }
@@ -793,13 +811,13 @@ pub fn update_taxable_split_group(
         crate::shared::validate_event_date(&leg.event_date)?;
         validate_expense_only_fields(
             &input.event_type,
-            leg.vat_deductible_pct_bps,
+            leg.vat_reclaimable_pct_bps,
             leg.expense_deductible_pct_bps,
             leg.prepaid_period_months,
         )?;
         validate_taxable_field_ranges(
             leg.vat_rate_bps,
-            leg.vat_deductible_pct_bps,
+            leg.vat_reclaimable_pct_bps,
             leg.expense_deductible_pct_bps,
         )?;
     }
@@ -814,9 +832,10 @@ pub fn update_taxable_split_group(
             event_date: l.event_date,
             note: l.note,
             vat_rate_bps: l.vat_rate_bps,
-            vat_deductible_pct_bps: l.vat_deductible_pct_bps,
+            vat_reclaimable_pct_bps: l.vat_reclaimable_pct_bps,
             expense_deductible_pct_bps: l.expense_deductible_pct_bps,
             prepaid_period_months: l.prepaid_period_months,
+            reclaimed_vat: l.reclaimed_vat,
         })
         .collect();
     let new_legs = input
@@ -827,9 +846,10 @@ pub fn update_taxable_split_group(
             event_date: l.event_date,
             note: l.note,
             vat_rate_bps: l.vat_rate_bps,
-            vat_deductible_pct_bps: l.vat_deductible_pct_bps,
+            vat_reclaimable_pct_bps: l.vat_reclaimable_pct_bps,
             expense_deductible_pct_bps: l.expense_deductible_pct_bps,
             prepaid_period_months: l.prepaid_period_months,
+            reclaimed_vat: l.reclaimed_vat,
         })
         .collect();
     repository::update_taxable_split_group(

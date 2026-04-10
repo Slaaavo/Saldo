@@ -12,6 +12,7 @@ import { CurrencyInput } from '../../shared/ui/CurrencyInput'
 import { Input } from '../../shared/ui/input'
 import { PercentageInput } from '../../shared/ui/PercentageInput'
 import { Label } from '../../shared/ui/label'
+import { Checkbox } from '../../shared/ui/checkbox'
 import { DatePicker } from '../../shared/ui/date-picker'
 import NumberValue from '../../shared/ui/NumberValue'
 import CashflowPicker from './CashflowPicker'
@@ -22,7 +23,7 @@ interface Props {
 }
 
 const VAT_QUICK_FILLS = ['0', '5', '10', '20', '23']
-const VAT_DEDUCTIBLE_QUICK_FILLS = ['100', '50']
+const VAT_RECLAIMABLE_QUICK_FILLS = ['100', '50']
 const EXPENSE_DEDUCTIBLE_QUICK_FILLS = ['100', '80', '50']
 
 const EditTaxableEventModal = ({ event, onClose }: Props) => {
@@ -34,11 +35,12 @@ const EditTaxableEventModal = ({ event, onClose }: Props) => {
   const [amount, setAmount] = useState(fromMinorUnits(event.amountMinor, minorUnits))
   const [date, setDate] = useState(event.eventDate)
   const [vatRate, setVatRate] = useState(bpsToPct(event.vatRateBps))
-  const [vatDeductiblePct, setVatDeductiblePct] = useState(bpsToPct(event.vatDeductiblePctBps))
+  const [vatReclaimablePct, setVatReclaimablePct] = useState(bpsToPct(event.vatReclaimablePctBps))
   const [expenseDeductiblePct, setExpenseDeductiblePct] = useState(bpsToPct(event.expenseDeductiblePctBps))
   const [prepaidPeriodMonths, setPrepaidPeriodMonths] = useState(event.prepaidPeriodMonths !== null ? String(event.prepaidPeriodMonths) : '')
   const [note, setNote] = useState(event.note ?? '')
   const [submitting, setSubmitting] = useState(false)
+  const [reclaimedVat, setReclaimedVat] = useState<boolean>(event.reclaimedVat ?? false)
 
   // Resolve person_id from persons list — needed for eligible cashflows query
   const { data: persons = [] } = useQuery({ queryKey: ['persons'], queryFn: listPersons })
@@ -90,9 +92,10 @@ const EditTaxableEventModal = ({ event, onClose }: Props) => {
         eventDate: date,
         note: note.trim() || null,
         vatRateBps: pctToBps(vatRate),
-        vatDeductiblePctBps: isExpense ? pctToBps(vatDeductiblePct) : null,
+        vatReclaimablePctBps: isExpense ? pctToBps(vatReclaimablePct) : null,
         expenseDeductiblePctBps: isExpense ? pctToBps(expenseDeductiblePct) : null,
         prepaidPeriodMonths: isExpense && prepaidInt !== null && !isNaN(prepaidInt) ? prepaidInt : null,
+        reclaimedVat: isExpense ? reclaimedVat : null,
       })
       setSubmitting(false)
       await queryClient.invalidateQueries({ queryKey: ['events'] })
@@ -172,20 +175,20 @@ const EditTaxableEventModal = ({ event, onClose }: Props) => {
             {isExpense && (
               <>
                 <div className="flex flex-col gap-2">
-                  <Label htmlFor="edit-taxable-vat-ded">{t('modals.createExpense.vatDeductiblePct')}</Label>
+                  <Label htmlFor="edit-taxable-vat-ded">{t('modals.createExpense.vatReclaimablePct')}</Label>
                   <PercentageInput
                     id="edit-taxable-vat-ded"
                     type="number"
                     step="0.01"
                     min={0}
                     max={100}
-                    value={vatDeductiblePct}
-                    onChange={(e) => setVatDeductiblePct(e.target.value)}
-                    placeholder={t('modals.createExpense.vatDeductiblePctPlaceholder')}
+                    value={vatReclaimablePct}
+                    onChange={(e) => setVatReclaimablePct(e.target.value)}
+                    placeholder={t('modals.createExpense.vatReclaimablePctPlaceholder')}
                   />
                   <div className="flex gap-1 flex-wrap">
-                    {VAT_DEDUCTIBLE_QUICK_FILLS.map((v) => (
-                      <button key={v} type="button" onClick={() => setVatDeductiblePct(v)} className="text-xs px-2 py-0.5 rounded bg-muted hover:bg-accent transition-colors">
+                    {VAT_RECLAIMABLE_QUICK_FILLS.map((v) => (
+                      <button key={v} type="button" onClick={() => setVatReclaimablePct(v)} className="text-xs px-2 py-0.5 rounded bg-muted hover:bg-accent transition-colors">
                         {v}%
                       </button>
                     ))}
@@ -225,6 +228,12 @@ const EditTaxableEventModal = ({ event, onClose }: Props) => {
                     placeholder="0"
                   />
                   <p className="text-xs text-muted-foreground">{t('modals.createExpense.prepaidPeriodHelper')}</p>
+                </div>
+
+                {/* VAT reclaimed */}
+                <div className="flex items-center gap-2">
+                  <Checkbox id="edit-taxable-reclaimed-vat" checked={reclaimedVat} onCheckedChange={(v) => setReclaimedVat(v === true)} />
+                  <Label htmlFor="edit-taxable-reclaimed-vat">{t('modals.createExpense.reclaimedVat')}</Label>
                 </div>
               </>
             )}

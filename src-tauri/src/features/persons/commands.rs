@@ -12,6 +12,7 @@ use super::repository;
 pub struct CreatePersonInput {
     pub name: String,
     pub person_type: String,
+    pub vat_payer: bool,
 }
 
 #[derive(Deserialize)]
@@ -20,6 +21,7 @@ pub struct UpdatePersonInput {
     pub person_id: i64,
     pub name: String,
     pub person_type: String,
+    pub vat_payer: bool,
 }
 
 fn validate_person_input(name: &str, person_type: &str) -> Result<(), AppError> {
@@ -50,6 +52,7 @@ pub fn create_person(
         repository::CreatePersonParams {
             name: input.name.trim().to_owned(),
             person_type: input.person_type,
+            vat_payer: input.vat_payer,
         },
     )
 }
@@ -70,6 +73,7 @@ pub fn update_person(state: State<'_, AppState>, input: UpdatePersonInput) -> Re
             person_id: input.person_id,
             name: input.name.trim().to_owned(),
             person_type: input.person_type,
+            vat_payer: input.vat_payer,
         },
     )
 }

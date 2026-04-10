@@ -14,6 +14,7 @@ import type {
   PersonRow,
   TaxModelRow,
   TaxModelDetail,
+  TaxCalculationResult,
 } from '../types'
 
 export const createBalanceUpdate = (accountId: number, amountMinor: number, eventDate: string, note?: string): Promise<number> => {
@@ -418,12 +419,12 @@ export const listPersons = (): Promise<PersonRow[]> => {
   return invoke('list_persons')
 }
 
-export const createPerson = (name: string, personType: string): Promise<number> => {
-  return invoke('create_person', { input: { name, personType } })
+export const createPerson = (name: string, personType: string, vatPayer: boolean): Promise<number> => {
+  return invoke('create_person', { input: { name, personType, vatPayer } })
 }
 
-export const updatePerson = (personId: number, name: string, personType: string): Promise<void> => {
-  return invoke('update_person', { input: { personId, name, personType } })
+export const updatePerson = (personId: number, name: string, personType: string, vatPayer: boolean): Promise<void> => {
+  return invoke('update_person', { input: { personId, name, personType, vatPayer } })
 }
 
 export const deletePerson = (personId: number): Promise<void> => {
@@ -435,9 +436,10 @@ export interface TaxableEventLegInput {
   eventDate: string
   note: string | null
   vatRateBps: number | null
-  vatDeductiblePctBps: number | null
+  vatReclaimablePctBps: number | null
   expenseDeductiblePctBps: number | null
   prepaidPeriodMonths: number | null
+  reclaimedVat: boolean | null
 }
 
 export const createTaxableEvent = (payload: {
@@ -447,9 +449,10 @@ export const createTaxableEvent = (payload: {
   eventDate: string
   note: string | null
   vatRateBps: number | null
-  vatDeductiblePctBps: number | null
+  vatReclaimablePctBps: number | null
   expenseDeductiblePctBps: number | null
   prepaidPeriodMonths: number | null
+  reclaimedVat: boolean | null
 }): Promise<number> => {
   return invoke('create_taxable_event', { input: payload })
 }
@@ -465,9 +468,10 @@ export const updateTaxableEvent = (payload: {
   eventDate: string
   note: string | null
   vatRateBps: number | null
-  vatDeductiblePctBps: number | null
+  vatReclaimablePctBps: number | null
   expenseDeductiblePctBps: number | null
   prepaidPeriodMonths: number | null
+  reclaimedVat: boolean | null
 }): Promise<void> => {
   return invoke('update_taxable_event', { input: payload })
 }
@@ -482,9 +486,10 @@ export const updateTaxableSplitGroup = (payload: {
     eventDate: string
     note: string | null
     vatRateBps: number | null
-    vatDeductiblePctBps: number | null
+    vatReclaimablePctBps: number | null
     expenseDeductiblePctBps: number | null
     prepaidPeriodMonths: number | null
+    reclaimedVat: boolean | null
   }>
   newLegs: TaxableEventLegInput[]
   removedLegIds: number[]
@@ -565,4 +570,8 @@ export const updateTaxModel = (input: UpdateTaxModelInput): Promise<void> => {
 
 export const deleteTaxModel = (modelId: number): Promise<void> => {
   return invoke('delete_tax_model', { modelId })
+}
+
+export const calculateTaxModel = (modelId: number): Promise<TaxCalculationResult> => {
+  return invoke('calculate_tax_model', { modelId })
 }

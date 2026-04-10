@@ -3,16 +3,18 @@ export interface SplitLegDraft {
   eventDate: string
   amount: string
   vatRate: string
-  vatDeductiblePct: string
+  vatReclaimablePct: string
   expenseDeductiblePct: string
   note: string
+  reclaimedVat: boolean | null
 }
 
 export const makeEmptyLeg = (date: string): SplitLegDraft => ({
   eventDate: date,
   amount: '',
   vatRate: '',
-  vatDeductiblePct: '',
+  vatReclaimablePct: '',
   expenseDeductiblePct: '',
   note: '',
+  reclaimedVat: null,
 })

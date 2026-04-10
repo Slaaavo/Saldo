@@ -11,13 +11,13 @@ export const usePersons = () => {
   const [editingPerson, setEditingPerson] = useState<PersonRow | null>(null)
   const [deletingPerson, setDeletingPerson] = useState<PersonRow | null>(null)
 
-  const handleCreatePerson = async (name: string, personType: string) => {
-    await createPerson(name, personType)
+  const handleCreatePerson = async (name: string, personType: string, vatPayer: boolean) => {
+    await createPerson(name, personType, vatPayer)
     await queryClient.invalidateQueries({ queryKey: ['persons'] })
   }
 
-  const handleUpdatePerson = async (personId: number, name: string, personType: string) => {
-    await updatePerson(personId, name, personType)
+  const handleUpdatePerson = async (personId: number, name: string, personType: string, vatPayer: boolean) => {
+    await updatePerson(personId, name, personType, vatPayer)
     await queryClient.invalidateQueries({ queryKey: ['persons'] })
   }
 

@@ -69,6 +69,11 @@ pub fn format_end_of_month(year: i32, month: u32) -> String {
     format!("{:04}-{:02}-{:02}T23:59:59", year, month, last_day)
 }
 
+/// Integer division with rounding to nearest (half-up).
+pub fn div_round(numerator: i64, denominator: i64) -> i64 {
+    (numerator + denominator / 2) / denominator
+}
+
 pub fn validate_event_date(date_str: &str) -> Result<(), AppError> {
     if date_str.is_empty() {
         return Err(AppError {

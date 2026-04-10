@@ -6,6 +6,7 @@ export interface PersonRow {
   createdAt: string
   defaultRevenueAccountId: number
   defaultExpenseAccountId: number
+  vatPayer: boolean
 }
 
 export interface AccountAssetLink {
@@ -125,7 +126,7 @@ export interface EventWithData {
   splitGroupId: number | null
   splitGroupNote: string | null
   vatRateBps: number | null
-  vatDeductiblePctBps: number | null
+  vatReclaimablePctBps: number | null
   expenseDeductiblePctBps: number | null
   prepaidPeriodMonths: number | null
   isLinkedToTaxable: boolean
@@ -134,6 +135,7 @@ export interface EventWithData {
   linkedCashflowCount: number
   linkedAssetId: number | null
   isSystemGenerated: boolean
+  reclaimedVat: boolean | null
 }
 
 export interface ListEventsResult {
@@ -274,4 +276,34 @@ export interface TaxModelBracketRow {
 
 export interface TaxModelDetail extends TaxModelRow {
   brackets: TaxModelBracketRow[]
+}
+
+export interface TaxEventBreakdown {
+  eventId: number
+  eventType: string
+  eventDate: string
+  note: string | null
+  amountMinor: number
+  netAmountMinor: number
+  vatAmountMinor: number
+  reclaimableVatMinor: number
+  nonReclaimableVatMinor: number
+  taxDeductibleCostMinor: number
+  nonTaxDeductibleCostMinor: number
+}
+
+export interface TaxCalculationResult {
+  totalIncomeMinor: number
+  totalTaxDeductibleExpensesMinor: number
+  totalNonTaxDeductibleExpensesMinor: number
+  taxBasisMinor: number
+  taxAmountMinor: number
+  totalProfitMinor: number
+  reserveFundGenerationMinor: number
+  dividendMinor: number
+  withholdingTaxMinor: number
+  netDividendMinor: number
+  monthlyTaxBurdenMinor: number
+  personType: string
+  eventBreakdowns: TaxEventBreakdown[]
 }

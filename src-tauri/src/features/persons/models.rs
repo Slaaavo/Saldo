@@ -10,4 +10,5 @@ pub struct PersonRow {
     pub created_at: String,
     pub default_revenue_account_id: i64,
     pub default_expense_account_id: i64,
+    pub vat_payer: bool,
 }

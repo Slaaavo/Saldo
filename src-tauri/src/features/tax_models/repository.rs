@@ -1,5 +1,7 @@
 use crate::error::AppError;
-use crate::features::tax_models::models::{TaxModelBracketRow, TaxModelDetail, TaxModelRow};
+use crate::features::tax_models::models::{
+    EventDataForCalc, TaxModelBracketRow, TaxModelDetail, TaxModelRow,
+};
 use crate::shared::{local_now, with_savepoint_app};
 use rusqlite::{params, Connection, OptionalExtension};
 
@@ -264,10 +266,61 @@ pub fn delete_tax_model(conn: &Connection, model_id: i64) -> Result<(), AppError
     Ok(())
 }
 
+pub struct ListTaxableEventsForModelParams {
+    pub person_id: i64,
+    pub calendar_year: i32,
+}
+
+pub fn list_taxable_events_for_model(
+    conn: &Connection,
+    params: ListTaxableEventsForModelParams,
+) -> Result<Vec<EventDataForCalc>, AppError> {
+    let year_str = params.calendar_year.to_string();
+    let mut stmt = conn
+        .prepare(
+            "SELECT e.id, e.event_type, ed.amount_minor, ed.event_date, ed.note,
+                    ed.vat_rate_bps, ed.vat_reclaimable_pct_bps,
+                    ed.expense_deductible_pct_bps, ed.reclaimed_vat
+             FROM event e
+             JOIN event_data ed ON ed.id = e.latest_data_id
+             JOIN account a ON a.id = e.account_id
+             WHERE e.deleted_at IS NULL
+               AND e.event_type IN ('revenue', 'expense')
+               AND a.person_id = ?1
+               AND strftime('%Y', ed.event_date) = ?2
+             ORDER BY ed.event_date ASC",
+        )
+        .map_err(AppError::from)?;
+
+    let rows = stmt
+        .query_map(params![params.person_id, year_str], |row| {
+            Ok(EventDataForCalc {
+                event_id: row.get(0)?,
+                event_type: row.get(1)?,
+                amount_minor: row.get(2)?,
+                event_date: row.get(3)?,
+                note: row.get(4)?,
+                vat_rate_bps: row.get(5)?,
+                vat_reclaimable_pct_bps: row.get(6)?,
+                expense_deductible_pct_bps: row.get(7)?,
+                reclaimed_vat: row.get::<_, Option<i64>>(8)?.map(|v| v != 0),
+            })
+        })
+        .map_err(AppError::from)?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(AppError::from)?;
+
+    Ok(rows)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::db::initialize_in_memory;
+    use crate::features::tax_models::calculation::calculate_tax_model_results;
+    use crate::features::transactions::repository::{
+        create_taxable_event, CreateTaxableEventParams,
+    };
 
     fn get_default_person_id(conn: &Connection) -> i64 {
         conn.query_row("SELECT id FROM person WHERE is_default = 1", [], |row| {
@@ -414,5 +467,129 @@ mod tests {
         let result = get_tax_model(&conn, 999_999);
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().code, "NOT_FOUND");
+    }
+
+    #[test]
+    fn test_list_taxable_events_for_model_integration() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let person_id = get_default_person_id(&conn);
+
+        // Resolve the default person's pre-created taxable accounts (migration 024).
+        let (revenue_account_id, expense_account_id): (i64, i64) = conn
+            .query_row(
+                "SELECT default_revenue_account_id, default_expense_account_id FROM person WHERE id = ?1",
+                params![person_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("resolve default accounts failed");
+
+        // Revenue event: 100 000 minor, no VAT, in 2026.
+        create_taxable_event(
+            &conn,
+            CreateTaxableEventParams {
+                account_id: revenue_account_id,
+                event_type: "revenue".to_owned(),
+                amount_minor: 100_000,
+                event_date: "2026-03-10T00:00:00".to_owned(),
+                ..Default::default()
+            },
+        )
+        .expect("create revenue event failed");
+
+        // Expense event: 24 000 minor, 20% VAT (2000 bps), 100% reclaimable and deductible, in 2026.
+        create_taxable_event(
+            &conn,
+            CreateTaxableEventParams {
+                account_id: expense_account_id,
+                event_type: "expense".to_owned(),
+                amount_minor: 24_000,
+                event_date: "2026-07-20T00:00:00".to_owned(),
+                vat_rate_bps: Some(2000),
+                vat_reclaimable_pct_bps: Some(10000),
+                expense_deductible_pct_bps: Some(10000),
+                reclaimed_vat: Some(false),
+                ..Default::default()
+            },
+        )
+        .expect("create expense event failed");
+
+        // A 2025 event that must NOT appear in the 2026 query.
+        create_taxable_event(
+            &conn,
+            CreateTaxableEventParams {
+                account_id: revenue_account_id,
+                event_type: "revenue".to_owned(),
+                amount_minor: 50_000,
+                event_date: "2025-12-31T00:00:00".to_owned(),
+                ..Default::default()
+            },
+        )
+        .expect("create 2025 event failed");
+
+        let events = list_taxable_events_for_model(
+            &conn,
+            ListTaxableEventsForModelParams {
+                person_id,
+                calendar_year: 2026,
+            },
+        )
+        .expect("list_taxable_events_for_model failed");
+
+        assert_eq!(events.len(), 2, "expected exactly 2 events for 2026");
+
+        let rev = events
+            .iter()
+            .find(|e| e.event_type == "revenue")
+            .expect("revenue event missing");
+        assert_eq!(rev.amount_minor, 100_000);
+        assert_eq!(rev.vat_rate_bps, None);
+
+        let exp = events
+            .iter()
+            .find(|e| e.event_type == "expense")
+            .expect("expense event missing");
+        assert_eq!(exp.amount_minor, 24_000);
+        assert_eq!(exp.vat_rate_bps, Some(2000));
+        assert_eq!(exp.vat_reclaimable_pct_bps, Some(10000));
+        assert_eq!(exp.expense_deductible_pct_bps, Some(10000));
+        assert_eq!(exp.reclaimed_vat, Some(false));
+
+        // Verify aggregate totals through calculate_tax_model_results (flat 20%, vat_status="none").
+        // vat_status=none → can_reclaim=false → no VAT reclaimed.
+        // net expense = 24000 * 10000 / 12000 = 20000; tax_deductible = 20000
+        // tax_basis = max(0, 100000 - 20000) = 80000
+        // tax = 80000 * 2000 / 10000 = 16000
+        // total_profit = 100000 - 20000 - 0 - 16000 = 64000
+        let model = TaxModelDetail {
+            id: 1,
+            name: "Integration Test Model".to_owned(),
+            calendar_year: 2026,
+            person_id,
+            person_name: "Personal".to_owned(),
+            person_type: "physical".to_owned(),
+            vat_status: "none".to_owned(),
+            vat_from_date: None,
+            reserve_fund_current_minor: None,
+            reserve_fund_pct_bps: None,
+            reserve_fund_max_minor: None,
+            dividend_tax_rate_bps: None,
+            created_at: "2026-01-01T00:00:00".to_owned(),
+            updated_at: "2026-01-01T00:00:00".to_owned(),
+            brackets: vec![TaxModelBracketRow {
+                id: 1,
+                sort_order: 0,
+                lower_bound_minor: 0,
+                rate_type: "flat".to_owned(),
+                flat_rate_bps: Some(2000),
+                tiers_json: None,
+            }],
+        };
+        let result = calculate_tax_model_results(&model, &events);
+
+        assert_eq!(result.total_income_minor, 100_000);
+        assert_eq!(result.total_tax_deductible_expenses_minor, 20_000);
+        assert_eq!(result.tax_basis_minor, 80_000);
+        assert_eq!(result.tax_amount_minor, 16_000);
+        assert_eq!(result.total_profit_minor, 64_000);
     }
 }

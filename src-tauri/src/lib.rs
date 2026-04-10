@@ -242,6 +242,7 @@ pub fn run() {
             features::list_linked_cashflows,
             features::list_eligible_cashflows,
             features::get_unmatched_cashflow_count,
+            features::calculate_tax_model,
         ])
         .run({
             let mut ctx = tauri::generate_context!();

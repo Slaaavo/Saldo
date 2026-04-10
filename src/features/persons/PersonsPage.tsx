@@ -80,8 +80,8 @@ const PersonsPage = () => {
       <CreatePersonDialog
         open={createDialogOpen}
         onOpenChange={setCreateDialogOpen}
-        onSubmit={async (name, personType) => {
-          await handleCreatePerson(name, personType)
+        onSubmit={async (name, personType, vatPayer) => {
+          await handleCreatePerson(name, personType, vatPayer)
           setCreateDialogOpen(false)
         }}
       />
@@ -92,8 +92,8 @@ const PersonsPage = () => {
             if (!v) setEditingPerson(null)
           }}
           person={editingPerson}
-          onSubmit={async (personId, name, personType) => {
-            await handleUpdatePerson(personId, name, personType)
+          onSubmit={async (personId, name, personType, vatPayer) => {
+            await handleUpdatePerson(personId, name, personType, vatPayer)
             setEditingPerson(null)
           }}
         />

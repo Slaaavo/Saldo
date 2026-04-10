@@ -123,9 +123,10 @@ events:
   foreignAmount: "{{amount}} {{currency}}"
   bucketTag: "Obálka: {{name}}"
   vatRate: "DPH {{rate}}%"
-  vatDeductible: "Odpočet DPH {{pct}}%"
+  vatReclaimable: "Odpočet DPH {{pct}}%"
   expenseDeductible: "Odpočet nákladu {{pct}}%"
   prepaidPeriod: "{{months}} mesiacov záloha"
+  reclaimedVat: "DPH uplatnená"
 
 # ──── Modálne okná ────
 modals:
@@ -308,12 +309,13 @@ modals:
     amount: "Suma"
     vatRate: "Sadzba DPH (voliteľná)"
     vatRatePlaceholder: "napr. 23"
-    vatDeductiblePct: "% odpočtu DPH (voliteľné)"
-    vatDeductiblePctPlaceholder: "napr. 100"
+    vatReclaimablePct: "% odpočtu DPH (voliteľné)"
+    vatReclaimablePctPlaceholder: "napr. 100"
     expenseDeductiblePct: "% odpočtu nákladu (voliteľné)"
     expenseDeductiblePctPlaceholder: "napr. 100"
     prepaidPeriodMonths: "Záloha v mesiacoch (voliteľná)"
     prepaidPeriodHelper: "Počet mesiacov, ktoré tento náklad pokrýva (napr. 12 pre ročné poistné)"
+    reclaimedVat: "DPH uplatnená"
     note: "Poznámka"
     notePlaceholder: "Voliteľná poznámka"
     split: "Rozdeliť"
@@ -640,6 +642,8 @@ persons:
   all: "Všetky osoby"
   selector: "Osoba"
   manage: "Spravovať osoby"
+  vatPayer: "Platca DPH"
+  save: "Uložit"
 
 
 # ──── Demo režim ────
@@ -711,5 +715,18 @@ taxModels:
   dividendAmount: Výška dividendy
   withholdingTax: Zrážková daň z dividend
   monthlyTaxBurden: Mesačné daňové zaťaženie
-  netPayout: Čistá výplata
-  mockDataNotice: "Toto sú zástupné hodnoty. Skutočný výpočet bude dostupný v budúcej aktualizácii."
+  netDividend: Čistá dividenda
+  noEventsForYear: "Pre tento rok neboli nájdené žiadne zdaniteľné udalosti. Pridajte príjmy alebo výdavky, aby ste videli výpočet."
+  breakdownSection: "Prehľad udalostí"
+  breakdownDate: "Dátum"
+  breakdownNote: "Poznámka"
+  breakdownType: "Typ"
+  breakdownAmount: "Suma"
+  breakdownNetAmount: "Čistá suma"
+  breakdownVat: "DPH"
+  breakdownReclaimableVat: "Odpočítateľná DPH"
+  breakdownDeductibleCost: "Odpočítateľný náklad"
+  breakdownNonDeductibleCost: "Neodpočítateľný náklad"
+  breakdownTotal: "Spolu"
+  revenueGroup: "Príjmy"
+  expenseGroup: "Výdavky"

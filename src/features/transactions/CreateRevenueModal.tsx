@@ -76,9 +76,10 @@ const CreateRevenueModal = ({ onClose }: Props) => {
             eventDate: leg.eventDate || date,
             note: leg.note.trim() || null,
             vatRateBps: pctToBps(leg.vatRate),
-            vatDeductiblePctBps: null,
+            vatReclaimablePctBps: null,
             expenseDeductiblePctBps: null,
             prepaidPeriodMonths: null,
+            reclaimedVat: null,
           })),
         })
       } else {
@@ -95,9 +96,10 @@ const CreateRevenueModal = ({ onClose }: Props) => {
           eventDate: date,
           note: note.trim() || null,
           vatRateBps: pctToBps(vatRate),
-          vatDeductiblePctBps: null,
+          vatReclaimablePctBps: null,
           expenseDeductiblePctBps: null,
           prepaidPeriodMonths: null,
+          reclaimedVat: null,
         })
         if (selectedCashflowIds.length > 0) {
           await linkCashflowsToTaxable(newEventId, selectedCashflowIds).catch((err) => {

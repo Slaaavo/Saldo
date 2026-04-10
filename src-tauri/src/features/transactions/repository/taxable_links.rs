@@ -281,6 +281,7 @@ mod tests {
             CreatePersonParams {
                 name: name.to_owned(),
                 person_type: "physical".to_owned(),
+                vat_payer: false,
             },
         )
         .expect("create person failed")

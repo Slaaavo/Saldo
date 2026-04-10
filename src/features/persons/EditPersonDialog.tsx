@@ -6,6 +6,7 @@ import { Button } from '../../shared/ui/button'
 import { Input } from '../../shared/ui/input'
 import { Label } from '../../shared/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../shared/ui/select'
+import { Checkbox } from '../../shared/ui/checkbox'
 import { extractErrorMessage } from '../../shared/utils/errors'
 import type { PersonRow } from '../../shared/types'
 
@@ -13,13 +14,14 @@ interface Props {
   open: boolean
   onOpenChange: (v: boolean) => void
   person: PersonRow
-  onSubmit: (personId: number, name: string, personType: string) => Promise<void>
+  onSubmit: (personId: number, name: string, personType: string, vatPayer: boolean) => Promise<void>
 }
 
 const EditPersonDialog = ({ open, onOpenChange, person, onSubmit }: Props) => {
   const { t } = useTranslation()
   const [name, setName] = useState(person.name)
   const [personType, setPersonType] = useState(person.personType)
+  const [vatPayer, setVatPayer] = useState(person.vatPayer)
   const [submitting, setSubmitting] = useState(false)
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -30,7 +32,7 @@ const EditPersonDialog = ({ open, onOpenChange, person, onSubmit }: Props) => {
     }
     setSubmitting(true)
     try {
-      await onSubmit(person.id, name.trim(), personType)
+      await onSubmit(person.id, name.trim(), personType, vatPayer)
       onOpenChange(false)
     } catch (err) {
       toast.error(extractErrorMessage(err))
@@ -63,13 +65,17 @@ const EditPersonDialog = ({ open, onOpenChange, person, onSubmit }: Props) => {
                 </SelectContent>
               </Select>
             </div>
+            <div className="flex items-center gap-2">
+              <Checkbox id="edit-person-vat-payer" checked={vatPayer} onCheckedChange={(v) => setVatPayer(v === true)} />
+              <Label htmlFor="edit-person-vat-payer">{t('persons.vatPayer')}</Label>
+            </div>
           </DialogBody>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               {t('modals.createPartner.cancel')}
             </Button>
             <Button type="submit" disabled={submitting}>
-              {t('persons.editPerson')}
+              {t('persons.save')}
             </Button>
           </DialogFooter>
         </form>

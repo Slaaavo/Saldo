@@ -169,7 +169,7 @@ const makeEvent = (overrides?: Partial<EventWithData>): EventWithData => {
     splitGroupId: null,
     splitGroupNote: null,
     vatRateBps: null,
-    vatDeductiblePctBps: null,
+    vatReclaimablePctBps: null,
     expenseDeductiblePctBps: null,
     prepaidPeriodMonths: null,
     isLinkedToTaxable: false,
@@ -178,6 +178,7 @@ const makeEvent = (overrides?: Partial<EventWithData>): EventWithData => {
     linkedCashflowCount: 0,
     linkedAssetId: null,
     isSystemGenerated: false,
+    reclaimedVat: null,
     ...overrides,
   }
 }

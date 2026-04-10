@@ -6,12 +6,14 @@ use rusqlite::{params, Connection, OptionalExtension};
 pub struct CreatePersonParams {
     pub name: String,
     pub person_type: String,
+    pub vat_payer: bool,
 }
 
 pub struct UpdatePersonParams {
     pub person_id: i64,
     pub name: String,
     pub person_type: String,
+    pub vat_payer: bool,
 }
 
 /// Returns the consolidation currency ID, falling back to the first currency in the table.
@@ -66,8 +68,8 @@ pub fn create_person(conn: &Connection, params: CreatePersonParams) -> Result<i6
     let now = local_now();
     with_savepoint_app(conn, || {
         conn.execute(
-            "INSERT INTO person (name, person_type, is_default, created_at) VALUES (?1, ?2, 0, ?3)",
-            params![params.name.as_str(), params.person_type.as_str(), now],
+            "INSERT INTO person (name, person_type, is_default, created_at, vat_payer) VALUES (?1, ?2, 0, ?3, ?4)",
+            params![params.name.as_str(), params.person_type.as_str(), now, params.vat_payer as i64],
         )
         .map_err(AppError::from)?;
         let person_id = conn.last_insert_rowid();
@@ -87,12 +89,13 @@ pub fn create_person(conn: &Connection, params: CreatePersonParams) -> Result<i6
 pub fn list_persons(conn: &Connection) -> rusqlite::Result<Vec<PersonRow>> {
     let mut stmt = conn.prepare(
         "SELECT id, name, person_type, is_default, created_at,
-                default_revenue_account_id, default_expense_account_id
+                default_revenue_account_id, default_expense_account_id, vat_payer
          FROM person
          ORDER BY is_default DESC, name ASC",
     )?;
     let rows = stmt.query_map([], |row| {
         let is_default_int: i64 = row.get(3)?;
+        let vat_payer_int: i64 = row.get(7)?;
         Ok(PersonRow {
             id: row.get(0)?,
             name: row.get(1)?,
@@ -101,6 +104,7 @@ pub fn list_persons(conn: &Connection) -> rusqlite::Result<Vec<PersonRow>> {
             created_at: row.get(4)?,
             default_revenue_account_id: row.get::<_, i64>(5)?,
             default_expense_account_id: row.get::<_, i64>(6)?,
+            vat_payer: vat_payer_int != 0,
         })
     })?;
     rows.collect()
@@ -146,10 +150,11 @@ pub fn resolve_default_taxable_account(
 pub fn update_person(conn: &Connection, params: UpdatePersonParams) -> Result<(), AppError> {
     let affected = conn
         .execute(
-            "UPDATE person SET name = ?1, person_type = ?2 WHERE id = ?3",
+            "UPDATE person SET name = ?1, person_type = ?2, vat_payer = ?3 WHERE id = ?4",
             params![
                 params.name.as_str(),
                 params.person_type.as_str(),
+                params.vat_payer as i64,
                 params.person_id
             ],
         )
@@ -167,6 +172,24 @@ pub fn update_person(conn: &Connection, params: UpdatePersonParams) -> Result<()
 /// Returns NOT_FOUND if the person does not exist, DOMAIN_ERROR if the FK is NULL.
 pub fn get_default_expense_account_id(conn: &Connection, person_id: i64) -> Result<i64, AppError> {
     resolve_default_taxable_account(conn, person_id, "expense")
+}
+
+/// Returns the vat_payer flag for the given person.
+/// Returns NOT_FOUND if the person does not exist.
+pub fn get_person_vat_payer(conn: &Connection, person_id: i64) -> Result<bool, AppError> {
+    let row: Option<i64> = conn
+        .query_row(
+            "SELECT vat_payer FROM person WHERE id = ?1",
+            params![person_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(AppError::from)?;
+
+    row.map(|v| v != 0).ok_or_else(|| AppError {
+        code: "NOT_FOUND".into(),
+        message: "Person not found".into(),
+    })
 }
 
 pub fn get_person_accounts(conn: &Connection, person_id: i64) -> rusqlite::Result<Vec<i64>> {
@@ -229,6 +252,7 @@ mod tests {
             CreatePersonParams {
                 name: "Alice Corp".to_owned(),
                 person_type: "legal".to_owned(),
+                vat_payer: false,
             },
         )
         .expect("create_person failed");
@@ -251,6 +275,7 @@ mod tests {
             CreatePersonParams {
                 name: "Tax Tester Ltd".to_owned(),
                 person_type: "legal".to_owned(),
+                vat_payer: false,
             },
         )
         .expect("create_person failed");
@@ -331,6 +356,7 @@ mod tests {
             CreatePersonParams {
                 name: "Old Name".to_owned(),
                 person_type: "physical".to_owned(),
+                vat_payer: false,
             },
         )
         .expect("create_person failed");
@@ -341,6 +367,7 @@ mod tests {
                 person_id: id,
                 name: "New Name".to_owned(),
                 person_type: "physical".to_owned(),
+                vat_payer: false,
             },
         )
         .expect("update_person failed");
@@ -369,6 +396,7 @@ mod tests {
             CreatePersonParams {
                 name: "Resolver Test".to_owned(),
                 person_type: "physical".to_owned(),
+                vat_payer: false,
             },
         )
         .expect("create_person failed");

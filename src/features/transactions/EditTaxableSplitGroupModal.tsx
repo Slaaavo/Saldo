@@ -25,9 +25,10 @@ const legToSplitLegDraft = (leg: EventWithData): SplitLegDraft => ({
   eventDate: leg.eventDate,
   amount: fromMinorUnits(leg.amountMinor, leg.currencyMinorUnits),
   vatRate: bpsToPct(leg.vatRateBps),
-  vatDeductiblePct: bpsToPct(leg.vatDeductiblePctBps),
+  vatReclaimablePct: bpsToPct(leg.vatReclaimablePctBps),
   expenseDeductiblePct: bpsToPct(leg.expenseDeductiblePctBps),
   note: leg.note ?? '',
+  reclaimedVat: leg.reclaimedVat ?? false,
 })
 
 const EditTaxableSplitGroupModal = ({ splitGroupId, eventType, legs: originalLegs, groupNote: initialGroupNote, onClose }: Props) => {
@@ -70,32 +71,34 @@ const EditTaxableSplitGroupModal = ({ splitGroupId, eventType, legs: originalLeg
           eventDate: l.eventDate,
           note: l.note.trim() || null,
           vatRateBps: pctToBps(l.vatRate),
-          vatDeductiblePctBps: eventType === 'expense' ? pctToBps(l.vatDeductiblePct) : null,
+          vatReclaimablePctBps: eventType === 'expense' ? pctToBps(l.vatReclaimablePct) : null,
           expenseDeductiblePctBps: eventType === 'expense' ? pctToBps(l.expenseDeductiblePct) : null,
           prepaidPeriodMonths: null as number | null,
+          reclaimedVat: l.reclaimedVat ?? null,
           _original: original,
         }
       })
-      .filter(({ amountMinor, eventDate, note, vatRateBps, vatDeductiblePctBps, expenseDeductiblePctBps, _original }) => {
+      .filter(({ amountMinor, eventDate, note, vatRateBps, vatReclaimablePctBps, expenseDeductiblePctBps, _original }) => {
         if (!_original) return true
         return (
           amountMinor !== _original.amountMinor ||
           eventDate !== _original.eventDate ||
           note !== (_original.note ?? null) ||
           vatRateBps !== _original.vatRateBps ||
-          vatDeductiblePctBps !== _original.vatDeductiblePctBps ||
+          vatReclaimablePctBps !== _original.vatReclaimablePctBps ||
           expenseDeductiblePctBps !== _original.expenseDeductiblePctBps
         )
       })
-      .map(({ eventId, amountMinor, eventDate, note, vatRateBps, vatDeductiblePctBps, expenseDeductiblePctBps, prepaidPeriodMonths }) => ({
+      .map(({ eventId, amountMinor, eventDate, note, vatRateBps, vatReclaimablePctBps, expenseDeductiblePctBps, prepaidPeriodMonths, reclaimedVat }) => ({
         eventId,
         amountMinor,
         eventDate,
         note,
         vatRateBps,
-        vatDeductiblePctBps,
+        vatReclaimablePctBps,
         expenseDeductiblePctBps,
         prepaidPeriodMonths,
+        reclaimedVat,
       }))
 
     const newLegs = activeLegs
@@ -105,9 +108,10 @@ const EditTaxableSplitGroupModal = ({ splitGroupId, eventType, legs: originalLeg
         eventDate: l.eventDate,
         note: l.note.trim() || null,
         vatRateBps: pctToBps(l.vatRate),
-        vatDeductiblePctBps: eventType === 'expense' ? pctToBps(l.vatDeductiblePct) : null,
+        vatReclaimablePctBps: eventType === 'expense' ? pctToBps(l.vatReclaimablePct) : null,
         expenseDeductiblePctBps: eventType === 'expense' ? pctToBps(l.expenseDeductiblePct) : null,
         prepaidPeriodMonths: null as number | null,
+        reclaimedVat: l.reclaimedVat ?? null,
       }))
 
     setSubmitting(true)

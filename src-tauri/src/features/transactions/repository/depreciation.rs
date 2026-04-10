@@ -1,6 +1,6 @@
 use crate::error::AppError;
 use crate::features::persons::repository::get_default_expense_account_id;
-use crate::shared::{format_end_of_month, last_day_of_month, local_now, with_savepoint_app};
+use crate::shared::{div_round, format_end_of_month, local_now, with_savepoint_app};
 use rusqlite::{params, Connection, OptionalExtension};
 
 use super::taxable_events::insert_taxable_event_data;
@@ -66,42 +66,57 @@ pub(crate) fn generate_depreciation_for_single_asset(
     ctx: &AssetDepreciationContext,
 ) -> Result<i64, AppError> {
     with_savepoint_app(conn, || {
-        let (purchase_year, purchase_month, purchase_day) = parse_ymd(&ctx.purchase_date)?;
+        let (purchase_year, purchase_month, _) = parse_ymd(&ctx.purchase_date)?;
 
         let today_str = local_now();
         let (today_year, today_month, _) = parse_ymd(&today_str)?;
 
-        let today_offset =
-            (today_year - purchase_year) as i64 * 12 + (today_month - purchase_month) as i64;
-
-        // No events for assets purchased in the future.
-        if today_offset < 0 {
+        // No events for assets purchased strictly after the current month.
+        if (purchase_year, purchase_month) > (today_year, today_month) {
             return Ok(0);
         }
 
         let last_eligible_offset = ctx.depreciation_period_months - 1;
-        let max_offset = (today_offset - 1).min(last_eligible_offset);
-
-        let monthly_amount = ctx.purchase_price_minor / ctx.depreciation_period_months;
-
-        // Pre-compute proration values for the first month (only relevant when n > 1 and
-        // the purchase happened mid-month).
-        let (prorated_first, first_month_shortfall) =
-            if purchase_day > 1 && ctx.depreciation_period_months > 1 {
-                let total_days = last_day_of_month(purchase_year, purchase_month as u32) as i64;
-                let remaining_days = total_days - purchase_day as i64 + 1;
-                let pf = monthly_amount * remaining_days / total_days;
-                let shortfall = monthly_amount - pf;
-                (pf, shortfall)
-            } else {
-                (monthly_amount, 0_i64)
-            };
+        let monthly_base = div_round(ctx.purchase_price_minor, ctx.depreciation_period_months);
 
         let mut created: i64 = 0;
+        let mut cumulative_total: i64 = 0;
+        let mut yearly_target: i64 = 0;
+        let mut year_accumulated: i64 = 0;
 
-        for offset in 0..=max_offset {
+        for offset in 0..=last_eligible_offset {
             let (event_year, event_month) = add_months(purchase_year, purchase_month, offset);
             let year_month_prefix = format!("{:04}-{:02}%", event_year, event_month);
+
+            // At the start of each calendar year segment, compute the yearly target.
+            if offset == 0 || event_month == 1 {
+                let months_remaining_in_schedule = last_eligible_offset - offset + 1;
+                let months_until_december = 13 - event_month as i64;
+                let months_in_this_year_segment =
+                    months_remaining_in_schedule.min(months_until_december);
+                let segment_contains_last =
+                    offset + months_in_this_year_segment - 1 == last_eligible_offset;
+                yearly_target = if segment_contains_last {
+                    ctx.purchase_price_minor - cumulative_total
+                } else {
+                    div_round(
+                        ctx.purchase_price_minor * months_in_this_year_segment,
+                        ctx.depreciation_period_months,
+                    )
+                };
+                year_accumulated = 0;
+            }
+
+            // Compute the depreciation amount for this month.
+            let is_last_of_segment = event_month == 12 || offset == last_eligible_offset;
+            let amount = if is_last_of_segment {
+                yearly_target - year_accumulated
+            } else {
+                monthly_base
+            };
+
+            year_accumulated += amount;
+            cumulative_total += amount;
 
             // Idempotency: skip if a system-generated event for this asset in this month
             // already exists.
@@ -123,24 +138,6 @@ pub(crate) fn generate_depreciation_for_single_asset(
             if exists.is_some() {
                 continue;
             }
-
-            // Compute the depreciation amount for this month.
-            let is_first = offset == 0;
-            let is_last = offset == last_eligible_offset;
-
-            let amount = if is_first && is_last {
-                // Single-month asset: expense the full purchase price.
-                ctx.purchase_price_minor
-            } else if is_first {
-                prorated_first
-            } else if is_last {
-                // Last month gets the integer-division remainder plus the proration shortfall
-                // subtracted from month 1, so the total always equals purchase_price_minor.
-                ctx.purchase_price_minor - (ctx.depreciation_period_months - 1) * monthly_amount
-                    + first_month_shortfall
-            } else {
-                monthly_amount
-            };
 
             let expense_account_id = get_default_expense_account_id(conn, ctx.person_id)?;
 
@@ -167,6 +164,7 @@ pub(crate) fn generate_depreciation_for_single_asset(
                 None,
                 None,
                 Some(10000),
+                None,
                 None,
             )
             .map_err(AppError::from)?;
@@ -307,6 +305,7 @@ pub fn generate_depreciation_events(conn: &Connection) -> Result<(), AppError> {
                 None,
                 Some(10000),
                 None,
+                None,
             )
             .map_err(AppError::from)?;
 
@@ -444,6 +443,7 @@ pub(crate) fn recalculate_depreciation_for_asset(
                 None,
                 Some(10000),
                 None,
+                None,
             )
             .map_err(AppError::from)?;
         }
@@ -567,22 +567,25 @@ mod tests {
         assert_eq!(count_events_for_asset(&conn, asset_id), 12);
     }
 
-    // ── Test: first month prorated when purchase is mid-month ────────────────
+    // ── Test: first month gets full monthly_base (no daily proration) ─────────
 
     #[test]
     fn test_depreciation_proration_mid_month() {
         let conn = initialize_in_memory().expect("DB init failed");
-        // Jan has 31 days. Bought on Jan 16 → remaining = 31-16+1 = 16 days.
-        // monthly_amount = 3100 / 12 = 258 (floor)
-        // prorated_first = 258 * 16 / 31 = 133 (floor)
+        // Bought on Jan 16 — mid-month purchases no longer receive daily proration.
+        // monthly_base = 3100 / 12 = 258
+        // Months 1-11: 258 each = 2838; month 12 (last): 3100 - 2838 = 262. Total = 3100.
         let asset_id = mk_depreciating_asset(&conn, "Machine", 3100, "2024-01-16", 12);
         generate_depreciation_events(&conn).expect("generator failed");
         let rows = get_event_data_for_asset(&conn, asset_id);
         assert_eq!(rows.len(), 12);
-        // First month (Jan 2024) must be prorated: 258 * 16 / 31 = 133
-        assert_eq!(rows[0].0, 133, "First month should be prorated");
-        // Middle months should be monthly_amount = 258
-        assert_eq!(rows[1].0, 258, "Second month should be full monthly_amount");
+        // First month (Jan 2024): full-month depreciation = monthly_base = 258
+        assert_eq!(rows[0].0, 258, "First month should be full monthly_base");
+        // Second month should also be monthly_base = 258
+        assert_eq!(rows[1].0, 258, "Second month should be full monthly_base");
+        // Verify total equals purchase_price_minor
+        let total: i64 = rows.iter().map(|r| r.0).sum();
+        assert_eq!(total, 3100);
     }
 
     // ── Test: no proration when purchased on the 1st ────────────────────────
@@ -697,24 +700,18 @@ mod tests {
         }
     }
 
-    // ── Test: future months not generated ────────────────────────────────────
+    // ── Test: all schedule months generated (including future ones) ──────────
 
     #[test]
-    fn test_future_months_not_generated() {
+    fn test_all_schedule_months_generated() {
         let conn = initialize_in_memory().expect("DB init failed");
-        // 60-month asset started Jan 2024; expected count grows with each passing month.
+        // 60-month asset started Jan 2024; all months in the schedule are generated
+        // regardless of today's date.
         let asset_id = mk_depreciating_asset(&conn, "Building", 60000, "2024-01-01", 60);
         generate_depreciation_events(&conn).expect("generator failed");
         let count = count_events_for_asset(&conn, asset_id);
-        let now = local_now();
-        let today_year: i32 = now[0..4].parse().unwrap();
-        let today_month: u32 = now[5..7].parse().unwrap();
-        let today_offset = (today_year - 2024) as i64 * 12 + (today_month as i64 - 1);
-        let expected = today_offset.min(60);
-        assert_eq!(
-            count as i64, expected,
-            "Should only generate events up to but not including the current month"
-        );
+        // All months in the depreciation schedule are generated regardless of today's date.
+        assert_eq!(count, 60);
     }
 
     // ── Test: future purchase date — no events ───────────────────────────────
@@ -727,34 +724,40 @@ mod tests {
         assert_eq!(count_events_for_asset(&conn, asset_id), 0);
     }
 
-    // ── Test: asset purchased in the current month — no events yet ───────────
+    // ── Test: asset purchased in the current month — full schedule generated ──
 
     #[test]
-    fn test_same_month_purchase_no_events() {
+    fn test_same_month_purchase_generates_full_schedule() {
         let conn = initialize_in_memory().expect("DB init failed");
-        // An asset purchased in the current month should produce no events yet
-        // (the current month has not ended, so the expense cannot be booked).
+        // An asset purchased in the current month should generate events for the
+        // full depreciation schedule, including the current month and all future
+        // months. The future-purchase guard only blocks assets whose purchase date
+        // is strictly after the current month.
         let today = local_now();
         let purchase_date = &today[..10];
         let asset_id = mk_depreciating_asset(&conn, "CurrentMonthAsset", 12000, purchase_date, 12);
         generate_depreciation_events(&conn).expect("generator failed");
         assert_eq!(
             count_events_for_asset(&conn, asset_id),
-            0,
-            "No events should be generated for an asset purchased in the current month"
+            12,
+            "All 12 monthly events should be generated for an asset purchased in the current month"
         );
     }
 
-    // ── Test: total across all months equals purchase_price_minor (with proration) ──
+    // ── Test: total across all months equals purchase_price_minor (mid-month purchase) ──
 
     #[test]
-    fn test_total_equals_purchase_price_with_proration() {
+    fn test_total_equals_purchase_price_mid_month_purchase() {
         let conn = initialize_in_memory().expect("DB init failed");
-        // Bought Jan 16, 2024 → prorated first month; total must still = 3100
+        // Bought Jan 16, 2024 → no proration; first month gets monthly_base = 3100/12 = 258
         let asset_id = mk_depreciating_asset(&conn, "ProrationCheck", 3100, "2024-01-16", 12);
         generate_depreciation_events(&conn).expect("generator failed");
         let rows = get_event_data_for_asset(&conn, asset_id);
         assert_eq!(rows.len(), 12);
+        assert_eq!(
+            rows[0].0, 258,
+            "First month should be monthly_base = 3100 / 12 = 258"
+        );
         let total: i64 = rows.iter().map(|r| r.0).sum();
         assert_eq!(
             total, 3100,
@@ -1044,6 +1047,159 @@ mod tests {
         assert!(
             count_events_for_asset(&conn, asset_id) > 0,
             "Depreciation events should be generated immediately on asset creation"
+        );
+    }
+
+    // ── Test: year-boundary December adjustment and overall total integrity ──
+
+    #[test]
+    fn test_yearly_december_adjustment() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        // purchase_date = "2024-06-01", price = 4900, period = 48
+        // monthly_base = 4900 / 48 = 102 (floor)
+        let asset_id = mk_depreciating_asset(&conn, "YearlyAdjAsset", 4900, "2024-06-01", 48);
+        generate_depreciation_events(&conn).expect("generator failed");
+
+        let rows = get_event_data_for_asset(&conn, asset_id);
+
+        // Total event count must be 48.
+        assert_eq!(rows.len(), 48, "Expected 48 depreciation events");
+
+        // Group amounts by calendar year using the first 4 chars of event_date
+        // (event_date is "YYYY-MM-DDTHH:MM:SS").
+        let mut year_sums: std::collections::BTreeMap<String, i64> =
+            std::collections::BTreeMap::new();
+        for row in &rows {
+            let year = row.1[0..4].to_string();
+            *year_sums.entry(year).or_insert(0) += row.0;
+        }
+
+        // Year 1: Jun–Dec 2024 — 7 events, yearly_target = round(4900 * 7 / 48) = 715
+        assert_eq!(
+            year_sums.get("2024").copied().unwrap_or(0),
+            715,
+            "Year 1 (2024, Jun–Dec) sum should be 715"
+        );
+        // Year 2: Jan–Dec 2025 — 12 events, yearly_target = round(4900 * 12 / 48) = 1225
+        assert_eq!(
+            year_sums.get("2025").copied().unwrap_or(0),
+            1225,
+            "Year 2 (2025, Jan–Dec) sum should be 1225"
+        );
+        // Year 3: Jan–Dec 2026 — 12 events, yearly_target = round(4900 * 12 / 48) = 1225
+        assert_eq!(
+            year_sums.get("2026").copied().unwrap_or(0),
+            1225,
+            "Year 3 (2026, Jan–Dec) sum should be 1225"
+        );
+        // Year 4: Jan–Dec 2027 — 12 events, yearly_target = round(4900 * 12 / 48) = 1225
+        assert_eq!(
+            year_sums.get("2027").copied().unwrap_or(0),
+            1225,
+            "Year 4 (2027, Jan–Dec) sum should be 1225"
+        );
+        // Year 5: Jan–May 2028 — 5 events, yearly_target = 4900 - 715 - 3*1225 = 510
+        assert_eq!(
+            year_sums.get("2028").copied().unwrap_or(0),
+            510,
+            "Year 5 (2028, Jan–May) sum should be 510"
+        );
+
+        // The last event (May 2028) absorbs the year-5 rounding remainder:
+        // Jan–Apr = 4 * 102 = 408; May = 510 - 408 = 102.
+        let last_row = rows.last().expect("rows must not be empty");
+        assert_eq!(last_row.0, 102, "Last event (May 2028) should be 102");
+
+        // Overall total must equal purchase_price_minor = 4900.
+        let total: i64 = rows.iter().map(|r| r.0).sum();
+        assert_eq!(
+            total, 4900,
+            "Overall sum must equal purchase_price_minor (4900)"
+        );
+    }
+
+    // ── Test: all 60 months are generated including future months ────────────
+
+    #[test]
+    fn test_generates_all_months_including_future() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        // purchase_date = "2026-01-01", period = 60 months → Jan 2026 – Dec 2030.
+        // As of April 2026, only 4 months are in the past (Jan–Apr 2026).
+        // The new algorithm generates the full schedule regardless of today's date.
+        let asset_id = mk_depreciating_asset(&conn, "FutureMonthsAsset", 60000, "2026-01-01", 60);
+        generate_depreciation_events(&conn).expect("generator failed");
+
+        assert_eq!(
+            count_events_for_asset(&conn, asset_id),
+            60,
+            "All 60 monthly events must be generated including future months up to Dec 2030"
+        );
+
+        // Verify that events in the future (e.g., 2030) were also generated.
+        let rows = get_event_data_for_asset(&conn, asset_id);
+        let has_2030_event = rows.iter().any(|r| r.1.starts_with("2030-"));
+        assert!(
+            has_2030_event,
+            "At least one event in 2030 must be present, confirming future months are generated"
+        );
+
+        // Overall total must equal purchase_price_minor.
+        let total: i64 = rows.iter().map(|r| r.0).sum();
+        assert_eq!(
+            total, 60000,
+            "Overall sum must equal purchase_price_minor (60000)"
+        );
+    }
+
+    // ── Test: no daily proration for a mid-month purchase ────────────────────
+
+    #[test]
+    fn test_no_daily_proration_mid_month() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        // purchase_date = "2024-01-16" (mid-month), price = 3100, period = 12.
+        // monthly_base = 3100 / 12 = 258 (floor).
+        // The algorithm must NOT prorate the first month by remaining days in the month.
+        // All non-last months get monthly_base = 258; the last month absorbs the remainder.
+        // remainder = 3100 - 11 * 258 = 3100 - 2838 = 262.
+        let asset_id = mk_depreciating_asset(&conn, "MidMonthNoPro", 3100, "2024-01-16", 12);
+        generate_depreciation_events(&conn).expect("generator failed");
+
+        let rows = get_event_data_for_asset(&conn, asset_id);
+        assert_eq!(rows.len(), 12, "Expected 12 depreciation events");
+
+        let monthly_base: i64 = 258; // 3100 / 12
+
+        // First month (Jan 2024): must be monthly_base, NOT the old prorated value (~133).
+        assert_eq!(
+            rows[0].0, monthly_base,
+            "First month must be full monthly_base ({}), not the old daily-prorated value",
+            monthly_base
+        );
+
+        // Every non-last month must equal monthly_base.
+        for i in 0..11 {
+            assert_eq!(
+                rows[i].0,
+                monthly_base,
+                "Month {} should equal monthly_base ({})",
+                i + 1,
+                monthly_base
+            );
+        }
+
+        // Last month (Dec 2024) absorbs the remainder: 3100 - 11 * 258 = 262.
+        let expected_last = 3100 - 11 * monthly_base; // 262
+        assert_eq!(
+            rows[11].0, expected_last,
+            "Last month must absorb the remainder ({})",
+            expected_last
+        );
+
+        // Overall total must equal purchase_price_minor.
+        let total: i64 = rows.iter().map(|r| r.0).sum();
+        assert_eq!(
+            total, 3100,
+            "Sum of all depreciation amounts must equal purchase_price_minor"
         );
     }
 }

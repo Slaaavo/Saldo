@@ -83,7 +83,7 @@ pub(super) const EVENT_SELECT: &str = "
           e.split_group_id,
           sg.note AS split_group_note,
           ed.vat_rate_bps,
-          ed.vat_deductible_pct_bps,
+          ed.vat_reclaimable_pct_bps,
           ed.expense_deductible_pct_bps,
           ed.prepaid_period_months,
           EXISTS(
@@ -102,7 +102,8 @@ pub(super) const EVENT_SELECT: &str = "
             WHERE tcl.taxable_event_id = e.id
           ) AS linked_cashflow_count,
           e.linked_asset_id,
-          e.is_system_generated";
+          e.is_system_generated,
+          ed.reclaimed_vat";
 
 pub(super) const EVENT_JOINS: &str = "
         JOIN account a ON a.id = e.account_id
@@ -144,7 +145,7 @@ pub(super) fn map_event_row(
         split_group_id: row.get(22)?,
         split_group_note: row.get(23)?,
         vat_rate_bps: row.get(24)?,
-        vat_deductible_pct_bps: row.get(25)?,
+        vat_reclaimable_pct_bps: row.get(25)?,
         expense_deductible_pct_bps: row.get(26)?,
         prepaid_period_months: row.get(27)?,
         is_linked_to_taxable: row.get(28)?,
@@ -153,6 +154,7 @@ pub(super) fn map_event_row(
         has_linked_cashflows: linked_cashflow_count > 0,
         linked_asset_id: row.get(31)?,
         is_system_generated: row.get(32)?,
+        reclaimed_vat: row.get::<_, Option<i64>>(33)?.map(|v| v != 0),
     })
 }
 
@@ -1819,6 +1821,7 @@ mod tests {
             crate::features::persons::repository::CreatePersonParams {
                 name: "Second Person".to_owned(),
                 person_type: "physical".to_owned(),
+                vat_payer: false,
             },
         )
         .expect("create second person failed");
@@ -1877,6 +1880,7 @@ mod tests {
             crate::features::persons::repository::CreatePersonParams {
                 name: "Another Person".to_owned(),
                 person_type: "legal".to_owned(),
+                vat_payer: false,
             },
         )
         .expect("create second person failed");
@@ -1951,7 +1955,7 @@ mod tests {
         assert_eq!(ev.event_type, "revenue");
         assert_eq!(ev.amount_minor, 50000);
         assert_eq!(ev.vat_rate_bps, Some(2300));
-        assert_eq!(ev.vat_deductible_pct_bps, None);
+        assert_eq!(ev.vat_reclaimable_pct_bps, None);
         assert_eq!(ev.expense_deductible_pct_bps, None);
         assert_eq!(ev.prepaid_period_months, None);
         assert_eq!(ev.note.as_deref(), Some("consulting fee"));
@@ -1974,18 +1978,20 @@ mod tests {
                         event_date: "2026-06-01".to_owned(),
                         note: Some("stationery".to_owned()),
                         vat_rate_bps: Some(2300),
-                        vat_deductible_pct_bps: Some(10000),
+                        vat_reclaimable_pct_bps: Some(10000),
                         expense_deductible_pct_bps: Some(10000),
                         prepaid_period_months: None,
+                        reclaimed_vat: None,
                     },
                     TaxableEventLeg {
                         amount_minor: -8000,
                         event_date: "2026-06-01".to_owned(),
                         note: Some("coffee".to_owned()),
                         vat_rate_bps: Some(2300),
-                        vat_deductible_pct_bps: Some(5000),
+                        vat_reclaimable_pct_bps: Some(5000),
                         expense_deductible_pct_bps: Some(5000),
                         prepaid_period_months: None,
+                        reclaimed_vat: None,
                     },
                 ],
             },
@@ -2129,27 +2135,30 @@ mod tests {
                         event_date: "2026-07-01".to_owned(),
                         note: None,
                         vat_rate_bps: None,
-                        vat_deductible_pct_bps: None,
+                        vat_reclaimable_pct_bps: None,
                         expense_deductible_pct_bps: None,
                         prepaid_period_months: None,
+                        reclaimed_vat: None,
                     },
                     TaxableEventLeg {
                         amount_minor: -2000,
                         event_date: "2026-07-01".to_owned(),
                         note: None,
                         vat_rate_bps: None,
-                        vat_deductible_pct_bps: None,
+                        vat_reclaimable_pct_bps: None,
                         expense_deductible_pct_bps: None,
                         prepaid_period_months: None,
+                        reclaimed_vat: None,
                     },
                     TaxableEventLeg {
                         amount_minor: -3000,
                         event_date: "2026-07-01".to_owned(),
                         note: None,
                         vat_rate_bps: None,
-                        vat_deductible_pct_bps: None,
+                        vat_reclaimable_pct_bps: None,
                         expense_deductible_pct_bps: None,
                         prepaid_period_months: None,
+                        reclaimed_vat: None,
                     },
                 ],
             },
@@ -2183,18 +2192,20 @@ mod tests {
                     event_date: "2026-07-15".to_owned(),
                     note: Some("updated leg".to_owned()),
                     vat_rate_bps: Some(500),
-                    vat_deductible_pct_bps: None,
+                    vat_reclaimable_pct_bps: None,
                     expense_deductible_pct_bps: None,
                     prepaid_period_months: None,
+                    reclaimed_vat: None,
                 }],
                 new_legs: vec![NewSplitLeg {
                     amount_minor: -4000,
                     event_date: "2026-07-20".to_owned(),
                     note: None,
                     vat_rate_bps: None,
-                    vat_deductible_pct_bps: None,
+                    vat_reclaimable_pct_bps: None,
                     expense_deductible_pct_bps: None,
                     prepaid_period_months: None,
+                    reclaimed_vat: None,
                 }],
                 removed_leg_ids: vec![leg_to_remove],
             },
@@ -2266,18 +2277,20 @@ mod tests {
                         event_date: "2026-08-01".to_owned(),
                         note: None,
                         vat_rate_bps: None,
-                        vat_deductible_pct_bps: None,
+                        vat_reclaimable_pct_bps: None,
                         expense_deductible_pct_bps: None,
                         prepaid_period_months: None,
+                        reclaimed_vat: None,
                     },
                     TaxableEventLeg {
                         amount_minor: 3000,
                         event_date: "2026-08-01".to_owned(),
                         note: None,
                         vat_rate_bps: None,
-                        vat_deductible_pct_bps: None,
+                        vat_reclaimable_pct_bps: None,
                         expense_deductible_pct_bps: None,
                         prepaid_period_months: None,
+                        reclaimed_vat: None,
                     },
                 ],
             },
@@ -2342,18 +2355,20 @@ mod tests {
                         event_date: "2026-01-01".to_owned(),
                         note: None,
                         vat_rate_bps: None,
-                        vat_deductible_pct_bps: None,
+                        vat_reclaimable_pct_bps: None,
                         expense_deductible_pct_bps: None,
                         prepaid_period_months: None,
+                        reclaimed_vat: None,
                     },
                     TaxableEventLeg {
                         amount_minor: -2000,
                         event_date: "2026-01-01".to_owned(),
                         note: None,
                         vat_rate_bps: None,
-                        vat_deductible_pct_bps: None,
+                        vat_reclaimable_pct_bps: None,
                         expense_deductible_pct_bps: None,
                         prepaid_period_months: None,
+                        reclaimed_vat: None,
                     },
                 ],
             },
@@ -2395,6 +2410,7 @@ mod tests {
             CreatePersonParams {
                 name: "Snapshot Filter Test".to_owned(),
                 person_type: "physical".to_owned(),
+                vat_payer: false,
             },
         )
         .expect("create_person failed");
@@ -2429,6 +2445,7 @@ mod tests {
             CreatePersonParams {
                 name: "Invoice Person".to_owned(),
                 person_type: "physical".to_owned(),
+                vat_payer: false,
             },
         )
         .expect("create_person failed");
@@ -2553,18 +2570,20 @@ mod tests {
                         event_date: "2026-01-01".to_owned(),
                         note: None,
                         vat_rate_bps: None,
-                        vat_deductible_pct_bps: None,
+                        vat_reclaimable_pct_bps: None,
                         expense_deductible_pct_bps: None,
                         prepaid_period_months: None,
+                        reclaimed_vat: None,
                     },
                     TaxableEventLeg {
                         amount_minor: -2000,
                         event_date: "2026-01-01".to_owned(),
                         note: None,
                         vat_rate_bps: None,
-                        vat_deductible_pct_bps: None,
+                        vat_reclaimable_pct_bps: None,
                         expense_deductible_pct_bps: None,
                         prepaid_period_months: None,
+                        reclaimed_vat: None,
                     },
                 ],
             },

@@ -11,6 +11,7 @@ import { CurrencyInput } from '../../shared/ui/CurrencyInput'
 import { Input } from '../../shared/ui/input'
 import { PercentageInput } from '../../shared/ui/PercentageInput'
 import { Label } from '../../shared/ui/label'
+import { Checkbox } from '../../shared/ui/checkbox'
 import { DatePicker } from '../../shared/ui/date-picker'
 import TaxableEventSplitEditor from './TaxableEventSplitEditor'
 import { SplitLegDraft, makeEmptyLeg } from './splitLegDraft'
@@ -24,7 +25,7 @@ interface Props {
 }
 
 const VAT_QUICK_FILLS = ['0', '5', '10', '20', '23']
-const VAT_DEDUCTIBLE_QUICK_FILLS = ['100', '50']
+const VAT_RECLAIMABLE_QUICK_FILLS = ['100', '50']
 const EXPENSE_DEDUCTIBLE_QUICK_FILLS = ['100', '80', '50']
 
 const CreateExpenseModal = ({ onClose }: Props) => {
@@ -39,7 +40,7 @@ const CreateExpenseModal = ({ onClose }: Props) => {
   const [date, setDate] = useState(todayIso())
   const [amount, setAmount] = useState('')
   const [vatRate, setVatRate] = useState('')
-  const [vatDeductiblePct, setVatDeductiblePct] = useState('')
+  const [vatReclaimablePct, setVatReclaimablePct] = useState('')
   const [expenseDeductiblePct, setExpenseDeductiblePct] = useState('')
   const [prepaidPeriodMonths, setPrepaidPeriodMonths] = useState('')
   const [note, setNote] = useState('')
@@ -48,6 +49,14 @@ const CreateExpenseModal = ({ onClose }: Props) => {
   const [groupNote, setGroupNote] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [selectedCashflowIds, setSelectedCashflowIds] = useState<number[]>([])
+  const [reclaimedVat, setReclaimedVat] = useState(false)
+  const [reclaimedVatPersonId, setReclaimedVatPersonId] = useState(personId)
+
+  if (reclaimedVatPersonId !== personId) {
+    setReclaimedVatPersonId(personId)
+    const person = persons.find((p) => p.id === personId)
+    setReclaimedVat(person?.vatPayer ?? false)
+  }
 
   const amountMinorForFilter = (() => {
     const parsed = parseFloat(amount)
@@ -81,9 +90,10 @@ const CreateExpenseModal = ({ onClose }: Props) => {
             eventDate: leg.eventDate || date,
             note: leg.note.trim() || null,
             vatRateBps: pctToBps(leg.vatRate),
-            vatDeductiblePctBps: pctToBps(leg.vatDeductiblePct),
+            vatReclaimablePctBps: pctToBps(leg.vatReclaimablePct),
             expenseDeductiblePctBps: pctToBps(leg.expenseDeductiblePct),
             prepaidPeriodMonths: null,
+            reclaimedVat: leg.reclaimedVat,
           })),
         })
       } else {
@@ -101,9 +111,10 @@ const CreateExpenseModal = ({ onClose }: Props) => {
           eventDate: date,
           note: note.trim() || null,
           vatRateBps: pctToBps(vatRate),
-          vatDeductiblePctBps: pctToBps(vatDeductiblePct),
+          vatReclaimablePctBps: pctToBps(vatReclaimablePct),
           expenseDeductiblePctBps: pctToBps(expenseDeductiblePct),
           prepaidPeriodMonths: prepaidInt !== null && !isNaN(prepaidInt) ? prepaidInt : null,
+          reclaimedVat,
         })
         if (selectedCashflowIds.length > 0) {
           await linkCashflowsToTaxable(newEventId, selectedCashflowIds).catch((err) => {
@@ -204,22 +215,22 @@ const CreateExpenseModal = ({ onClose }: Props) => {
                   </div>
                 </div>
 
-                {/* VAT deductible % */}
+                {/* VAT reclaimable % */}
                 <div className="flex flex-col gap-2">
-                  <Label htmlFor="create-expense-vat-ded">{t('modals.createExpense.vatDeductiblePct')}</Label>
+                  <Label htmlFor="create-expense-vat-ded">{t('modals.createExpense.vatReclaimablePct')}</Label>
                   <PercentageInput
                     id="create-expense-vat-ded"
                     type="number"
                     step="0.01"
                     min={0}
                     max={100}
-                    value={vatDeductiblePct}
-                    onChange={(e) => setVatDeductiblePct(e.target.value)}
-                    placeholder={t('modals.createExpense.vatDeductiblePctPlaceholder')}
+                    value={vatReclaimablePct}
+                    onChange={(e) => setVatReclaimablePct(e.target.value)}
+                    placeholder={t('modals.createExpense.vatReclaimablePctPlaceholder')}
                   />
                   <div className="flex gap-1 flex-wrap">
-                    {VAT_DEDUCTIBLE_QUICK_FILLS.map((v) => (
-                      <button key={v} type="button" onClick={() => setVatDeductiblePct(v)} className="text-xs px-2 py-0.5 rounded bg-muted hover:bg-accent transition-colors">
+                    {VAT_RECLAIMABLE_QUICK_FILLS.map((v) => (
+                      <button key={v} type="button" onClick={() => setVatReclaimablePct(v)} className="text-xs px-2 py-0.5 rounded bg-muted hover:bg-accent transition-colors">
                         {v}%
                       </button>
                     ))}
@@ -261,6 +272,12 @@ const CreateExpenseModal = ({ onClose }: Props) => {
                     placeholder="0"
                   />
                   <p className="text-xs text-muted-foreground">{t('modals.createExpense.prepaidPeriodHelper')}</p>
+                </div>
+
+                {/* VAT reclaimed */}
+                <div className="flex items-center gap-2">
+                  <Checkbox id="create-expense-reclaimed-vat" checked={reclaimedVat} onCheckedChange={(v) => setReclaimedVat(v === true)} />
+                  <Label htmlFor="create-expense-reclaimed-vat">{t('modals.createExpense.reclaimedVat')}</Label>
                 </div>
 
                 {/* Note */}

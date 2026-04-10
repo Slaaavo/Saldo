@@ -31,7 +31,7 @@ pub struct EventWithData {
     pub split_group_id: Option<i64>,
     pub split_group_note: Option<String>,
     pub vat_rate_bps: Option<i64>,
-    pub vat_deductible_pct_bps: Option<i64>,
+    pub vat_reclaimable_pct_bps: Option<i64>,
     pub expense_deductible_pct_bps: Option<i64>,
     pub prepaid_period_months: Option<i64>,
     pub is_linked_to_taxable: bool,
@@ -40,6 +40,7 @@ pub struct EventWithData {
     pub linked_cashflow_count: i64,
     pub linked_asset_id: Option<i64>,
     pub is_system_generated: bool,
+    pub reclaimed_vat: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
