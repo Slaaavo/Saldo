@@ -50,7 +50,7 @@ export type ModalState =
       name: string
       accountType?: 'account' | 'bucket' | 'asset'
     }
-  | { type: 'confirmDeleteEvent'; eventId: number }
+  | { type: 'confirmDeleteEvent'; eventId: number; eventType?: string }
   | { type: 'confirmDeleteSplitGroup'; splitGroupId: number }
   | { type: 'confirmDeleteTransferEvent'; eventId: number; linkedEventId: number }
   | { type: 'bulkUpdateBalance' }
@@ -75,6 +75,7 @@ export type ModalState =
   | { type: 'addEvents' }
   | { type: 'createRevenue' }
   | { type: 'createExpense' }
+  | { type: 'createPrepaidExpense' }
   | { type: 'editTaxableEvent'; event: EventWithData }
   | {
       type: 'editTaxableSplitGroup'
@@ -128,12 +129,13 @@ export interface EventWithData {
   vatRateBps: number | null
   vatReclaimablePctBps: number | null
   expenseDeductiblePctBps: number | null
-  prepaidPeriodMonths: number | null
+  prepaidUntil: string | null
   isLinkedToTaxable: boolean
   linkedTaxableEventId: number | null
   hasLinkedCashflows: boolean
   linkedCashflowCount: number
   linkedAssetId: number | null
+  linkedPrepaidEventId: number | null
   isSystemGenerated: boolean
   reclaimedVat: boolean | null
 }

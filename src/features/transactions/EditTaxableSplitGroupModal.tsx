@@ -73,7 +73,7 @@ const EditTaxableSplitGroupModal = ({ splitGroupId, eventType, legs: originalLeg
           vatRateBps: pctToBps(l.vatRate),
           vatReclaimablePctBps: eventType === 'expense' ? pctToBps(l.vatReclaimablePct) : null,
           expenseDeductiblePctBps: eventType === 'expense' ? pctToBps(l.expenseDeductiblePct) : null,
-          prepaidPeriodMonths: null as number | null,
+          prepaidUntil: null as string | null,
           reclaimedVat: l.reclaimedVat ?? null,
           _original: original,
         }
@@ -89,7 +89,7 @@ const EditTaxableSplitGroupModal = ({ splitGroupId, eventType, legs: originalLeg
           expenseDeductiblePctBps !== _original.expenseDeductiblePctBps
         )
       })
-      .map(({ eventId, amountMinor, eventDate, note, vatRateBps, vatReclaimablePctBps, expenseDeductiblePctBps, prepaidPeriodMonths, reclaimedVat }) => ({
+      .map(({ eventId, amountMinor, eventDate, note, vatRateBps, vatReclaimablePctBps, expenseDeductiblePctBps, prepaidUntil, reclaimedVat }) => ({
         eventId,
         amountMinor,
         eventDate,
@@ -97,7 +97,7 @@ const EditTaxableSplitGroupModal = ({ splitGroupId, eventType, legs: originalLeg
         vatRateBps,
         vatReclaimablePctBps,
         expenseDeductiblePctBps,
-        prepaidPeriodMonths,
+        prepaidUntil,
         reclaimedVat,
       }))
 
@@ -110,7 +110,7 @@ const EditTaxableSplitGroupModal = ({ splitGroupId, eventType, legs: originalLeg
         vatRateBps: pctToBps(l.vatRate),
         vatReclaimablePctBps: eventType === 'expense' ? pctToBps(l.vatReclaimablePct) : null,
         expenseDeductiblePctBps: eventType === 'expense' ? pctToBps(l.expenseDeductiblePct) : null,
-        prepaidPeriodMonths: null as number | null,
+        prepaidUntil: null as string | null,
         reclaimedVat: l.reclaimedVat ?? null,
       }))
 

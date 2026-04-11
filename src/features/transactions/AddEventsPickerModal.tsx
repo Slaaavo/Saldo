@@ -1,15 +1,16 @@
 import { useTranslation } from 'react-i18next'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogBody } from '../../shared/ui/dialog'
-import { RefreshCw, TrendingUp, TrendingDown } from 'lucide-react'
+import { RefreshCw, TrendingUp, TrendingDown, CalendarRange } from 'lucide-react'
 
 interface Props {
   onBulkUpdate: () => void
   onRevenue: () => void
   onExpense: () => void
+  onPrepaidExpense: () => void
   onClose: () => void
 }
 
-const AddEventsPickerModal = ({ onBulkUpdate, onRevenue, onExpense, onClose }: Props) => {
+const AddEventsPickerModal = ({ onBulkUpdate, onRevenue, onExpense, onPrepaidExpense, onClose }: Props) => {
   const { t } = useTranslation()
 
   return (
@@ -44,6 +45,13 @@ const AddEventsPickerModal = ({ onBulkUpdate, onRevenue, onExpense, onClose }: P
               <div>
                 <p className="font-medium text-sm">{t('modals.addEvents.expense')}</p>
                 <p className="text-xs text-muted-foreground mt-0.5">{t('modals.addEvents.expenseDesc')}</p>
+              </div>
+            </button>
+            <button type="button" onClick={onPrepaidExpense} className="flex items-start gap-4 rounded-lg border border-border p-4 text-left hover:bg-muted transition-colors">
+              <CalendarRange className="h-6 w-6 mt-0.5 text-rose-600 dark:text-rose-400 shrink-0" />
+              <div>
+                <p className="font-medium text-sm">{t('createPrepaidExpense.title', 'Add Prepaid Expense')}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">{t('modals.addEvents.prepaidExpenseDesc')}</p>
               </div>
             </button>
           </div>

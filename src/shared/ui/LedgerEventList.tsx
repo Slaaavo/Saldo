@@ -19,7 +19,7 @@ interface Props {
   accounts: SnapshotRow[]
   consolidationCurrency?: Currency | null
   onEditEvent: (event: EventWithData) => void
-  onDeleteEvent: (eventId: number) => void
+  onDeleteEvent: (eventId: number, eventType?: string) => void
   onDeleteTransferEvent?: (eventId: number, linkedEventId: number) => void
   onDeleteSplitGroup?: (splitGroupId: number) => void
   onEditTaxableSplitGroup?: (splitGroupId: number, eventType: string, legs: EventWithData[], groupNote: string | null, accountId: number) => void
@@ -195,9 +195,7 @@ const LedgerEventList = ({ events, accounts, consolidationCurrency, onEditEvent,
                               {leg.expenseDeductiblePctBps !== null && leg.expenseDeductiblePctBps < 10000 && (
                                 <p className="text-xs text-muted-foreground">{t('events.expenseDeductible', { pct: leg.expenseDeductiblePctBps / 100 })}</p>
                               )}
-                              {leg.prepaidPeriodMonths !== null && (
-                                <p className="text-xs text-muted-foreground">{t('events.prepaidPeriod', { months: leg.prepaidPeriodMonths })}</p>
-                              )}
+                              {leg.prepaidUntil && <p className="text-xs text-muted-foreground">{t('events.prepaidUntil', { date: leg.prepaidUntil.slice(0, 10) })}</p>}
                               {leg.eventType === 'expense' && leg.reclaimedVat === true && (
                                 <span className="inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground mt-0.5">{t('events.reclaimedVat')}</span>
                               )}
@@ -267,6 +265,12 @@ const LedgerEventList = ({ events, accounts, consolidationCurrency, onEditEvent,
                             {t('events.type.expense')}
                           </span>
                         )}
+                        {ev.eventType === 'prepaid_expense' && (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-rose-100 px-2 py-0.5 text-xs font-medium text-rose-700 dark:bg-rose-900/30 dark:text-rose-400">
+                            <TrendingDown className="h-3 w-3" />
+                            {t('events.type.prepaid_expense')}
+                          </span>
+                        )}
                         {(ev.eventType === 'revenue' || ev.eventType === 'expense') && ev.hasLinkedCashflows && (
                           <TooltipProvider delayDuration={300}>
                             <Tooltip>
@@ -301,7 +305,7 @@ const LedgerEventList = ({ events, accounts, consolidationCurrency, onEditEvent,
                       {ev.expenseDeductiblePctBps !== null && ev.expenseDeductiblePctBps < 10000 && (
                         <p className="text-xs text-muted-foreground">{t('events.expenseDeductible', { pct: ev.expenseDeductiblePctBps / 100 })}</p>
                       )}
-                      {ev.prepaidPeriodMonths !== null && <p className="text-xs text-muted-foreground">{t('events.prepaidPeriod', { months: ev.prepaidPeriodMonths })}</p>}
+                      {ev.prepaidUntil && <p className="text-xs text-muted-foreground">{t('events.prepaidUntil', { date: ev.prepaidUntil.slice(0, 10) })}</p>}
                       {ev.eventType === 'expense' && ev.reclaimedVat === true && (
                         <span className="inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground mt-0.5">{t('events.reclaimedVat')}</span>
                       )}
@@ -339,7 +343,11 @@ const LedgerEventList = ({ events, accounts, consolidationCurrency, onEditEvent,
                       </div>
                       <div className="flex items-center gap-1">
                         {!ev.isSystemGenerated &&
-                          (ev.eventType === 'balance_update' || ev.eventType === 'transfer' || ev.eventType === 'revenue' || ev.eventType === 'expense') && (
+                          (ev.eventType === 'balance_update' ||
+                            ev.eventType === 'transfer' ||
+                            ev.eventType === 'revenue' ||
+                            ev.eventType === 'expense' ||
+                            ev.eventType === 'prepaid_expense') && (
                             <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => onEditEvent(ev)}>
                               <Pencil className="h-4 w-4" />
                             </Button>
@@ -353,7 +361,7 @@ const LedgerEventList = ({ events, accounts, consolidationCurrency, onEditEvent,
                               if (ev.linkedEventId !== null && onDeleteTransferEvent) {
                                 onDeleteTransferEvent(ev.id, ev.linkedEventId)
                               } else {
-                                onDeleteEvent(ev.id)
+                                onDeleteEvent(ev.id, ev.eventType)
                               }
                             }}
                           >

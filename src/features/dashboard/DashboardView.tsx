@@ -241,7 +241,7 @@ const DashboardView = () => {
               accounts={snapshot}
               consolidationCurrency={consolidationCurrency}
               onEditEvent={handleEditEvent}
-              onDeleteEvent={(eventId) => setModalState({ type: 'confirmDeleteEvent', eventId })}
+              onDeleteEvent={(eventId, eventType) => setModalState({ type: 'confirmDeleteEvent', eventId, eventType })}
               onDeleteTransferEvent={(eventId, linkedEventId) => setModalState({ type: 'confirmDeleteTransferEvent', eventId, linkedEventId })}
               onDeleteSplitGroup={(splitGroupId) => setModalState({ type: 'confirmDeleteSplitGroup', splitGroupId })}
               onAddEvents={() => setModalState({ type: 'addEvents' })}

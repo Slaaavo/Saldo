@@ -35,7 +35,7 @@ This section covers the foundational tables. Additional tables (buckets, assets,
 
 - `currency`   (id INTEGER PK, code TEXT UNIQUE, name TEXT, minor_units INTEGER)
 - `account`    (id INTEGER PK, name TEXT, created_at TEXT, currency_id INTEGER REFERENCES currency(id))
-- `event`      (id INTEGER PK, account_id INTEGER REFERENCES account(id), event_type TEXT, created_at TEXT, deleted_at TEXT, latest_data_id INTEGER REFERENCES event_data(id))
+- `event`      (id INTEGER PK, account_id INTEGER REFERENCES account(id), event_type TEXT, created_at TEXT, deleted_at TEXT, latest_data_id INTEGER REFERENCES event_data(id), linked_prepaid_event_id INTEGER REFERENCES event(id))
 - `event_data` (id INTEGER PK, event_id INTEGER REFERENCES event(id), amount_minor INTEGER, event_date TEXT, note TEXT, created_at TEXT)
 
 Notes:
@@ -45,7 +45,8 @@ Notes:
 - `event_date` stores an ISO 8601 datetime string (`YYYY-MM-DDTHH:MM:SS`), not just a date. The schema stores full datetime to allow a future setting to show time.
 - `deleted_at` (nullable) supports soft-delete. When set to a datetime string, the event is considered deleted. Soft-delete exists for audit log / edit history support.
 - All datetime fields (`event_date`, `created_at`, `deleted_at`) store ISO 8601 datetime strings in local time (`YYYY-MM-DDTHH:MM:SS`).
-- **Taxable event columns** (migration 023): `event_data` has four additional nullable `INTEGER` columns: `vat_rate_bps`, `vat_reclaimable_pct_bps`, `expense_deductible_pct_bps`, `prepaid_period_months`. `vat_reclaimable_pct_bps` and `expense_deductible_pct_bps` are only valid for `event_type = 'expense'`; they must be `NULL` for `revenue` events (enforced by `validate_expense_only_fields` in `commands.rs`).
+- **Taxable event columns** (migrations 023, 031): `event_data` has additional nullable columns: `vat_rate_bps INTEGER`, `vat_reclaimable_pct_bps INTEGER`, `expense_deductible_pct_bps INTEGER`, `prepaid_until TEXT`. `vat_reclaimable_pct_bps` and `expense_deductible_pct_bps` are only valid for `event_type = 'expense'` or `'prepaid_expense'`; they must be `NULL` for `revenue` events (enforced by `validate_expense_only_fields` in `commands.rs`). `prepaid_until` is a nullable ISO date (`YYYY-MM-DD`) indicating the last day of coverage for a prepaid expense; only set on `prepaid_expense` events.
+- **Prepaid expense linking** (migration 031): `event.linked_prepaid_event_id` (nullable `INTEGER`, FK to `event(id)`) links auto-generated child `expense` rows back to their parent `prepaid_expense` event. Indexed via `idx_event_linked_prepaid_event_id`. Follows the same pattern as `linked_asset_id` used for depreciation. The old `prepaid_period_months INTEGER` column on `event_data` (migration 023) is retained in the schema but is functionally dead — it is never read or written by application code.
 - **`reclaimed_vat`** (nullable `INTEGER` on `event_data`, only for expense events): `NULL` = not applicable; `1` = VAT was reclaimed; `0` = VAT was not reclaimed. Must be `NULL` for non-expense events.
 - **`vat_payer`** (`INTEGER` on `person`, default `0`): serves as the default for `reclaimed_vat` on new expense events created for this person (`1` = VAT payer, `0` = not a VAT payer).
 - **Asset depreciation columns** (migration 022): `account` has three additional nullable columns: `purchase_price_minor INTEGER`, `purchase_date TEXT`, `depreciation_period_months INTEGER`. These are only meaningful when `account_type = 'asset'` and the account is denominated in a standard currency (not a custom unit). Setting them on non-asset accounts is rejected at the command layer.

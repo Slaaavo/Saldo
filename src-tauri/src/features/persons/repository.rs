@@ -136,7 +136,7 @@ pub fn resolve_default_taxable_account(
             code: "DOMAIN_ERROR".into(),
             message: "Person has no default revenue account".into(),
         }),
-        "expense" => exp_id.ok_or_else(|| AppError {
+        "expense" | "prepaid_expense" => exp_id.ok_or_else(|| AppError {
             code: "DOMAIN_ERROR".into(),
             message: "Person has no default expense account".into(),
         }),

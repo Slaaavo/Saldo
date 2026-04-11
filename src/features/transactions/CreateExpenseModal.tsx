@@ -42,7 +42,6 @@ const CreateExpenseModal = ({ onClose }: Props) => {
   const [vatRate, setVatRate] = useState('')
   const [vatReclaimablePct, setVatReclaimablePct] = useState('')
   const [expenseDeductiblePct, setExpenseDeductiblePct] = useState('')
-  const [prepaidPeriodMonths, setPrepaidPeriodMonths] = useState('')
   const [note, setNote] = useState('')
   const [isSplit, setIsSplit] = useState(false)
   const [legs, setLegs] = useState<SplitLegDraft[]>(() => [makeEmptyLeg(todayIso()), makeEmptyLeg(todayIso())])
@@ -92,7 +91,7 @@ const CreateExpenseModal = ({ onClose }: Props) => {
             vatRateBps: pctToBps(leg.vatRate),
             vatReclaimablePctBps: pctToBps(leg.vatReclaimablePct),
             expenseDeductiblePctBps: pctToBps(leg.expenseDeductiblePct),
-            prepaidPeriodMonths: null,
+            prepaidUntil: null,
             reclaimedVat: leg.reclaimedVat,
           })),
         })
@@ -103,7 +102,6 @@ const CreateExpenseModal = ({ onClose }: Props) => {
           setSubmitting(false)
           return
         }
-        const prepaidInt = prepaidPeriodMonths.trim() ? parseInt(prepaidPeriodMonths) : null
         const newEventId = await createTaxableEvent({
           personId,
           eventType: 'expense',
@@ -113,7 +111,7 @@ const CreateExpenseModal = ({ onClose }: Props) => {
           vatRateBps: pctToBps(vatRate),
           vatReclaimablePctBps: pctToBps(vatReclaimablePct),
           expenseDeductiblePctBps: pctToBps(expenseDeductiblePct),
-          prepaidPeriodMonths: prepaidInt !== null && !isNaN(prepaidInt) ? prepaidInt : null,
+          prepaidUntil: null,
           reclaimedVat,
         })
         if (selectedCashflowIds.length > 0) {
@@ -257,21 +255,6 @@ const CreateExpenseModal = ({ onClose }: Props) => {
                       </button>
                     ))}
                   </div>
-                </div>
-
-                {/* Prepaid period */}
-                <div className="flex flex-col gap-2">
-                  <Label htmlFor="create-expense-prepaid">{t('modals.createExpense.prepaidPeriodMonths')}</Label>
-                  <Input
-                    id="create-expense-prepaid"
-                    type="number"
-                    step="1"
-                    min={0}
-                    value={prepaidPeriodMonths}
-                    onChange={(e) => setPrepaidPeriodMonths(e.target.value)}
-                    placeholder="0"
-                  />
-                  <p className="text-xs text-muted-foreground">{t('modals.createExpense.prepaidPeriodHelper')}</p>
                 </div>
 
                 {/* VAT reclaimed */}

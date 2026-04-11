@@ -2,6 +2,7 @@ mod balance_updates;
 mod cashflows;
 pub(crate) mod depreciation;
 mod events;
+pub(crate) mod prepaid_expenses;
 mod queries;
 mod snapshot;
 mod split_groups;
@@ -85,7 +86,7 @@ pub(super) const EVENT_SELECT: &str = "
           ed.vat_rate_bps,
           ed.vat_reclaimable_pct_bps,
           ed.expense_deductible_pct_bps,
-          ed.prepaid_period_months,
+          ed.prepaid_until,
           EXISTS(
             SELECT 1 FROM taxable_cashflow_link tcl
             JOIN event te ON te.id = tcl.taxable_event_id AND te.deleted_at IS NULL
@@ -102,6 +103,7 @@ pub(super) const EVENT_SELECT: &str = "
             WHERE tcl.taxable_event_id = e.id
           ) AS linked_cashflow_count,
           e.linked_asset_id,
+          e.linked_prepaid_event_id,
           e.is_system_generated,
           ed.reclaimed_vat";
 
@@ -147,14 +149,15 @@ pub(super) fn map_event_row(
         vat_rate_bps: row.get(24)?,
         vat_reclaimable_pct_bps: row.get(25)?,
         expense_deductible_pct_bps: row.get(26)?,
-        prepaid_period_months: row.get(27)?,
+        prepaid_until: row.get(27)?,
         is_linked_to_taxable: row.get(28)?,
         linked_taxable_event_id: row.get(29)?,
         linked_cashflow_count,
         has_linked_cashflows: linked_cashflow_count > 0,
         linked_asset_id: row.get(31)?,
-        is_system_generated: row.get(32)?,
-        reclaimed_vat: row.get::<_, Option<i64>>(33)?.map(|v| v != 0),
+        linked_prepaid_event_id: row.get(32)?,
+        is_system_generated: row.get(33)?,
+        reclaimed_vat: row.get::<_, Option<i64>>(34)?.map(|v| v != 0),
     })
 }
 
@@ -1957,7 +1960,7 @@ mod tests {
         assert_eq!(ev.vat_rate_bps, Some(2300));
         assert_eq!(ev.vat_reclaimable_pct_bps, None);
         assert_eq!(ev.expense_deductible_pct_bps, None);
-        assert_eq!(ev.prepaid_period_months, None);
+        assert_eq!(ev.prepaid_until, None);
         assert_eq!(ev.note.as_deref(), Some("consulting fee"));
     }
 
@@ -1980,7 +1983,7 @@ mod tests {
                         vat_rate_bps: Some(2300),
                         vat_reclaimable_pct_bps: Some(10000),
                         expense_deductible_pct_bps: Some(10000),
-                        prepaid_period_months: None,
+                        prepaid_until: None,
                         reclaimed_vat: None,
                     },
                     TaxableEventLeg {
@@ -1990,7 +1993,7 @@ mod tests {
                         vat_rate_bps: Some(2300),
                         vat_reclaimable_pct_bps: Some(5000),
                         expense_deductible_pct_bps: Some(5000),
-                        prepaid_period_months: None,
+                        prepaid_until: None,
                         reclaimed_vat: None,
                     },
                 ],
@@ -2137,7 +2140,7 @@ mod tests {
                         vat_rate_bps: None,
                         vat_reclaimable_pct_bps: None,
                         expense_deductible_pct_bps: None,
-                        prepaid_period_months: None,
+                        prepaid_until: None,
                         reclaimed_vat: None,
                     },
                     TaxableEventLeg {
@@ -2147,7 +2150,7 @@ mod tests {
                         vat_rate_bps: None,
                         vat_reclaimable_pct_bps: None,
                         expense_deductible_pct_bps: None,
-                        prepaid_period_months: None,
+                        prepaid_until: None,
                         reclaimed_vat: None,
                     },
                     TaxableEventLeg {
@@ -2157,7 +2160,7 @@ mod tests {
                         vat_rate_bps: None,
                         vat_reclaimable_pct_bps: None,
                         expense_deductible_pct_bps: None,
-                        prepaid_period_months: None,
+                        prepaid_until: None,
                         reclaimed_vat: None,
                     },
                 ],
@@ -2194,7 +2197,7 @@ mod tests {
                     vat_rate_bps: Some(500),
                     vat_reclaimable_pct_bps: None,
                     expense_deductible_pct_bps: None,
-                    prepaid_period_months: None,
+                    prepaid_until: None,
                     reclaimed_vat: None,
                 }],
                 new_legs: vec![NewSplitLeg {
@@ -2204,7 +2207,7 @@ mod tests {
                     vat_rate_bps: None,
                     vat_reclaimable_pct_bps: None,
                     expense_deductible_pct_bps: None,
-                    prepaid_period_months: None,
+                    prepaid_until: None,
                     reclaimed_vat: None,
                 }],
                 removed_leg_ids: vec![leg_to_remove],
@@ -2279,7 +2282,7 @@ mod tests {
                         vat_rate_bps: None,
                         vat_reclaimable_pct_bps: None,
                         expense_deductible_pct_bps: None,
-                        prepaid_period_months: None,
+                        prepaid_until: None,
                         reclaimed_vat: None,
                     },
                     TaxableEventLeg {
@@ -2289,7 +2292,7 @@ mod tests {
                         vat_rate_bps: None,
                         vat_reclaimable_pct_bps: None,
                         expense_deductible_pct_bps: None,
-                        prepaid_period_months: None,
+                        prepaid_until: None,
                         reclaimed_vat: None,
                     },
                 ],
@@ -2357,7 +2360,7 @@ mod tests {
                         vat_rate_bps: None,
                         vat_reclaimable_pct_bps: None,
                         expense_deductible_pct_bps: None,
-                        prepaid_period_months: None,
+                        prepaid_until: None,
                         reclaimed_vat: None,
                     },
                     TaxableEventLeg {
@@ -2367,7 +2370,7 @@ mod tests {
                         vat_rate_bps: None,
                         vat_reclaimable_pct_bps: None,
                         expense_deductible_pct_bps: None,
-                        prepaid_period_months: None,
+                        prepaid_until: None,
                         reclaimed_vat: None,
                     },
                 ],
@@ -2572,7 +2575,7 @@ mod tests {
                         vat_rate_bps: None,
                         vat_reclaimable_pct_bps: None,
                         expense_deductible_pct_bps: None,
-                        prepaid_period_months: None,
+                        prepaid_until: None,
                         reclaimed_vat: None,
                     },
                     TaxableEventLeg {
@@ -2582,7 +2585,7 @@ mod tests {
                         vat_rate_bps: None,
                         vat_reclaimable_pct_bps: None,
                         expense_deductible_pct_bps: None,
-                        prepaid_period_months: None,
+                        prepaid_until: None,
                         reclaimed_vat: None,
                     },
                 ],

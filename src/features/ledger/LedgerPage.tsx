@@ -71,6 +71,10 @@ const LedgerPage = () => {
       }
       return
     }
+    if (event.eventType === 'prepaid_expense') {
+      setModalState({ type: 'editTaxableEvent', event })
+      return
+    }
     if (event.eventType === 'transfer') {
       if (!event.linkedEventId) {
         toast.error(t('errors.loadData'))
@@ -95,8 +99,8 @@ const LedgerPage = () => {
     setModalState({ type: 'editTaxableSplitGroup', splitGroupId, eventType: eventType as 'revenue' | 'expense', legs, groupNote, accountId })
   }
 
-  const handleDeleteEvent = (eventId: number) => {
-    setModalState({ type: 'confirmDeleteEvent', eventId })
+  const handleDeleteEvent = (eventId: number, eventType?: string) => {
+    setModalState({ type: 'confirmDeleteEvent', eventId, eventType })
   }
 
   const handleDeleteSplitGroup = (splitGroupId: number) => {
@@ -150,6 +154,7 @@ const LedgerPage = () => {
             { value: 'transfer', label: t('ledgerPage.filterType.transfers') },
             { value: 'revenue', label: t('ledgerPage.filterType.revenue') },
             { value: 'expense', label: t('ledgerPage.filterType.expense') },
+            { value: 'prepaid_expense', label: t('ledgerPage.filterType.prepaid_expense') },
           ] as const
         ).map(({ value, label }) => (
           <Button

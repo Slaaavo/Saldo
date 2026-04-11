@@ -38,7 +38,7 @@ vi.mock('../../app/ModalContext', () => ({
 
 // ── Mock child components ──────────────────────────────────────────────────
 vi.mock('../../shared/ui/LedgerEventList', () => ({
-  default: (props: { events: unknown[]; onEditEvent: (e: unknown) => void; onDeleteEvent: (id: number) => void }) => (
+  default: (props: { events: unknown[]; onEditEvent: (e: unknown) => void; onDeleteEvent: (id: number, eventType?: string) => void }) => (
     <div data-testid="ledger-event-list">
       <span data-testid="event-count">{props.events.length}</span>
       <button
@@ -162,6 +162,6 @@ describe('LedgerPage', () => {
     renderLedgerPage()
     const deleteBtn = await screen.findByTestId('delete-btn')
     await user.click(deleteBtn)
-    expect(mockSetModalState).toHaveBeenCalledWith({ type: 'confirmDeleteEvent', eventId: 42 })
+    expect(mockSetModalState).toHaveBeenCalledWith(expect.objectContaining({ type: 'confirmDeleteEvent', eventId: 42 }))
   })
 })

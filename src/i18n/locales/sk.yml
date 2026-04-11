@@ -110,6 +110,7 @@ ledgerPage:
     transfers: "Prevody"
     revenue: "Výnosy"
     expense: "Náklady"
+    prepaid_expense: "Predplatené výdavky"
 
 # ──── Typy udalostí ────
 events:
@@ -119,6 +120,7 @@ events:
     balanceUpdate: "Aktualizácia zostatku"
     revenue: "Výnos"
     expense: "Náklad"
+    prepaid_expense: "Predplatený výdavok"
   counterpart: "Protistrana"
   foreignAmount: "{{amount}} {{currency}}"
   bucketTag: "Obálka: {{name}}"
@@ -126,7 +128,15 @@ events:
   vatReclaimable: "Odpočet DPH {{pct}}%"
   expenseDeductible: "Odpočet nákladu {{pct}}%"
   prepaidPeriod: "{{months}} mesiacov záloha"
+  prepaidUntil: "Predplatené do: {{date}}"
   reclaimedVat: "DPH uplatnená"
+
+# ──── Predplatený výdavok ────
+createPrepaidExpense:
+  title: "Pridať predplatený výdavok"
+  prepaidUntil: "Predplatené do"
+  prepaidUntilHelper: "Posledný deň pokrytého obdobia"
+  prepaidUntilFutureYear: "Musí byť v budúcom kalendárnom roku"
 
 # ──── Modálne okná ────
 modals:
@@ -232,6 +242,7 @@ modals:
     deleteAccount: 'Naozaj chcete vymazať {{entityType}} "{{name}}"? Tým sa vymažú aj všetky jeho udalosti.'
     deleteAssetWithLinks: 'Naozaj chcete vymazať {{entityType}} "{{name}}"? Nasledujúce účty sú prepojené s týmto aktívom a budú odpojené: {{accounts}}. Budú opäť zahrnuté do Voľných prostriedkov.'
     deleteEvent: Naozaj chcete vymazať túto udalosť?
+    deletePrepaidExpenseEvent: "Naozaj chcete vymazať túto predplatenú výdavkovú položku? Všetky automaticky vygenerované výdavkové udalosti pre tento predplatený výdavok budú tiež vymazané."
     deleteTransferEvent: "Naozaj chcete vymazať tento prevod? Prepojený prevod na druhom účte bude tiež vymazaný."
     deleteSplitGroup: "Naozaj chcete vymazať túto rozdelenú skupinu? Všetky časti budú vymazané."
 
@@ -282,6 +293,7 @@ modals:
     revenueDesc: "Zaznamenajte zdaniteľný výnos (nárastový základ)"
     expense: "Náklad"
     expenseDesc: "Zaznamenajte daňovo-uznateľný náklad (nárastový základ)"
+    prepaidExpenseDesc: "Automaticky rozložiť náklady na kalendárne roky"
 
   createRevenue:
     title: "Pridať výnos"
@@ -325,6 +337,26 @@ modals:
     total: "Celkom"
     cancel: "Zrušiť"
     submit: "Uložiť"
+
+  createPrepaidExpense:
+    title: "Pridať predplatený výdavok"
+    date: "Dátum"
+    amount: "Suma"
+    prepaidUntil: "Predplatené do"
+    prepaidUntilHelper: "Posledný deň pokrytého obdobia"
+    vatRate: "Sadzba DPH (voliteľná)"
+    vatRatePlaceholder: "napr. 20"
+    vatReclaimablePct: "% odpočtu DPH (voliteľné)"
+    vatReclaimablePctPlaceholder: "napr. 100"
+    expenseDeductiblePct: "% odpočtu nákladu (voliteľné)"
+    expenseDeductiblePctPlaceholder: "napr. 100"
+    note: "Poznámka"
+    notePlaceholder: "napr. Ročné poistenie"
+    cancel: "Zrušiť"
+    submit: "Pridať predplatený výdavok"
+    prepaidUntilYearError: "Musí byť v budúcom kalendárnom roku"
+    prepaidUntilRequired: "Dátum ukončenia pokrytia je povinný"
+    success: "Predplatený výdavok bol vytvorený"
 
   editTaxableEvent:
     title: "Upraviť udalosť"

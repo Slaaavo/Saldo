@@ -111,6 +111,7 @@ ledgerPage:
     transfers: "Transfers"
     revenue: "Revenue"
     expense: "Expenses"
+    prepaid_expense: "Prepaid Expenses"
 
 # ──── Event types ────
 events:
@@ -120,6 +121,7 @@ events:
     balanceUpdate: "Balance Update"
     revenue: "Revenue"
     expense: "Expense"
+    prepaid_expense: "Prepaid Expense"
   counterpart: "Counterpart"
   foreignAmount: "{{amount}} {{currency}}"
   bucketTag: "Bucket: {{name}}"
@@ -127,7 +129,15 @@ events:
   vatReclaimable: "VAT reclaimable {{pct}}%"
   expenseDeductible: "Deductible {{pct}}%"
   prepaidPeriod: "{{months}} months prepaid"
+  prepaidUntil: "Prepaid until: {{date}}"
   reclaimedVat: "VAT reclaimed"
+
+# ──── Prepaid Expense ────
+createPrepaidExpense:
+  title: "Add Prepaid Expense"
+  prepaidUntil: "Prepaid until"
+  prepaidUntilHelper: "The last day of the coverage period"
+  prepaidUntilFutureYear: "Must be in a future calendar year"
 
 # ──── Modals ────
 modals:
@@ -233,6 +243,7 @@ modals:
     deleteAccount: 'Are you sure you want to delete {{entityType}} "{{name}}"? This will also delete all its events.'
     deleteAssetWithLinks: 'Are you sure you want to delete {{entityType}} "{{name}}"? The following accounts are linked to this asset and will be unlinked: {{accounts}}. They will be included in Left to Spend again.'
     deleteEvent: Are you sure you want to delete this event?
+    deletePrepaidExpenseEvent: "Are you sure you want to delete this prepaid expense? All auto-generated expense events for this prepaid expense will also be deleted."
     deleteTransferEvent: "Are you sure you want to delete this transfer? The linked transfer on the other account will also be deleted."
     deleteSplitGroup: "Are you sure you want to delete this split group? All legs will be deleted."
 
@@ -283,6 +294,7 @@ modals:
     revenueDesc: "Record taxable income (accrual basis)"
     expense: "Expense"
     expenseDesc: "Record a tax-deductible cost (accrual basis)"
+    prepaidExpenseDesc: "Spread cost across calendar years automatically"
 
   createRevenue:
     title: "Add Revenue"
@@ -326,6 +338,26 @@ modals:
     total: "Total"
     cancel: "Cancel"
     submit: "Save"
+
+  createPrepaidExpense:
+    title: "Add Prepaid Expense"
+    date: "Date"
+    amount: "Amount"
+    prepaidUntil: "Prepaid until"
+    prepaidUntilHelper: "The last day of the coverage period"
+    vatRate: "VAT Rate (optional)"
+    vatRatePlaceholder: "e.g. 20"
+    vatReclaimablePct: "VAT-reclaimable % (optional)"
+    vatReclaimablePctPlaceholder: "e.g. 100"
+    expenseDeductiblePct: "Expense-deductible % (optional)"
+    expenseDeductiblePctPlaceholder: "e.g. 100"
+    note: "Note"
+    notePlaceholder: "e.g. Annual insurance"
+    cancel: "Cancel"
+    submit: "Add Prepaid Expense"
+    prepaidUntilYearError: "Must be in a future calendar year"
+    prepaidUntilRequired: "Coverage end date is required"
+    success: "Prepaid expense created"
 
   editTaxableEvent:
     title: "Edit Event"

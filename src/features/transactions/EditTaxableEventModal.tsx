@@ -30,6 +30,7 @@ const EditTaxableEventModal = ({ event, onClose }: Props) => {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const isExpense = event.eventType === 'expense'
+  const isPrepaidExpense = event.eventType === 'prepaid_expense'
   const minorUnits = event.currencyMinorUnits
 
   const [amount, setAmount] = useState(fromMinorUnits(event.amountMinor, minorUnits))
@@ -37,10 +38,36 @@ const EditTaxableEventModal = ({ event, onClose }: Props) => {
   const [vatRate, setVatRate] = useState(bpsToPct(event.vatRateBps))
   const [vatReclaimablePct, setVatReclaimablePct] = useState(bpsToPct(event.vatReclaimablePctBps))
   const [expenseDeductiblePct, setExpenseDeductiblePct] = useState(bpsToPct(event.expenseDeductiblePctBps))
-  const [prepaidPeriodMonths, setPrepaidPeriodMonths] = useState(event.prepaidPeriodMonths !== null ? String(event.prepaidPeriodMonths) : '')
+  const [prepaidUntil, setPrepaidUntil] = useState(event.prepaidUntil ?? '')
+  const [prepaidUntilError, setPrepaidUntilError] = useState<string | null>(null)
   const [note, setNote] = useState(event.note ?? '')
   const [submitting, setSubmitting] = useState(false)
   const [reclaimedVat, setReclaimedVat] = useState<boolean>(event.reclaimedVat ?? false)
+
+  const validatePrepaidUntil = (expenseDate: string, until: string): boolean => {
+    if (!until) return true
+    const expenseYear = parseInt(expenseDate.slice(0, 4), 10)
+    const untilYear = parseInt(until.slice(0, 4), 10)
+    return untilYear > expenseYear
+  }
+
+  const handlePrepaidUntilChange = (value: string) => {
+    setPrepaidUntil(value)
+    if (value && !validatePrepaidUntil(date, value)) {
+      setPrepaidUntilError(t('modals.createPrepaidExpense.prepaidUntilYearError', 'Must be in a future calendar year'))
+    } else {
+      setPrepaidUntilError(null)
+    }
+  }
+
+  const handleDateChange = (newDate: string) => {
+    setDate(newDate)
+    if (prepaidUntil && !validatePrepaidUntil(newDate, prepaidUntil)) {
+      setPrepaidUntilError(t('modals.createPrepaidExpense.prepaidUntilYearError', 'Must be in a future calendar year'))
+    } else {
+      setPrepaidUntilError(null)
+    }
+  }
 
   // Resolve person_id from persons list — needed for eligible cashflows query
   const { data: persons = [] } = useQuery({ queryKey: ['persons'], queryFn: listPersons })
@@ -82,9 +109,18 @@ const EditTaxableEventModal = ({ event, onClose }: Props) => {
       toast.error(t('validation.invalidAmount'))
       return
     }
+    if (isPrepaidExpense) {
+      if (!prepaidUntil) {
+        toast.error(t('modals.createPrepaidExpense.prepaidUntilRequired', 'Coverage end date is required'))
+        return
+      }
+      if (!validatePrepaidUntil(date, prepaidUntil)) {
+        setPrepaidUntilError(t('modals.createPrepaidExpense.prepaidUntilYearError', 'Must be in a future calendar year'))
+        return
+      }
+    }
     setSubmitting(true)
     try {
-      const prepaidInt = prepaidPeriodMonths.trim() ? parseInt(prepaidPeriodMonths) : null
       await updateTaxableEvent({
         eventId: event.id,
         eventType: event.eventType,
@@ -92,9 +128,9 @@ const EditTaxableEventModal = ({ event, onClose }: Props) => {
         eventDate: date,
         note: note.trim() || null,
         vatRateBps: pctToBps(vatRate),
-        vatReclaimablePctBps: isExpense ? pctToBps(vatReclaimablePct) : null,
-        expenseDeductiblePctBps: isExpense ? pctToBps(expenseDeductiblePct) : null,
-        prepaidPeriodMonths: isExpense && prepaidInt !== null && !isNaN(prepaidInt) ? prepaidInt : null,
+        vatReclaimablePctBps: isExpense || isPrepaidExpense ? pctToBps(vatReclaimablePct) : null,
+        expenseDeductiblePctBps: isExpense || isPrepaidExpense ? pctToBps(expenseDeductiblePct) : null,
+        prepaidUntil: isPrepaidExpense ? prepaidUntil || null : null,
         reclaimedVat: isExpense ? reclaimedVat : null,
       })
       setSubmitting(false)
@@ -146,8 +182,17 @@ const EditTaxableEventModal = ({ event, onClose }: Props) => {
             {/* Date */}
             <div className="flex flex-col gap-2">
               <Label>{t('modals.createRevenue.date')}</Label>
-              <DatePicker value={date} onChange={(d) => setDate(d ?? event.eventDate)} />
+              <DatePicker value={date} onChange={(d) => handleDateChange(d ?? event.eventDate)} />
             </div>
+
+            {/* Prepaid until — only for prepaid expense events */}
+            {isPrepaidExpense && (
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="edit-taxable-prepaid-until">{t('modals.createPrepaidExpense.prepaidUntil', 'Coverage End Date')}</Label>
+                <DatePicker id="edit-taxable-prepaid-until" value={prepaidUntil || undefined} onChange={(d) => handlePrepaidUntilChange(d)} />
+                {prepaidUntilError && <p className="text-xs text-destructive">{prepaidUntilError}</p>}
+              </div>
+            )}
 
             {/* VAT rate */}
             <div className="flex flex-col gap-2">
@@ -172,7 +217,7 @@ const EditTaxableEventModal = ({ event, onClose }: Props) => {
             </div>
 
             {/* Expense-only fields */}
-            {isExpense && (
+            {(isExpense || isPrepaidExpense) && (
               <>
                 <div className="flex flex-col gap-2">
                   <Label htmlFor="edit-taxable-vat-ded">{t('modals.createExpense.vatReclaimablePct')}</Label>
@@ -216,25 +261,13 @@ const EditTaxableEventModal = ({ event, onClose }: Props) => {
                   </div>
                 </div>
 
-                <div className="flex flex-col gap-2">
-                  <Label htmlFor="edit-taxable-prepaid">{t('modals.createExpense.prepaidPeriodMonths')}</Label>
-                  <Input
-                    id="edit-taxable-prepaid"
-                    type="number"
-                    step="1"
-                    min={0}
-                    value={prepaidPeriodMonths}
-                    onChange={(e) => setPrepaidPeriodMonths(e.target.value)}
-                    placeholder="0"
-                  />
-                  <p className="text-xs text-muted-foreground">{t('modals.createExpense.prepaidPeriodHelper')}</p>
-                </div>
-
                 {/* VAT reclaimed */}
-                <div className="flex items-center gap-2">
-                  <Checkbox id="edit-taxable-reclaimed-vat" checked={reclaimedVat} onCheckedChange={(v) => setReclaimedVat(v === true)} />
-                  <Label htmlFor="edit-taxable-reclaimed-vat">{t('modals.createExpense.reclaimedVat')}</Label>
-                </div>
+                {isExpense && (
+                  <div className="flex items-center gap-2">
+                    <Checkbox id="edit-taxable-reclaimed-vat" checked={reclaimedVat} onCheckedChange={(v) => setReclaimedVat(v === true)} />
+                    <Label htmlFor="edit-taxable-reclaimed-vat">{t('modals.createExpense.reclaimedVat')}</Label>
+                  </div>
+                )}
               </>
             )}
 

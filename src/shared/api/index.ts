@@ -438,7 +438,7 @@ export interface TaxableEventLegInput {
   vatRateBps: number | null
   vatReclaimablePctBps: number | null
   expenseDeductiblePctBps: number | null
-  prepaidPeriodMonths: number | null
+  prepaidUntil: string | null
   reclaimedVat: boolean | null
 }
 
@@ -451,7 +451,7 @@ export const createTaxableEvent = (payload: {
   vatRateBps: number | null
   vatReclaimablePctBps: number | null
   expenseDeductiblePctBps: number | null
-  prepaidPeriodMonths: number | null
+  prepaidUntil: string | null
   reclaimedVat: boolean | null
 }): Promise<number> => {
   return invoke('create_taxable_event', { input: payload })
@@ -470,7 +470,7 @@ export const updateTaxableEvent = (payload: {
   vatRateBps: number | null
   vatReclaimablePctBps: number | null
   expenseDeductiblePctBps: number | null
-  prepaidPeriodMonths: number | null
+  prepaidUntil: string | null
   reclaimedVat: boolean | null
 }): Promise<void> => {
   return invoke('update_taxable_event', { input: payload })
@@ -488,7 +488,7 @@ export const updateTaxableSplitGroup = (payload: {
     vatRateBps: number | null
     vatReclaimablePctBps: number | null
     expenseDeductiblePctBps: number | null
-    prepaidPeriodMonths: number | null
+    prepaidUntil: string | null
     reclaimedVat: boolean | null
   }>
   newLegs: TaxableEventLegInput[]

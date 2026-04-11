@@ -25,6 +25,7 @@ import EditTransferModal from '../features/transactions/EditTransferModal'
 import AddEventsPickerModal from '../features/transactions/AddEventsPickerModal'
 import CreateRevenueModal from '../features/transactions/CreateRevenueModal'
 import CreateExpenseModal from '../features/transactions/CreateExpenseModal'
+import CreatePrepaidExpenseModal from '../features/transactions/CreatePrepaidExpenseModal'
 import EditTaxableEventModal from '../features/transactions/EditTaxableEventModal'
 import EditTaxableSplitGroupModal from '../features/transactions/EditTaxableSplitGroupModal'
 
@@ -146,8 +147,10 @@ const AppModals = ({ selectedDate, dbLocation }: AppModalsProps) => {
         />
       )
 
-    case 'confirmDeleteEvent':
-      return <ConfirmDialog message={t('modals.confirm.deleteEvent')} onConfirm={() => handleDeleteEvent(modalState.eventId)} onCancel={closeModal} />
+    case 'confirmDeleteEvent': {
+      const deleteEventMessage = modalState.eventType === 'prepaid_expense' ? t('modals.confirm.deletePrepaidExpenseEvent') : t('modals.confirm.deleteEvent')
+      return <ConfirmDialog message={deleteEventMessage} onConfirm={() => handleDeleteEvent(modalState.eventId)} onCancel={closeModal} />
+    }
 
     case 'confirmDeleteSplitGroup':
       return <ConfirmDialog message={t('modals.confirm.deleteSplitGroup')} onConfirm={() => handleDeleteSplitGroup(modalState.splitGroupId)} onCancel={closeModal} />
@@ -256,6 +259,7 @@ const AppModals = ({ selectedDate, dbLocation }: AppModalsProps) => {
           onBulkUpdate={() => setModalState({ type: 'bulkUpdateBalance' })}
           onRevenue={() => setModalState({ type: 'createRevenue' })}
           onExpense={() => setModalState({ type: 'createExpense' })}
+          onPrepaidExpense={() => setModalState({ type: 'createPrepaidExpense' })}
           onClose={closeModal}
         />
       )
@@ -265,6 +269,9 @@ const AppModals = ({ selectedDate, dbLocation }: AppModalsProps) => {
 
     case 'createExpense':
       return <CreateExpenseModal onClose={closeModal} />
+
+    case 'createPrepaidExpense':
+      return <CreatePrepaidExpenseModal onClose={closeModal} />
 
     case 'editTaxableEvent':
       return <EditTaxableEventModal event={modalState.event} onClose={closeModal} />

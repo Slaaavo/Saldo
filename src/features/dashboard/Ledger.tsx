@@ -9,7 +9,7 @@ interface Props {
   accounts: SnapshotRow[]
   consolidationCurrency?: Currency | null
   onEditEvent: (event: EventWithData) => void
-  onDeleteEvent: (eventId: number) => void
+  onDeleteEvent: (eventId: number, eventType?: string) => void
   onDeleteTransferEvent?: (eventId: number, linkedEventId: number) => void
   onDeleteSplitGroup?: (splitGroupId: number) => void
   onAddEvents: () => void

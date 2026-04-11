@@ -78,7 +78,7 @@ const CreateRevenueModal = ({ onClose }: Props) => {
             vatRateBps: pctToBps(leg.vatRate),
             vatReclaimablePctBps: null,
             expenseDeductiblePctBps: null,
-            prepaidPeriodMonths: null,
+            prepaidUntil: null,
             reclaimedVat: null,
           })),
         })
@@ -98,7 +98,7 @@ const CreateRevenueModal = ({ onClose }: Props) => {
           vatRateBps: pctToBps(vatRate),
           vatReclaimablePctBps: null,
           expenseDeductiblePctBps: null,
-          prepaidPeriodMonths: null,
+          prepaidUntil: null,
           reclaimedVat: null,
         })
         if (selectedCashflowIds.length > 0) {

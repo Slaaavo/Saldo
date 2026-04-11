@@ -1,5 +1,8 @@
+use chrono::{Datelike, NaiveDate};
+
 use crate::error::AppError;
 use crate::features::persons::repository::{get_person_vat_payer, resolve_default_taxable_account};
+use crate::shared::with_savepoint_app;
 use crate::AppState;
 use serde::Deserialize;
 use tauri::State;
@@ -200,7 +203,23 @@ pub fn update_event(state: State<'_, AppState>, input: UpdateEventInput) -> Resu
 pub fn delete_event(state: State<'_, AppState>, event_id: i64) -> Result<(), AppError> {
     let conn = state.conn()?;
     repository::check_event_not_system_generated(&conn, event_id)?;
-    repository::delete_event(&conn, event_id)?;
+
+    // If this is a prepaid_expense parent, cascade-delete its system-generated children first.
+    let event_type: String = conn
+        .query_row(
+            "SELECT event_type FROM event WHERE id = ?1 AND deleted_at IS NULL",
+            rusqlite::params![event_id],
+            |row| row.get(0),
+        )
+        .map_err(AppError::from)?;
+
+    with_savepoint_app(&conn, || {
+        if event_type == "prepaid_expense" {
+            repository::prepaid_expenses::delete_prepaid_child_events(&conn, event_id)?;
+        }
+        repository::delete_event(&conn, event_id)?;
+        Ok(())
+    })?;
     Ok(())
 }
 
@@ -509,7 +528,7 @@ pub struct CreateTaxableEventInput {
     pub vat_rate_bps: Option<i64>,
     pub vat_reclaimable_pct_bps: Option<i64>,
     pub expense_deductible_pct_bps: Option<i64>,
-    pub prepaid_period_months: Option<i64>,
+    pub prepaid_until: Option<String>,
     pub reclaimed_vat: Option<bool>,
 }
 
@@ -522,7 +541,7 @@ pub struct SplitTaxableLegInput {
     pub vat_rate_bps: Option<i64>,
     pub vat_reclaimable_pct_bps: Option<i64>,
     pub expense_deductible_pct_bps: Option<i64>,
-    pub prepaid_period_months: Option<i64>,
+    pub prepaid_until: Option<String>,
     pub reclaimed_vat: Option<bool>,
 }
 
@@ -546,7 +565,7 @@ pub struct UpdateTaxableEventInput {
     pub vat_rate_bps: Option<i64>,
     pub vat_reclaimable_pct_bps: Option<i64>,
     pub expense_deductible_pct_bps: Option<i64>,
-    pub prepaid_period_months: Option<i64>,
+    pub prepaid_until: Option<String>,
     pub reclaimed_vat: Option<bool>,
 }
 
@@ -560,7 +579,7 @@ pub struct UpdatedSplitLegInput {
     pub vat_rate_bps: Option<i64>,
     pub vat_reclaimable_pct_bps: Option<i64>,
     pub expense_deductible_pct_bps: Option<i64>,
-    pub prepaid_period_months: Option<i64>,
+    pub prepaid_until: Option<String>,
     pub reclaimed_vat: Option<bool>,
 }
 
@@ -573,7 +592,7 @@ pub struct NewSplitLegInput {
     pub vat_rate_bps: Option<i64>,
     pub vat_reclaimable_pct_bps: Option<i64>,
     pub expense_deductible_pct_bps: Option<i64>,
-    pub prepaid_period_months: Option<i64>,
+    pub prepaid_until: Option<String>,
     pub reclaimed_vat: Option<bool>,
 }
 
@@ -589,10 +608,10 @@ pub struct UpdateTaxableSplitGroupInput {
 }
 
 fn validate_event_type_taxable(event_type: &str) -> Result<(), AppError> {
-    if event_type != "revenue" && event_type != "expense" {
+    if event_type != "revenue" && event_type != "expense" && event_type != "prepaid_expense" {
         return Err(AppError {
             code: "VALIDATION".into(),
-            message: "event_type must be 'revenue' or 'expense'".into(),
+            message: "event_type must be 'revenue', 'expense', or 'prepaid_expense'".into(),
         });
     }
     Ok(())
@@ -624,18 +643,49 @@ fn validate_expense_only_fields(
     event_type: &str,
     vat_reclaimable_pct_bps: Option<i64>,
     expense_deductible_pct_bps: Option<i64>,
-    prepaid_period_months: Option<i64>,
+    prepaid_until: Option<&str>,
 ) -> Result<(), AppError> {
     if event_type != "expense"
+        && event_type != "prepaid_expense"
         && (vat_reclaimable_pct_bps.is_some()
             || expense_deductible_pct_bps.is_some()
-            || prepaid_period_months.is_some())
+            || prepaid_until.is_some())
     {
         return Err(AppError {
             code: "VALIDATION".into(),
             message:
-                "vat_reclaimable_pct_bps, expense_deductible_pct_bps, and prepaid_period_months are only valid for expense events"
+                "vat_reclaimable_pct_bps, expense_deductible_pct_bps, and prepaid_until are only valid for expense or prepaid_expense events"
                     .into(),
+        });
+    }
+    Ok(())
+}
+
+fn validate_prepaid_until(
+    event_type: &str,
+    event_date: &str,
+    prepaid_until: Option<&str>,
+) -> Result<(), AppError> {
+    if event_type != "prepaid_expense" {
+        return Ok(());
+    }
+    let until_str = prepaid_until.ok_or_else(|| AppError {
+        code: "VALIDATION".into(),
+        message: "prepaid_until is required for prepaid_expense events".into(),
+    })?;
+    let expense_date =
+        NaiveDate::parse_from_str(&event_date[..10], "%Y-%m-%d").map_err(|_| AppError {
+            code: "VALIDATION".into(),
+            message: format!("Invalid event_date format: {}", &event_date[..10]),
+        })?;
+    let until_date = NaiveDate::parse_from_str(until_str, "%Y-%m-%d").map_err(|_| AppError {
+        code: "VALIDATION".into(),
+        message: format!("Invalid prepaid_until format: {}", until_str),
+    })?;
+    if until_date.year() <= expense_date.year() {
+        return Err(AppError {
+            code: "VALIDATION".into(),
+            message: "prepaid_until year must be strictly greater than event_date year".into(),
         });
     }
     Ok(())
@@ -652,12 +702,17 @@ pub fn create_taxable_event(
         &input.event_type,
         input.vat_reclaimable_pct_bps,
         input.expense_deductible_pct_bps,
-        input.prepaid_period_months,
+        input.prepaid_until.as_deref(),
     )?;
     validate_taxable_field_ranges(
         input.vat_rate_bps,
         input.vat_reclaimable_pct_bps,
         input.expense_deductible_pct_bps,
+    )?;
+    validate_prepaid_until(
+        &input.event_type,
+        &input.event_date,
+        input.prepaid_until.as_deref(),
     )?;
     let conn = state.conn()?;
     let account_id = resolve_default_taxable_account(&conn, input.person_id, &input.event_type)?;
@@ -666,21 +721,36 @@ pub fn create_taxable_event(
     } else {
         input.reclaimed_vat
     };
+    let event_type_is_prepaid = input.event_type == "prepaid_expense";
     let id = repository::create_taxable_event(
         &conn,
         repository::CreateTaxableEventParams {
             account_id,
             event_type: input.event_type,
             amount_minor: input.amount_minor,
-            event_date: input.event_date,
-            note: input.note,
+            event_date: input.event_date.clone(),
+            note: input.note.clone(),
             vat_rate_bps: input.vat_rate_bps,
             vat_reclaimable_pct_bps: input.vat_reclaimable_pct_bps,
             expense_deductible_pct_bps: input.expense_deductible_pct_bps,
-            prepaid_period_months: input.prepaid_period_months,
+            prepaid_until: input.prepaid_until.clone(),
             reclaimed_vat: resolved_reclaimed_vat,
         },
     )?;
+    if event_type_is_prepaid {
+        if let Some(until) = input.prepaid_until {
+            let ctx = repository::prepaid_expenses::PrepaidExpenseContext {
+                parent_event_id: id,
+                account_id,
+                expense_date: input.event_date,
+                prepaid_until: until,
+                total_amount_minor: input.amount_minor,
+                expense_deductible_pct_bps: input.expense_deductible_pct_bps,
+                note: input.note,
+            };
+            repository::prepaid_expenses::generate_prepaid_child_events(&conn, &ctx)?;
+        }
+    }
     Ok(id)
 }
 
@@ -702,7 +772,7 @@ pub fn create_taxable_split_group(
             &input.event_type,
             leg.vat_reclaimable_pct_bps,
             leg.expense_deductible_pct_bps,
-            leg.prepaid_period_months,
+            leg.prepaid_until.as_deref(),
         )?;
         validate_taxable_field_ranges(
             leg.vat_rate_bps,
@@ -727,7 +797,7 @@ pub fn create_taxable_split_group(
             vat_rate_bps: l.vat_rate_bps,
             vat_reclaimable_pct_bps: l.vat_reclaimable_pct_bps,
             expense_deductible_pct_bps: l.expense_deductible_pct_bps,
-            prepaid_period_months: l.prepaid_period_months,
+            prepaid_until: l.prepaid_until,
             reclaimed_vat: l.reclaimed_vat.or(default_reclaimed_vat),
         })
         .collect();
@@ -753,7 +823,7 @@ pub fn update_taxable_event(
         &input.event_type,
         input.vat_reclaimable_pct_bps,
         input.expense_deductible_pct_bps,
-        input.prepaid_period_months,
+        input.prepaid_until.as_deref(),
     )?;
     validate_taxable_field_ranges(
         input.vat_rate_bps,
@@ -761,6 +831,11 @@ pub fn update_taxable_event(
         input.expense_deductible_pct_bps,
     )?;
     crate::shared::validate_event_date(&input.event_date)?;
+    validate_prepaid_until(
+        &input.event_type,
+        &input.event_date,
+        input.prepaid_until.as_deref(),
+    )?;
     let conn = state.conn()?;
     repository::check_event_not_system_generated(&conn, input.event_id)?;
     repository::check_event_split_group_date_conflict(
@@ -775,15 +850,34 @@ pub fn update_taxable_event(
         repository::UpdateTaxableEventParams {
             event_id: input.event_id,
             amount_minor: input.amount_minor,
-            event_date: input.event_date,
-            note: input.note,
+            event_date: input.event_date.clone(),
+            note: input.note.clone(),
             vat_rate_bps: input.vat_rate_bps,
             vat_reclaimable_pct_bps: input.vat_reclaimable_pct_bps,
             expense_deductible_pct_bps: input.expense_deductible_pct_bps,
-            prepaid_period_months: input.prepaid_period_months,
+            prepaid_until: input.prepaid_until.clone(),
             reclaimed_vat: input.reclaimed_vat,
         },
     )?;
+    if let Some(prepaid_until) = input.prepaid_until {
+        let account_id: i64 = conn
+            .query_row(
+                "SELECT account_id FROM event WHERE id = ?1",
+                rusqlite::params![input.event_id],
+                |row| row.get(0),
+            )
+            .map_err(AppError::from)?;
+        let ctx = repository::prepaid_expenses::PrepaidExpenseContext {
+            parent_event_id: input.event_id,
+            account_id,
+            expense_date: input.event_date,
+            prepaid_until,
+            total_amount_minor: input.amount_minor,
+            expense_deductible_pct_bps: input.expense_deductible_pct_bps,
+            note: input.note,
+        };
+        repository::prepaid_expenses::regenerate_prepaid_child_events(&conn, &ctx)?;
+    }
     Ok(())
 }
 
@@ -799,7 +893,7 @@ pub fn update_taxable_split_group(
             &input.event_type,
             leg.vat_reclaimable_pct_bps,
             leg.expense_deductible_pct_bps,
-            leg.prepaid_period_months,
+            leg.prepaid_until.as_deref(),
         )?;
         validate_taxable_field_ranges(
             leg.vat_rate_bps,
@@ -813,7 +907,7 @@ pub fn update_taxable_split_group(
             &input.event_type,
             leg.vat_reclaimable_pct_bps,
             leg.expense_deductible_pct_bps,
-            leg.prepaid_period_months,
+            leg.prepaid_until.as_deref(),
         )?;
         validate_taxable_field_ranges(
             leg.vat_rate_bps,
@@ -834,7 +928,7 @@ pub fn update_taxable_split_group(
             vat_rate_bps: l.vat_rate_bps,
             vat_reclaimable_pct_bps: l.vat_reclaimable_pct_bps,
             expense_deductible_pct_bps: l.expense_deductible_pct_bps,
-            prepaid_period_months: l.prepaid_period_months,
+            prepaid_until: l.prepaid_until,
             reclaimed_vat: l.reclaimed_vat,
         })
         .collect();
@@ -848,7 +942,7 @@ pub fn update_taxable_split_group(
             vat_rate_bps: l.vat_rate_bps,
             vat_reclaimable_pct_bps: l.vat_reclaimable_pct_bps,
             expense_deductible_pct_bps: l.expense_deductible_pct_bps,
-            prepaid_period_months: l.prepaid_period_months,
+            prepaid_until: l.prepaid_until,
             reclaimed_vat: l.reclaimed_vat,
         })
         .collect();

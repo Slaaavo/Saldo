@@ -592,4 +592,114 @@ mod tests {
         assert_eq!(result.tax_amount_minor, 16_000);
         assert_eq!(result.total_profit_minor, 64_000);
     }
+
+    #[test]
+    fn test_prorated_child_expense_events_appear_in_correct_tax_year() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let person_id = get_default_person_id(&conn);
+
+        let (_, expense_account_id): (i64, i64) = conn
+            .query_row(
+                "SELECT default_revenue_account_id, default_expense_account_id FROM person WHERE id = ?1",
+                params![person_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("resolve default accounts failed");
+
+        // Simulate system-generated child expense events from a prepaid expense spanning 2025-2026.
+        // The parent prepaid_expense is excluded from tax queries (event_type filter). Only the
+        // child expense events (event_type = 'expense') are visible to the tax engine.
+
+        // Year 2025 prorated share: 12 000 minor.
+        create_taxable_event(
+            &conn,
+            CreateTaxableEventParams {
+                account_id: expense_account_id,
+                event_type: "expense".to_owned(),
+                amount_minor: 12_000,
+                event_date: "2025-06-15T00:00:00".to_owned(),
+                expense_deductible_pct_bps: Some(10000),
+                ..Default::default()
+            },
+        )
+        .expect("create 2025 child event failed");
+
+        // Year 2026 prorated share: 12 000 minor.
+        create_taxable_event(
+            &conn,
+            CreateTaxableEventParams {
+                account_id: expense_account_id,
+                event_type: "expense".to_owned(),
+                amount_minor: 12_000,
+                event_date: "2026-01-01T00:00:00".to_owned(),
+                expense_deductible_pct_bps: Some(10000),
+                ..Default::default()
+            },
+        )
+        .expect("create 2026 child event failed");
+
+        // 2025 tax query must return only the 2025 prorated share.
+        let events_2025 = list_taxable_events_for_model(
+            &conn,
+            ListTaxableEventsForModelParams {
+                person_id,
+                calendar_year: 2025,
+            },
+        )
+        .expect("list for 2025 failed");
+
+        assert_eq!(events_2025.len(), 1, "expected exactly 1 event for 2025");
+        assert_eq!(events_2025[0].amount_minor, 12_000);
+        assert_eq!(events_2025[0].expense_deductible_pct_bps, Some(10000));
+
+        // 2026 tax query must return only the 2026 prorated share.
+        let events_2026 = list_taxable_events_for_model(
+            &conn,
+            ListTaxableEventsForModelParams {
+                person_id,
+                calendar_year: 2026,
+            },
+        )
+        .expect("list for 2026 failed");
+
+        assert_eq!(events_2026.len(), 1, "expected exactly 1 event for 2026");
+        assert_eq!(events_2026[0].amount_minor, 12_000);
+        assert_eq!(events_2026[0].expense_deductible_pct_bps, Some(10000));
+
+        // Each year's tax calculation must use only its own prorated share.
+        // Flat 10% rate, no income → tax basis = max(0, 0 - 12000) = 0, tax = 0.
+        // The important assertion is total_tax_deductible_expenses = 12 000 per year, not 24 000.
+        let make_model = |year: i64| TaxModelDetail {
+            id: year,
+            name: format!("{year} Test Model"),
+            calendar_year: year,
+            person_id,
+            person_name: "Personal".to_owned(),
+            person_type: "physical".to_owned(),
+            vat_status: "none".to_owned(),
+            vat_from_date: None,
+            reserve_fund_current_minor: None,
+            reserve_fund_pct_bps: None,
+            reserve_fund_max_minor: None,
+            dividend_tax_rate_bps: None,
+            created_at: format!("{year}-01-01T00:00:00"),
+            updated_at: format!("{year}-01-01T00:00:00"),
+            brackets: vec![TaxModelBracketRow {
+                id: 1,
+                sort_order: 0,
+                lower_bound_minor: 0,
+                rate_type: "flat".to_owned(),
+                flat_rate_bps: Some(1000),
+                tiers_json: None,
+            }],
+        };
+
+        let result_2025 = calculate_tax_model_results(&make_model(2025), &events_2025);
+        assert_eq!(result_2025.total_tax_deductible_expenses_minor, 12_000);
+        assert_eq!(result_2025.total_income_minor, 0);
+
+        let result_2026 = calculate_tax_model_results(&make_model(2026), &events_2026);
+        assert_eq!(result_2026.total_tax_deductible_expenses_minor, 12_000);
+        assert_eq!(result_2026.total_income_minor, 0);
+    }
 }
