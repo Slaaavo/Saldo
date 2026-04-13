@@ -243,6 +243,11 @@ pub fn run() {
             features::list_eligible_cashflows,
             features::get_unmatched_cashflow_count,
             features::calculate_tax_model,
+            features::delete_ekasa_profile,
+            features::get_ekasa_profile,
+            features::list_ekasa_profiles,
+            features::upsert_ekasa_profile,
+            features::process_receipt_file,
         ])
         .run({
             let mut ctx = tauri::generate_context!();

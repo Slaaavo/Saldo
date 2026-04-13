@@ -72,6 +72,7 @@ export type ModalState =
     }
   | { type: 'manageLinkedAssets'; accountId: number; accountName: string }
   | { type: 'csvImport' }
+  | { type: 'ekasaImport' }
   | { type: 'addEvents' }
   | { type: 'createRevenue' }
   | { type: 'createExpense' }

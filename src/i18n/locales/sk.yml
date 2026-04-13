@@ -533,6 +533,9 @@ dataStorage:
 # ──── Import CSV ────
 import:
   title: "Importovať CSV"
+  dropdownTrigger: "Importovať"
+  csvOption: "CSV"
+  ekasaReceiptOption: "eKasa doklad"
   uploadStep:
     title: "Nahrať súbor"
     dragDrop: "Presuňte CSV súbor sem"
@@ -611,12 +614,22 @@ import:
     close: "Zavrieť"
   profiles:
     title: "Importné profily"
+    csvSectionTitle: "CSV importné profily"
     description: "Profily vytvárajte a upravujte cez sprievodcu importom CSV."
     columns: "Stĺpce"
     rules: "Pravidlá"
     delete: "Zmazať"
     deleteConfirm: "Zmazať profil „{{name}}\"? Importované dáta zostanú nezmenené."
     empty: "Žiadne profily."
+  ekasaProfiles:
+    title: "eKasa importné profily"
+    person: "Osoba"
+    rules: "Pravidlá"
+    defaultDeductible: "Predvolená odpočítateľnosť %"
+    defaultVatReclaimable: "Predvolené vrátenie DPH %"
+    delete: "Zmazať"
+    deleteConfirm: "Zmazať eKasa profil pre {{name}}? Importované dáta zostanú nezmenené."
+    empty: "Žiadne eKasa profily."
   rules:
     signFromColumnLabel: "Znamienko podľa stĺpca"
     signFromColumn:
@@ -632,6 +645,46 @@ import:
       regexHint: "Referencia regulárnych výrazov"
     invalidRegex: "Neplatný regulárny výraz"
     unmatchedColumn: "Stļpec „{{name}}\" sa nenašiel v CSV"
+
+# ──── eKasa import ────
+ekasaImport:
+  uploadStep:
+    dragDrop: "Presuňte doklad sem"
+    instructions: "Podporované formáty: PDF, PNG, JPG, JPEG"
+    browse: "Prehľadávať"
+    filterLabel: "Súbory dokladov"
+    selected: "Vybraté: {{name}}"
+    dragNotSupported: "Pretiahnutie neposkytuje cestu k súboru v Tauri. Použite tlačidlo Prehľadávať."
+  rulesStep:
+    namePatternHeader: "Vzor"
+    deductiblePctHeader: "Odpočítateľné"
+    vatReclaimablePctHeader: "Vrátenie DPH"
+    namePatternPlaceholder: "Vzor názvu (regex)"
+    addRule: "Pridať pravidlo"
+    deleteRule: "Zmazať pravidlo"
+    moveUp: "Nahor"
+    moveDown: "Nadol"
+    default: "Predvolené"
+    back: "Späť"
+    next: "Ďalej"
+  title:
+    upload: "Import eKasa dokladu — Nahranie"
+    rules: "Import eKasa dokladu — Pravidlá"
+    review: "Import eKasa dokladu — Kontrola"
+    saveProfile: "Import eKasa dokladu — Uloženie profilu"
+    error: "Import eKasa dokladu — Chyba"
+  reviewStep:
+    noItems: "Žiadne položky na import"
+    back: "Späť"
+    save: "Uložiť"
+  errorStep:
+    tryAgain: "Skúsiť znova"
+    continuePartial: "Pokračovať s čiastočnými dátami"
+  saveStep:
+    prompt: "Import úspešný. Uložiť tieto pravidlá ako eKasa importný profil?"
+    save: "Uložiť profil"
+    skip: "Neukladať"
+    profileSaved: "eKasa profil uložený"
 
 # ──── Prepojenie daňovej udalosti s peňažným tokom ────
 taxable:

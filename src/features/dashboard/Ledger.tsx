@@ -1,8 +1,7 @@
 import { useTranslation } from 'react-i18next'
 import type { EventWithData, SnapshotRow, Currency } from '../../shared/types'
 import LedgerEventList from '../../shared/ui/LedgerEventList'
-import { Button } from '../../shared/ui/button'
-import { Plus, Upload } from 'lucide-react'
+import LedgerActionButtons from '../../shared/ui/LedgerActionButtons'
 
 interface Props {
   events: EventWithData[]
@@ -15,7 +14,8 @@ interface Props {
   onAddEvents: () => void
   totalEvents?: number
   onViewAll?: () => void
-  onImportCsv?: () => void
+  onImportCsv: () => void
+  onImportEkasa: () => void
   onEditTaxableSplitGroup?: (splitGroupId: number, eventType: string, legs: EventWithData[], groupNote: string | null, accountId: number) => void
 }
 
@@ -31,6 +31,7 @@ const Ledger = ({
   totalEvents,
   onViewAll,
   onImportCsv,
+  onImportEkasa,
   onEditTaxableSplitGroup,
 }: Props) => {
   const { t } = useTranslation()
@@ -41,18 +42,7 @@ const Ledger = ({
     <section>
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-xl font-semibold">{t('ledger.title')}</h2>
-        <div className="flex items-center gap-2">
-          {onImportCsv && (
-            <Button onClick={onImportCsv} size="sm" variant="outline">
-              <Upload className="h-4 w-4" />
-              {t('import.title')}
-            </Button>
-          )}
-          <Button onClick={onAddEvents} size="sm">
-            <Plus className="h-4 w-4" />
-            {t('ledger.addEvents')}
-          </Button>
-        </div>
+        <LedgerActionButtons onAddEvents={onAddEvents} onImportCsv={onImportCsv} onImportEkasa={onImportEkasa} />
       </div>
 
       <LedgerEventList

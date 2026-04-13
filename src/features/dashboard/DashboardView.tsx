@@ -247,6 +247,7 @@ const DashboardView = () => {
               onAddEvents={() => setModalState({ type: 'addEvents' })}
               onEditTaxableSplitGroup={handleEditTaxableSplitGroup}
               onImportCsv={() => setModalState({ type: 'csvImport' })}
+              onImportEkasa={() => setModalState({ type: 'ekasaImport' })}
               totalEvents={totalEvents}
               onViewAll={() => navigate({ to: '/ledger' })}
             />

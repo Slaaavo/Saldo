@@ -84,4 +84,26 @@ mod tests {
         let conn = initialize_in_memory().expect("DB init failed");
         integrity_check(&conn).expect("integrity_check failed on fresh DB");
     }
+
+    #[test]
+    fn migrations_apply_cleanly() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM _migrations", [], |row| row.get(0))
+            .expect("_migrations count query failed");
+        assert_eq!(count, 32, "Expected 32 migrations to be applied");
+    }
+
+    #[test]
+    fn migrations_are_idempotent() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        crate::migrations::run_pending(&conn).expect("second run_pending failed");
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM _migrations", [], |row| row.get(0))
+            .expect("_migrations count query failed");
+        assert_eq!(
+            count, 32,
+            "Running migrations twice must not duplicate rows"
+        );
+    }
 }

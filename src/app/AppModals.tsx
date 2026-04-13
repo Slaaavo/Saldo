@@ -21,6 +21,7 @@ import DbLocationChoiceDialog from '../features/settings/DbLocationChoiceDialog'
 import ReorderModal from '../shared/ui/ReorderModal'
 import ManageLinkedAssetsModal from '../features/assets/ManageLinkedAssetsModal'
 import CsvImportModal from '../features/transactions/CsvImportModal'
+import EkasaImportModal from '../features/ekasa-import/EkasaImportModal'
 import EditTransferModal from '../features/transactions/EditTransferModal'
 import AddEventsPickerModal from '../features/transactions/AddEventsPickerModal'
 import CreateRevenueModal from '../features/transactions/CreateRevenueModal'
@@ -252,6 +253,9 @@ const AppModals = ({ selectedDate, dbLocation }: AppModalsProps) => {
           }}
         />
       )
+
+    case 'ekasaImport':
+      return <EkasaImportModal onClose={closeModal} />
 
     case 'addEvents':
       return (

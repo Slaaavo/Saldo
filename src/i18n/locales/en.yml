@@ -556,6 +556,9 @@ dataStorage:
 # ──── CSV Import ────
 import:
   title: "Import CSV"
+  dropdownTrigger: "Import"
+  csvOption: "CSV"
+  ekasaReceiptOption: "eKasa Receipt"
   uploadStep:
     title: "Upload File"
     dragDrop: "Drag and drop a CSV file here"
@@ -634,12 +637,22 @@ import:
     close: "Close"
   profiles:
     title: "Import Profiles"
+    csvSectionTitle: "CSV Import Profiles"
     description: "To create or edit a profile, use the Import CSV wizard and save at the end."
     columns: "Columns"
     rules: "Rules"
     delete: "Delete"
     deleteConfirm: "Delete profile \"{{name}}\"? This does not affect imported data."
     empty: "No profiles saved yet."
+  ekasaProfiles:
+    title: "eKasa Import Profiles"
+    person: "Person"
+    rules: "Rules"
+    defaultDeductible: "Default Deductible %"
+    defaultVatReclaimable: "Default VAT Reclaimable %"
+    delete: "Delete"
+    deleteConfirm: "Delete eKasa profile for {{name}}? This does not affect imported data."
+    empty: "No eKasa profiles saved yet."
   rules:
     signFromColumnLabel: "Sign from column"
     signFromColumn:
@@ -655,6 +668,46 @@ import:
       regexHint: "Regex reference"
     invalidRegex: "Invalid regex pattern"
     unmatchedColumn: "Column \"{{name}}\" not found in CSV"
+
+# ──── eKasa Import ────
+ekasaImport:
+  uploadStep:
+    dragDrop: "Drag and drop a receipt file here"
+    instructions: "Accepts PDF and image files (PNG, JPG, JPEG)"
+    browse: "Browse"
+    filterLabel: "Receipt files"
+    selected: "Selected: {{name}}"
+    dragNotSupported: "Drag-and-drop does not provide file paths in Tauri. Please use the Browse button."
+  rulesStep:
+    namePatternHeader: "Pattern"
+    deductiblePctHeader: "Deductible"
+    vatReclaimablePctHeader: "VAT Reclaimable"
+    namePatternPlaceholder: "Name pattern (regex)"
+    addRule: "Add rule"
+    deleteRule: "Delete rule"
+    moveUp: "Move up"
+    moveDown: "Move down"
+    default: "Default"
+    back: "Back"
+    next: "Next"
+  title:
+    upload: "eKasa Receipt Import — Upload"
+    rules: "eKasa Receipt Import — Rules"
+    review: "eKasa Receipt Import — Review"
+    saveProfile: "eKasa Receipt Import — Save Profile"
+    error: "eKasa Receipt Import — Error"
+  reviewStep:
+    noItems: "No items to import"
+    back: "Back"
+    save: "Save"
+  errorStep:
+    tryAgain: "Try Again"
+    continuePartial: "Continue with partial data"
+  saveStep:
+    prompt: "Import successful. Save these rules as your eKasa import profile?"
+    save: "Save Profile"
+    skip: "Don't Save"
+    profileSaved: "eKasa profile saved"
 
 # ──── Persons ────
 persons:

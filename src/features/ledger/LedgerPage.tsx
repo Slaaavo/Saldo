@@ -9,7 +9,7 @@ import LedgerEventList from '../../shared/ui/LedgerEventList'
 import PortfolioItemFilter from './PortfolioItemFilter'
 import { DatePicker } from '../../shared/ui/date-picker'
 import { Button } from '../../shared/ui/button'
-import { Plus, Upload } from 'lucide-react'
+import LedgerActionButtons from '../../shared/ui/LedgerActionButtons'
 import { useSnapshotQuery } from '../../shared/hooks/useSnapshotQuery'
 import { useConsolidationCurrencyQuery } from '../../shared/hooks/useConsolidationCurrencyQuery'
 import { useModal } from '../../app/useModal'
@@ -119,6 +119,10 @@ const LedgerPage = () => {
     setModalState({ type: 'csvImport' })
   }
 
+  const handleImportEkasa = () => {
+    setModalState({ type: 'ekasaImport' })
+  }
+
   return (
     <section className="px-4 md:px-10 py-8">
       {/* Filter + action bar */}
@@ -132,15 +136,8 @@ const LedgerPage = () => {
           <DatePicker value={toDate || undefined} onChange={(d) => setToDate(d)} clearable placeholder={t('ledgerPage.filterTo')} />
         </div>
         <PortfolioItemFilter accounts={snapshot} selectedIds={selectedAccountIds} onChange={setSelectedAccountIds} />
-        <div className="ml-auto flex items-center gap-2">
-          <Button onClick={handleImportCsv} size="sm" variant="outline">
-            <Upload className="h-4 w-4" />
-            {t('import.title')}
-          </Button>
-          <Button onClick={handleAddEvents} size="sm">
-            <Plus className="h-4 w-4" />
-            {t('ledger.addEvents')}
-          </Button>
+        <div className="ml-auto">
+          <LedgerActionButtons onAddEvents={handleAddEvents} onImportCsv={handleImportCsv} onImportEkasa={handleImportEkasa} />
         </div>
       </div>
 

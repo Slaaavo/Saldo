@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
+import type { ProcessReceiptResult } from '../../features/ekasa-import/types'
 import type {
   SnapshotRow,
   ListEventsResult,
@@ -415,6 +416,53 @@ export const setPreferredProfile = (accountId: number, profileId: number | null)
   return invoke('set_preferred_profile', { accountId, profileId })
 }
 
+export interface EkasaRule {
+  id: number
+  profileId: number
+  sortOrder: number
+  namePattern: string
+  deductiblePctBps: number
+  vatReclaimablePctBps: number
+}
+
+export interface EkasaImportProfile {
+  id: number
+  personId: number
+  defaultDeductiblePctBps: number
+  defaultVatReclaimablePctBps: number
+  rules: EkasaRule[]
+  createdAt: string
+  updatedAt: string
+}
+
+export interface UpsertEkasaProfilePayload {
+  personId: number
+  defaultDeductiblePctBps: number
+  defaultVatReclaimablePctBps: number
+  rules: Array<{
+    sortOrder: number
+    namePattern: string
+    deductiblePctBps: number
+    vatReclaimablePctBps: number
+  }>
+}
+
+export const listEkasaProfiles = (): Promise<EkasaImportProfile[]> => {
+  return invoke('list_ekasa_profiles')
+}
+
+export const getEkasaProfile = (personId: number): Promise<EkasaImportProfile | null> => {
+  return invoke('get_ekasa_profile', { personId })
+}
+
+export const upsertEkasaProfile = (payload: UpsertEkasaProfilePayload): Promise<EkasaImportProfile> => {
+  return invoke('upsert_ekasa_profile', { input: payload })
+}
+
+export const deleteEkasaProfile = (profileId: number): Promise<void> => {
+  return invoke('delete_ekasa_profile', { profileId })
+}
+
 export const listPersons = (): Promise<PersonRow[]> => {
   return invoke('list_persons')
 }
@@ -574,4 +622,8 @@ export const deleteTaxModel = (modelId: number): Promise<void> => {
 
 export const calculateTaxModel = (modelId: number): Promise<TaxCalculationResult> => {
   return invoke('calculate_tax_model', { modelId })
+}
+
+export const processReceiptFile = (filePath: string): Promise<ProcessReceiptResult> => {
+  return invoke('process_receipt_file', { filePath })
 }

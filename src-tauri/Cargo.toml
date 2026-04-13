@@ -26,6 +26,9 @@ serde_json = "1"
 rusqlite = { version = "0.31", features = ["bundled"] }
 chrono = "0.4"
 reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+rqrr = "0.9"
+pdfium-render = { version = "0.9", features = ["image_025", "thread_safe", "pdfium_latest"] }
 
 [dev-dependencies]
 tempfile = "3"
