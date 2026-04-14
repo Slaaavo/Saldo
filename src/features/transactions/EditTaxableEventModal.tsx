@@ -12,10 +12,10 @@ import { CurrencyInput } from '../../shared/ui/CurrencyInput'
 import { Input } from '../../shared/ui/input'
 import { PercentageInput } from '../../shared/ui/PercentageInput'
 import { Label } from '../../shared/ui/label'
-import { Checkbox } from '../../shared/ui/checkbox'
 import { DatePicker } from '../../shared/ui/date-picker'
 import NumberValue from '../../shared/ui/NumberValue'
 import CashflowPicker from './CashflowPicker'
+import ExpenseFormFields from './ExpenseFormFields'
 
 interface Props {
   event: EventWithData
@@ -23,8 +23,6 @@ interface Props {
 }
 
 const VAT_QUICK_FILLS = ['0', '5', '10', '20', '23']
-const VAT_RECLAIMABLE_QUICK_FILLS = ['100', '50']
-const EXPENSE_DEDUCTIBLE_QUICK_FILLS = ['100', '80', '50']
 
 const EditTaxableEventModal = ({ event, onClose }: Props) => {
   const { t } = useTranslation()
@@ -164,118 +162,94 @@ const EditTaxableEventModal = ({ event, onClose }: Props) => {
               <p className="text-sm font-medium">{event.accountName}</p>
             </div>
 
-            {/* Amount */}
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="edit-taxable-amount">{t('modals.createRevenue.amount')}</Label>
-              <CurrencyInput
-                id="edit-taxable-amount"
-                type="number"
-                step={getMinorUnitsStep(minorUnits)}
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                placeholder="0"
-                currencyCode={event.currencyCode}
-                required
-              />
-            </div>
-
-            {/* Date */}
-            <div className="flex flex-col gap-2">
-              <Label>{t('modals.createRevenue.date')}</Label>
-              <DatePicker value={date} onChange={(d) => handleDateChange(d ?? event.eventDate)} />
-            </div>
-
-            {/* Prepaid until — only for prepaid expense events */}
-            {isPrepaidExpense && (
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="edit-taxable-prepaid-until">{t('modals.createPrepaidExpense.prepaidUntil', 'Coverage End Date')}</Label>
-                <DatePicker id="edit-taxable-prepaid-until" value={prepaidUntil || undefined} onChange={(d) => handlePrepaidUntilChange(d)} />
-                {prepaidUntilError && <p className="text-xs text-destructive">{prepaidUntilError}</p>}
-              </div>
-            )}
-
-            {/* VAT rate */}
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="edit-taxable-vat">{t('modals.createRevenue.vatRate')}</Label>
-              <PercentageInput
-                id="edit-taxable-vat"
-                type="number"
-                step="0.01"
-                min={0}
-                max={100}
-                value={vatRate}
-                onChange={(e) => setVatRate(e.target.value)}
-                placeholder={t('modals.createRevenue.vatRatePlaceholder')}
-              />
-              <div className="flex gap-1 flex-wrap">
-                {VAT_QUICK_FILLS.map((v) => (
-                  <button key={v} type="button" onClick={() => setVatRate(v)} className="text-xs px-2 py-0.5 rounded bg-muted hover:bg-accent transition-colors">
-                    {v}%
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Expense-only fields */}
-            {(isExpense || isPrepaidExpense) && (
+            {isExpense || isPrepaidExpense ? (
               <>
+                {/* Date */}
                 <div className="flex flex-col gap-2">
-                  <Label htmlFor="edit-taxable-vat-ded">{t('modals.createExpense.vatReclaimablePct')}</Label>
-                  <PercentageInput
-                    id="edit-taxable-vat-ded"
-                    type="number"
-                    step="0.01"
-                    min={0}
-                    max={100}
-                    value={vatReclaimablePct}
-                    onChange={(e) => setVatReclaimablePct(e.target.value)}
-                    placeholder={t('modals.createExpense.vatReclaimablePctPlaceholder')}
-                  />
-                  <div className="flex gap-1 flex-wrap">
-                    {VAT_RECLAIMABLE_QUICK_FILLS.map((v) => (
-                      <button key={v} type="button" onClick={() => setVatReclaimablePct(v)} className="text-xs px-2 py-0.5 rounded bg-muted hover:bg-accent transition-colors">
-                        {v}%
-                      </button>
-                    ))}
-                  </div>
+                  <Label>{t('modals.createRevenue.date')}</Label>
+                  <DatePicker value={date} onChange={(d) => handleDateChange(d ?? event.eventDate)} />
                 </div>
 
-                <div className="flex flex-col gap-2">
-                  <Label htmlFor="edit-taxable-ded">{t('modals.createExpense.expenseDeductiblePct')}</Label>
-                  <PercentageInput
-                    id="edit-taxable-ded"
-                    type="number"
-                    step="0.01"
-                    min={0}
-                    max={100}
-                    value={expenseDeductiblePct}
-                    onChange={(e) => setExpenseDeductiblePct(e.target.value)}
-                    placeholder={t('modals.createExpense.expenseDeductiblePctPlaceholder')}
-                  />
-                  <div className="flex gap-1 flex-wrap">
-                    {EXPENSE_DEDUCTIBLE_QUICK_FILLS.map((v) => (
-                      <button key={v} type="button" onClick={() => setExpenseDeductiblePct(v)} className="text-xs px-2 py-0.5 rounded bg-muted hover:bg-accent transition-colors">
-                        {v}%
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* VAT reclaimed */}
-                {isExpense && (
-                  <div className="flex items-center gap-2">
-                    <Checkbox id="edit-taxable-reclaimed-vat" checked={reclaimedVat} onCheckedChange={(v) => setReclaimedVat(v === true)} />
-                    <Label htmlFor="edit-taxable-reclaimed-vat">{t('modals.createExpense.reclaimedVat')}</Label>
+                {/* Prepaid until — only for prepaid expense events */}
+                {isPrepaidExpense && (
+                  <div className="flex flex-col gap-2">
+                    <Label htmlFor="edit-taxable-prepaid-until">{t('modals.createPrepaidExpense.prepaidUntil', 'Coverage End Date')}</Label>
+                    <DatePicker id="edit-taxable-prepaid-until" value={prepaidUntil || undefined} onChange={(d) => handlePrepaidUntilChange(d)} />
+                    {prepaidUntilError && <p className="text-xs text-destructive">{prepaidUntilError}</p>}
                   </div>
                 )}
+
+                <ExpenseFormFields
+                  idPrefix="edit-taxable"
+                  showReclaimedVat={isExpense}
+                  amount={amount}
+                  onAmountChange={setAmount}
+                  vatRate={vatRate}
+                  onVatRateChange={setVatRate}
+                  vatReclaimablePct={vatReclaimablePct}
+                  onVatReclaimablePctChange={setVatReclaimablePct}
+                  expenseDeductiblePct={expenseDeductiblePct}
+                  onExpenseDeductiblePctChange={setExpenseDeductiblePct}
+                  note={note}
+                  onNoteChange={setNote}
+                  reclaimedVat={reclaimedVat}
+                  onReclaimedVatChange={setReclaimedVat}
+                  currencyCode={event.currencyCode}
+                  currencyMinorUnits={minorUnits}
+                />
+              </>
+            ) : (
+              <>
+                {/* Amount */}
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor="edit-taxable-amount">{t('modals.createRevenue.amount')}</Label>
+                  <CurrencyInput
+                    id="edit-taxable-amount"
+                    type="number"
+                    step={getMinorUnitsStep(minorUnits)}
+                    value={amount}
+                    onChange={(e) => setAmount(e.target.value)}
+                    placeholder="0"
+                    currencyCode={event.currencyCode}
+                    required
+                  />
+                </div>
+
+                {/* Date */}
+                <div className="flex flex-col gap-2">
+                  <Label>{t('modals.createRevenue.date')}</Label>
+                  <DatePicker value={date} onChange={(d) => handleDateChange(d ?? event.eventDate)} />
+                </div>
+
+                {/* VAT rate */}
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor="edit-taxable-vat">{t('modals.createRevenue.vatRate')}</Label>
+                  <PercentageInput
+                    id="edit-taxable-vat"
+                    type="number"
+                    step="0.01"
+                    min={0}
+                    max={100}
+                    value={vatRate}
+                    onChange={(e) => setVatRate(e.target.value)}
+                    placeholder={t('modals.createRevenue.vatRatePlaceholder')}
+                  />
+                  <div className="flex gap-1 flex-wrap">
+                    {VAT_QUICK_FILLS.map((v) => (
+                      <button key={v} type="button" onClick={() => setVatRate(v)} className="text-xs px-2 py-0.5 rounded bg-muted hover:bg-accent transition-colors">
+                        {v}%
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Note */}
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor="edit-taxable-note">{t('modals.createRevenue.note')}</Label>
+                  <Input id="edit-taxable-note" type="text" value={note} onChange={(e) => setNote(e.target.value)} placeholder={t('modals.createRevenue.notePlaceholder')} />
+                </div>
               </>
             )}
-
-            {/* Note */}
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="edit-taxable-note">{t('modals.createRevenue.note')}</Label>
-              <Input id="edit-taxable-note" type="text" value={note} onChange={(e) => setNote(e.target.value)} placeholder={t('modals.createRevenue.notePlaceholder')} />
-            </div>
 
             {/* Cashflow links section */}
             <div className="flex flex-col gap-2 pt-2 border-t">

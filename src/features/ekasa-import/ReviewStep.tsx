@@ -2,25 +2,18 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { useQueryClient } from '@tanstack/react-query'
-import { todayIso, toMinorUnits, getMinorUnitsStep, pctToBps } from '../../shared/utils/format'
+import { todayIso, toMinorUnits, pctToBps } from '../../shared/utils/format'
 import { extractErrorMessage } from '../../shared/utils/errors'
 import { createTaxableEvent, createTaxableSplitGroup } from '../../shared/api'
 import { DialogBody, DialogFooter } from '../../shared/ui/dialog'
 import { Button } from '../../shared/ui/button'
-import { CurrencyInput } from '../../shared/ui/CurrencyInput'
-import { Input } from '../../shared/ui/input'
-import { PercentageInput } from '../../shared/ui/PercentageInput'
 import { Label } from '../../shared/ui/label'
-import { Checkbox } from '../../shared/ui/checkbox'
 import { DatePicker } from '../../shared/ui/date-picker'
 import TaxableEventSplitEditor from '../transactions/TaxableEventSplitEditor'
 import type { SplitLegDraft } from '../transactions/splitLegDraft'
 import { useConsolidationCurrencyQuery } from '../../shared/hooks/useConsolidationCurrencyQuery'
 import { useResolvedPersonId } from '../transactions/useResolvedPersonId'
-
-const VAT_QUICK_FILLS = ['0', '5', '10', '20', '23']
-const VAT_RECLAIMABLE_QUICK_FILLS = ['100', '50']
-const EXPENSE_DEDUCTIBLE_QUICK_FILLS = ['100', '80', '50']
+import ExpenseFormFields from '../transactions/ExpenseFormFields'
 
 interface ReviewStepProps {
   processedLegs: SplitLegDraft[]
@@ -140,98 +133,23 @@ const ReviewStep = ({ processedLegs, vendorName, receiptDate, onImportSuccess, o
               <DatePicker value={date} onChange={(d) => setDate(d ?? todayIso())} />
             </div>
 
-            {/* Amount */}
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="review-expense-amount">{t('modals.createExpense.amount')}</Label>
-              <CurrencyInput
-                id="review-expense-amount"
-                type="number"
-                step={getMinorUnitsStep(currencyMinorUnits)}
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                placeholder="0"
-                currencyCode={currencyCode}
-                required
-              />
-            </div>
-
-            {/* VAT rate */}
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="review-expense-vat">{t('modals.createExpense.vatRate')}</Label>
-              <PercentageInput
-                id="review-expense-vat"
-                type="number"
-                step="0.01"
-                min={0}
-                max={100}
-                value={vatRate}
-                onChange={(e) => setVatRate(e.target.value)}
-                placeholder={t('modals.createExpense.vatRatePlaceholder')}
-              />
-              <div className="flex gap-1 flex-wrap">
-                {VAT_QUICK_FILLS.map((v) => (
-                  <button key={v} type="button" onClick={() => setVatRate(v)} className="text-xs px-2 py-0.5 rounded bg-muted hover:bg-accent transition-colors">
-                    {v}%
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* VAT reclaimable % */}
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="review-expense-vat-ded">{t('modals.createExpense.vatReclaimablePct')}</Label>
-              <PercentageInput
-                id="review-expense-vat-ded"
-                type="number"
-                step="0.01"
-                min={0}
-                max={100}
-                value={vatReclaimablePct}
-                onChange={(e) => setVatReclaimablePct(e.target.value)}
-                placeholder={t('modals.createExpense.vatReclaimablePctPlaceholder')}
-              />
-              <div className="flex gap-1 flex-wrap">
-                {VAT_RECLAIMABLE_QUICK_FILLS.map((v) => (
-                  <button key={v} type="button" onClick={() => setVatReclaimablePct(v)} className="text-xs px-2 py-0.5 rounded bg-muted hover:bg-accent transition-colors">
-                    {v}%
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Expense deductible % */}
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="review-expense-ded">{t('modals.createExpense.expenseDeductiblePct')}</Label>
-              <PercentageInput
-                id="review-expense-ded"
-                type="number"
-                step="0.01"
-                min={0}
-                max={100}
-                value={expenseDeductiblePct}
-                onChange={(e) => setExpenseDeductiblePct(e.target.value)}
-                placeholder={t('modals.createExpense.expenseDeductiblePctPlaceholder')}
-              />
-              <div className="flex gap-1 flex-wrap">
-                {EXPENSE_DEDUCTIBLE_QUICK_FILLS.map((v) => (
-                  <button key={v} type="button" onClick={() => setExpenseDeductiblePct(v)} className="text-xs px-2 py-0.5 rounded bg-muted hover:bg-accent transition-colors">
-                    {v}%
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Note */}
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="review-expense-note">{t('modals.createExpense.note')}</Label>
-              <Input id="review-expense-note" type="text" value={note} onChange={(e) => setNote(e.target.value)} placeholder={t('modals.createExpense.notePlaceholder')} />
-            </div>
-
-            {/* VAT reclaimed */}
-            <div className="flex items-center gap-2">
-              <Checkbox id="review-expense-reclaimed-vat" checked={reclaimedVat} onCheckedChange={(v) => setReclaimedVat(v === true)} />
-              <Label htmlFor="review-expense-reclaimed-vat">{t('modals.createExpense.reclaimedVat')}</Label>
-            </div>
+            <ExpenseFormFields
+              idPrefix="review-expense"
+              amount={amount}
+              onAmountChange={setAmount}
+              vatRate={vatRate}
+              onVatRateChange={setVatRate}
+              vatReclaimablePct={vatReclaimablePct}
+              onVatReclaimablePctChange={setVatReclaimablePct}
+              expenseDeductiblePct={expenseDeductiblePct}
+              onExpenseDeductiblePctChange={setExpenseDeductiblePct}
+              note={note}
+              onNoteChange={setNote}
+              reclaimedVat={reclaimedVat}
+              onReclaimedVatChange={setReclaimedVat}
+              currencyCode={currencyCode}
+              currencyMinorUnits={currencyMinorUnits}
+            />
           </>
         ) : (
           <>
