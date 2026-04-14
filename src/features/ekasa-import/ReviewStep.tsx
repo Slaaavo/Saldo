@@ -26,12 +26,13 @@ interface ReviewStepProps {
 const ReviewStep = ({ processedLegs, vendorName, receiptDate, onImportSuccess, onBack }: ReviewStepProps) => {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
-  const { personId } = useResolvedPersonId()
+  const { personId, persons } = useResolvedPersonId()
   const consolidationCurrencyQuery = useConsolidationCurrencyQuery()
   const currencyCode = consolidationCurrencyQuery.data?.code ?? ''
   const currencyMinorUnits = consolidationCurrencyQuery.data?.minorUnits ?? 2
 
   const firstLeg = processedLegs[0]
+  const person = persons.find((p) => p.id === personId)
   const initialDate = receiptDate || firstLeg?.eventDate || todayIso()
 
   // Single-leg form state
@@ -41,12 +42,17 @@ const ReviewStep = ({ processedLegs, vendorName, receiptDate, onImportSuccess, o
   const [vatReclaimablePct, setVatReclaimablePct] = useState(firstLeg?.vatReclaimablePct ?? '')
   const [expenseDeductiblePct, setExpenseDeductiblePct] = useState(firstLeg?.expenseDeductiblePct ?? '')
   const [note, setNote] = useState(firstLeg?.note ?? '')
-  const [reclaimedVat, setReclaimedVat] = useState(firstLeg?.reclaimedVat === true)
+  const [reclaimedVat, setReclaimedVat] = useState(person?.vatPayer ?? false)
 
   // Multi-leg form state
   const [multiDate, setMultiDate] = useState(initialDate)
   const [groupNote, setGroupNote] = useState(vendorName)
-  const [legs, setLegs] = useState<SplitLegDraft[]>(processedLegs)
+  const [legs, setLegs] = useState<SplitLegDraft[]>(
+    processedLegs.map((leg) => ({
+      ...leg,
+      reclaimedVat: leg.reclaimedVat !== null ? leg.reclaimedVat : (person?.vatPayer ?? false),
+    })),
+  )
 
   const [submitting, setSubmitting] = useState(false)
 

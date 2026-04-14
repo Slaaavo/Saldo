@@ -41,7 +41,7 @@ const CreateExpenseModal = ({ onClose }: Props) => {
   const [groupNote, setGroupNote] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [selectedCashflowIds, setSelectedCashflowIds] = useState<number[]>([])
-  const [reclaimedVat, setReclaimedVat] = useState(false)
+  const [reclaimedVat, setReclaimedVat] = useState(() => persons.find((p) => p.id === personId)?.vatPayer ?? false)
   const [reclaimedVatPersonId, setReclaimedVatPersonId] = useState(personId)
 
   if (reclaimedVatPersonId !== personId) {
