@@ -137,9 +137,7 @@ fn get_pdfium() -> Result<&'static Pdfium, AppError> {
 }
 
 fn decode_qr_from_pdf(file_path: &str) -> Result<String, AppError> {
-    eprintln!("[QR] decode_qr_from_pdf: {}", file_path);
     let pdfium = get_pdfium()?;
-    eprintln!("[QR] PDFium bound OK");
 
     let document = pdfium
         .load_pdf_from_file(file_path, None)
@@ -147,14 +145,12 @@ fn decode_qr_from_pdf(file_path: &str) -> Result<String, AppError> {
             code: "PDF_ERROR".into(),
             message: format!("Failed to load PDF: {}", e),
         })?;
-    eprintln!("[QR] PDF loaded, pages: {}", document.pages().len());
-
     // Try multiple render widths to work around pixel aliasing: at certain
     // resolutions QR module boundaries land between pixels, corrupting the
     // code enough to fail error-correction.  Starting lower is also faster.
     let candidate_widths: &[i32] = &[1500, 2000, 2500];
 
-    for (page_idx, page) in document.pages().iter().enumerate() {
+    for page in document.pages().iter() {
         for &width in candidate_widths {
             let render_config = PdfRenderConfig::new()
                 .set_target_width(width)
@@ -162,46 +158,15 @@ fn decode_qr_from_pdf(file_path: &str) -> Result<String, AppError> {
 
             let bitmap = match page.render_with_config(&render_config) {
                 Ok(b) => b,
-                Err(e) => {
-                    eprintln!(
-                        "[QR] Page {} render at w={} failed: {:?}",
-                        page_idx, width, e
-                    );
-                    continue;
-                }
+                Err(_) => continue,
             };
             let img = match bitmap.as_image() {
                 Ok(i) => i,
-                Err(e) => {
-                    eprintln!(
-                        "[QR] Page {} as_image at w={} failed: {:?}",
-                        page_idx, width, e
-                    );
-                    continue;
-                }
+                Err(_) => continue,
             };
 
-            let (iw, ih) = img.dimensions();
-            eprintln!(
-                "[QR] Page {} rendered at w={}: {}x{}",
-                page_idx, width, iw, ih
-            );
-
-            match decode_qr_from_dynamic_image(img) {
-                Ok(qr_text) => {
-                    eprintln!(
-                        "[QR] SUCCESS at w={}: {}",
-                        width,
-                        &qr_text[..qr_text.len().min(60)]
-                    );
-                    return Ok(qr_text);
-                }
-                Err(e) => {
-                    eprintln!(
-                        "[QR] Page {} w={} decode failed: {}",
-                        page_idx, width, e.message
-                    );
-                }
+            if let Ok(qr_text) = decode_qr_from_dynamic_image(img) {
+                return Ok(qr_text);
             }
         }
     }

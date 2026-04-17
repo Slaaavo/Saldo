@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { groupSplitEvents } from './splitGroupUtils'
-import type { SplitGroupRow } from './splitGroupUtils'
-import type { EventWithData } from '../types'
+import { groupSplitEvents } from '../splitGroupUtils'
+import type { SplitGroupRow } from '../splitGroupUtils'
+import type { EventWithData } from '../../types'
 
 const makeEvent = (overrides?: Partial<EventWithData>): EventWithData => {
   return {

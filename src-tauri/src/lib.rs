@@ -238,6 +238,7 @@ pub fn run() {
             features::update_taxable_event,
             features::update_taxable_split_group,
             features::link_cashflows_to_taxable,
+            features::link_cashflows_to_split_group,
             features::unlink_cashflow_from_taxable,
             features::list_linked_cashflows,
             features::list_eligible_cashflows,

@@ -551,6 +551,12 @@ export const linkCashflowsToTaxable = (taxableEventId: number, cashflowEventIds:
   })
 }
 
+export const linkCashflowsToSplitGroup = (splitGroupId: number, cashflowEventIds: number[]): Promise<void> => {
+  return invoke('link_cashflows_to_split_group', {
+    input: { splitGroupId, cashflowEventIds },
+  })
+}
+
 export const unlinkCashflowFromTaxable = (taxableEventId: number, cashflowEventId: number): Promise<void> => {
   return invoke('unlink_cashflow_from_taxable', {
     input: { taxableEventId, cashflowEventId },

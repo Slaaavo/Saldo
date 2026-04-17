@@ -75,7 +75,7 @@ const CashflowPicker = ({ personId, eligibleAmountMinor, selectedIds, onToggle, 
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-2" onOpenAutoFocus={(e) => e.preventDefault()}>
-        <div className="max-h-72 overflow-y-auto flex flex-col gap-1">
+        <div className="max-h-72 overflow-y-auto flex flex-col gap-1" onWheel={(e) => e.stopPropagation()}>
           {cashflowsQuery.isLoading ? (
             <p className="text-xs text-muted-foreground px-2 py-1">{t('common.loading')}</p>
           ) : allCashflows.length === 0 ? (

@@ -1001,6 +1001,29 @@ pub fn link_cashflows_to_taxable(
     Ok(())
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LinkCashflowsToSplitGroupInput {
+    pub split_group_id: i64,
+    pub cashflow_event_ids: Vec<i64>,
+}
+
+#[tauri::command]
+pub fn link_cashflows_to_split_group(
+    state: State<'_, AppState>,
+    input: LinkCashflowsToSplitGroupInput,
+) -> Result<(), AppError> {
+    let conn = state.conn()?;
+    repository::link_cashflows_to_split_group(
+        &conn,
+        repository::LinkCashflowsToSplitGroupParams {
+            split_group_id: input.split_group_id,
+            cashflow_event_ids: input.cashflow_event_ids,
+        },
+    )?;
+    Ok(())
+}
+
 #[tauri::command]
 pub fn unlink_cashflow_from_taxable(
     state: State<'_, AppState>,

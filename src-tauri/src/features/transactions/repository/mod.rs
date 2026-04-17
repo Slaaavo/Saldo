@@ -42,9 +42,9 @@ pub use taxable_events::{
 };
 
 pub use taxable_links::{
-    count_unmatched_cashflows, link_cashflows_to_taxable, list_eligible_cashflows,
-    list_linked_cashflows, unlink_cashflow_from_taxable, EligibleCashflowsParams,
-    LinkCashflowsParams,
+    count_unmatched_cashflows, link_cashflows_to_split_group, link_cashflows_to_taxable,
+    list_eligible_cashflows, list_linked_cashflows, unlink_cashflow_from_taxable,
+    EligibleCashflowsParams, LinkCashflowsParams, LinkCashflowsToSplitGroupParams,
 };
 
 pub use depreciation::generate_depreciation_events;

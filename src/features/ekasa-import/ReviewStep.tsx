@@ -1,10 +1,10 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { useQueryClient } from '@tanstack/react-query'
+import { useQueryClient, useQuery } from '@tanstack/react-query'
 import { todayIso, toMinorUnits, pctToBps } from '../../shared/utils/format'
 import { extractErrorMessage } from '../../shared/utils/errors'
-import { createTaxableEvent, createTaxableSplitGroup } from '../../shared/api'
+import { createTaxableEvent, createTaxableSplitGroup, linkCashflowsToTaxable, linkCashflowsToSplitGroup, listEligibleCashflows } from '../../shared/api'
 import { DialogBody, DialogFooter } from '../../shared/ui/dialog'
 import { Button } from '../../shared/ui/button'
 import { Label } from '../../shared/ui/label'
@@ -14,6 +14,7 @@ import type { SplitLegDraft } from '../transactions/splitLegDraft'
 import { useConsolidationCurrencyQuery } from '../../shared/hooks/useConsolidationCurrencyQuery'
 import { useResolvedPersonId } from '../transactions/useResolvedPersonId'
 import ExpenseFormFields from '../transactions/ExpenseFormFields'
+import CashflowPicker from '../transactions/CashflowPicker'
 
 interface ReviewStepProps {
   processedLegs: SplitLegDraft[]
@@ -55,6 +56,38 @@ const ReviewStep = ({ processedLegs, vendorName, receiptDate, onImportSuccess, o
   )
 
   const [submitting, setSubmitting] = useState(false)
+  const [selectedCashflowIds, setSelectedCashflowIds] = useState<number[]>([])
+
+  const eligibleAmountMinor = (() => {
+    if (processedLegs.length >= 2) {
+      const sum = legs.reduce((acc, leg) => acc + toMinorUnits(leg.amount, currencyMinorUnits), 0)
+      return isNaN(sum) ? undefined : -sum
+    }
+    return -toMinorUnits(amount, currencyMinorUnits)
+  })()
+
+  const hasAutoSelected = useRef(false)
+
+  const cashflowsQuery = useQuery({
+    queryKey: ['eligible-cashflows', personId],
+    queryFn: () => listEligibleCashflows(personId!, undefined, true),
+    enabled: personId !== null,
+  })
+
+  useEffect(() => {
+    const data = cashflowsQuery.data
+    if (!data || hasAutoSelected.current) return
+    hasAutoSelected.current = true
+    const eventDate = processedLegs.length >= 2 ? multiDate : date
+    const matching = data.filter((cf) => cf.amountMinor === eligibleAmountMinor)
+    if (matching.length === 0) return
+    const closest = matching.reduce((best, cf) => {
+      const distBest = Math.abs(new Date(best.eventDate).getTime() - new Date(eventDate).getTime())
+      const distCf = Math.abs(new Date(cf.eventDate).getTime() - new Date(eventDate).getTime())
+      return distCf < distBest ? cf : best
+    })
+    setTimeout(() => setSelectedCashflowIds([closest.id]), 0)
+  }, [cashflowsQuery.data, eligibleAmountMinor, processedLegs.length, multiDate, date])
 
   const handleLegsChange = (newLegs: SplitLegDraft[]) => {
     setLegs(newLegs.map((l) => ({ ...l, eventDate: l.eventDate || multiDate })))
@@ -69,7 +102,7 @@ const ReviewStep = ({ processedLegs, vendorName, receiptDate, onImportSuccess, o
     setSubmitting(true)
     try {
       if (processedLegs.length >= 2) {
-        await createTaxableSplitGroup({
+        const splitGroupId = await createTaxableSplitGroup({
           personId,
           eventType: 'expense',
           groupNote: groupNote.trim() || null,
@@ -84,6 +117,9 @@ const ReviewStep = ({ processedLegs, vendorName, receiptDate, onImportSuccess, o
             reclaimedVat: leg.reclaimedVat,
           })),
         })
+        if (selectedCashflowIds.length > 0) {
+          linkCashflowsToSplitGroup(splitGroupId, selectedCashflowIds).catch((err) => toast.warning(extractErrorMessage(err)))
+        }
       } else {
         const parsed = parseFloat(amount)
         if (isNaN(parsed)) {
@@ -91,7 +127,7 @@ const ReviewStep = ({ processedLegs, vendorName, receiptDate, onImportSuccess, o
           setSubmitting(false)
           return
         }
-        await createTaxableEvent({
+        const newEventId = await createTaxableEvent({
           personId,
           eventType: 'expense',
           amountMinor: toMinorUnits(amount, currencyMinorUnits),
@@ -103,6 +139,9 @@ const ReviewStep = ({ processedLegs, vendorName, receiptDate, onImportSuccess, o
           prepaidUntil: null,
           reclaimedVat,
         })
+        if (selectedCashflowIds.length > 0) {
+          linkCashflowsToTaxable(newEventId, selectedCashflowIds).catch((err) => toast.warning(extractErrorMessage(err)))
+        }
       }
       setSubmitting(false)
       await queryClient.invalidateQueries({ queryKey: ['events'] })
@@ -156,6 +195,18 @@ const ReviewStep = ({ processedLegs, vendorName, receiptDate, onImportSuccess, o
               currencyCode={currencyCode}
               currencyMinorUnits={currencyMinorUnits}
             />
+
+            {/* Cashflow picker */}
+            {personId !== null && (
+              <CashflowPicker
+                personId={personId}
+                eligibleAmountMinor={eligibleAmountMinor}
+                selectedIds={selectedCashflowIds}
+                onToggle={(id) => setSelectedCashflowIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))}
+                currencyMinorUnits={currencyMinorUnits}
+                currencyCode={currencyCode}
+              />
+            )}
           </>
         ) : (
           <>
@@ -175,6 +226,18 @@ const ReviewStep = ({ processedLegs, vendorName, receiptDate, onImportSuccess, o
               groupNote={groupNote}
               onGroupNoteChange={setGroupNote}
             />
+
+            {/* Cashflow picker */}
+            {personId !== null && (
+              <CashflowPicker
+                personId={personId}
+                eligibleAmountMinor={eligibleAmountMinor}
+                selectedIds={selectedCashflowIds}
+                onToggle={(id) => setSelectedCashflowIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))}
+                currencyMinorUnits={currencyMinorUnits}
+                currencyCode={currencyCode}
+              />
+            )}
           </>
         )}
       </DialogBody>

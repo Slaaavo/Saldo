@@ -20,6 +20,11 @@ pub struct EligibleCashflowsParams {
     pub exclude_already_linked: bool,
 }
 
+pub struct LinkCashflowsToSplitGroupParams {
+    pub split_group_id: i64,
+    pub cashflow_event_ids: Vec<i64>,
+}
+
 // ---------------------------------------------------------------------------
 // Public functions
 // ---------------------------------------------------------------------------
@@ -129,13 +134,131 @@ pub fn link_cashflows_to_taxable(
                         return Err(AppError {
                             code: "ALREADY_LINKED".into(),
                             message: format!(
-                                "Cashflow event {} is already linked to another taxable event",
+                                "Cashflow event {} is already linked to this taxable event",
                                 cashflow_id
                             ),
                         });
                     }
                 }
                 return Err(AppError::from(e));
+            }
+        }
+
+        Ok(())
+    })
+}
+
+/// Link one or more cashflow events to all legs of a taxable split group.
+/// Validates that the split group has at least one active leg, and that each
+/// cashflow event exists, is not deleted, is a `cashflow` type, and belongs
+/// to the same person as the split group legs. Inserts one link row per
+/// (leg_event_id, cashflow_event_id) pair.
+pub fn link_cashflows_to_split_group(
+    conn: &Connection,
+    params: LinkCashflowsToSplitGroupParams,
+) -> Result<(), AppError> {
+    if params.cashflow_event_ids.is_empty() {
+        return Err(AppError {
+            code: "VALIDATION".into(),
+            message: "At least one cashflow_event_id is required".into(),
+        });
+    }
+
+    with_savepoint_app(conn, || {
+        // Query all non-deleted legs of the split group together with their person_id.
+        let mut stmt = conn.prepare(
+            "SELECT e.id, a.person_id
+             FROM event e
+             JOIN account a ON a.id = e.account_id
+             WHERE e.split_group_id = ?1 AND e.deleted_at IS NULL",
+        )?;
+
+        let leg_rows: Vec<(i64, i64)> = stmt
+            .query_map(params![params.split_group_id], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+
+        if leg_rows.is_empty() {
+            return Err(AppError {
+                code: "NOT_FOUND".into(),
+                message: format!(
+                    "Split group {} not found or has no active legs",
+                    params.split_group_id
+                ),
+            });
+        }
+
+        let leg_person_id = leg_rows[0].1;
+        let leg_event_ids: Vec<i64> = leg_rows.into_iter().map(|(id, _)| id).collect();
+
+        // Validate each cashflow event and insert link rows for all legs.
+        for &cashflow_id in &params.cashflow_event_ids {
+            let cashflow_row: Option<(String, Option<String>, i64)> = conn
+                .query_row(
+                    "SELECT e.event_type, e.deleted_at, a.person_id
+                     FROM event e
+                     JOIN account a ON a.id = e.account_id
+                     WHERE e.id = ?1",
+                    params![cashflow_id],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                )
+                .optional()?;
+
+            let (cf_type, cf_deleted_at, cf_person_id) = cashflow_row.ok_or_else(|| AppError {
+                code: "NOT_FOUND".into(),
+                message: format!("Cashflow event {} not found", cashflow_id),
+            })?;
+
+            if cf_deleted_at.is_some() {
+                return Err(AppError {
+                    code: "VALIDATION".into(),
+                    message: format!("Cashflow event {} is deleted", cashflow_id),
+                });
+            }
+
+            if cf_type != "cashflow" {
+                return Err(AppError {
+                    code: "VALIDATION".into(),
+                    message: format!(
+                        "Event {} is not a cashflow event (type: {})",
+                        cashflow_id, cf_type
+                    ),
+                });
+            }
+
+            if cf_person_id != leg_person_id {
+                return Err(AppError {
+                    code: "VALIDATION".into(),
+                    message: format!(
+                        "Cashflow event {} belongs to a different person",
+                        cashflow_id
+                    ),
+                });
+            }
+
+            // Insert one link row per leg.
+            for &leg_event_id in &leg_event_ids {
+                let result = conn.execute(
+                    "INSERT INTO taxable_cashflow_link (taxable_event_id, cashflow_event_id)
+                     VALUES (?1, ?2)",
+                    params![leg_event_id, cashflow_id],
+                );
+
+                if let Err(e) = result {
+                    if let rusqlite::Error::SqliteFailure(sqlite_err, _) = &e {
+                        if sqlite_err.extended_code == rusqlite::ffi::SQLITE_CONSTRAINT_UNIQUE {
+                            return Err(AppError {
+                                code: "ALREADY_LINKED".into(),
+                                message: format!(
+                                    "Cashflow event {} is already linked to a leg in this split group",
+                                    cashflow_id
+                                ),
+                            });
+                        }
+                    }
+                    return Err(AppError::from(e));
+                }
             }
         }
 
@@ -367,7 +490,7 @@ mod tests {
     }
 
     #[test]
-    fn link_same_cashflow_to_two_taxable_events_is_rejected() {
+    fn link_same_cashflow_to_two_different_taxable_events_is_allowed() {
         let conn = initialize_in_memory().expect("DB init failed");
         let person_id = mk_person(&conn, "Alice");
         let account_id = mk_account(&conn, person_id);
@@ -375,26 +498,26 @@ mod tests {
         let taxable_id1 = mk_expense(&conn, person_id, 5000);
         let taxable_id2 = mk_expense(&conn, person_id, 5000);
 
-        link_cashflows_to_taxable(
+        let result1 = link_cashflows_to_taxable(
             &conn,
             LinkCashflowsParams {
                 taxable_event_id: taxable_id1,
                 cashflow_event_ids: vec![cashflow_id],
             },
-        )
-        .expect("first link should succeed");
+        );
+        assert!(result1.is_ok(), "first link should succeed");
 
-        let result = link_cashflows_to_taxable(
+        let result2 = link_cashflows_to_taxable(
             &conn,
             LinkCashflowsParams {
                 taxable_event_id: taxable_id2,
                 cashflow_event_ids: vec![cashflow_id],
             },
         );
-
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert_eq!(err.code, "ALREADY_LINKED");
+        assert!(
+            result2.is_ok(),
+            "linking same cashflow to a different taxable event should also succeed"
+        );
     }
 
     #[test]
@@ -764,5 +887,109 @@ mod tests {
         let tx = result.events.iter().find(|e| e.id == taxable_id).unwrap();
         assert!(!tx.has_linked_cashflows);
         assert_eq!(tx.linked_cashflow_count, 0);
+    }
+
+    // -----------------------------------------------------------------------
+    // link_cashflows_to_split_group tests
+    // -----------------------------------------------------------------------
+
+    fn mk_split_group(conn: &Connection, person_id: i64) -> i64 {
+        use crate::features::transactions::repository::{
+            create_taxable_split_group_with_legs, CreateTaxableSplitGroupWithLegsParams,
+            TaxableEventLeg,
+        };
+        let account_id = resolve_default_expense_account(conn, person_id);
+        create_taxable_split_group_with_legs(
+            conn,
+            CreateTaxableSplitGroupWithLegsParams {
+                account_id,
+                event_type: "expense".to_owned(),
+                group_note: None,
+                legs: vec![
+                    TaxableEventLeg {
+                        amount_minor: -3000,
+                        event_date: "2024-01-20T00:00:00".to_owned(),
+                        note: None,
+                        vat_rate_bps: None,
+                        vat_reclaimable_pct_bps: None,
+                        expense_deductible_pct_bps: None,
+                        prepaid_until: None,
+                        reclaimed_vat: None,
+                    },
+                    TaxableEventLeg {
+                        amount_minor: -2000,
+                        event_date: "2024-01-20T00:00:00".to_owned(),
+                        note: None,
+                        vat_rate_bps: None,
+                        vat_reclaimable_pct_bps: None,
+                        expense_deductible_pct_bps: None,
+                        prepaid_until: None,
+                        reclaimed_vat: None,
+                    },
+                ],
+            },
+        )
+        .expect("create split group failed")
+    }
+
+    #[test]
+    fn link_cashflow_to_split_group_inserts_link_for_each_leg() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let person_id = mk_person(&conn, "Alice");
+        let account_id = mk_account(&conn, person_id);
+        let cashflow_id = mk_cashflow(&conn, account_id, 5000);
+        let split_group_id = mk_split_group(&conn, person_id);
+
+        link_cashflows_to_split_group(
+            &conn,
+            LinkCashflowsToSplitGroupParams {
+                split_group_id,
+                cashflow_event_ids: vec![cashflow_id],
+            },
+        )
+        .expect("link should succeed");
+
+        // Fetch leg event IDs for the split group.
+        let mut stmt = conn
+            .prepare("SELECT id FROM event WHERE split_group_id = ? AND deleted_at IS NULL")
+            .expect("prepare failed");
+        let leg_ids: Vec<i64> = stmt
+            .query_map(params![split_group_id], |row| row.get(0))
+            .expect("query failed")
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .expect("collect failed");
+        assert_eq!(leg_ids.len(), 2, "split group should have 2 legs");
+
+        // Each leg should have the cashflow linked.
+        for leg_id in &leg_ids {
+            let linked = list_linked_cashflows(&conn, *leg_id).expect("list linked cashflows");
+            assert_eq!(
+                linked.len(),
+                1,
+                "leg {} should have 1 linked cashflow",
+                leg_id
+            );
+            assert_eq!(linked[0].id, cashflow_id);
+        }
+    }
+
+    #[test]
+    fn link_cashflow_to_nonexistent_split_group_returns_error() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let person_id = mk_person(&conn, "Alice");
+        let account_id = mk_account(&conn, person_id);
+        let cashflow_id = mk_cashflow(&conn, account_id, 5000);
+
+        let result = link_cashflows_to_split_group(
+            &conn,
+            LinkCashflowsToSplitGroupParams {
+                split_group_id: 9999,
+                cashflow_event_ids: vec![cashflow_id],
+            },
+        );
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.code, "NOT_FOUND");
     }
 }

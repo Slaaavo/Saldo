@@ -4,7 +4,7 @@ import { toast } from 'sonner'
 import { useQueryClient } from '@tanstack/react-query'
 import { todayIso, toMinorUnits, pctToBps } from '../../shared/utils/format'
 import { extractErrorMessage } from '../../shared/utils/errors'
-import { createTaxableEvent, createTaxableSplitGroup, linkCashflowsToTaxable } from '../../shared/api'
+import { createTaxableEvent, createTaxableSplitGroup, linkCashflowsToTaxable, linkCashflowsToSplitGroup } from '../../shared/api'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogBody, DialogFooter } from '../../shared/ui/dialog'
 import { Button } from '../../shared/ui/button'
 import { Label } from '../../shared/ui/label'
@@ -55,6 +55,13 @@ const CreateExpenseModal = ({ onClose }: Props) => {
     return !isNaN(parsed) ? -toMinorUnits(amount, currencyMinorUnits) : undefined
   })()
 
+  const eligibleAmountMinor: number | undefined = isSplit
+    ? (() => {
+        const sum = legs.reduce((acc, leg) => acc + toMinorUnits(leg.amount, currencyMinorUnits), 0)
+        return isNaN(sum) ? undefined : -sum
+      })()
+    : amountMinorForFilter
+
   const handleLegsChange = (newLegs: SplitLegDraft[]) => {
     setLegs(newLegs.map((l) => ({ ...l, eventDate: l.eventDate || date })))
   }
@@ -73,7 +80,7 @@ const CreateExpenseModal = ({ onClose }: Props) => {
           setSubmitting(false)
           return
         }
-        await createTaxableSplitGroup({
+        const splitGroupId = await createTaxableSplitGroup({
           personId,
           eventType: 'expense',
           groupNote: groupNote.trim() || null,
@@ -88,6 +95,9 @@ const CreateExpenseModal = ({ onClose }: Props) => {
             reclaimedVat: leg.reclaimedVat,
           })),
         })
+        if (selectedCashflowIds.length > 0) {
+          linkCashflowsToSplitGroup(splitGroupId, selectedCashflowIds).catch((err) => toast.warning(extractErrorMessage(err)))
+        }
       } else {
         const parsed = parseFloat(amount)
         if (isNaN(parsed)) {
@@ -168,37 +178,35 @@ const CreateExpenseModal = ({ onClose }: Props) => {
                 onGroupNoteChange={setGroupNote}
               />
             ) : (
-              <>
-                <ExpenseFormFields
-                  idPrefix="create-expense"
-                  amount={amount}
-                  onAmountChange={setAmount}
-                  vatRate={vatRate}
-                  onVatRateChange={setVatRate}
-                  vatReclaimablePct={vatReclaimablePct}
-                  onVatReclaimablePctChange={setVatReclaimablePct}
-                  expenseDeductiblePct={expenseDeductiblePct}
-                  onExpenseDeductiblePctChange={setExpenseDeductiblePct}
-                  note={note}
-                  onNoteChange={setNote}
-                  reclaimedVat={reclaimedVat}
-                  onReclaimedVatChange={setReclaimedVat}
-                  currencyCode={currencyCode}
-                  currencyMinorUnits={currencyMinorUnits}
-                />
+              <ExpenseFormFields
+                idPrefix="create-expense"
+                amount={amount}
+                onAmountChange={setAmount}
+                vatRate={vatRate}
+                onVatRateChange={setVatRate}
+                vatReclaimablePct={vatReclaimablePct}
+                onVatReclaimablePctChange={setVatReclaimablePct}
+                expenseDeductiblePct={expenseDeductiblePct}
+                onExpenseDeductiblePctChange={setExpenseDeductiblePct}
+                note={note}
+                onNoteChange={setNote}
+                reclaimedVat={reclaimedVat}
+                onReclaimedVatChange={setReclaimedVat}
+                currencyCode={currencyCode}
+                currencyMinorUnits={currencyMinorUnits}
+              />
+            )}
 
-                {/* Cashflow picker */}
-                {personId !== null && (
-                  <CashflowPicker
-                    personId={personId}
-                    eligibleAmountMinor={amountMinorForFilter}
-                    selectedIds={selectedCashflowIds}
-                    onToggle={(id) => setSelectedCashflowIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))}
-                    currencyMinorUnits={currencyMinorUnits}
-                    currencyCode={currencyCode}
-                  />
-                )}
-              </>
+            {/* Cashflow picker */}
+            {personId !== null && (
+              <CashflowPicker
+                personId={personId}
+                eligibleAmountMinor={eligibleAmountMinor}
+                selectedIds={selectedCashflowIds}
+                onToggle={(id) => setSelectedCashflowIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))}
+                currencyMinorUnits={currencyMinorUnits}
+                currencyCode={currencyCode}
+              />
             )}
           </DialogBody>
           <DialogFooter>

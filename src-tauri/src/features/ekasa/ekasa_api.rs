@@ -16,8 +16,6 @@ pub async fn fetch_ekasa_receipt(receipt_id: &str) -> Result<EkasaReceiptRespons
 
     let body = json!({ "receiptId": receipt_id });
 
-    eprintln!("[ekasa_api] POST {} body={}", EKASA_API_URL, body);
-
     let response = client
         .post(EKASA_API_URL)
         .json(&body)
@@ -33,11 +31,6 @@ pub async fn fetch_ekasa_receipt(receipt_id: &str) -> Result<EkasaReceiptRespons
         code: "NETWORK_ERROR".into(),
         message: format!("Failed to read eKasa API response body: {}", e),
     })?;
-
-    eprintln!(
-        "[ekasa_api] Response status={} body={}",
-        status, response_text
-    );
 
     if !status.is_success() {
         return Err(AppError {
