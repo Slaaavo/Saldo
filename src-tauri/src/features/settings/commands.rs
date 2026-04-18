@@ -142,8 +142,12 @@ pub fn get_db_location(state: State<'_, AppState>) -> Result<DbLocationInfo, App
 /// Opens a native folder-picker dialog and returns the selected folder with a flag
 /// indicating whether `saldo.db` already exists there. Returns `None` if the
 /// user cancelled the dialog.
+///
+/// Must be `async` so Tauri runs it off the main thread; `blocking_pick_folder()`
+/// dispatches to the main thread internally and would deadlock on macOS if the
+/// command itself already occupied the main thread.
 #[tauri::command]
-pub fn pick_db_folder(
+pub async fn pick_db_folder(
     app: tauri::AppHandle,
     state: State<'_, AppState>,
 ) -> Result<Option<PickDbFolderResult>, AppError> {

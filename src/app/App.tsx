@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useQueryClient } from '@tanstack/react-query'
 import { Outlet, useNavigate, useRouterState } from '@tanstack/react-router'
 import Header from '../shared/layout/Header'
 import AppModals from './AppModals'
@@ -37,13 +38,16 @@ const AppShell = () => {
   const { theme } = useTheme()
   const { setModalState, closeModal } = useModal()
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const queryClient = useQueryClient()
 
   const navigate = useNavigate()
 
   const dbLocation = useDbLocation({
     setModalState,
     closeModal,
-    onAfterDbChange: async () => {},
+    onAfterDbChange: async () => {
+      queryClient.clear()
+    },
   })
 
   const demo = useDemoMode({

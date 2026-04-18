@@ -33,7 +33,13 @@ const SettingsPage = () => {
   const { isDemoMode, onEnterDemoMode, onExitDemoMode } = useDemo()
   const { themePreference, setThemePreference } = useTheme()
   const { setModalState, closeModal } = useModal()
-  const dbLocation = useDbLocation({ setModalState, closeModal, onAfterDbChange: async () => {} })
+  const dbLocation = useDbLocation({
+    setModalState,
+    closeModal,
+    onAfterDbChange: async () => {
+      queryClient.clear()
+    },
+  })
 
   return (
     <div className="px-4 md:px-10 py-8">
