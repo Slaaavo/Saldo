@@ -306,6 +306,12 @@ export const useImportWizard = (params: { snapshot: SnapshotRow[]; onClose: () =
         rawIban = rawPartner.trim()
         ibanMatch = matchIban(normalizeIban(rawIban), ibanLookup)
       }
+      // Suppress self-IBAN: the importing account's own IBAN in the partner column
+      // is not a transfer — treat the row as if no IBAN was present.
+      if (ibanMatch.type === 'ownAccount' && ibanMatch.accountId === selectedAccountId) {
+        ibanMatch = { type: 'none' }
+        rawIban = null
+      }
 
       // Foreign currency handling
       let originalAmountMinor: number | null = null

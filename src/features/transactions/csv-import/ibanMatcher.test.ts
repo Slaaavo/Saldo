@@ -139,3 +139,38 @@ describe('matchIban', () => {
     }
   })
 })
+
+describe('matchIban – self-IBAN scenarios', () => {
+  it('returns ownAccount when the IBAN belongs to the source account (raw behaviour before wizard guard)', () => {
+    // matchIban itself has no concept of "which account we are importing into".
+    // When the CSV partner column contains the importing account's own IBAN, matchIban
+    // will return ownAccount — the wizard-level guard in useImportWizard.goToReview is
+    // responsible for suppressing this result. This test documents that raw behaviour.
+    const snapshot = [makeSnapshotRow({ accountId: 1, accountName: 'Checking', iban: 'SK1234567890' })]
+    const lookup = buildIbanLookup(snapshot, [])
+    const result = matchIban('SK1234567890', lookup)
+
+    expect(result.type).toBe('ownAccount')
+    if (result.type === 'ownAccount') {
+      expect(result.accountId).toBe(1)
+    }
+  })
+
+  it('returns ownAccount for a different own account IBAN (guard must not suppress unrelated accounts)', () => {
+    // When importing into account 1, a CSV row whose partner IBAN belongs to account 2
+    // must still resolve to ownAccount with accountId 2. The wizard guard in Step 1
+    // fires only when accountId === selectedAccountId (i.e. 1), so account 2 must pass
+    // through unaffected.
+    const snapshot = [
+      makeSnapshotRow({ accountId: 1, accountName: 'Checking', iban: 'SK1234567890' }),
+      makeSnapshotRow({ accountId: 2, accountName: 'Savings', iban: 'SK9876543210' }),
+    ]
+    const lookup = buildIbanLookup(snapshot, [])
+    const result = matchIban('SK9876543210', lookup)
+
+    expect(result.type).toBe('ownAccount')
+    if (result.type === 'ownAccount') {
+      expect(result.accountId).toBe(2)
+    }
+  })
+})
