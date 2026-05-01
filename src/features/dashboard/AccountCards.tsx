@@ -21,7 +21,7 @@ interface Props {
   onManageLinkedAssets?: (accountId: number, accountName: string) => void
   /** All asset rows — used to resolve asset names for the link indicator tooltip on account cards */
   allAssets?: SnapshotRow[]
-  /** All account rows — used to resolve linked account balances for equity tooltip on asset cards */
+  /** All account rows — used to resolve linked account balances for equity tooltip on asset cards and bucket linked-account tooltip */
   allAccounts?: SnapshotRow[]
   /** Persons list — used to show the owner name on each card when viewing all persons */
   persons?: PersonRow[]

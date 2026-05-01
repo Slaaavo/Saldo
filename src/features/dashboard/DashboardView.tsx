@@ -209,6 +209,7 @@ const DashboardView = () => {
               onDeleteAccount={handleDelete('bucket')}
               onCreateAccount={() => setModalState({ type: 'createAccount', accountType: 'bucket' })}
               onReorder={() => setModalState({ type: 'reorderBuckets' })}
+              allAccounts={accounts}
               persons={persons}
             />
           </div>
