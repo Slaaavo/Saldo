@@ -1739,6 +1739,84 @@ mod tests {
     }
 
     #[test]
+    fn tagged_cashflow_before_later_balance_update_is_excluded() {
+        // Regression test: a cashflow tagged to a bucket that predates a subsequent
+        // balance update must NOT be double-counted on top of that balance update.
+        // Scenario: BU1 → CF (tagged, negative) → BU2 = 1. Expected balance = 1.
+        let conn = initialize_in_memory().expect("DB init failed");
+
+        let source_id = mk_account(&conn);
+        let bucket_id = create_account(
+            &conn,
+            CreateAccountParams {
+                name: "Tagged Bucket".to_owned(),
+                currency_id: 1,
+                account_type: "bucket".to_owned(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        // BU1: initial balance update
+        create_balance_update(
+            &conn,
+            CreateBalanceUpdateParams {
+                account_id: bucket_id,
+                amount_minor: 643367,
+                event_date: "2026-01-01".to_owned(),
+                note: None,
+            },
+        )
+        .unwrap();
+
+        // CF: cashflow tagged to bucket, decreases effective balance
+        create_cashflow(
+            &conn,
+            &CashflowEntry {
+                account_id: source_id,
+                amount_minor: -298567,
+                event_date: "2026-02-01T12:00:00".to_string(),
+                note: None,
+                counterpart_account_id: None,
+                bucket_id: Some(bucket_id),
+                original_currency_id: None,
+                original_amount_minor: None,
+                fx_rate_mantissa: None,
+                fx_rate_exponent: None,
+            },
+        )
+        .unwrap();
+
+        // BU2: new balance update AFTER the cashflow, explicitly sets balance to 100
+        create_balance_update(
+            &conn,
+            CreateBalanceUpdateParams {
+                account_id: bucket_id,
+                amount_minor: 100,
+                event_date: "2026-03-01".to_owned(),
+                note: None,
+            },
+        )
+        .unwrap();
+
+        let snapshot = get_accounts_snapshot(
+            &conn,
+            GetSnapshotParams {
+                selected_datetime: "2026-12-31T23:59:59".to_owned(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let bucket_row = snapshot.iter().find(|r| r.account_id == bucket_id).unwrap();
+
+        // The cashflow predates BU2, so it must not be counted again.
+        // Expected: balance = 100 (BU2 value only), cashflow_tagged = 0.
+        assert_eq!(bucket_row.balance_minor, 100);
+        assert_eq!(bucket_row.cashflow_tagged_minor, 0);
+        assert_eq!(bucket_row.converted_balance_minor, 100);
+    }
+
+    #[test]
     fn list_events_filters_by_bucket_id() {
         let conn = initialize_in_memory().expect("DB init failed");
 

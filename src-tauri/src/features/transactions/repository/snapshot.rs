@@ -289,6 +289,17 @@ pub fn get_accounts_snapshot(
              WHERE e.deleted_at IS NULL
                AND ed.bucket_id IS NOT NULL
                AND ed.event_date <= ?1
+               AND ed.event_date > COALESCE(
+                 (SELECT ed_bu.event_date
+                  FROM event e_bu
+                  JOIN event_data ed_bu ON ed_bu.id = e_bu.latest_data_id
+                  WHERE e_bu.account_id = ed.bucket_id
+                    AND e_bu.deleted_at IS NULL
+                    AND e_bu.event_type = 'balance_update'
+                    AND ed_bu.event_date <= ?1
+                  ORDER BY ed_bu.event_date DESC, e_bu.created_at DESC
+                  LIMIT 1),
+                 '')
              GROUP BY ed.bucket_id, a.currency_id",
         )?;
 
