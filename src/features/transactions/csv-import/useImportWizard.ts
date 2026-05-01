@@ -528,7 +528,7 @@ export const useImportWizard = (params: { snapshot: SnapshotRow[]; onClose: () =
           rawIban: r.rawIban,
           ibanMatch: r.ibanMatch,
           bucketId: r.bucketId,
-          counterpartAccountId: r.counterpartAccountId,
+          counterpartAccountId: r.ibanMatch.type === 'ownAccount' || r.ibanMatch.type === 'partner' ? r.ibanMatch.accountId : r.counterpartAccountId,
         }
         return { ...r, splitLegs: [leg0] }
       }),
