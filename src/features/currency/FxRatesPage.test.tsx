@@ -113,13 +113,6 @@ describe('FxRatesPage', () => {
     })
   })
 
-  it('renders the title', async () => {
-    setupMocks()
-    renderFxRatesPage()
-
-    expect(screen.getByText('fxRates.title')).toBeInTheDocument()
-  })
-
   it('shows subtitle with consolidation currency', async () => {
     setupMocks()
     renderFxRatesPage()

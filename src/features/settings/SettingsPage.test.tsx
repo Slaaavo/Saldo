@@ -3,6 +3,7 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import SettingsPage from './SettingsPage'
+import { SelectedPersonProvider } from '../../app/SelectedPersonContext'
 import type { Currency } from '../../shared/types'
 import type { ThemePreference } from './useTheme'
 
@@ -39,7 +40,7 @@ let demoModeReturn = {
   onExitDemoMode: mockOnExitDemoMode,
 }
 
-vi.mock('../../app/DemoContext', () => ({
+vi.mock('../../app/useDemo', () => ({
   useDemo: () => demoModeReturn,
 }))
 
@@ -55,7 +56,7 @@ vi.mock('./useTheme', () => ({
 }))
 
 // ── Mock useModal hook ─────────────────────────────────────────────────────
-vi.mock('../../app/ModalContext', () => ({
+vi.mock('../../app/useModal', () => ({
   useModal: () => ({ modalState: { type: 'none' }, setModalState: vi.fn(), closeModal: vi.fn() }),
 }))
 
@@ -124,7 +125,11 @@ import { getAccountsSnapshot, getBulkUpdateExclusions } from '../../shared/api'
 
 const makeWrapper = () => {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: 0 } } })
-  const Wrapper = ({ children }: { children: React.ReactNode }) => <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+  const Wrapper = ({ children }: { children: React.ReactNode }) => (
+    <QueryClientProvider client={queryClient}>
+      <SelectedPersonProvider>{children}</SelectedPersonProvider>
+    </QueryClientProvider>
+  )
   return Wrapper
 }
 

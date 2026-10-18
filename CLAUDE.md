@@ -24,12 +24,13 @@ pnpm dev                # frontend only — IPC calls fail without the Tauri run
 pnpm tauri build        # native bundle
 pnpm build              # tsc + vite build
 
-pnpm test               # Vitest (jsdom); tests/** is excluded via vite.config.ts
+pnpm test               # Vitest (jsdom); vite.config.ts excludes tests/** (Playwright) and .claude/** (agent worktrees)
 pnpm test src/features/currency/fxRate.test.ts   # single file
 pnpm test -t "name"     # filter by test name
 pnpm lint               # eslint src/
 pnpm format             # prettier --write src/
-pnpm ci                 # format:check + lint + vitest + cargo fmt --check + clippy -D warnings + cargo test
+pnpm run ci             # format:check + lint + vitest + cargo fmt --check + clippy -D warnings + cargo test
+                        # (`run` is required: bare `pnpm ci` is pnpm's built-in clean install and wipes node_modules)
 
 cd src-tauri && cargo test                  # Rust unit tests
 cd src-tauri && cargo test snapshot         # filter by test name/path substring

@@ -3,6 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import DashboardView from './DashboardView'
+import { SelectedPersonProvider } from '../../app/SelectedPersonContext'
 import type { SnapshotRow, EventWithData, Currency } from '../../shared/types'
 
 // ── Mock TanStack Router ──────────────────────────────────────────────────────
@@ -17,23 +18,24 @@ vi.mock('../../shared/api', () => ({
   listEvents: vi.fn(),
   getConsolidationCurrency: vi.fn(),
   getEventById: vi.fn(),
+  listPersons: vi.fn(),
 }))
 
-import { getAccountsSnapshot, listEvents, getConsolidationCurrency } from '../../shared/api'
+import { getAccountsSnapshot, listEvents, getConsolidationCurrency, listPersons } from '../../shared/api'
 
 // ── Mock contexts ─────────────────────────────────────────────────────────────
 const mockSetModalState = vi.fn()
-vi.mock('../../app/ModalContext', () => ({
+vi.mock('../../app/useModal', () => ({
   useModal: () => ({ setModalState: mockSetModalState, closeModal: vi.fn(), modalState: { type: 'none' } }),
 }))
 
 const demoModeState = { isDemoMode: false }
 const mockOnEnterDemoMode = vi.fn()
-vi.mock('../../app/DemoContext', () => ({
+vi.mock('../../app/useDemo', () => ({
   useDemo: () => ({ isDemoMode: demoModeState.isDemoMode, onEnterDemoMode: mockOnEnterDemoMode, onExitDemoMode: vi.fn() }),
 }))
 
-vi.mock('../../app/SelectedDateContext', () => ({
+vi.mock('../../app/useSelectedDate', () => ({
   useSelectedDate: () => ({ selectedDate: '2026-01-15', setSelectedDate: vi.fn() }),
 }))
 
@@ -77,10 +79,10 @@ vi.mock('./AccountCards', () => ({
 }))
 
 vi.mock('./Ledger', () => ({
-  default: (props: { onUpdateBalances: () => void; onViewAll?: () => void }) => (
+  default: (props: { onAddEvents: () => void; onViewAll?: () => void }) => (
     <div data-testid="ledger">
-      <button data-testid="update-balances-btn" onClick={props.onUpdateBalances}>
-        Update
+      <button data-testid="add-events-btn" onClick={props.onAddEvents}>
+        Add
       </button>
       {props.onViewAll && (
         <button data-testid="view-all-btn" onClick={props.onViewAll}>
@@ -188,13 +190,16 @@ const setupApiMocks = (options?: { snapshot?: SnapshotRow[]; events?: EventWithD
   ;(getAccountsSnapshot as Mock).mockResolvedValue(options?.snapshot ?? [makeSnapshot()])
   ;(listEvents as Mock).mockResolvedValue({ events: options?.events ?? [makeEvent()], totalCount: options?.events?.length ?? 1 })
   ;(getConsolidationCurrency as Mock).mockResolvedValue(EUR)
+  ;(listPersons as Mock).mockResolvedValue([])
 }
 
 const renderDashboard = () => {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: 0 } } })
   return render(
     <QueryClientProvider client={queryClient}>
-      <DashboardView />
+      <SelectedPersonProvider>
+        <DashboardView />
+      </SelectedPersonProvider>
     </QueryClientProvider>,
   )
 }
@@ -452,13 +457,13 @@ describe('DashboardView', () => {
       })
     })
 
-    it('opens bulkUpdateBalance modal from Ledger', async () => {
+    it('opens addEvents modal from Ledger', async () => {
       const user = userEvent.setup()
       setupApiMocks({ snapshot: [makeSnapshot()] })
       renderDashboard()
-      await waitFor(() => screen.getByTestId('update-balances-btn'))
-      await user.click(screen.getByTestId('update-balances-btn'))
-      expect(mockSetModalState).toHaveBeenCalledWith({ type: 'bulkUpdateBalance' })
+      await waitFor(() => screen.getByTestId('add-events-btn'))
+      await user.click(screen.getByTestId('add-events-btn'))
+      expect(mockSetModalState).toHaveBeenCalledWith({ type: 'addEvents' })
     })
 
     it('navigates to ledger when View all is clicked', async () => {

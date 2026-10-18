@@ -76,7 +76,7 @@ pnpm test
 cd src-tauri && cargo test
 
 # Lint & format check
-pnpm ci
+pnpm run ci
 ```
 
 ### Linting & Formatting

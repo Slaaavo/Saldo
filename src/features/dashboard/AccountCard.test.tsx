@@ -160,6 +160,9 @@ describe('AccountCard', () => {
 
     expect(screen.getByText('IBAN Account')).toBeInTheDocument()
     expect(screen.getByTestId('number-value')).toHaveTextContent('75000')
-    expect(screen.getByText('SK12 3456 7890')).toBeInTheDocument()
+    // Each 4-char group is its own <span>, so match segments and check the joined line
+    expect(screen.getByText('SK12')).toBeInTheDocument()
+    expect(screen.getByText('3456')).toBeInTheDocument()
+    expect(screen.getByText('7890').closest('p')).toHaveTextContent('SK12 3456 7890')
   })
 })

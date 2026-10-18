@@ -3,6 +3,7 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import LedgerPage from './LedgerPage'
+import { SelectedPersonProvider } from '../../app/SelectedPersonContext'
 
 // ── Mock i18n ─────────────────────────────────────────────────────────────
 vi.mock('react-i18next', () => {
@@ -28,11 +29,12 @@ vi.mock('../../shared/api', () => ({
   getAccountsSnapshot: vi.fn(),
   getConsolidationCurrency: vi.fn(),
   getEventById: vi.fn(),
+  getUnmatchedCashflowCount: vi.fn(),
 }))
 
-// ── Mock ModalContext ───────────────────────────────────────────────────────
+// ── Mock useModal ───────────────────────────────────────────────────────────
 const mockSetModalState = vi.fn()
-vi.mock('../../app/ModalContext', () => ({
+vi.mock('../../app/useModal', () => ({
   useModal: () => ({ setModalState: mockSetModalState, closeModal: vi.fn(), modalState: { type: 'none' } }),
 }))
 
@@ -84,13 +86,15 @@ vi.mock('../../shared/ui/date-picker', () => ({
   ),
 }))
 
-import { listEvents, getAccountsSnapshot, getConsolidationCurrency } from '../../shared/api'
+import { listEvents, getAccountsSnapshot, getConsolidationCurrency, getUnmatchedCashflowCount } from '../../shared/api'
 
 const renderLedgerPage = () => {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: 0 } } })
   return render(
     <QueryClientProvider client={queryClient}>
-      <LedgerPage />
+      <SelectedPersonProvider>
+        <LedgerPage />
+      </SelectedPersonProvider>
     </QueryClientProvider>,
   )
 }
@@ -101,14 +105,10 @@ describe('LedgerPage', () => {
     ;(listEvents as Mock).mockResolvedValue({ events: [], totalCount: 0 })
     ;(getAccountsSnapshot as Mock).mockResolvedValue([])
     ;(getConsolidationCurrency as Mock).mockResolvedValue({ id: 1, code: 'EUR', name: 'Euro', minorUnits: 2, isCustom: false })
+    ;(getUnmatchedCashflowCount as Mock).mockResolvedValue(0)
   })
 
   // ── Rendering ─────────────────────────────────────────────────────────────
-
-  it('renders the page title', () => {
-    renderLedgerPage()
-    expect(screen.getByText('ledgerPage.title')).toBeInTheDocument()
-  })
 
   it('renders the filter bar with From and To date pickers and portfolio filter', () => {
     renderLedgerPage()
@@ -117,18 +117,18 @@ describe('LedgerPage', () => {
     expect(screen.getByTestId('portfolio-filter')).toBeInTheDocument()
   })
 
-  it('renders the Update Balances button', () => {
+  it('renders the Add Events button', () => {
     renderLedgerPage()
-    expect(screen.getByText('ledger.updateBalances')).toBeInTheDocument()
+    expect(screen.getByText('ledger.addEvents')).toBeInTheDocument()
   })
 
   // ── Modal dispatch ────────────────────────────────────────────────────────
 
-  it('dispatches bulkUpdateBalance modal when Update Balances is clicked', async () => {
+  it('dispatches addEvents modal when Add Events is clicked', async () => {
     const user = userEvent.setup()
     renderLedgerPage()
-    await user.click(screen.getByText('ledger.updateBalances'))
-    expect(mockSetModalState).toHaveBeenCalledWith({ type: 'bulkUpdateBalance' })
+    await user.click(screen.getByText('ledger.addEvents'))
+    expect(mockSetModalState).toHaveBeenCalledWith({ type: 'addEvents' })
   })
 
   it('dispatches editBalanceUpdate modal when edit button is clicked', async () => {

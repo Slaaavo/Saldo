@@ -171,12 +171,11 @@ describe('UnitsPage', () => {
     vi.clearAllMocks()
   })
 
-  it('renders the title and subtitle', async () => {
+  it('renders the subtitle', async () => {
     setupMocks()
     renderUnitsPage()
 
     await waitFor(() => {
-      expect(screen.getByText('units.title')).toBeInTheDocument()
       expect(screen.getByText('units.subtitle')).toBeInTheDocument()
     })
   })

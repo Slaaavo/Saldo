@@ -22,7 +22,8 @@ export default defineConfig(async () => ({
     environment: 'jsdom',
     setupFiles: './src/test-setup.ts',
     passWithNoTests: true,
-    exclude: ['tests/**', 'node_modules/**'],
+    // .claude/** holds agent git worktrees, each with its own src/ and node_modules/
+    exclude: ['tests/**', '.claude/**', '**/node_modules/**'],
   },
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`

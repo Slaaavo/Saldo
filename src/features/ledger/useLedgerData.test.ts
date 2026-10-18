@@ -3,6 +3,7 @@ import React from 'react'
 import { renderHook, waitFor, act } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { useLedgerData } from './useLedgerData'
+import { SelectedPersonProvider } from '../../app/SelectedPersonContext'
 import type { EventWithData, SnapshotRow } from '../../shared/types'
 
 // ── Mock the API layer ──────────────────────────────────────────────────────
@@ -33,7 +34,8 @@ const createWrapper = () => {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: 0, refetchOnWindowFocus: false } },
   })
-  return ({ children }: { children: React.ReactNode }) => React.createElement(QueryClientProvider, { client: queryClient }, children)
+  return ({ children }: { children: React.ReactNode }) =>
+    React.createElement(QueryClientProvider, { client: queryClient }, React.createElement(SelectedPersonProvider, null, children))
 }
 
 const makeSnapshot = (overrides?: Partial<SnapshotRow>): SnapshotRow => {
