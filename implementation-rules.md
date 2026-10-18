@@ -154,6 +154,43 @@ Vitest patterns for TanStack Router (in `vi.mock` factories):
 - Mock component functions inside `vi.mock` must be **named** (assigned to a `const`, not anonymous `() =>`), otherwise ESLint's `react-hooks/rules-of-hooks` will flag hook calls inside them as errors. Arrow functions assigned to `const` satisfy this requirement.
 - App-level tests use `createTestRouter()` + `renderApp()` helpers that wrap in both `QueryClientProvider` and `RouterProvider` with a fresh router instance per test. See `src/app/App.test.tsx` for the reference pattern.
 
+Vitest mocks for IPC, i18n, and heavy UI components:
+- **IPC layer:** Tests never reach Tauri. Mock `src/shared/api` with a factory that lists every function the code under test imports, each as `vi.fn()`. Set return values in a `setupMocks(overrides?)` helper that applies defaults and accepts per-test overrides, and call `vi.clearAllMocks()` in `beforeEach`. Reference: `src/features/settings/useSettings.test.ts`.
+  ```ts
+  vi.mock('../../shared/api', () => ({
+    listCurrencies: vi.fn(),
+    getConsolidationCurrency: vi.fn(),
+  }))
+
+  const setupMocks = (overrides?: { currencies?: Currency[] }) => {
+    ;(listCurrencies as Mock).mockResolvedValue(overrides?.currencies ?? ALL_CURRENCIES)
+    ;(getConsolidationCurrency as Mock).mockResolvedValue(EUR)
+  }
+  ```
+- **i18n:** Mock `react-i18next` with a pass-through `t` that returns the key and fills `{{var}}` placeholders, so assertions use translation keys. Reference: `src/features/currency/FxRatesPage.test.tsx`.
+  ```ts
+  vi.mock('react-i18next', () => ({
+    useTranslation: () => ({
+      t: (key: string, opts?: Record<string, unknown>) => {
+        if (!opts) return key
+        let result = key
+        for (const [k, v] of Object.entries(opts)) result = result.replace(`{{${k}}}`, String(v))
+        return result
+      },
+      i18n: { language: 'en' },
+    }),
+  }))
+  ```
+- **`DatePicker`:** Replace it with a plain input, because the real component renders a Radix Popover and Calendar. Reference: `src/features/assets/UpdateAssetValueModal.test.tsx`.
+  ```tsx
+  vi.mock('../../shared/ui/date-picker', () => ({
+    DatePicker: ({ value, onChange }: { value: string; onChange: (v: string) => void }) => (
+      <input data-testid="date-picker" value={value} onChange={(e) => onChange(e.target.value)} />
+    ),
+  }))
+  ```
+- Wrap assertions on loaded data in `waitFor(...)`. `act(...)` warnings from async state updates during mount are benign.
+
 ## 10. CI & quality
 - Pre-commit: run `prettier`, `eslint --fix`, `cargo fmt`, `cargo clippy`.
 - CI steps: install Rust + Node, run linters, run unit tests (TS + Rust), run a headless Playwright suite.
