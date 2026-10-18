@@ -19,7 +19,8 @@ Package manager is **pnpm** (`pnpm-lock.yaml`; Tauri's `beforeDevCommand` runs `
 
 ```bash
 pnpm install
-pnpm tauri dev          # full app (Vite on :1420 + Rust backend)
+pnpm tauri dev          # full app (Vite on :1420 + Rust backend) on the REAL saldo.db
+pnpm tauri dev --config src-tauri/tauri.dev.conf.json   # same, but as com.teamsumbal.saldo.dev with its own saldo.db
 pnpm dev                # frontend only — IPC calls fail without the Tauri runtime
 pnpm tauri build        # native bundle
 pnpm build              # tsc + vite build
@@ -41,6 +42,8 @@ pnpm test:e2e           # Playwright; requires `pnpm tauri dev` already running 
 
 - Husky pre-commit runs `lint-staged` (eslint --fix + prettier on staged `src/` files) and then `cargo fmt` + `cargo clippy -- -D warnings`, so clippy warnings block commits.
 - E2E specs in `tests/` run against the live dev app and accumulate data across runs (each test uses a unique name prefix).
+- Plain `pnpm tauri dev` uses the installed app's identifier (`com.teamsumbal.saldo`), so it opens the same `saldo.db` (or the `db-location.json` folder) and runs pending migrations on it. `src-tauri/tauri.dev.conf.json` swaps in `com.teamsumbal.saldo.dev`, whose app-data folder holds a separate `saldo.db`.
+- To prove a change in the running app, use the `verify-saldo` skill (`.claude/skills/verify-saldo/`). It launches the `.dev` identifier inside a `Saldo Dev.app` wrapper, which computer use can target (the plain debug binary has no bundle id), and drives it with computer use.
 - PDFium (eKasa receipt PDF import) is loaded from a platform library (`pdfium.dll` / `libpdfium.dylib`) placed in `src-tauri/`. It is gitignored and downloaded separately; the platform Tauri configs bundle it as a resource.
 
 ## Architecture

@@ -40,3 +40,6 @@ memory.md
 experiments/
 
 ollama-logs/
+
+# verify-saldo run state (dev app bundle, launch log)
+.verify-saldo/

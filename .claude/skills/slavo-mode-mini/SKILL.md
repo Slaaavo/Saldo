@@ -23,14 +23,16 @@ This skill adapts `~/.claude/skills/slavo-mode/SKILL.md` to Saldo, a solo side p
 - Work in a git worktree on a new branch off `master`, so several sessions can run at once. Use `EnterWorktree`, or the worktree the app made for the session. The user also commits in the main checkout while you work.
 - A new worktree has no `node_modules`. Run `pnpm install`. The lockfile is `pnpm-lock.yaml`. Never use npm or yarn.
 - A new worktree also has no `src-tauri/libpdfium.dylib`, because it is gitignored. Copy it from `src-tauri/` in the main checkout. The macOS Tauri config bundles it, and eKasa receipt import loads it at runtime.
-- Only one `pnpm tauri dev` can run on this machine, because Vite holds port 1420 with `strictPort`. If the port is taken, another session is running the app. Wait and retry. Never stop a run you did not launch.
+- Only one `tauri dev` can run on this machine, because Vite holds port 1420 with `strictPort`. That includes `verify-saldo` runs. If the port is taken, another session is running the app. Wait and retry. Never stop a run you did not launch.
+- Inside the Bash sandbox, pnpm 12 rejects the proxy's TLS certificate. Run `pnpm install` with the sandbox disabled.
 
 ## Real database
 
-`pnpm tauri dev` opens the same `saldo.db` as the installed Saldo app on this Mac. The file is in `~/Library/Application Support/com.teamsumbal.saldo/`, or in the folder that `db-location.json` there names. The app runs pending migrations on that file at startup, before demo mode is available.
+`verify-saldo` never opens the real database. It runs the app as `com.teamsumbal.saldo.dev`, whose `saldo.db` lives in `~/Library/Application Support/com.teamsumbal.saldo.dev/` and is disposable. Use it for every check. Inside it, pick the dev DB or demo mode per that skill.
 
-- Before you launch a branch that adds a file to `migrations/`, back up the database. While no Saldo instance runs, copy `saldo.db`, `saldo.db-wal`, and `saldo.db-shm` to the same folder with a `.bak-<YYYYMMDD-HHMMSS>` suffix. If the user's own Saldo app is open, ask them to close it. Name the backup path in your reply.
-- Verify in demo mode when the change does not need real data. Demo mode runs on an in-memory database.
+Plain `pnpm tauri dev` is different. It keeps the installed app's identifier, so it opens the same `saldo.db` as the installed Saldo app on this Mac. That file is in `~/Library/Application Support/com.teamsumbal.saldo/`, or in the folder that `db-location.json` there names. The app runs pending migrations on it at startup, before demo mode is available, and fetches missing FX rates into it when an OXR key is saved. Run plain `pnpm tauri dev` only when the user asks for a run on real data.
+
+- Before such a run on a branch that adds a file to `migrations/`, back up the database. While no Saldo instance runs, copy `saldo.db`, `saldo.db-wal`, and `saldo.db-shm` to the same folder with a `.bak-<YYYYMMDD-HHMMSS>` suffix. If the user's own Saldo app is open, ask them to close it. Name the backup path in your reply.
 
 ## Verification
 
