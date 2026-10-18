@@ -16,7 +16,7 @@ This folder is the maintained source for verifying what a Saldo user can do. Rea
 - Find elements by AX role and accessible name from `app_screenshot`, then click the center of their bounds. Names are the English strings in `src/i18n/locales/en.yml`.
 - Take a screenshot after every state change, and use its coordinates for the next click only.
 - Click a field before typing into it.
-- Pop-up controls (`AXPopUpButton`, `AXComboBox`) don't open in the background. Click their visible label, take an entry point whose select is preset, or ask the user before using display-scope tools.
+- Pop-up controls (`AXPopUpButton`, `AXComboBox`) don't open from a background click. Click their visible label, use the keyboard path (focus just before the trigger, then `tab`, `down`, `return`), take an entry point whose select is preset, or ask the user before using display-scope tools. `SKILL.md` → Drive has the details.
 - Mutations on the dev DB persist, so give fixture names a `Verify` prefix to keep them recognizable.
 
 ## Proof and skip reporting
@@ -41,7 +41,7 @@ Keep implementation details out of the map. Name only user paths, stable handles
 ## Features
 
 - [Balance update](./balance-update.md): set an account's balance from its card, from Bulk Balance Update, or by editing a ledger row.
-- [Dashboard snapshot by date](./dashboard-snapshot.md): metrics and card balances as of the date picked in the header.
-- [Buckets](./buckets.md): create a bucket, allocate to it, and read Left to Spend.
+- [Dashboard snapshot by date](./dashboard-snapshot.md): metrics and card balances as of the date and the person picked in the header.
+- [Buckets](./buckets.md): create a bucket, allocate to it, link an account, and read Left to Spend.
 - [CSV import](./csv-import.md): import cashflows from a bank CSV through the import wizard.
 - [FX rates](./fx-rates.md): list stored rates, edit one by hand, and fetch rates for a date.
