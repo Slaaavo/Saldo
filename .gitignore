@@ -43,3 +43,6 @@ ollama-logs/
 
 # verify-saldo run state (dev app bundle, launch log)
 .verify-saldo/
+
+# Claude Code session worktrees
+.claude/worktrees/
