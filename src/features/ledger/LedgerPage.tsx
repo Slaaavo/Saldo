@@ -1,9 +1,7 @@
 import { useTranslation } from 'react-i18next'
-import { toast } from 'sonner'
 import { useQuery } from '@tanstack/react-query'
 import type { EventWithData } from '../../shared/types'
-import { getEventById, getUnmatchedCashflowCount } from '../../shared/api'
-import { extractErrorMessage } from '../../shared/utils/errors'
+import { getUnmatchedCashflowCount } from '../../shared/api'
 import { useLedgerData } from './useLedgerData'
 import LedgerEventList from '../../shared/ui/LedgerEventList'
 import PortfolioItemFilter from './PortfolioItemFilter'
@@ -12,6 +10,7 @@ import { Button } from '../../shared/ui/button'
 import LedgerActionButtons from '../../shared/ui/LedgerActionButtons'
 import { useSnapshotQuery } from '../../shared/hooks/useSnapshotQuery'
 import { useConsolidationCurrencyQuery } from '../../shared/hooks/useConsolidationCurrencyQuery'
+import { useEditEventHandler } from '../../shared/hooks/useEditEventHandler'
 import { useModal } from '../../app/useModal'
 import { todayIso } from '../../shared/utils/format'
 import { useSelectedPerson } from '../../app/useSelectedPerson'
@@ -20,6 +19,7 @@ const LedgerPage = () => {
   const { t } = useTranslation()
   const { setModalState } = useModal()
   const { selectedPersonId } = useSelectedPerson()
+  const handleEditEvent = useEditEventHandler()
   const snapshotQuery = useSnapshotQuery(todayIso())
   const snapshot = snapshotQuery.data ?? []
   const consolidationCurrencyQuery = useConsolidationCurrencyQuery()
@@ -47,53 +47,6 @@ const LedgerPage = () => {
   } = useLedgerData({
     snapshot,
   })
-
-  const handleEditEvent = async (event: EventWithData) => {
-    if (event.eventType === 'balance_update') {
-      setModalState({ type: 'editBalanceUpdate', event })
-      return
-    }
-    if (event.eventType === 'revenue' || event.eventType === 'expense') {
-      if (event.splitGroupId != null) {
-        const groupId = event.splitGroupId
-        const legs = events.filter((e) => e.splitGroupId === groupId)
-        const groupNote = event.splitGroupNote ?? null
-        setModalState({
-          type: 'editTaxableSplitGroup',
-          splitGroupId: groupId,
-          eventType: event.eventType as 'revenue' | 'expense',
-          legs,
-          groupNote,
-          accountId: event.accountId,
-        })
-      } else {
-        setModalState({ type: 'editTaxableEvent', event })
-      }
-      return
-    }
-    if (event.eventType === 'prepaid_expense') {
-      setModalState({ type: 'editTaxableEvent', event })
-      return
-    }
-    if (event.eventType === 'transfer') {
-      if (!event.linkedEventId) {
-        toast.error(t('errors.loadData'))
-        return
-      }
-      try {
-        const linked = await getEventById(event.linkedEventId)
-        if (!linked) {
-          toast.error(t('errors.loadData'))
-          return
-        }
-        const fromEvent = event.amountMinor < 0 ? event : linked
-        const toEvent = event.amountMinor < 0 ? linked : event
-        setModalState({ type: 'editTransfer', fromEvent, toEvent })
-      } catch (err) {
-        toast.error(extractErrorMessage(err))
-      }
-    }
-  }
 
   const handleEditTaxableSplitGroup = (splitGroupId: number, eventType: string, legs: EventWithData[], groupNote: string | null, accountId: number) => {
     setModalState({ type: 'editTaxableSplitGroup', splitGroupId, eventType: eventType as 'revenue' | 'expense', legs, groupNote, accountId })

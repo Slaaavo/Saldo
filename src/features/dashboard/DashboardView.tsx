@@ -1,9 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import { toast } from 'sonner'
 import type { EventWithData, Currency } from '../../shared/types'
-import { getEventById, listPersons } from '../../shared/api'
-import { extractErrorMessage } from '../../shared/utils/errors'
+import { listPersons } from '../../shared/api'
 import { cn } from '@/shared/lib/utils'
 import NumberValue from '../../shared/ui/NumberValue'
 import AccountCards from './AccountCards'
@@ -15,6 +13,7 @@ import { useSelectedDate } from '../../app/useSelectedDate'
 import { useSnapshotQuery } from '../../shared/hooks/useSnapshotQuery'
 import { useDashboardEventsQuery } from '../../shared/hooks/useDashboardEventsQuery'
 import { useConsolidationCurrencyQuery } from '../../shared/hooks/useConsolidationCurrencyQuery'
+import { useEditEventHandler } from '../../shared/hooks/useEditEventHandler'
 import { computeDashboardMetrics } from './dashboardMetrics'
 import { useNavigate } from '@tanstack/react-router'
 
@@ -43,6 +42,7 @@ const DashboardView = () => {
   const { setModalState } = useModal()
   const { selectedDate } = useSelectedDate()
   const navigate = useNavigate()
+  const handleEditEvent = useEditEventHandler()
 
   const snapshotQuery = useSnapshotQuery(selectedDate)
   const eventsQuery = useDashboardEventsQuery(selectedDate)
@@ -107,35 +107,6 @@ const DashboardView = () => {
       })
     } else {
       handleUpdateBalance(accountId)
-    }
-  }
-
-  const handleEditEvent = async (event: EventWithData) => {
-    if (event.eventType === 'balance_update') {
-      setModalState({ type: 'editBalanceUpdate', event })
-      return
-    }
-    if (event.eventType === 'revenue' || event.eventType === 'expense') {
-      setModalState({ type: 'editTaxableEvent', event })
-      return
-    }
-    if (event.eventType === 'transfer') {
-      if (!event.linkedEventId) {
-        toast.error(t('errors.loadData'))
-        return
-      }
-      try {
-        const linked = await getEventById(event.linkedEventId)
-        if (!linked) {
-          toast.error(t('errors.loadData'))
-          return
-        }
-        const fromEvent = event.amountMinor < 0 ? event : linked
-        const toEvent = event.amountMinor < 0 ? linked : event
-        setModalState({ type: 'editTransfer', fromEvent, toEvent })
-      } catch (err) {
-        toast.error(extractErrorMessage(err))
-      }
     }
   }
 

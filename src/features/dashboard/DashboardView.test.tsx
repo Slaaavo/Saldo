@@ -79,8 +79,11 @@ vi.mock('./AccountCards', () => ({
 }))
 
 vi.mock('./Ledger', () => ({
-  default: (props: { onAddEvents: () => void; onViewAll?: () => void }) => (
+  default: (props: { events: EventWithData[]; onEditEvent: (event: EventWithData) => void; onAddEvents: () => void; onViewAll?: () => void }) => (
     <div data-testid="ledger">
+      <button data-testid="edit-first-event-btn" disabled={props.events.length === 0} onClick={() => props.onEditEvent(props.events[0])}>
+        Edit
+      </button>
       <button data-testid="add-events-btn" onClick={props.onAddEvents}>
         Add
       </button>
@@ -464,6 +467,16 @@ describe('DashboardView', () => {
       await waitFor(() => screen.getByTestId('add-events-btn'))
       await user.click(screen.getByTestId('add-events-btn'))
       expect(mockSetModalState).toHaveBeenCalledWith({ type: 'addEvents' })
+    })
+
+    it('opens the taxable event editor for a prepaid expense', async () => {
+      const user = userEvent.setup()
+      const prepaid = makeEvent({ id: 7, eventType: 'prepaid_expense' })
+      setupApiMocks({ snapshot: [makeSnapshot()], events: [prepaid] })
+      renderDashboard()
+      await waitFor(() => expect(screen.getByTestId('edit-first-event-btn')).toBeEnabled())
+      await user.click(screen.getByTestId('edit-first-event-btn'))
+      expect(mockSetModalState).toHaveBeenCalledWith({ type: 'editTaxableEvent', event: prepaid })
     })
 
     it('navigates to ledger when View all is clicked', async () => {

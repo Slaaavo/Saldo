@@ -488,6 +488,7 @@ validation:
 # ──── Error messages ────
 errors:
   loadData: "Failed to load data: {{error}}"
+  linkedEventMissing: "The linked event of this transfer could not be found."
   createBalanceUpdate: "Failed to create balance update: {{error}}"
   updateEvent: "Failed to update event: {{error}}"
   deleteEvent: "Failed to delete event: {{error}}"

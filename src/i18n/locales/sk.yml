@@ -485,6 +485,7 @@ validation:
 # ──── Chybové hlášky ────
 errors:
   loadData: "Nepodarilo sa načítať údaje: {{error}}"
+  linkedEventMissing: "Prepojená udalosť tohto prevodu sa nenašla."
   createBalanceUpdate: "Nepodarilo sa vytvoriť aktualizáciu zostatku: {{error}}"
   updateEvent: "Nepodarilo sa aktualizovať udalosť: {{error}}"
   deleteEvent: "Nepodarilo sa vymazať udalosť: {{error}}"
