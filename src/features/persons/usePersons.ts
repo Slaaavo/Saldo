@@ -2,9 +2,11 @@ import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { listPersons, createPerson, updatePerson, deletePerson } from '../../shared/api'
 import type { PersonRow } from '../../shared/types'
+import { useSelectedPerson } from '../../app/useSelectedPerson'
 
 export const usePersons = () => {
   const queryClient = useQueryClient()
+  const { selectedPersonId, setSelectedPersonId } = useSelectedPerson()
   const { data: persons = [], isLoading } = useQuery({ queryKey: ['persons'], queryFn: listPersons })
 
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
@@ -18,12 +20,21 @@ export const usePersons = () => {
 
   const handleUpdatePerson = async (personId: number, name: string, personType: string, vatPayer: boolean) => {
     await updatePerson(personId, name, personType, vatPayer)
-    await queryClient.invalidateQueries({ queryKey: ['persons'] })
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['persons'] }),
+      queryClient.invalidateQueries({ queryKey: ['events'] }),
+      queryClient.invalidateQueries({ queryKey: ['snapshot'] }),
+    ])
   }
 
   const handleDeletePerson = async (personId: number) => {
     await deletePerson(personId)
-    await queryClient.invalidateQueries({ queryKey: ['persons'] })
+    if (selectedPersonId === personId) setSelectedPersonId(null)
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['persons'] }),
+      queryClient.invalidateQueries({ queryKey: ['events'] }),
+      queryClient.invalidateQueries({ queryKey: ['snapshot'] }),
+    ])
   }
 
   return {
