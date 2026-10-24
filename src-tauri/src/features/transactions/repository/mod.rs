@@ -373,6 +373,7 @@ mod tests {
         assert!(result.is_err());
         assert!(result
             .unwrap_err()
+            .message
             .contains("Cannot update a deleted event"));
     }
 
@@ -389,7 +390,7 @@ mod tests {
             },
         );
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Event not found"));
+        assert!(result.unwrap_err().message.contains("Event not found"));
     }
 
     #[test]

@@ -9,7 +9,7 @@ pub struct UpdateEventParams {
     pub note: Option<String>,
 }
 
-pub fn update_event(conn: &Connection, params: UpdateEventParams) -> Result<(), String> {
+pub fn update_event(conn: &Connection, params: UpdateEventParams) -> Result<(), AppError> {
     let UpdateEventParams {
         event_id,
         amount_minor,
@@ -22,33 +22,38 @@ pub fn update_event(conn: &Connection, params: UpdateEventParams) -> Result<(), 
             params![event_id],
             |row| row.get(0),
         )
-        .optional()
-        .map_err(|e| e.to_string())?;
+        .optional()?;
 
     match maybe_deleted_at {
-        None => return Err("Event not found".to_string()),
-        Some(Some(_)) => return Err("Cannot update a deleted event".to_string()),
+        None => return Err(event_not_found()),
+        Some(Some(_)) => {
+            return Err(AppError {
+                code: "NOT_FOUND".into(),
+                message: "Cannot update a deleted event".into(),
+            })
+        }
         Some(None) => {} // active event, proceed
     }
 
+    // Copies every column the edit does not change. prepaid_period_months is dead
+    // (superseded by prepaid_until) and is left NULL.
     conn.execute(
         "INSERT INTO event_data (
             event_id, amount_minor, event_date, note,
             counterpart_account_id, bucket_id, original_currency_id,
             original_amount_minor, fx_rate_mantissa, fx_rate_exponent,
             vat_rate_bps, vat_reclaimable_pct_bps,
-            expense_deductible_pct_bps, prepaid_period_months, reclaimed_vat
+            expense_deductible_pct_bps, reclaimed_vat, prepaid_until
         )
         SELECT ?1, ?2, ?3, ?4,
             counterpart_account_id, bucket_id, original_currency_id,
             original_amount_minor, fx_rate_mantissa, fx_rate_exponent,
             vat_rate_bps, vat_reclaimable_pct_bps,
-            expense_deductible_pct_bps, prepaid_period_months, reclaimed_vat
+            expense_deductible_pct_bps, reclaimed_vat, prepaid_until
         FROM event_data
         WHERE id = (SELECT latest_data_id FROM event WHERE id = ?1)",
         params![event_id, amount_minor, event_date, note],
-    )
-    .map_err(|e| e.to_string())?;
+    )?;
 
     Ok(())
 }
@@ -247,7 +252,9 @@ mod tests {
     use super::*;
     use crate::db::initialize_in_memory;
     use crate::features::accounts::repository::{create_account, CreateAccountParams};
-    use crate::features::transactions::repository::{create_transfer, CashflowEntry};
+    use crate::features::transactions::repository::{
+        create_taxable_event, create_transfer, CashflowEntry, CreateTaxableEventParams,
+    };
 
     fn mk_account(conn: &Connection, name: &str) -> i64 {
         create_account(
@@ -281,6 +288,99 @@ mod tests {
             },
         )
         .expect("create_transfer failed")
+    }
+
+    #[test]
+    fn update_event_keeps_taxable_columns() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let expense_account_id =
+            crate::features::persons::repository::get_default_expense_account_id(&conn, 1).unwrap();
+        let event_id = create_taxable_event(
+            &conn,
+            CreateTaxableEventParams {
+                account_id: expense_account_id,
+                event_type: "prepaid_expense".to_owned(),
+                amount_minor: -12_000,
+                event_date: "2026-01-15T00:00:00".to_owned(),
+                note: Some("Insurance".to_owned()),
+                vat_rate_bps: Some(2300),
+                vat_reclaimable_pct_bps: Some(5000),
+                expense_deductible_pct_bps: Some(8000),
+                prepaid_until: Some("2027-01-14".to_owned()),
+                reclaimed_vat: Some(true),
+            },
+        )
+        .unwrap();
+
+        update_event(
+            &conn,
+            UpdateEventParams {
+                event_id,
+                amount_minor: -13_000,
+                event_date: "2026-01-15T00:00:00".to_owned(),
+                note: Some("Insurance (edited)".to_owned()),
+            },
+        )
+        .expect("update_event failed");
+
+        type Row = (
+            i64,
+            Option<i64>,
+            Option<i64>,
+            Option<i64>,
+            Option<i64>,
+            Option<String>,
+        );
+        let row: Row = conn
+            .query_row(
+                "SELECT ed.amount_minor, ed.vat_rate_bps, ed.vat_reclaimable_pct_bps,
+                        ed.expense_deductible_pct_bps, ed.reclaimed_vat, ed.prepaid_until
+                 FROM event e JOIN event_data ed ON ed.id = e.latest_data_id
+                 WHERE e.id = ?1",
+                params![event_id],
+                |r| {
+                    Ok((
+                        r.get(0)?,
+                        r.get(1)?,
+                        r.get(2)?,
+                        r.get(3)?,
+                        r.get(4)?,
+                        r.get(5)?,
+                    ))
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            row,
+            (
+                -13_000,
+                Some(2300),
+                Some(5000),
+                Some(8000),
+                Some(1),
+                Some("2027-01-14".to_owned())
+            )
+        );
+    }
+
+    #[test]
+    fn update_event_returns_not_found_for_missing_or_deleted_event() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let (source_id, _) = mk_transfer(&conn);
+        delete_event(&conn, source_id).unwrap();
+        for event_id in [source_id, 999_999] {
+            let err = update_event(
+                &conn,
+                UpdateEventParams {
+                    event_id,
+                    amount_minor: 1,
+                    event_date: "2026-03-01T12:00:00".to_owned(),
+                    note: None,
+                },
+            )
+            .unwrap_err();
+            assert_eq!(err.code, "NOT_FOUND");
+        }
     }
 
     #[test]

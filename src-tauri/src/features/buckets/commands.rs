@@ -207,11 +207,7 @@ pub fn update_bucket_balance_update(
                 event_date: input.event_date.clone(),
                 note: input.note.clone(),
             },
-        )
-        .map_err(|s| AppError {
-            code: "APP_ERROR".into(),
-            message: s,
-        })?;
+        )?;
 
         repository::set_bucket_event_links(
             &conn,
