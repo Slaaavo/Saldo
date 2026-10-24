@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -770,7 +770,17 @@ describe('App', () => {
   // ── Demo mode enter/exit from settings ──
 
   describe('demo mode enter/exit', () => {
-    it('enters demo mode and navigates to dashboard', async () => {
+    const mockReload = vi.fn()
+
+    beforeEach(() => {
+      vi.stubGlobal('location', { ...window.location, reload: mockReload })
+    })
+
+    afterEach(() => {
+      vi.unstubAllGlobals()
+    })
+
+    it('enters demo mode and reloads the window', async () => {
       const user = userEvent.setup()
       renderApp()
       await waitFor(() => screen.getByTestId('nav-settings'))
@@ -780,10 +790,11 @@ describe('App', () => {
 
       await waitFor(() => {
         expect(mockEnterDemoMode).toHaveBeenCalledOnce()
+        expect(mockReload).toHaveBeenCalledOnce()
       })
     })
 
-    it('exits demo mode and shows success toast', async () => {
+    it('exits demo mode and reloads the window', async () => {
       mockIsDemoMode.mockResolvedValue(true)
       const user = userEvent.setup()
       renderApp()
@@ -799,11 +810,11 @@ describe('App', () => {
 
       await waitFor(() => {
         expect(mockExitDemoMode).toHaveBeenCalledOnce()
-        expect(mockToastSuccess).toHaveBeenCalledWith('demo.exitedToast')
+        expect(mockReload).toHaveBeenCalledOnce()
       })
     })
 
-    it('shows error toast when enter demo mode fails', async () => {
+    it('shows error toast and does not reload when enter demo mode fails', async () => {
       mockEnterDemoMode.mockRejectedValue(new Error('Demo error'))
       const user = userEvent.setup()
       renderApp()
@@ -815,9 +826,10 @@ describe('App', () => {
       await waitFor(() => {
         expect(mockToastError).toHaveBeenCalledWith('Demo error')
       })
+      expect(mockReload).not.toHaveBeenCalled()
     })
 
-    it('shows error toast when exit demo mode fails', async () => {
+    it('shows error toast and does not reload when exit demo mode fails', async () => {
       mockIsDemoMode.mockResolvedValue(true)
       mockExitDemoMode.mockRejectedValue(new Error('Exit error'))
       const user = userEvent.setup()
@@ -832,6 +844,7 @@ describe('App', () => {
       await waitFor(() => {
         expect(mockToastError).toHaveBeenCalledWith('Exit error')
       })
+      expect(mockReload).not.toHaveBeenCalled()
     })
   })
 

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQueryClient } from '@tanstack/react-query'
-import { Outlet, useNavigate, useRouterState } from '@tanstack/react-router'
+import { Outlet, useRouterState } from '@tanstack/react-router'
 import Header from '../shared/layout/Header'
 import AppModals from './AppModals'
 import Sidebar from '../shared/layout/Sidebar'
@@ -40,8 +40,6 @@ const AppShell = () => {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const queryClient = useQueryClient()
 
-  const navigate = useNavigate()
-
   const dbLocation = useDbLocation({
     setModalState,
     closeModal,
@@ -50,10 +48,7 @@ const AppShell = () => {
     },
   })
 
-  const demo = useDemoMode({
-    loadDbLocation: dbLocation.load,
-    onEntered: () => navigate({ to: '/dashboard' }),
-  })
+  const demo = useDemoMode()
 
   const routerState = useRouterState()
   const { titleOverride } = usePageHeader()

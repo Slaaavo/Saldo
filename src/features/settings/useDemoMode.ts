@@ -1,18 +1,21 @@
 import { useState, useEffect } from 'react'
-import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { useQueryClient } from '@tanstack/react-query'
-import { enterDemoMode, exitDemoMode, isDemoMode as checkIsDemoMode } from '../../shared/api'
+import { enterDemoMode, exitDemoMode, getAppSetting, isDemoMode as checkIsDemoMode } from '../../shared/api'
 import { extractErrorMessage } from '../../shared/utils/errors'
 
-interface UseDemoModeOptions {
-  loadDbLocation: () => Promise<void>
-  onEntered: () => void
+// localStorage holds the demo session's theme after leaving demo mode; refresh it so the reloaded page does not flash it.
+// A failure here must not stop the reload, because the database swap has already happened.
+const cacheRealTheme = async () => {
+  try {
+    localStorage.setItem('theme', (await getAppSetting('theme')) ?? 'system')
+  } catch (err) {
+    console.error('Failed to restore theme after demo mode:', err)
+  }
 }
 
-export const useDemoMode = ({ loadDbLocation, onEntered }: UseDemoModeOptions) => {
-  const { t } = useTranslation()
-  const queryClient = useQueryClient()
+// The backend swaps the whole database, so every cached query and every setting held in component state belongs to the other
+// database afterwards. Reloading the window is the only way to drop all of it; the backend keeps the demo flag across a reload.
+export const useDemoMode = () => {
   const [isDemoMode, setIsDemoMode] = useState(false)
 
   useEffect(() => {
@@ -22,29 +25,22 @@ export const useDemoMode = ({ loadDbLocation, onEntered }: UseDemoModeOptions) =
   const handleEnter = async () => {
     try {
       await enterDemoMode()
-      setIsDemoMode(true)
-      await loadDbLocation()
-      onEntered()
-      await queryClient.invalidateQueries({ queryKey: ['snapshot'] })
-      await queryClient.invalidateQueries({ queryKey: ['events'] })
-      await queryClient.invalidateQueries({ queryKey: ['consolidation-currency'] })
     } catch (err) {
       toast.error(extractErrorMessage(err))
+      return
     }
+    window.location.reload()
   }
 
   const handleExit = async () => {
     try {
       await exitDemoMode()
-      setIsDemoMode(false)
-      await loadDbLocation()
-      toast.success(t('demo.exitedToast'))
-      await queryClient.invalidateQueries({ queryKey: ['snapshot'] })
-      await queryClient.invalidateQueries({ queryKey: ['events'] })
-      await queryClient.invalidateQueries({ queryKey: ['consolidation-currency'] })
     } catch (err) {
       toast.error(extractErrorMessage(err))
+      return
     }
+    await cacheRealTheme()
+    window.location.reload()
   }
 
   return { isDemoMode, handleEnter, handleExit }
