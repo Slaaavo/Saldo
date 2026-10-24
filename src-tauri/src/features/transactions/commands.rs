@@ -754,13 +754,10 @@ fn create_taxable_event_inner(
         input.prepaid_until.as_deref(),
     )?;
     let account_id = resolve_default_taxable_account(conn, input.person_id, &input.event_type)?;
-    let resolved_reclaimed_vat = if (input.event_type == "expense"
-        || input.event_type == "prepaid_expense")
-        && input.reclaimed_vat.is_none()
-    {
-        Some(get_person_vat_payer(conn, input.person_id)?)
-    } else {
-        input.reclaimed_vat
+    let resolved_reclaimed_vat = match (input.event_type.as_str(), input.reclaimed_vat) {
+        ("revenue", _) => None,
+        (_, Some(reclaimed_vat)) => Some(reclaimed_vat),
+        (_, None) => Some(get_person_vat_payer(conn, input.person_id)?),
     };
     let event_type_is_prepaid = input.event_type == "prepaid_expense";
     with_savepoint_app(conn, || {
@@ -851,7 +848,9 @@ fn create_taxable_split_group_inner(
             vat_reclaimable_pct_bps: l.vat_reclaimable_pct_bps,
             expense_deductible_pct_bps: l.expense_deductible_pct_bps,
             prepaid_until: l.prepaid_until,
-            reclaimed_vat: l.reclaimed_vat.or(default_reclaimed_vat),
+            // Only expense groups have a default, so revenue legs store no reclaimed_vat.
+            reclaimed_vat: default_reclaimed_vat
+                .map(|vat_payer| l.reclaimed_vat.unwrap_or(vat_payer)),
         })
         .collect();
     let id = repository::create_taxable_split_group_with_legs(
@@ -1603,6 +1602,150 @@ mod tests {
             split_group_note(&conn, group_id).as_deref(),
             Some("changed")
         );
+    }
+
+    fn stored_reclaimed_vat(conn: &Connection, event_id: i64) -> Option<bool> {
+        repository::get_event_by_id(conn, event_id)
+            .unwrap()
+            .unwrap()
+            .reclaimed_vat
+    }
+
+    fn leg_ids(conn: &Connection, split_group_id: i64) -> Vec<i64> {
+        let mut stmt = conn
+            .prepare(
+                "SELECT id FROM event WHERE split_group_id = ?1 AND deleted_at IS NULL ORDER BY id",
+            )
+            .unwrap();
+        stmt.query_map(params![split_group_id], |row| row.get(0))
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap()
+    }
+
+    fn revenue_input(person_id: i64) -> CreateTaxableEventInput {
+        CreateTaxableEventInput {
+            person_id,
+            event_type: "revenue".to_owned(),
+            amount_minor: 10_000,
+            event_date: "2024-07-01".to_owned(),
+            note: None,
+            vat_rate_bps: None,
+            vat_reclaimable_pct_bps: None,
+            expense_deductible_pct_bps: None,
+            prepaid_until: None,
+            reclaimed_vat: Some(false),
+        }
+    }
+
+    #[test]
+    fn revenue_create_and_update_store_no_reclaimed_vat() {
+        let conn = initialize_in_memory().unwrap();
+        let person_id = mk_person(&conn, true);
+
+        let id = create_taxable_event_inner(&conn, revenue_input(person_id)).unwrap();
+        assert_eq!(stored_reclaimed_vat(&conn, id), None);
+
+        update_taxable_event_inner(
+            &conn,
+            UpdateTaxableEventInput {
+                event_id: id,
+                event_type: "revenue".to_owned(),
+                amount_minor: 20_000,
+                event_date: "2024-07-01".to_owned(),
+                note: None,
+                vat_rate_bps: None,
+                vat_reclaimable_pct_bps: None,
+                expense_deductible_pct_bps: None,
+                prepaid_until: None,
+                reclaimed_vat: Some(false),
+            },
+        )
+        .unwrap();
+        assert_eq!(stored_reclaimed_vat(&conn, id), None);
+    }
+
+    #[test]
+    fn revenue_split_legs_store_no_reclaimed_vat_on_create_and_update() {
+        let conn = initialize_in_memory().unwrap();
+        let person_id = mk_person(&conn, true);
+        let mut input = split_input(person_id, "revenue");
+        for leg in &mut input.legs {
+            leg.reclaimed_vat = Some(false);
+        }
+        let group_id = create_taxable_split_group_inner(&conn, input).unwrap();
+        let legs = leg_ids(&conn, group_id);
+        assert!(legs
+            .iter()
+            .all(|&id| stored_reclaimed_vat(&conn, id).is_none()));
+
+        update_taxable_split_group_inner(
+            &conn,
+            UpdateTaxableSplitGroupInput {
+                updated_legs: vec![UpdatedSplitLegInput {
+                    event_id: legs[0],
+                    amount_minor: 3500,
+                    event_date: "2024-07-01".to_owned(),
+                    note: None,
+                    vat_rate_bps: None,
+                    vat_reclaimable_pct_bps: None,
+                    expense_deductible_pct_bps: None,
+                    prepaid_until: None,
+                    reclaimed_vat: Some(false),
+                }],
+                new_legs: vec![NewSplitLegInput {
+                    amount_minor: 1000,
+                    event_date: "2024-07-01".to_owned(),
+                    note: None,
+                    vat_rate_bps: None,
+                    vat_reclaimable_pct_bps: None,
+                    expense_deductible_pct_bps: None,
+                    prepaid_until: None,
+                    reclaimed_vat: Some(false),
+                }],
+                ..split_update_input(group_id, "revenue")
+            },
+        )
+        .unwrap();
+
+        let legs = leg_ids(&conn, group_id);
+        assert_eq!(legs.len(), 3);
+        assert!(legs
+            .iter()
+            .all(|&id| stored_reclaimed_vat(&conn, id).is_none()));
+    }
+
+    #[test]
+    fn new_expense_split_leg_without_reclaimed_vat_takes_persons_vat_payer() {
+        let conn = initialize_in_memory().unwrap();
+        let person_id = mk_person(&conn, true);
+        let group_id =
+            create_taxable_split_group_inner(&conn, split_input(person_id, "expense")).unwrap();
+        let existing = leg_ids(&conn, group_id);
+
+        update_taxable_split_group_inner(
+            &conn,
+            UpdateTaxableSplitGroupInput {
+                new_legs: vec![NewSplitLegInput {
+                    amount_minor: 1000,
+                    event_date: "2024-07-01".to_owned(),
+                    note: None,
+                    vat_rate_bps: None,
+                    vat_reclaimable_pct_bps: None,
+                    expense_deductible_pct_bps: None,
+                    prepaid_until: None,
+                    reclaimed_vat: None,
+                }],
+                ..split_update_input(group_id, "expense")
+            },
+        )
+        .unwrap();
+
+        let new_leg = leg_ids(&conn, group_id)
+            .into_iter()
+            .find(|id| !existing.contains(id))
+            .unwrap();
+        assert_eq!(stored_reclaimed_vat(&conn, new_leg), Some(true));
     }
 
     #[test]

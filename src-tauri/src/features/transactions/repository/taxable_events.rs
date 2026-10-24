@@ -208,7 +208,8 @@ pub struct UpdatedTaxableEvent {
     pub reclaimed_vat: Option<bool>,
 }
 
-/// An expense-kind event with no `reclaimed_vat` takes the owning person's `vat_payer`.
+/// An expense-kind event with no `reclaimed_vat` takes the owning person's `vat_payer`;
+/// other events never store one.
 fn resolve_reclaimed_vat(
     event_type: &str,
     reclaimed_vat: Option<bool>,
@@ -216,7 +217,7 @@ fn resolve_reclaimed_vat(
 ) -> Option<bool> {
     match event_type {
         "expense" | "prepaid_expense" => reclaimed_vat.or(person_vat_payer),
-        _ => reclaimed_vat,
+        _ => None,
     }
 }
 
@@ -301,18 +302,21 @@ pub fn update_taxable_split_group(
     params: UpdateTaxableSplitGroupParams,
 ) -> Result<(), AppError> {
     with_savepoint_app(conn, || {
-        // Fetch the split group's account_id and event_type from a non-deleted leg.
-        let group_row: Option<(i64, String)> = conn
+        // Fetch the split group's account_id, event_type and the owner's vat_payer from a
+        // non-deleted leg.
+        let group_row: Option<(i64, String, Option<bool>)> = conn
             .query_row(
-                "SELECT e.account_id, e.event_type FROM event e
+                "SELECT e.account_id, e.event_type, p.vat_payer FROM event e
+                 JOIN account a ON a.id = e.account_id
+                 LEFT JOIN person p ON p.id = a.person_id
                  WHERE e.split_group_id = ?1 AND e.deleted_at IS NULL
                  LIMIT 1",
                 params![params.split_group_id],
-                |row| Ok((row.get(0)?, row.get(1)?)),
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             )
             .optional()?;
 
-        let (account_id, event_type) = group_row.ok_or_else(|| AppError {
+        let (account_id, event_type, person_vat_payer) = group_row.ok_or_else(|| AppError {
             code: "NOT_FOUND".into(),
             message: "Split group not found or has no active legs".into(),
         })?;
@@ -438,7 +442,7 @@ pub fn update_taxable_split_group(
                 leg.vat_reclaimable_pct_bps,
                 leg.expense_deductible_pct_bps,
                 leg.prepaid_until.as_deref(),
-                leg.reclaimed_vat,
+                resolve_reclaimed_vat(&event_type, leg.reclaimed_vat, person_vat_payer),
             )?;
         }
 
@@ -460,7 +464,7 @@ pub fn update_taxable_split_group(
                 leg.vat_reclaimable_pct_bps,
                 leg.expense_deductible_pct_bps,
                 leg.prepaid_until.as_deref(),
-                leg.reclaimed_vat,
+                resolve_reclaimed_vat(&event_type, leg.reclaimed_vat, person_vat_payer),
             )?;
         }
 
