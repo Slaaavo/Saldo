@@ -47,13 +47,16 @@ pub struct UpdateTaxModelInput {
     pub brackets: Vec<BracketInputData>,
 }
 
+#[allow(clippy::too_many_arguments)]
 fn validate_tax_model_input(
     name: &str,
     calendar_year: i64,
     vat_status: &str,
     vat_from_date: &Option<String>,
     brackets: &[BracketInputData],
-    bps_fields: &[Option<i64>],
+    reserve_fund_pct_bps: Option<i64>,
+    reserve_fund_max_minor: Option<i64>,
+    dividend_tax_rate_bps: Option<i64>,
 ) -> Result<(), AppError> {
     if name.trim().is_empty() {
         return Err(AppError {
@@ -84,13 +87,23 @@ fn validate_tax_model_input(
             }
         }
     }
-    for bps in bps_fields.iter().flatten() {
+    for bps in [reserve_fund_pct_bps, dividend_tax_rate_bps]
+        .iter()
+        .flatten()
+    {
         if !(0..=10000).contains(bps) {
             return Err(AppError {
                 code: "VALIDATION".into(),
                 message: "Basis points values must be between 0 and 10000.".into(),
             });
         }
+    }
+    if reserve_fund_pct_bps.is_some_and(|pct| pct > 0) && reserve_fund_max_minor.is_none() {
+        return Err(AppError {
+            code: "VALIDATION".into(),
+            message: "Reserve fund maximum is required when a reserve fund percentage is set."
+                .into(),
+        });
     }
     if brackets.is_empty() {
         return Err(AppError {
@@ -250,7 +263,9 @@ pub fn create_tax_model(
         &input.vat_status,
         &input.vat_from_date,
         &input.brackets,
-        &[input.reserve_fund_pct_bps, input.dividend_tax_rate_bps],
+        input.reserve_fund_pct_bps,
+        input.reserve_fund_max_minor,
+        input.dividend_tax_rate_bps,
     )?;
     let conn = state.conn()?;
     repository::create_tax_model(
@@ -296,7 +311,9 @@ pub fn update_tax_model(
         &input.vat_status,
         &input.vat_from_date,
         &input.brackets,
-        &[input.reserve_fund_pct_bps, input.dividend_tax_rate_bps],
+        input.reserve_fund_pct_bps,
+        input.reserve_fund_max_minor,
+        input.dividend_tax_rate_bps,
     )?;
     let conn = state.conn()?;
     repository::update_tax_model(
@@ -339,4 +356,53 @@ pub fn calculate_tax_model(
     )?;
     let result = calculation::calculate_tax_model_results(&model, &events);
     Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn flat(lower_bound_minor: i64) -> BracketInputData {
+        BracketInputData {
+            sort_order: 0,
+            lower_bound_minor,
+            rate_type: "flat".into(),
+            flat_rate_bps: Some(1900),
+            tiers_json: None,
+        }
+    }
+
+    fn validate_reserve(
+        reserve_fund_pct_bps: Option<i64>,
+        reserve_fund_max_minor: Option<i64>,
+    ) -> Result<(), AppError> {
+        validate_tax_model_input(
+            "Model",
+            2026,
+            "none",
+            &None,
+            &[flat(0)],
+            reserve_fund_pct_bps,
+            reserve_fund_max_minor,
+            None,
+        )
+    }
+
+    #[test]
+    fn reserve_fund_pct_without_max_is_rejected() {
+        let err = validate_reserve(Some(1000), None).unwrap_err();
+        assert_eq!(err.code, "VALIDATION");
+        assert!(err.message.contains("maximum"));
+    }
+
+    #[test]
+    fn reserve_fund_pct_with_max_is_valid() {
+        assert!(validate_reserve(Some(1000), Some(50_000)).is_ok());
+    }
+
+    #[test]
+    fn reserve_fund_zero_or_empty_pct_without_max_is_valid() {
+        assert!(validate_reserve(Some(0), None).is_ok());
+        assert!(validate_reserve(None, None).is_ok());
+    }
 }
