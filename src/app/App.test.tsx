@@ -13,7 +13,6 @@ import LedgerPage from '../features/ledger/LedgerPage'
 import PartnersPage from '../features/partners/PartnersPage'
 import ImportProfilesPage from '../features/csv-profiles/ImportProfilesPage'
 import type { SnapshotRow, EventWithData, Currency, ModalState, DbLocationInfo } from '../shared/types'
-import type { ThemePreference } from '../features/settings/useTheme'
 
 // ── Mock i18n — pass-through that returns the key (with interpolations) ─────
 vi.mock('react-i18next', () => ({
@@ -60,6 +59,8 @@ const mockGetBulkUpdateExclusions = vi.fn()
 const mockGetAccountsSnapshot = vi.fn()
 const mockGetConsolidationCurrency = vi.fn()
 const mockListEvents = vi.fn()
+const mockGetAppSetting = vi.fn()
+const mockReload = vi.fn()
 
 vi.mock('../shared/api', () => ({
   fetchFxRates: (...args: unknown[]) => mockFetchFxRates(...args),
@@ -90,7 +91,7 @@ vi.mock('../shared/api', () => ({
   setFxRateManual: vi.fn(),
   listFxRates: vi.fn(),
   getMissingRateDates: vi.fn(),
-  getAppSetting: vi.fn(),
+  getAppSetting: (...args: unknown[]) => mockGetAppSetting(...args),
   createBucketBalanceUpdate: vi.fn(),
   updateBucketBalanceUpdate: vi.fn(),
   listLinksForEvent: vi.fn().mockResolvedValue([]),
@@ -106,18 +107,13 @@ vi.mock('../shared/api', () => ({
   setBulkUpdateExclusions: vi.fn(),
 }))
 
+// ── Stub matchMedia (jsdom lacks it; ThemeProvider reads it) ────────────────
+Object.defineProperty(window, 'matchMedia', {
+  writable: true,
+  value: (query: string) => ({ matches: false, media: query, addEventListener: () => {}, removeEventListener: () => {} }),
+})
+
 // ── Mock hooks ──────────────────────────────────────────────────────────────
-const mockSetThemePreference = vi.fn()
-let themeReturn = {
-  theme: 'light' as 'light' | 'dark',
-  themePreference: 'system' as ThemePreference,
-  setThemePreference: mockSetThemePreference,
-}
-
-vi.mock('../features/settings/useTheme', () => ({
-  useTheme: () => themeReturn,
-}))
-
 const mockSetModalState = vi.fn()
 const mockCloseModal = vi.fn()
 let modalStateValue: ModalState = { type: 'none' }
@@ -502,6 +498,7 @@ const defaultDbLocation: DbLocationInfo = {
 
 const setupDefaultMocks = (overrides?: { snapshot?: SnapshotRow[] }) => {
   mockIsDemoMode.mockResolvedValue(false)
+  mockGetAppSetting.mockResolvedValue(null)
   mockGetDbLocation.mockResolvedValue(defaultDbLocation)
   mockEnterDemoMode.mockResolvedValue(undefined)
   mockExitDemoMode.mockResolvedValue(undefined)
@@ -545,12 +542,12 @@ describe('App', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     modalStateValue = { type: 'none' }
-    themeReturn = {
-      theme: 'light',
-      themePreference: 'system',
-      setThemePreference: mockSetThemePreference,
-    }
+    vi.stubGlobal('location', { ...window.location, reload: mockReload })
     setupDefaultMocks()
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
   })
 
   // ── Initial render & mount behavior ──
@@ -770,16 +767,6 @@ describe('App', () => {
   // ── Demo mode enter/exit from settings ──
 
   describe('demo mode enter/exit', () => {
-    const mockReload = vi.fn()
-
-    beforeEach(() => {
-      vi.stubGlobal('location', { ...window.location, reload: mockReload })
-    })
-
-    afterEach(() => {
-      vi.unstubAllGlobals()
-    })
-
     it('enters demo mode and reloads the window', async () => {
       const user = userEvent.setup()
       renderApp()

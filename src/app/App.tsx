@@ -6,6 +6,7 @@ import Header from '../shared/layout/Header'
 import AppModals from './AppModals'
 import Sidebar from '../shared/layout/Sidebar'
 import { useTheme } from '../features/settings/useTheme'
+import { ThemeProvider } from '../features/settings/ThemeContext'
 import { useDbLocation } from '../features/settings/useDbLocation'
 import { useDemoMode } from '../features/settings/useDemoMode'
 import DemoModeBanner from '../features/settings/DemoModeBanner'
@@ -88,11 +89,13 @@ const AppShell = () => {
 
 const App = () => {
   return (
-    <ModalProvider>
-      <PageHeaderProvider>
-        <AppShell />
-      </PageHeaderProvider>
-    </ModalProvider>
+    <ThemeProvider>
+      <ModalProvider>
+        <PageHeaderProvider>
+          <AppShell />
+        </PageHeaderProvider>
+      </ModalProvider>
+    </ThemeProvider>
   )
 }
 

@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import SettingsPage from './SettingsPage'
 import { SelectedPersonProvider } from '../../app/SelectedPersonContext'
 import type { Currency } from '../../shared/types'
+import { ThemeContext } from './useTheme'
 import type { ThemePreference } from './useTheme'
 
 // ── Mock useSettings hook ───────────────────────────────────────────────────
@@ -44,16 +45,12 @@ vi.mock('../../app/useDemo', () => ({
   useDemo: () => demoModeReturn,
 }))
 
-// ── Mock useTheme hook ─────────────────────────────────────────────────────
+// ── Theme context value, provided through the wrapper ──────────────────────
 let themeHookReturn = {
   theme: 'light' as 'light' | 'dark',
   themePreference: 'system' as ThemePreference,
   setThemePreference: vi.fn(),
 }
-
-vi.mock('./useTheme', () => ({
-  useTheme: () => themeHookReturn,
-}))
 
 // ── Mock useModal hook ─────────────────────────────────────────────────────
 vi.mock('../../app/useModal', () => ({
@@ -127,7 +124,9 @@ const makeWrapper = () => {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: 0 } } })
   const Wrapper = ({ children }: { children: React.ReactNode }) => (
     <QueryClientProvider client={queryClient}>
-      <SelectedPersonProvider>{children}</SelectedPersonProvider>
+      <ThemeContext.Provider value={themeHookReturn}>
+        <SelectedPersonProvider>{children}</SelectedPersonProvider>
+      </ThemeContext.Provider>
     </QueryClientProvider>
   )
   return Wrapper
