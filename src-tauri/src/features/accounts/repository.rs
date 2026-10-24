@@ -316,6 +316,15 @@ pub fn get_account_type(conn: &Connection, account_id: i64) -> rusqlite::Result<
     .optional()
 }
 
+/// Return the currency id of the account with the given `id`.
+pub fn get_account_currency_id(conn: &Connection, account_id: i64) -> rusqlite::Result<i64> {
+    conn.query_row(
+        "SELECT currency_id FROM account WHERE id = ?1",
+        params![account_id],
+        |row| row.get(0),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

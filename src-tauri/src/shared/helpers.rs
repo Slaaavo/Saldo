@@ -74,6 +74,13 @@ pub fn div_round(numerator: i64, denominator: i64) -> i64 {
     (numerator + denominator / 2) / denominator
 }
 
+/// True only for a zero-padded `YYYY-MM-DD` date. chrono's `%m` and `%d` also accept one-digit
+/// values, but dates are sliced by byte offset and compared as strings elsewhere.
+pub fn is_iso_date(date_str: &str) -> bool {
+    NaiveDate::parse_from_str(date_str, "%Y-%m-%d")
+        .is_ok_and(|date| date.format("%Y-%m-%d").to_string() == date_str)
+}
+
 pub fn validate_event_date(date_str: &str) -> Result<(), AppError> {
     if date_str.is_empty() {
         return Err(AppError {
@@ -139,6 +146,34 @@ pub fn convert_balance(
             let factor = 10_i128.pow((-exp_adj) as u32);
             let denominator = mantissa * factor;
             ((balance + denominator / 2) / denominator) as i64
+        }
+    }
+}
+
+#[cfg(test)]
+mod date_tests {
+    use super::is_iso_date;
+
+    #[test]
+    fn is_iso_date_accepts_a_zero_padded_date() {
+        assert!(is_iso_date("2027-01-09"));
+        assert!(is_iso_date("2028-02-29"));
+    }
+
+    #[test]
+    fn is_iso_date_rejects_other_shapes() {
+        for date in [
+            "",
+            "2027-1-1",
+            "2027-01-1",
+            "2027-1-01",
+            "27-01-01",
+            "+999-01-01",
+            "2027-01-01T00:00:00",
+            "2027-02-30",
+            "2027/01/01",
+        ] {
+            assert!(!is_iso_date(date), "{date:?}");
         }
     }
 }
