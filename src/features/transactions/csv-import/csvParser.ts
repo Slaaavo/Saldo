@@ -8,8 +8,6 @@ export const parseCsvFile = async (file: File): Promise<{ headers: string[]; row
     throw new Error('The CSV file must have at least a header row and one data row.')
   }
   const firstLine = lines[0]
-  const rawParse = Papa.parse(firstLine, { header: false, skipEmptyLines: false })
-  const rawHeaders = rawParse.data[0] as string[]
   return new Promise((resolve, reject) => {
     Papa.parse<CsvRow>(text, {
       header: true,
@@ -24,6 +22,8 @@ export const parseCsvFile = async (file: File): Promise<{ headers: string[]; row
           reject(new Error('The CSV file contains no data rows.'))
           return
         }
+        const rawParse = Papa.parse(firstLine, { header: false, skipEmptyLines: false, delimiter: results.meta.delimiter })
+        const rawHeaders = rawParse.data[0] as string[]
         const originalHeaders = results.meta.fields ?? []
         const normalizedHeaders = originalHeaders.map((h, i) => {
           const raw = rawHeaders[i] || ''
