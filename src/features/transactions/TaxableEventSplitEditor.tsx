@@ -9,8 +9,8 @@ import NumberValue from '../../shared/ui/NumberValue'
 import { toMinorUnits, todayIso, getMinorUnitsStep } from '../../shared/utils/format'
 import { Trash2 } from 'lucide-react'
 import { SplitLegDraft, makeEmptyLeg } from './splitLegDraft'
+import { VAT_QUICK_FILLS } from './taxableEventForm'
 
-const VAT_QUICK_FILLS = ['0', '5', '10', '20', '23']
 const VAT_DEDUCTIBLE_QUICK_FILLS = ['100', '50']
 const EXPENSE_DEDUCTIBLE_QUICK_FILLS = ['100', '80', '50']
 

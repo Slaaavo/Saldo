@@ -18,12 +18,11 @@ import { useConsolidationCurrencyQuery } from '../../shared/hooks/useConsolidati
 import { useResolvedPersonId } from './useResolvedPersonId'
 import PersonPickerField from './PersonPickerField'
 import CashflowPicker from './CashflowPicker'
+import { VAT_QUICK_FILLS } from './taxableEventForm'
 
 interface Props {
   onClose: () => void
 }
-
-const VAT_QUICK_FILLS = ['0', '5', '10', '20', '23']
 
 const CreateRevenueModal = ({ onClose }: Props) => {
   const { t } = useTranslation()

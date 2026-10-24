@@ -5,8 +5,8 @@ import { Input } from '../../shared/ui/input'
 import { PercentageInput } from '../../shared/ui/PercentageInput'
 import { Label } from '../../shared/ui/label'
 import { Checkbox } from '../../shared/ui/checkbox'
+import { VAT_QUICK_FILLS } from './taxableEventForm'
 
-const VAT_QUICK_FILLS = ['0', '5', '10', '20', '23']
 const VAT_RECLAIMABLE_QUICK_FILLS = ['100', '50']
 const EXPENSE_DEDUCTIBLE_QUICK_FILLS = ['100', '80', '50']
 

@@ -16,13 +16,12 @@ import { DatePicker } from '../../shared/ui/date-picker'
 import NumberValue from '../../shared/ui/NumberValue'
 import CashflowPicker from './CashflowPicker'
 import ExpenseFormFields from './ExpenseFormFields'
+import { VAT_QUICK_FILLS } from './taxableEventForm'
 
 interface Props {
   event: EventWithData
   onClose: () => void
 }
-
-const VAT_QUICK_FILLS = ['0', '5', '10', '20', '23']
 
 const EditTaxableEventModal = ({ event, onClose }: Props) => {
   const { t } = useTranslation()
