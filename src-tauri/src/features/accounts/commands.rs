@@ -629,6 +629,49 @@ mod tests {
         assert_eq!(err.code, "VALIDATION");
     }
 
+    fn account_count(conn: &Connection) -> i64 {
+        conn.query_row("SELECT COUNT(*) FROM account", [], |row| row.get(0))
+            .unwrap()
+    }
+
+    #[test]
+    fn create_account_with_an_unknown_linked_asset_leaves_no_account() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let before = account_count(&conn);
+        let mut input = create_input(&conn, "account", EUR_ID);
+        input.linked_asset_ids = Some(vec![999]);
+
+        let err = create_account_with_conn(&conn, input).unwrap_err();
+
+        assert_eq!(err.code, "NOT_FOUND");
+        assert_eq!(account_count(&conn), before);
+    }
+
+    #[test]
+    fn update_asset_keeps_its_old_metadata_when_depreciation_fails() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let id = create_account_with_conn(&conn, create_input(&conn, "asset", EUR_ID)).unwrap();
+        conn.execute_batch(
+            "CREATE TEMP TRIGGER fail_depreciation BEFORE INSERT ON event
+             WHEN NEW.is_system_generated = 1
+             BEGIN SELECT RAISE(ABORT, 'depreciation failed'); END;",
+        )
+        .unwrap();
+
+        update_account_with_conn(&conn, with_update_depreciation(update_input(&conn, id)))
+            .unwrap_err();
+
+        let (name, months): (String, Option<i64>) = conn
+            .query_row(
+                "SELECT name, depreciation_period_months FROM account WHERE id = ?1",
+                [id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(name, "Test");
+        assert_eq!(months, None);
+    }
+
     #[test]
     fn update_account_reports_unknown_account() {
         let conn = initialize_in_memory().expect("DB init failed");
