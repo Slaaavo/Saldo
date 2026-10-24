@@ -20,7 +20,7 @@ export interface ReviewStepProps {
   balanceWarningDates: string[]
   availableBuckets: SnapshotRow[]
   accountsWithoutIban: SnapshotRow[]
-  allAccounts: SnapshotRow[]
+  counterpartAccounts: SnapshotRow[]
   selectedAccountCurrencyCode: string
   selectedAccountMinorUnits: number
   importing: boolean
@@ -70,7 +70,7 @@ const ReviewStep = ({
   balanceWarningDates,
   availableBuckets,
   accountsWithoutIban,
-  allAccounts,
+  counterpartAccounts,
   selectedAccountCurrencyCode,
   selectedAccountMinorUnits,
   importing,
@@ -205,7 +205,7 @@ const ReviewStep = ({
                             <PartnerCell
                               row={row}
                               accountsWithoutIban={accountsWithoutIban}
-                              allAccounts={allAccounts}
+                              counterpartAccounts={counterpartAccounts}
                               onCreatePartner={onCreatePartner}
                               onAssignIban={onAssignIban}
                               onCounterpartChange={onCounterpartChange}
@@ -261,7 +261,7 @@ const ReviewStep = ({
                               selectedAccountMinorUnits={selectedAccountMinorUnits}
                               availableBuckets={availableBuckets}
                               accountsWithoutIban={accountsWithoutIban}
-                              allAccounts={allAccounts}
+                              counterpartAccounts={counterpartAccounts}
                               onLegAmountChange={onLegAmountChange}
                               onLegNoteChange={onLegNoteChange}
                               onLegPartnerChange={onLegPartnerChange}

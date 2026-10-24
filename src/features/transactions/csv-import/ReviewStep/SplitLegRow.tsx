@@ -20,7 +20,7 @@ interface SplitLegRowProps {
   selectedAccountCurrencyCode: string
   availableBuckets: SnapshotRow[]
   accountsWithoutIban: SnapshotRow[]
-  allAccounts: SnapshotRow[]
+  counterpartAccounts: SnapshotRow[]
   canRemove: boolean
   onAmountChange: (legId: number, amountMinor: number) => void
   onNoteChange: (legId: number, note: string | null) => void
@@ -38,7 +38,7 @@ export const SplitLegRow = ({
   selectedAccountCurrencyCode,
   availableBuckets,
   accountsWithoutIban,
-  allAccounts,
+  counterpartAccounts,
   canRemove,
   onAmountChange,
   onNoteChange,
@@ -78,11 +78,9 @@ export const SplitLegRow = ({
       onPartnerChange(leg.legId, null, { type: 'none' }, null)
       return
     }
-    const account = allAccounts.find((a) => a.accountId === accountId)
+    const account = counterpartAccounts.find((a) => a.accountId === accountId)
     if (!account) return
-    const ibanMatch: IbanMatchResult =
-      account.accountType === 'account' ? { type: 'ownAccount', accountId, accountName: account.accountName } : { type: 'partner', accountId, accountName: account.accountName }
-    onPartnerChange(leg.legId, null, ibanMatch, accountId)
+    onPartnerChange(leg.legId, null, { type: 'ownAccount', accountId, accountName: account.accountName }, accountId)
   }
 
   return (
@@ -113,7 +111,7 @@ export const SplitLegRow = ({
         <PartnerCell
           row={syntheticRow}
           accountsWithoutIban={accountsWithoutIban}
-          allAccounts={allAccounts}
+          counterpartAccounts={counterpartAccounts}
           onCreatePartner={onCreatePartner}
           onAssignIban={onAssignIban}
           onCounterpartChange={handleCounterpartChange}

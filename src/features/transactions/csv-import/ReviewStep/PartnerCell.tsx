@@ -10,14 +10,14 @@ const COUNTERPART_NONE = '__none__'
 export interface PartnerCellProps {
   row: ImportRow
   accountsWithoutIban: SnapshotRow[]
-  allAccounts: SnapshotRow[]
+  counterpartAccounts: SnapshotRow[]
   onCreatePartner: (iban: string, name: string) => Promise<void>
   onAssignIban: (iban: string, targetAccountId: number) => Promise<void>
   onCounterpartChange: (index: number, accountId: number | null) => void
   isFirstOccurrence: boolean
 }
 
-export const PartnerCell = ({ row, accountsWithoutIban, allAccounts, onCreatePartner, onAssignIban, onCounterpartChange, isFirstOccurrence }: PartnerCellProps) => {
+export const PartnerCell = ({ row, accountsWithoutIban, counterpartAccounts, onCreatePartner, onAssignIban, onCounterpartChange, isFirstOccurrence }: PartnerCellProps) => {
   const { t } = useTranslation()
 
   switch (row.ibanMatch.type) {
@@ -64,7 +64,7 @@ export const PartnerCell = ({ row, accountsWithoutIban, allAccounts, onCreatePar
           </SelectTrigger>
           <SelectContent>
             <SelectItem value={COUNTERPART_NONE}>—</SelectItem>
-            {allAccounts.map((a) => (
+            {counterpartAccounts.map((a) => (
               <SelectItem key={a.accountId} value={String(a.accountId)}>
                 {a.accountName}
               </SelectItem>

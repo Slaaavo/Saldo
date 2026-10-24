@@ -27,7 +27,7 @@ interface SplitEditorPanelProps {
   selectedAccountMinorUnits: number
   availableBuckets: SnapshotRow[]
   accountsWithoutIban: SnapshotRow[]
-  allAccounts: SnapshotRow[]
+  counterpartAccounts: SnapshotRow[]
   onLegAmountChange: (rowIndex: number, legId: number, amountMinor: number) => void
   onLegNoteChange: (rowIndex: number, legId: number, note: string | null) => void
   onLegPartnerChange: (rowIndex: number, legId: number, rawIban: string | null, ibanMatch: IbanMatchResult, counterpartAccountId: number | null) => void
@@ -44,7 +44,7 @@ export const SplitEditorPanel = ({
   selectedAccountMinorUnits,
   availableBuckets,
   accountsWithoutIban,
-  allAccounts,
+  counterpartAccounts,
   onLegAmountChange,
   onLegNoteChange,
   onLegPartnerChange,
@@ -81,7 +81,7 @@ export const SplitEditorPanel = ({
               selectedAccountCurrencyCode={selectedAccountCurrencyCode}
               availableBuckets={availableBuckets}
               accountsWithoutIban={accountsWithoutIban}
-              allAccounts={allAccounts}
+              counterpartAccounts={counterpartAccounts}
               canRemove={legs.length > 1}
               onAmountChange={(legId, amountMinor) => onLegAmountChange(row.index, legId, amountMinor)}
               onNoteChange={(legId, note) => onLegNoteChange(row.index, legId, note)}

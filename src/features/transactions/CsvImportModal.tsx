@@ -61,7 +61,7 @@ const CsvImportModal = ({ snapshot, onClose, onSuccess }: CsvImportModalProps) =
   } = useImportWizard({ snapshot, onClose, onSuccess })
 
   const accountOnlyRows = snapshot.filter((r) => r.accountType === 'account')
-  const allAccounts = snapshot.filter((r) => r.accountType === 'account' || r.accountType === 'partner')
+  const counterpartAccounts = accountOnlyRows.filter((r) => r.accountId !== wizardState.selectedAccountId)
 
   return (
     <Dialog
@@ -117,7 +117,7 @@ const CsvImportModal = ({ snapshot, onClose, onSuccess }: CsvImportModalProps) =
               balanceWarningDates={balanceWarningDates}
               availableBuckets={availableBuckets}
               accountsWithoutIban={accountsWithoutIban}
-              allAccounts={allAccounts}
+              counterpartAccounts={counterpartAccounts}
               selectedAccountCurrencyCode={selectedAccountCurrencyCode}
               selectedAccountMinorUnits={selectedAccountMinorUnits}
               importing={wizardState.importing}

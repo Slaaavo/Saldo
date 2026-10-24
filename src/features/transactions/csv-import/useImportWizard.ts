@@ -436,11 +436,7 @@ export const useImportWizard = (params: { snapshot: SnapshotRow[]; onClose: () =
           }
           const account = snapshot.find((s) => s.accountId === accountId)
           if (!account) return r
-          const ibanMatch: ImportRow['ibanMatch'] =
-            account.accountType === 'account'
-              ? { type: 'ownAccount', accountId, accountName: account.accountName }
-              : { type: 'partner', accountId, accountName: account.accountName }
-          return { ...r, counterpartAccountId: accountId, ibanMatch }
+          return { ...r, counterpartAccountId: accountId, ibanMatch: { type: 'ownAccount', accountId, accountName: account.accountName } }
         }),
       }))
     },
