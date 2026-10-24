@@ -389,6 +389,65 @@ mod tests {
         .expect("create account failed")
     }
 
+    fn fx_rate_count(conn: &Connection) -> i64 {
+        conn.query_row("SELECT COUNT(*) FROM fx_rate", [], |row| row.get(0))
+            .unwrap()
+    }
+
+    #[test]
+    fn test_store_asset_price_rejects_a_standard_currency_asset() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let usd_id: i64 = conn
+            .query_row("SELECT id FROM currency WHERE code = 'USD'", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        let asset_id = create_account(
+            &conn,
+            CreateAccountParams {
+                name: "Dollar stash".to_owned(),
+                currency_id: usd_id,
+                account_type: "asset".to_owned(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let rates_before = fx_rate_count(&conn);
+
+        let err = store_asset_price(&conn, asset_id, "1.1", "2026-03-01").unwrap_err();
+
+        assert_eq!(err.code, "VALIDATION");
+        assert_eq!(fx_rate_count(&conn), rates_before);
+    }
+
+    #[test]
+    fn test_store_asset_price_writes_a_rate_for_a_custom_unit() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let unit_id = create_custom_unit(
+            &conn,
+            CreateCustomUnitParams {
+                name: "Gold".to_owned(),
+                minor_units: 2,
+            },
+        )
+        .unwrap();
+        let asset_id = create_account(
+            &conn,
+            CreateAccountParams {
+                name: "Gold bars".to_owned(),
+                currency_id: unit_id,
+                account_type: "asset".to_owned(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let rates_before = fx_rate_count(&conn);
+
+        store_asset_price(&conn, asset_id, "60.5", "2026-03-01").unwrap();
+
+        assert_eq!(fx_rate_count(&conn), rates_before + 1);
+    }
+
     #[test]
     fn test_set_and_list_account_asset_links() {
         let conn = initialize_in_memory().expect("DB init failed");
