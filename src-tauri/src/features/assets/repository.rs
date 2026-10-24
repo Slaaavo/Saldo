@@ -8,19 +8,27 @@ use crate::features::currency::Currency;
 /// Convert a price-per-unit string to an FX rate and upsert it.
 /// Stores rate from `consolidation → asset_currency` on `date` with `is_direct = true`.
 /// Used by both `update_asset_value` and `create_account` (with initial price).
+/// Only custom units are priced this way; a standard currency gets its rates from OXR or
+/// the FX Rates page, and a manual rate written here would never be overwritten.
 pub(crate) fn store_asset_price(
     conn: &Connection,
     account_id: i64,
     price_str: &str,
     date: &str,
 ) -> Result<(), AppError> {
-    let asset_currency_id: i64 = conn
+    let (asset_currency_id, is_custom): (i64, bool) = conn
         .query_row(
-            "SELECT currency_id FROM account WHERE id = ?1",
+            "SELECT a.currency_id, c.is_custom FROM account a JOIN currency c ON c.id = a.currency_id WHERE a.id = ?1",
             params![account_id],
-            |row| row.get(0),
+            |row| Ok((row.get(0)?, row.get::<_, i64>(1)? != 0)),
         )
         .map_err(AppError::from)?;
+    if !is_custom {
+        return Err(AppError {
+            code: "VALIDATION".into(),
+            message: "A price per unit can only be set on assets held in a custom unit".into(),
+        });
+    }
 
     let consolidation = crate::features::currency::repository::get_consolidation_currency(conn)
         .map_err(AppError::from)?;
