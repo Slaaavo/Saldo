@@ -13,6 +13,7 @@ import { useConsolidationCurrencyQuery } from '../../shared/hooks/useConsolidati
 import { useResolvedPersonId } from './useResolvedPersonId'
 import PersonPickerField from './PersonPickerField'
 import ExpenseFormFields from './ExpenseFormFields'
+import { validatePrepaidUntil } from './taxableEventForm'
 
 interface Props {
   onClose: () => void
@@ -36,13 +37,6 @@ const CreatePrepaidExpenseModal = ({ onClose }: Props) => {
   const [note, setNote] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [prepaidUntilError, setPrepaidUntilError] = useState<string | null>(null)
-
-  const validatePrepaidUntil = (expenseDate: string, until: string): boolean => {
-    if (!until) return true
-    const expenseYear = parseInt(expenseDate.slice(0, 4), 10)
-    const untilYear = parseInt(until.slice(0, 4), 10)
-    return untilYear > expenseYear
-  }
 
   const handlePrepaidUntilChange = (value: string) => {
     setPrepaidUntil(value)

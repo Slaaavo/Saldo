@@ -16,7 +16,7 @@ import { DatePicker } from '../../shared/ui/date-picker'
 import NumberValue from '../../shared/ui/NumberValue'
 import CashflowPicker from './CashflowPicker'
 import ExpenseFormFields from './ExpenseFormFields'
-import { VAT_QUICK_FILLS } from './taxableEventForm'
+import { VAT_QUICK_FILLS, validatePrepaidUntil } from './taxableEventForm'
 
 interface Props {
   event: EventWithData
@@ -40,13 +40,6 @@ const EditTaxableEventModal = ({ event, onClose }: Props) => {
   const [note, setNote] = useState(event.note ?? '')
   const [submitting, setSubmitting] = useState(false)
   const [reclaimedVat, setReclaimedVat] = useState<boolean>(event.reclaimedVat ?? false)
-
-  const validatePrepaidUntil = (expenseDate: string, until: string): boolean => {
-    if (!until) return true
-    const expenseYear = parseInt(expenseDate.slice(0, 4), 10)
-    const untilYear = parseInt(until.slice(0, 4), 10)
-    return untilYear > expenseYear
-  }
 
   const handlePrepaidUntilChange = (value: string) => {
     setPrepaidUntil(value)
