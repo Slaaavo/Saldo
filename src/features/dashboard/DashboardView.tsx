@@ -57,7 +57,8 @@ const DashboardView = () => {
   const persons = personsQuery.data ?? []
   const missingFxCurrencies = [...new Set(snapshot.filter((r) => r.fxRateMissing).map((r) => r.currencyCode))]
 
-  if (snapshotQuery.isPending && eventsQuery.isPending && consolidationCurrencyQuery.isPending) {
+  // Everything below, including the empty state, depends on the snapshot, so wait for it rather than for all three queries.
+  if (snapshotQuery.isPending) {
     return null
   }
 
@@ -134,7 +135,7 @@ const DashboardView = () => {
 
       {/* Accounts */}
       <div className={sectionClass}>
-        {accounts.length === 0 && !isDemoMode ? (
+        {snapshot.length === 0 && !isDemoMode ? (
           <div className="flex flex-col items-center justify-center py-12 text-center">
             <h3 className="text-xl font-semibold mb-2">{t('demo.emptyTitle')}</h3>
             <p className="text-sm text-muted-foreground mb-6 max-w-xs">{t('demo.emptyDesc')}</p>
@@ -163,7 +164,7 @@ const DashboardView = () => {
         )}
       </div>
 
-      {accounts.length > 0 && (
+      {snapshot.length > 0 && (
         <>
           <hr className="border-border" />
 

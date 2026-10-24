@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import DashboardView from './DashboardView'
@@ -329,6 +329,28 @@ describe('DashboardView', () => {
         type: 'createAccount',
         accountType: 'account',
       })
+    })
+
+    it('does not show empty state when the snapshot holds only an asset', async () => {
+      setupApiMocks({ snapshot: [makeAsset()] })
+      renderDashboard()
+      await waitFor(() => {
+        expect(screen.getByTestId('account-cards-assets.sectionTitle')).toBeInTheDocument()
+      })
+      expect(screen.queryByText('demo.emptyTitle')).not.toBeInTheDocument()
+      expect(screen.getByTestId('account-cards-buckets.sectionTitle')).toBeInTheDocument()
+      expect(screen.getByTestId('ledger')).toBeInTheDocument()
+    })
+
+    it('renders nothing instead of the empty state while the snapshot is loading', async () => {
+      ;(getAccountsSnapshot as Mock).mockReturnValue(new Promise(() => {}))
+      renderDashboard()
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0))
+      })
+      expect(getAccountsSnapshot).toHaveBeenCalled()
+      expect(screen.queryByText('demo.emptyTitle')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('account-cards-accounts.sectionTitle')).not.toBeInTheDocument()
     })
 
     it('does not show empty state when in demo mode with no accounts', async () => {

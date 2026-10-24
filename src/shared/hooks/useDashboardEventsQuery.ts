@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query'
+import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { listEvents } from '../api'
 import { toEndOfDay } from '../utils/format'
 import { useSelectedPerson } from '../../app/useSelectedPerson'
@@ -11,5 +11,6 @@ export const useDashboardEventsQuery = (selectedDate: string) => {
       const result = await listEvents({ beforeDate: toEndOfDay(selectedDate), limit: 20, personId: selectedPersonId ?? undefined })
       return result
     },
+    placeholderData: keepPreviousData,
   })
 }
