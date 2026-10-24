@@ -133,12 +133,19 @@ pub(crate) fn parse_decimal_str(s: &str) -> Result<(i64, i64), AppError> {
     Ok((mantissa, exponent))
 }
 
+/// Significant digits kept by `compute_cross_rate` before the final quotient is rounded. The
+/// stored mantissa ends up with this many digits or one more, so it stays below 10^15 and is
+/// exactly representable as a JS number on the frontend.
+const CROSS_RATE_DIGITS: i64 = 14;
+
 /// Compute cross rate: how many `target` units equal 1 `consolidation` unit.
 ///
 /// Formula (corrected): `cross_rate = oxr_target / oxr_consolidation`
 ///
 /// If consolidation is the OXR base currency (not present in rates map), its rate is 1.
-/// Uses i128 arithmetic with 10 digits of extra precision to avoid float division.
+/// Uses integer arithmetic scaled so the quotient keeps `CROSS_RATE_DIGITS` significant digits
+/// whatever the digit counts of the two mantissas, rounded half up. The returned mantissa is
+/// never 0 (`convert_balance` divides by it); a zero rate is an error.
 pub fn compute_cross_rate(
     oxr_rates: &HashMap<String, serde_json::Value>,
     consolidation_code: &str,
@@ -164,38 +171,44 @@ pub fn compute_cross_rate(
             message: "Consolidation currency rate is zero".into(),
         });
     }
+    if m_t == 0 {
+        return Err(AppError {
+            code: "COMPUTE_ERROR".into(),
+            message: format!("OXR rate for currency '{}' is zero", target_code),
+        });
+    }
 
     // cross_rate = (m_t * 10^e_t) / (m_c * 10^e_c)
     //            = (m_t / m_c) * 10^(e_t - e_c)
     //
-    // Multiply numerator by 10^PRECISION to keep 10 significant digits in the quotient.
-    const PRECISION: i64 = 10;
-    let precision_factor = 10_i128.pow(PRECISION as u32);
+    // Scale the numerator (or, when it is already much longer, the denominator) by 10^shift so
+    // the quotient has CROSS_RATE_DIGITS or one more digits, whatever the two mantissas' lengths.
+    let negative = (m_t < 0) != (m_c < 0);
+    let numerator = m_t.unsigned_abs() as u128;
+    let denominator = m_c.unsigned_abs() as u128;
+    let shift = CROSS_RATE_DIGITS - (numerator.ilog10() as i64 - denominator.ilog10() as i64);
+    let (numerator, denominator) = if shift >= 0 {
+        (numerator * 10_u128.pow(shift as u32), denominator)
+    } else {
+        (numerator, denominator * 10_u128.pow(-shift as u32))
+    };
 
-    let numerator = (m_t as i128) * precision_factor;
-    let raw_mantissa = numerator / (m_c as i128);
-    let raw_exponent = e_t - e_c - PRECISION;
-
-    if raw_mantissa == 0 {
-        return Ok((0, 0));
-    }
+    // `div_round` in shared/helpers.rs is i64-only; the scaled numerator needs u128.
+    let mut mantissa = (numerator + denominator / 2) / denominator;
+    let mut exponent = e_t - e_c - shift;
 
     // Normalize: strip trailing zeros.
-    let mut mantissa = raw_mantissa;
-    let mut exponent = raw_exponent;
     while mantissa % 10 == 0 {
         mantissa /= 10;
         exponent += 1;
     }
 
-    if mantissa > i64::MAX as i128 || mantissa < i64::MIN as i128 {
-        return Err(AppError {
-            code: "OVERFLOW".into(),
-            message: "Computed cross rate mantissa overflows i64".into(),
-        });
-    }
+    let mantissa = i64::try_from(mantissa).map_err(|_| AppError {
+        code: "OVERFLOW".into(),
+        message: "Computed cross rate mantissa overflows i64".into(),
+    })?;
 
-    Ok((mantissa as i64, exponent))
+    Ok((if negative { -mantissa } else { mantissa }, exponent))
 }
 
 #[cfg(test)]
@@ -309,5 +322,103 @@ mod tests {
         let result = compute_cross_rate(&rates, "EUR", "GBP");
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().code, "MISSING_RATE");
+    }
+
+    #[test]
+    fn cross_rate_keeps_precision_when_numerator_is_short() {
+        // 1 / 0.921453 = 1.08524254628288...; a fixed numerator scale kept only 1.0852.
+        let mut rates = HashMap::new();
+        rates.insert("USD".to_string(), json!(1));
+        rates.insert("EUR".to_string(), json!(0.921453));
+
+        let (m, e) = compute_cross_rate(&rates, "EUR", "USD").unwrap();
+        assert_eq!((m, e), (10852425462829, -13));
+    }
+
+    #[test]
+    fn cross_rate_keeps_precision_for_small_rate() {
+        // 0.00000123 / 0.921453 = 1.3348483319279...e-6
+        let mut rates = HashMap::new();
+        rates.insert("EUR".to_string(), json!(0.921453));
+        rates.insert("XYZ".to_string(), json!(0.00000123));
+
+        let (m, e) = compute_cross_rate(&rates, "EUR", "XYZ").unwrap();
+        assert_eq!((m, e), (13348483319279, -19));
+    }
+
+    #[test]
+    fn cross_rate_converts_without_overflow_at_small_scale() {
+        let mut rates = HashMap::new();
+        rates.insert("EUR".to_string(), json!(0.921453));
+        rates.insert("XYZ".to_string(), json!(0.00000123));
+
+        let (m, e) = compute_cross_rate(&rates, "EUR", "XYZ").unwrap();
+        // 10^9 XYZ cents at 1 EUR = 1.3348483319279e-6 XYZ.
+        assert_eq!(
+            crate::shared::convert_balance(1_000_000_000, m, e, 2, 2, false),
+            749_148_780_487_830
+        );
+    }
+
+    #[test]
+    fn cross_rate_keeps_precision_for_large_rate() {
+        // 123456789.123456 / 0.0000149 = 8285690545198.4...
+        let mut rates = HashMap::new();
+        rates.insert("BTC".to_string(), json!(0.0000149));
+        rates.insert("XYZ".to_string(), json!(123456789.123456));
+
+        let (m, e) = compute_cross_rate(&rates, "BTC", "XYZ").unwrap();
+        assert_eq!((m, e), (82856905451984, -1));
+    }
+
+    #[test]
+    fn cross_rate_rounds_half_up() {
+        // 1 / 3 rounds down and 2 / 3 rounds up at the last kept digit.
+        let mut rates = HashMap::new();
+        rates.insert("AAA".to_string(), json!(3));
+        rates.insert("BBB".to_string(), json!(1));
+        rates.insert("CCC".to_string(), json!(2));
+
+        assert_eq!(
+            compute_cross_rate(&rates, "AAA", "BBB").unwrap(),
+            (33333333333333, -14)
+        );
+        assert_eq!(
+            compute_cross_rate(&rates, "AAA", "CCC").unwrap(),
+            (66666666666667, -14)
+        );
+    }
+
+    #[test]
+    fn cross_rate_mantissa_stays_exact_for_js_numbers() {
+        let mut rates = HashMap::new();
+        rates.insert("EUR".to_string(), json!(0.9223));
+        rates.insert("BTC".to_string(), json!(0.0000149));
+        rates.insert("JPY".to_string(), json!(157.23));
+
+        for target in ["BTC", "JPY", "EUR"] {
+            let (m, _) = compute_cross_rate(&rates, "BTC", target).unwrap();
+            assert!(m.unsigned_abs() < 1 << 53, "mantissa {} not JS-safe", m);
+        }
+    }
+
+    #[test]
+    fn cross_rate_zero_target_returns_error() {
+        let mut rates = HashMap::new();
+        rates.insert("EUR".to_string(), json!(0.9223));
+        rates.insert("XYZ".to_string(), json!(0));
+
+        let err = compute_cross_rate(&rates, "EUR", "XYZ").unwrap_err();
+        assert_eq!(err.code, "COMPUTE_ERROR");
+    }
+
+    #[test]
+    fn cross_rate_zero_consolidation_returns_error() {
+        let mut rates = HashMap::new();
+        rates.insert("EUR".to_string(), json!(0));
+        rates.insert("USD".to_string(), json!(1));
+
+        let err = compute_cross_rate(&rates, "EUR", "USD").unwrap_err();
+        assert_eq!(err.code, "COMPUTE_ERROR");
     }
 }
