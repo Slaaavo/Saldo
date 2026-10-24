@@ -426,13 +426,12 @@ async fn startup_auto_fetch(handle: tauri::AppHandle) {
         needed.into_iter().rev().take(30).rev().collect()
     };
 
-    for date in &gap_dates {
-        if state.db_generation() != generation {
-            return;
-        }
-        if let Err(e) = smart_fetch_fx_rates(&state, date, false).await {
-            eprintln!("[fx-startup/gap-fill/{}] error: {}", date, e.message);
-        }
+    let app_state: &AppState = &state;
+    let db_unchanged = || app_state.db_generation() == generation;
+    let fetch = |date: String| async move { smart_fetch_fx_rates(app_state, &date, false).await };
+
+    if !fetch_dates("gap-fill", &gap_dates, &db_unchanged, &fetch).await {
+        return;
     }
 
     // --- Pass 2: ledger-driven backfill (uncapped). ---
@@ -457,14 +456,40 @@ async fn startup_auto_fetch(handle: tauri::AppHandle) {
         .filter(|d| !gap_set.contains(d.as_str()) && d.as_str() <= today_str.as_str())
         .collect();
 
-    for date in &remaining {
-        if state.db_generation() != generation {
-            return;
+    fetch_dates("ledger-backfill", &remaining, &db_unchanged, &fetch).await;
+}
+
+/// An error every remaining date would hit too: a missing key (`CONFIG_ERROR`) or a request OXR
+/// rejected, such as a bad key or an exhausted quota (`OXR_ERROR`).
+fn is_fatal_fx_error(e: &error::AppError) -> bool {
+    matches!(e.code.as_str(), "OXR_ERROR" | "CONFIG_ERROR")
+}
+
+/// Fetches rates for each of `dates` in turn, logging failures. Returns `false` when the whole
+/// startup fetch should stop: the database was swapped, so the date lists are stale, or a fatal
+/// error means further requests are pointless.
+async fn fetch_dates<F, Fut>(
+    pass: &str,
+    dates: &[String],
+    db_unchanged: &impl Fn() -> bool,
+    fetch: &F,
+) -> bool
+where
+    F: Fn(String) -> Fut,
+    Fut: std::future::Future<Output = Result<Vec<features::currency::FxRateRow>, error::AppError>>,
+{
+    for date in dates {
+        if !db_unchanged() {
+            return false;
         }
-        if let Err(e) = smart_fetch_fx_rates(&state, date, false).await {
-            eprintln!("[fx-startup/ledger-backfill/{}] error: {}", date, e.message);
+        if let Err(e) = fetch(date.clone()).await {
+            eprintln!("[fx-startup/{}/{}] error: {}", pass, date, e.message);
+            if is_fatal_fx_error(&e) {
+                return false;
+            }
         }
     }
+    true
 }
 
 #[cfg(test)]
@@ -491,6 +516,77 @@ mod tests {
         let conn = state.conn().unwrap();
         conn.query_row("SELECT COUNT(*) FROM fx_rate", [], |r| r.get(0))
             .unwrap()
+    }
+
+    fn app_error(code: &str) -> error::AppError {
+        error::AppError {
+            code: code.into(),
+            message: "failed".into(),
+        }
+    }
+
+    /// Runs `fetch_dates` over three dates where the fetch for the second one fails with `code`;
+    /// returns the dates that were requested and the result.
+    fn run_fetch_dates_failing_second(code: &str) -> (Vec<String>, bool) {
+        let dates: Vec<String> = ["2026-03-01", "2026-03-02", "2026-03-03"]
+            .map(String::from)
+            .to_vec();
+        let requested = Mutex::new(Vec::new());
+        let completed = tauri::async_runtime::block_on(fetch_dates(
+            "test",
+            &dates,
+            &|| true,
+            &|date: String| {
+                requested.lock().unwrap().push(date.clone());
+                let result = if date == "2026-03-02" {
+                    Err(app_error(code))
+                } else {
+                    Ok(Vec::new())
+                };
+                async move { result }
+            },
+        ));
+        (requested.into_inner().unwrap(), completed)
+    }
+
+    #[test]
+    fn fetch_dates_stops_on_an_oxr_error() {
+        let (requested, completed) = run_fetch_dates_failing_second("OXR_ERROR");
+        assert_eq!(requested, ["2026-03-01", "2026-03-02"]);
+        assert!(!completed);
+    }
+
+    #[test]
+    fn fetch_dates_stops_on_a_config_error() {
+        let (requested, completed) = run_fetch_dates_failing_second("CONFIG_ERROR");
+        assert_eq!(requested, ["2026-03-01", "2026-03-02"]);
+        assert!(!completed);
+    }
+
+    #[test]
+    fn fetch_dates_continues_past_other_errors() {
+        let (requested, completed) = run_fetch_dates_failing_second("NETWORK_ERROR");
+        assert_eq!(requested, ["2026-03-01", "2026-03-02", "2026-03-03"]);
+        assert!(completed);
+    }
+
+    #[test]
+    fn fetch_dates_stops_when_the_database_changes() {
+        let dates: Vec<String> = ["2026-03-01", "2026-03-02"].map(String::from).to_vec();
+        let unchanged = AtomicBool::new(true);
+        let requested = Mutex::new(Vec::new());
+        let completed = tauri::async_runtime::block_on(fetch_dates(
+            "test",
+            &dates,
+            &|| unchanged.load(Ordering::SeqCst),
+            &|date: String| {
+                requested.lock().unwrap().push(date);
+                unchanged.store(false, Ordering::SeqCst);
+                async { Ok(Vec::new()) }
+            },
+        ));
+        assert_eq!(requested.into_inner().unwrap(), ["2026-03-01"]);
+        assert!(!completed);
     }
 
     #[test]
