@@ -649,6 +649,35 @@ import:
       dateRegex: "Regulárny výraz pre dátum"
       dateExample: "Príklad: (\\d{2}\\.\\d{2}\\.\\d{4}) extrahuje 15.03.2026"
       regexHint: "Referencia regulárnych výrazov"
+      regexTable:
+        pattern: "Vzor"
+        meaning: "Význam"
+        example: "Príklad"
+        rows:
+          digit:
+            meaning: "Ľubovoľná číslica (0–9)"
+            example: "{{pattern}} zodpovedá {{text}}"
+          digits:
+            meaning: "Jedna alebo viac číslic"
+            example: "{{pattern}} zodpovedá {{text}}"
+          dot:
+            meaning: "Doslovná bodka"
+            example: "{{pattern}} zodpovedá {{text}}"
+          count:
+            meaning: "Presne N číslic"
+            example: "{{pattern}} zodpovedá {{text}}"
+          group:
+            meaning: "Zachytávacia skupina — dátum, ktorý sa má extrahovať"
+            example: "{{pattern}} zachytí {{text}}"
+          any:
+            meaning: "Ľubovoľné znaky"
+            example: "{{pattern}} nájde dátum kdekoľvek v texte"
+          start:
+            meaning: "Začiatok textu"
+            example: "{{pattern}} zodpovedá, len ak text začína na 1234"
+          asterisk:
+            meaning: "Doslovná hviezdička"
+            example: "{{pattern}} zodpovedá {{text}}"
     invalidRegex: "Neplatný regulárny výraz"
     unmatchedColumn: "Stĺpec „{{name}}\" sa nenašiel v CSV"
 

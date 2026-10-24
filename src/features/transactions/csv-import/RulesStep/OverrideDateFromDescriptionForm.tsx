@@ -10,6 +10,17 @@ interface OverrideDateFromDescriptionFormProps {
   errors?: { conditionRegex?: string; dateRegex?: string }
 }
 
+const REGEX_HELP_ROWS: Array<{ key: string; pattern: string; examplePattern: string; exampleText?: string }> = [
+  { key: 'digit', pattern: '\\d', examplePattern: '\\d\\d', exampleText: '42' },
+  { key: 'digits', pattern: '\\d+', examplePattern: '\\d+', exampleText: '123' },
+  { key: 'dot', pattern: '\\.', examplePattern: '\\d{2}\\.\\d{2}', exampleText: '15.03' },
+  { key: 'count', pattern: '\\d{N}', examplePattern: '\\d{4}', exampleText: '2026' },
+  { key: 'group', pattern: '(...)', examplePattern: '(\\d{2}\\.\\d{2}\\.\\d{4})', exampleText: '15.03.2026' },
+  { key: 'any', pattern: '.*', examplePattern: '.*(\\d{2}\\.\\d{2}\\.\\d{4})' },
+  { key: 'start', pattern: '^', examplePattern: '^1234' },
+  { key: 'asterisk', pattern: '\\*', examplePattern: '\\d{4}\\*{4}\\d{4}', exampleText: '1234****5678' },
+]
+
 const OverrideDateFromDescriptionForm = ({ rule, csvHeaders, onChange, errors }: OverrideDateFromDescriptionFormProps) => {
   const { t } = useTranslation()
 
@@ -62,56 +73,19 @@ const OverrideDateFromDescriptionForm = ({ rule, csvHeaders, onChange, errors }:
         <table className="mt-2 w-full text-xs border-collapse">
           <thead>
             <tr className="text-left border-b">
-              <th className="py-1 pr-4 font-medium">Pattern</th>
-              <th className="py-1 pr-4 font-medium">Meaning</th>
-              <th className="py-1 font-medium">Example</th>
+              <th className="py-1 pr-4 font-medium">{t('import.rules.overrideDateFromDescription.regexTable.pattern')}</th>
+              <th className="py-1 pr-4 font-medium">{t('import.rules.overrideDateFromDescription.regexTable.meaning')}</th>
+              <th className="py-1 font-medium">{t('import.rules.overrideDateFromDescription.regexTable.example')}</th>
             </tr>
           </thead>
           <tbody className="text-muted-foreground">
-            <tr className="border-b border-border/40">
-              <td className="py-1 pr-4 font-mono">\d</td>
-              <td className="py-1 pr-4">Any digit (0–9)</td>
-              <td className="py-1 font-mono">\d\d matches 42</td>
-            </tr>
-            <tr className="border-b border-border/40">
-              <td className="py-1 pr-4 font-mono">\d+</td>
-              <td className="py-1 pr-4">One or more digits</td>
-              <td className="py-1 font-mono">\d+ matches 123</td>
-            </tr>
-            <tr className="border-b border-border/40">
-              <td className="py-1 pr-4 font-mono">\.</td>
-              <td className="py-1 pr-4">A literal dot</td>
-              <td className="py-1 font-mono">
-                \d{'{2}'}\.d{'{2}'} matches 15.03
-              </td>
-            </tr>
-            <tr className="border-b border-border/40">
-              <td className="py-1 pr-4 font-mono">{'{\\d{N}}'}</td>
-              <td className="py-1 pr-4">Exactly N digits</td>
-              <td className="py-1 font-mono">\d{'{4}'} matches 2026</td>
-            </tr>
-            <tr className="border-b border-border/40">
-              <td className="py-1 pr-4 font-mono">{'(...)'}</td>
-              <td className="py-1 pr-4">Capture group — the date to extract</td>
-              <td className="py-1 font-mono">{'(\\d{2}\\.\\d{2}\\.\\d{4})'} captures 15.03.2026</td>
-            </tr>
-            <tr className="border-b border-border/40">
-              <td className="py-1 pr-4 font-mono">.*</td>
-              <td className="py-1 pr-4">Any characters</td>
-              <td className="py-1 font-mono">.*{'(\\d{2}\\.\\d{2}\\.\\d{4})'} finds a date anywhere</td>
-            </tr>
-            <tr className="border-b border-border/40">
-              <td className="py-1 pr-4 font-mono">^</td>
-              <td className="py-1 pr-4">Start of text</td>
-              <td className="py-1 font-mono">^1234 matches only if starts with 1234</td>
-            </tr>
-            <tr>
-              <td className="py-1 pr-4 font-mono">\*</td>
-              <td className="py-1 pr-4">A literal asterisk</td>
-              <td className="py-1 font-mono">
-                \d{'{4}'}\*{'{4}'}\d{'{4}'} matches 1234****5678
-              </td>
-            </tr>
+            {REGEX_HELP_ROWS.map(({ key, pattern, examplePattern, exampleText }) => (
+              <tr key={key} className="border-b border-border/40 last:border-b-0">
+                <td className="py-1 pr-4 font-mono">{pattern}</td>
+                <td className="py-1 pr-4">{t(`import.rules.overrideDateFromDescription.regexTable.rows.${key}.meaning`)}</td>
+                <td className="py-1 font-mono">{t(`import.rules.overrideDateFromDescription.regexTable.rows.${key}.example`, { pattern: examplePattern, text: exampleText })}</td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </details>

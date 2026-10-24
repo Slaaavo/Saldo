@@ -671,6 +671,35 @@ import:
       dateRegex: "Date extraction regex"
       dateExample: "Example: (\\d{2}\\.\\d{2}\\.\\d{4}) extracts 15.03.2026; (\\d{8}) extracts 20260315"
       regexHint: "Regex reference"
+      regexTable:
+        pattern: "Pattern"
+        meaning: "Meaning"
+        example: "Example"
+        rows:
+          digit:
+            meaning: "Any digit (0–9)"
+            example: "{{pattern}} matches {{text}}"
+          digits:
+            meaning: "One or more digits"
+            example: "{{pattern}} matches {{text}}"
+          dot:
+            meaning: "A literal dot"
+            example: "{{pattern}} matches {{text}}"
+          count:
+            meaning: "Exactly N digits"
+            example: "{{pattern}} matches {{text}}"
+          group:
+            meaning: "Capture group — the date to extract"
+            example: "{{pattern}} captures {{text}}"
+          any:
+            meaning: "Any characters"
+            example: "{{pattern}} finds a date anywhere"
+          start:
+            meaning: "Start of text"
+            example: "{{pattern}} matches only if the text starts with 1234"
+          asterisk:
+            meaning: "A literal asterisk"
+            example: "{{pattern}} matches {{text}}"
     invalidRegex: "Invalid regex pattern"
     unmatchedColumn: "Column \"{{name}}\" not found in CSV"
 
