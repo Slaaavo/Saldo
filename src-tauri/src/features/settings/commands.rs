@@ -200,163 +200,95 @@ fn relocate_db(
         });
     }
 
-    let new_db_path = target_folder.join(crate::config::DB_FILENAME);
+    if !matches!(action, "switch" | "move" | "fresh") {
+        return Err(AppError {
+            code: "VALIDATION".into(),
+            message: format!(
+                "Invalid action '{}'. Expected 'switch', 'move', or 'fresh'.",
+                action
+            ),
+        });
+    }
+
+    // Held until the swap, so no write lands on the old database after it was copied.
+    let mut db = state.conn()?;
+    let mut db_path = state
+        .db_path
+        .lock()
+        .map_err(|e| AppError::from(e.to_string()))?;
 
     // Same-folder check: compare canonicalized folder paths.
-    {
-        let db_path_guard = state
-            .db_path
-            .lock()
-            .map_err(|e| AppError::from(e.to_string()))?;
-        let current_folder = db_path_guard
-            .parent()
-            .map(|p| p.to_path_buf())
-            .unwrap_or_else(|| db_path_guard.clone());
-        let target_canonical = target_folder.canonicalize().ok();
-        let current_canonical = current_folder.canonicalize().ok();
-        if let (Some(t), Some(c)) = (target_canonical, current_canonical) {
-            if t == c {
-                return Ok(());
-            }
+    let current_folder = db_path
+        .parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| db_path.clone());
+    if let (Ok(t), Ok(c)) = (target_folder.canonicalize(), current_folder.canonicalize()) {
+        if t == c {
+            return Ok(());
         }
     }
 
-    match action {
-        "switch" => {
-            let new_conn = crate::db::initialize_db(&new_db_path)?;
-            state.replace_conn(new_conn)?;
-            match config_action {
-                ConfigAction::WriteCustom => {
-                    crate::config::write_db_location(&state.app_data_dir, target_folder)?
-                }
-                ConfigAction::ClearToDefault => {
-                    crate::config::clear_db_location(&state.app_data_dir)?
-                }
-            }
-            {
-                let mut db_path_guard = state
-                    .db_path
-                    .lock()
-                    .map_err(|e| AppError::from(e.to_string()))?;
-                *db_path_guard = new_db_path;
-            }
-        }
-        "move" => {
-            let old_path: std::path::PathBuf = {
-                let db_path_guard = state
-                    .db_path
-                    .lock()
-                    .map_err(|e| AppError::from(e.to_string()))?;
-                db_path_guard.clone()
-            };
-
-            // 1. WAL checkpoint — flush WAL to main DB file.
-            {
-                let conn = state.conn()?;
-                crate::db::wal_checkpoint(&conn)?;
-            }
-
-            // 2. Swap to in-memory to release the file lock on Windows.
-            {
-                let in_memory = crate::db::initialize_in_memory()?;
-                // _old_conn is dropped at the end of this block, releasing the file lock.
-                let _old_conn = state.replace_conn(in_memory)?;
-            }
-
-            // 3. Copy file.
-            if let Err(e) = std::fs::copy(&old_path, &new_db_path) {
-                if let Ok(restored) = crate::db::initialize_db(&old_path) {
-                    let _ = state.replace_conn(restored);
-                }
-                return Err(AppError::from(e));
-            }
-
-            // 4. Open new DB (runs pending migrations in case schema is ahead).
-            let new_conn = match crate::db::initialize_db(&new_db_path) {
-                Ok(c) => c,
-                Err(e) => {
-                    let _ = std::fs::remove_file(&new_db_path);
-                    if let Ok(restored) = crate::db::initialize_db(&old_path) {
-                        let _ = state.replace_conn(restored);
-                    }
-                    return Err(e);
-                }
-            };
-
-            // 5. Integrity check.
-            if let Err(e) = crate::db::integrity_check(&new_conn) {
-                drop(new_conn);
-                let _ = std::fs::remove_file(&new_db_path);
-                if let Ok(restored) = crate::db::initialize_db(&old_path) {
-                    let _ = state.replace_conn(restored);
-                }
-                return Err(e);
-            }
-
-            // 6. Swap to new connection.
-            state.replace_conn(new_conn)?;
-
-            // 7. Persist config and update tracked path.
-            match config_action {
-                ConfigAction::WriteCustom => {
-                    crate::config::write_db_location(&state.app_data_dir, target_folder)?
-                }
-                ConfigAction::ClearToDefault => {
-                    crate::config::clear_db_location(&state.app_data_dir)?
-                }
-            }
-            {
-                let mut db_path_guard = state
-                    .db_path
-                    .lock()
-                    .map_err(|e| AppError::from(e.to_string()))?;
-                *db_path_guard = new_db_path;
-            }
-
-            // 8. Delete original file and any WAL / SHM side-files.
-            let _ = std::fs::remove_file(&old_path);
-            let old_wal = std::path::PathBuf::from(format!("{}-wal", old_path.display()));
-            let old_shm = std::path::PathBuf::from(format!("{}-shm", old_path.display()));
-            let _ = std::fs::remove_file(&old_wal);
-            let _ = std::fs::remove_file(&old_shm);
-        }
-        "fresh" => {
-            let new_conn = crate::db::initialize_db(&new_db_path)?;
-            state.replace_conn(new_conn)?;
-            match config_action {
-                ConfigAction::WriteCustom => {
-                    crate::config::write_db_location(&state.app_data_dir, target_folder)?
-                }
-                ConfigAction::ClearToDefault => {
-                    crate::config::clear_db_location(&state.app_data_dir)?
-                }
-            }
-            {
-                let mut db_path_guard = state
-                    .db_path
-                    .lock()
-                    .map_err(|e| AppError::from(e.to_string()))?;
-                *db_path_guard = new_db_path;
-            }
-        }
-        _ => {
-            return Err(AppError {
-                code: "VALIDATION".into(),
-                message: format!(
-                    "Invalid action '{}'. Expected 'switch', 'move', or 'fresh'.",
-                    action
-                ),
-            });
-        }
+    let new_db_path = target_folder.join(crate::config::DB_FILENAME);
+    let creates_file = !new_db_path.exists();
+    let prepared = if action == "move" {
+        crate::db::copy_db(&db, &new_db_path)
+    } else {
+        Ok(())
     }
+    .and_then(|()| open_checked(&new_db_path))
+    .and_then(|conn| {
+        write_config(&state.app_data_dir, target_folder, config_action)?;
+        Ok(conn)
+    });
+    let new_conn = match prepared {
+        Ok(conn) => conn,
+        Err(e) => {
+            if creates_file {
+                crate::db::remove_db_files(&new_db_path);
+            }
+            return Err(e);
+        }
+    };
 
+    let old_conn = state.swap_conn(&mut db, new_conn);
+    let old_path = std::mem::replace(&mut *db_path, new_db_path);
+    drop(db_path);
+    drop(db);
     state.fallback_warning.store(false, Ordering::SeqCst);
+
+    if action == "move" {
+        // Windows refuses to delete a file that is still open.
+        drop(old_conn);
+        // The move itself succeeded and the app now runs on the new file, so a leftover old
+        // file is logged rather than reported as a failure.
+        for failure in crate::db::remove_db_files(&old_path) {
+            eprintln!("[relocate_db] could not delete the old database file {failure}");
+        }
+    }
     Ok(())
+}
+
+fn open_checked(db_path: &std::path::Path) -> Result<rusqlite::Connection, AppError> {
+    let conn = crate::db::initialize_db(db_path)?;
+    crate::db::integrity_check(&conn)?;
+    Ok(conn)
+}
+
+fn write_config(
+    app_data_dir: &std::path::Path,
+    target_folder: &std::path::Path,
+    config_action: ConfigAction,
+) -> Result<(), AppError> {
+    match config_action {
+        ConfigAction::WriteCustom => crate::config::write_db_location(app_data_dir, target_folder),
+        ConfigAction::ClearToDefault => crate::config::clear_db_location(app_data_dir),
+    }
 }
 
 /// Changes the active database to the given folder using the specified action:
 /// - `"switch"` — open an existing DB at the target location
-/// - `"move"`   — WAL-checkpoint → swap to in-memory → copy file → open new → integrity check → swap → delete old
+/// - `"move"`   — copy the live DB into the target → open and integrity-check the copy →
+///   write the config → swap → delete the old files
 /// - `"fresh"`  — create a brand-new DB at the target location (migrations applied)
 ///
 /// Returns an error if demo mode is active, the folder is not writable, or the
@@ -473,6 +405,7 @@ mod tests {
             assert_app_writes_to(&state, &old_path, action);
             assert_eq!(config::read_db_location(&state.app_data_dir), None);
             assert!(state.app_data_dir.join("db-location.json").is_dir());
+            assert!(!state.app_data_dir.join("db-location.json.tmp").exists());
             let expected_left: &[&str] = if action == "switch" {
                 &["saldo.db"]
             } else {
@@ -480,6 +413,56 @@ mod tests {
             };
             assert_eq!(file_names(&target), expected_left, "{action}");
         }
+    }
+
+    #[test]
+    fn a_failed_copy_leaves_no_file_and_keeps_the_old_database_live() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_state(dir.path());
+        let old_path = state.db_path.lock().unwrap().clone();
+        let target = dir.path().join("custom");
+        std::fs::create_dir_all(target.join("saldo.db.tmp")).unwrap();
+
+        let result = relocate_db(&state, &target, "move", ConfigAction::WriteCustom);
+
+        assert!(result.is_err());
+        assert_eq!(file_names(&target), ["saldo.db.tmp"]);
+        assert_eq!(*state.db_path.lock().unwrap(), old_path);
+        assert_eq!(config::read_db_location(&state.app_data_dir), None);
+        assert_app_writes_to(&state, &old_path, "after-failed-copy");
+    }
+
+    #[test]
+    fn moving_carries_rows_that_are_still_in_the_wal() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_state(dir.path());
+        let old_path = state.db_path.lock().unwrap().clone();
+        let old_wal = dir.path().join("app").join("saldo.db-wal");
+        let target = dir.path().join("custom");
+        std::fs::create_dir_all(&target).unwrap();
+        {
+            let conn = state.conn().unwrap();
+            let busy: i64 = conn
+                .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |row| row.get(0))
+                .unwrap();
+            assert_eq!(busy, 0);
+            repository::set_app_setting(&conn, "theme", "written-before-move").unwrap();
+        }
+        assert!(std::fs::metadata(&old_wal).unwrap().len() > 0);
+
+        relocate_db(&state, &target, "move", ConfigAction::WriteCustom).unwrap();
+
+        let new_path = target.join(config::DB_FILENAME);
+        assert_eq!(*state.db_path.lock().unwrap(), new_path);
+        assert!(!old_path.exists());
+        assert_eq!(file_names(&state.app_data_dir), ["db-location.json"]);
+        let direct = rusqlite::Connection::open(&new_path).unwrap();
+        assert_eq!(
+            repository::get_app_setting(&direct, "theme")
+                .unwrap()
+                .as_deref(),
+            Some("written-before-move")
+        );
     }
 
     #[test]

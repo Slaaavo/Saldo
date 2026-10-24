@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use crate::error::AppError;
@@ -45,7 +46,8 @@ pub fn resolve_db_path(app_data_dir: &Path) -> (PathBuf, bool) {
     }
 }
 
-/// Writes the custom DB folder path to the config file.
+/// Writes the custom DB folder path to the config file. The file is written to a temporary name
+/// and renamed into place, so a crash or failed write never leaves a truncated config.
 pub fn write_db_location(app_data_dir: &Path, folder: &Path) -> Result<(), AppError> {
     let config = DbLocationConfig {
         db_folder: Some(folder.to_string_lossy().to_string()),
@@ -55,8 +57,19 @@ pub fn write_db_location(app_data_dir: &Path, folder: &Path) -> Result<(), AppEr
         message: e.to_string(),
     })?;
     let config_path = app_data_dir.join(CONFIG_FILENAME);
-    std::fs::write(&config_path, json)?;
-    Ok(())
+    let tmp_path = app_data_dir.join(format!("{CONFIG_FILENAME}.tmp"));
+    let written = write_synced(&tmp_path, json.as_bytes())
+        .and_then(|()| std::fs::rename(&tmp_path, &config_path));
+    if written.is_err() {
+        let _ = std::fs::remove_file(&tmp_path);
+    }
+    Ok(written?)
+}
+
+fn write_synced(path: &Path, contents: &[u8]) -> std::io::Result<()> {
+    let mut file = std::fs::File::create(path)?;
+    file.write_all(contents)?;
+    file.sync_all()
 }
 
 /// Deletes the config file, reverting to the default DB location.

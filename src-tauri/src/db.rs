@@ -1,5 +1,5 @@
 use rusqlite::Connection;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::{error::AppError, migrations};
 
@@ -35,17 +35,50 @@ pub fn initialize_in_memory() -> Result<Connection, AppError> {
     Ok(conn)
 }
 
-/// Flush the WAL to the main database file and truncate it. Fails when another connection's
-/// open read or write keeps the checkpoint from finishing.
-pub fn wal_checkpoint(conn: &Connection) -> Result<(), AppError> {
-    let busy: i64 = conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |row| row.get(0))?;
-    if busy != 0 {
-        return Err(AppError {
-            code: "DB_BUSY".into(),
-            message: "Another connection is using the database, so its write-ahead log could not be flushed".into(),
-        });
+/// Copy the database behind `conn` to `dest`. `VACUUM INTO` writes a consistent snapshot that
+/// includes pages still in the WAL, but does not sync its output, so the copy is written and
+/// synced under a temporary name and only then renamed: `dest` never exists half-written.
+pub fn copy_db(conn: &Connection, dest: &Path) -> Result<(), AppError> {
+    let tmp = side_file(dest, ".tmp");
+    let copied = vacuum_into(conn, &tmp).and_then(|()| Ok(std::fs::rename(&tmp, dest)?));
+    if copied.is_err() {
+        let _ = std::fs::remove_file(&tmp);
     }
+    copied
+}
+
+fn vacuum_into(conn: &Connection, dest: &Path) -> Result<(), AppError> {
+    let dest_str = dest
+        .to_str()
+        .ok_or_else(|| AppError::from(format!("Unsupported path: {}", dest.display())))?;
+    conn.execute("VACUUM INTO ?1", [dest_str])?;
+    // Windows needs write access to flush a file.
+    std::fs::OpenOptions::new()
+        .write(true)
+        .open(dest)?
+        .sync_all()?;
     Ok(())
+}
+
+/// Delete a database file and its `-wal` and `-shm` side files. Returns the deletions that
+/// failed; a file that does not exist counts as deleted.
+pub fn remove_db_files(db_path: &Path) -> Vec<String> {
+    ["", "-wal", "-shm"]
+        .into_iter()
+        .map(|suffix| side_file(db_path, suffix))
+        .filter_map(|path| match std::fs::remove_file(&path) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+                Some(format!("{}: {e}", path.display()))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+fn side_file(db_path: &Path, suffix: &str) -> PathBuf {
+    let mut name = db_path.as_os_str().to_owned();
+    name.push(suffix);
+    PathBuf::from(name)
 }
 
 /// Run `PRAGMA integrity_check` and return an error if the result is not "ok".
@@ -86,32 +119,6 @@ mod tests {
             account_count, 2,
             "Expected 2 accounts: migration 008 removes Main Account, migration 024 adds default taxable accounts for the default person"
         );
-    }
-
-    #[test]
-    fn wal_checkpoint_succeeds_on_in_memory() {
-        let conn = initialize_in_memory().expect("DB init failed");
-        // WAL checkpoint is a no-op for in-memory DBs but should not error.
-        wal_checkpoint(&conn).expect("wal_checkpoint failed");
-    }
-
-    #[test]
-    fn wal_checkpoint_fails_while_a_reader_blocks_it() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("saldo.db");
-        let conn = initialize_db(&path).expect("DB init failed");
-        conn.busy_timeout(std::time::Duration::ZERO).unwrap();
-        let reader = Connection::open(&path).unwrap();
-        reader
-            .execute_batch("BEGIN; SELECT COUNT(*) FROM currency;")
-            .unwrap();
-        conn.execute(
-            "INSERT INTO app_setting (key, value) VALUES ('theme', 'dark')",
-            [],
-        )
-        .unwrap();
-
-        assert_eq!(wal_checkpoint(&conn).unwrap_err().code, "DB_BUSY");
     }
 
     #[test]
