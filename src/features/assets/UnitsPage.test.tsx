@@ -429,4 +429,47 @@ describe('UnitsPage', () => {
     // header + 1 data row = 2 rows
     expect(dataRows).toHaveLength(2)
   })
+
+  it('hides prices quoted in a previous consolidation currency', async () => {
+    const USD = makeCurrency(2, 'USD')
+    // makeRate quotes every price from EUR, which is no longer the consolidation currency
+    setupMocks({ units: [GOLD], rates: [makeRate(1, '2025-01-15', 'GOLD', 5, -1)], consolidation: USD })
+    renderUnitsPage()
+
+    await waitFor(() => {
+      expect(screen.getByText('units.noPrices')).toBeInTheDocument()
+    })
+  })
+
+  it('clears the error banner after a later successful save', async () => {
+    const rates = [makeRate(1, '2025-01-15', 'GOLD', 5, -1)]
+    setupMocks({ units: [GOLD], rates })
+    ;(setFxRateManual as Mock).mockRejectedValueOnce(new Error('Save failed')).mockResolvedValueOnce(undefined)
+    const user = userEvent.setup()
+    renderUnitsPage()
+
+    await waitFor(() => {
+      expect(screen.getByText('0.5')).toBeInTheDocument()
+    })
+
+    await user.click(screen.getByText('0.5'))
+    let input = await screen.findByRole('textbox')
+    await user.clear(input)
+    await user.type(input, '4')
+    await user.keyboard('{Enter}')
+    await waitFor(() => {
+      expect(screen.getByText('Save failed')).toBeInTheDocument()
+    })
+
+    await user.click(screen.getByText('0.5'))
+    input = await screen.findByRole('textbox')
+    await user.clear(input)
+    await user.type(input, '6')
+    await user.keyboard('{Enter}')
+
+    await waitFor(() => {
+      expect(setFxRateManual).toHaveBeenCalledTimes(2)
+      expect(screen.queryByText('Save failed')).not.toBeInTheDocument()
+    })
+  })
 })

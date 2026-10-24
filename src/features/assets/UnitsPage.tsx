@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQueryClient } from '@tanstack/react-query'
 import type { FxRateRow, Currency } from '../../shared/types'
@@ -17,36 +17,25 @@ const UnitsPage = () => {
   const [editingCell, setEditingCell] = useState<{ date: string; code: string } | null>(null)
   const [editValue, setEditValue] = useState('')
 
-  const fetchData = () => Promise.all([listCustomUnits(), listFxRates(), getConsolidationCurrency()])
-
-  const applyData = ([u, r, c]: [Currency[], FxRateRow[], Currency]) => {
-    setUnits(u)
-    setRates(r)
-    setConsolidationCurrency(c)
-  }
-
-  const loadData = async () => {
-    try {
-      applyData(await fetchData())
-    } catch (err) {
-      setError(extractErrorMessage(err))
-    }
-  }
+  const loadData = useCallback(
+    () =>
+      Promise.all([listCustomUnits(), listFxRates(), getConsolidationCurrency()])
+        .then(([u, r, c]) => {
+          setUnits(u)
+          setRates(r)
+          setConsolidationCurrency(c)
+        })
+        .catch((err) => setError(extractErrorMessage(err))),
+    [],
+  )
 
   useEffect(() => {
-    fetchData()
-      .then(applyData)
-      .catch((err) => setError(extractErrorMessage(err)))
-  }, [])
+    void loadData()
+  }, [loadData])
 
-  const codeToId = new Map<string, number>([
-    ...(consolidationCurrency ? [[consolidationCurrency.code, consolidationCurrency.id] as [string, number]] : []),
-    ...units.map((u) => [u.code, u.id] as [string, number]),
-  ])
-
-  // Filter rates to only those involving custom units as toCurrency
+  // Only prices quoted in the current consolidation currency apply; rates from before a currency change stay in the database
   const unitCodes = new Set(units.map((u) => u.code))
-  const unitRates = rates.filter((r) => unitCodes.has(r.toCurrencyCode))
+  const unitRates = rates.filter((r) => r.fromCurrencyCode === consolidationCurrency?.code && unitCodes.has(r.toCurrencyCode))
 
   // Build pivot: dates × unit codes
   const dates = [...new Set(unitRates.map((r) => r.date))].sort((a, b) => b.localeCompare(a))
@@ -66,19 +55,19 @@ const UnitsPage = () => {
     setEditingCell(null)
     const trimmed = value.trim()
     if (!trimmed) return
+    setError(null)
     const parsed = parsePriceAsRate(trimmed)
     if (!parsed) {
       setError(t('units.invalidPrice'))
       return
     }
-    const fromId = consolidationCurrency ? codeToId.get(consolidationCurrency.code) : undefined
-    const toId = codeToId.get(code)
-    if (fromId == null || toId == null) {
+    const toId = units.find((u) => u.code === code)?.id
+    if (!consolidationCurrency || toId === undefined) {
       setError(t('fxRates.currencyNotFound'))
       return
     }
     try {
-      await setFxRateManual(fromId, toId, date, parsed.mantissa, parsed.exponent, true)
+      await setFxRateManual(consolidationCurrency.id, toId, date, parsed.mantissa, parsed.exponent, true)
       await loadData()
       await queryClient.invalidateQueries({ queryKey: ['snapshot'] })
       await queryClient.invalidateQueries({ queryKey: ['fx-rates'] })
