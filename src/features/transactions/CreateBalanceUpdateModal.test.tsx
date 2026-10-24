@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { SnapshotRow } from '../../shared/types'
+import { todayIso } from '../../shared/utils/format'
 import CreateBalanceUpdateModal from './CreateBalanceUpdateModal'
 
 vi.mock('react-i18next', () => {
@@ -84,10 +85,21 @@ describe('CreateBalanceUpdateModal', () => {
     await user.click(submitButton())
 
     await waitFor(() => expect(submitButton()).toBeDisabled())
-    expect(onSubmit).toHaveBeenCalledWith(1, 1250, expect.any(String), '')
+    expect(onSubmit).toHaveBeenCalledWith(1, 1250, `${todayIso()}T23:59:00`, '')
 
     finish()
     await waitFor(() => expect(submitButton()).toBeEnabled())
+  })
+
+  it('saves an untouched date with the time the date picker shows', async () => {
+    const user = userEvent.setup()
+    const { onSubmit } = renderModal()
+
+    expect(screen.getByTestId('date-picker')).toHaveValue(`${todayIso()}T23:59:00`)
+    await user.type(screen.getByLabelText('modals.createBalanceUpdate.amount'), '5')
+    await user.click(submitButton())
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith(1, 500, `${todayIso()}T23:59:00`, ''))
   })
 
   it('leaves closing to the handler after a bucket balance update is saved', async () => {

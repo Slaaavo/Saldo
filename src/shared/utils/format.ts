@@ -49,6 +49,12 @@ export const todayIso = (): string => {
   return `${y}-${m}-${d}`
 }
 
+// The time a DatePicker with `withTime` shows for a date-only value.
+export const DEFAULT_PICKER_TIME = '23:59'
+
+/** Gives a date-only string the DatePicker's default time, so an untouched date is stored with the time the picker shows. Datetimes pass through. */
+export const withDefaultTime = (value: string): string => (value.includes('T') ? value : `${value}T${DEFAULT_PICKER_TIME}:00`)
+
 export const toMinorUnits = (decimalStr: string, minorUnits: number): number => {
   return Math.round(parseFloat(decimalStr) * Math.pow(10, minorUnits))
 }

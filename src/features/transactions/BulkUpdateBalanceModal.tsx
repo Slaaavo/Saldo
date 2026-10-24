@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { ChevronDown, ChevronRight, Link2 } from 'lucide-react'
-import { toMinorUnits, getMinorUnitsStep } from '../../shared/utils/format'
+import { withDefaultTime, toMinorUnits, getMinorUnitsStep } from '../../shared/utils/format'
 import { extractErrorMessage } from '../../shared/utils/errors'
 import type { SnapshotRow } from '../../shared/types'
 import NumberValue from '../../shared/ui/NumberValue'
@@ -23,7 +23,7 @@ interface Props {
 
 const BulkUpdateBalanceModal = ({ accounts, selectedDate, exclusions, onSubmit, onClose }: Props) => {
   const { t } = useTranslation()
-  const [date, setDate] = useState(selectedDate)
+  const [date, setDate] = useState(withDefaultTime(selectedDate))
   const [note, setNote] = useState('')
   const [amounts, setAmounts] = useState<Record<number, string>>({})
   const [submitting, setSubmitting] = useState(false)

@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import type { SnapshotRow } from '../../shared/types'
-import { todayIso, toMinorUnits, getMinorUnitsStep } from '../../shared/utils/format'
+import { todayIso, withDefaultTime, toMinorUnits, getMinorUnitsStep } from '../../shared/utils/format'
 import { extractErrorMessage } from '../../shared/utils/errors'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogBody, DialogFooter } from '../../shared/ui/dialog'
 import { Button } from '../../shared/ui/button'
@@ -31,7 +31,7 @@ const CreateBalanceUpdateModal = ({ accounts, preselectedAccountId, onSubmit, on
     const a = accounts.find((acc) => acc.accountId === initialAccountId)
     return a?.accountType === 'bucket' ? '0' : ''
   })
-  const [date, setDate] = useState(todayIso())
+  const [date, setDate] = useState(withDefaultTime(todayIso()))
   const [note, setNote] = useState('')
   const [constraintError, setConstraintError] = useState<string | null>(null)
 

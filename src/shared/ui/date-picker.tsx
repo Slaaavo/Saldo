@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { CalendarIcon, X } from 'lucide-react'
 
 import { cn } from '@/shared/lib/utils'
-import { formatDisplayDate, todayIso } from '@/shared/utils/format'
+import { DEFAULT_PICKER_TIME, formatDisplayDate, todayIso } from '@/shared/utils/format'
 import { Button } from './button'
 import { Calendar } from './calendar'
 import { Label } from './label'
@@ -53,15 +53,24 @@ const parseTimePart = (value: string | undefined, defaultTime: string): { h: str
 const HOURS = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'))
 const MINUTES = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0'))
 
-export const DatePicker = ({ value, onChange, placeholder = 'Pick a date', id, className, clearable = false, withTime = false, defaultTime = '23:59' }: DatePickerProps) => {
+export const DatePicker = ({
+  value,
+  onChange,
+  placeholder = 'Pick a date',
+  id,
+  className,
+  clearable = false,
+  withTime = false,
+  defaultTime = DEFAULT_PICKER_TIME,
+}: DatePickerProps) => {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
 
   const selected = value ? parseDateOnly(value) : undefined
 
-  const { h: initH, m: initM } = parseTimePart(value, defaultTime)
-  const [hour, setHour] = useState(initH)
-  const [minute, setMinute] = useState(initM)
+  // The time follows `value` whenever it carries one; the local state only holds what was picked before a date exists.
+  const [pickedTime, setPickedTime] = useState(() => parseTimePart(value, defaultTime))
+  const { h: hour, m: minute } = value && value.length >= 16 ? parseTimePart(value, defaultTime) : pickedTime
 
   const handleDateSelect = (date: Date | undefined) => {
     if (!date) return
@@ -75,14 +84,14 @@ export const DatePicker = ({ value, onChange, placeholder = 'Pick a date', id, c
   }
 
   const handleHourChange = (h: string) => {
-    setHour(h)
+    setPickedTime({ h, m: minute })
     if (selected) {
       onChange(combineDateTime(selected, h, minute))
     }
   }
 
   const handleMinuteChange = (m: string) => {
-    setMinute(m)
+    setPickedTime({ h: hour, m })
     if (selected) {
       onChange(combineDateTime(selected, hour, m))
     }

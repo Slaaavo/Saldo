@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { formatAmount, formatDate, toEndOfDay, todayIso, formatDisplayDate, toMinorUnits, fromMinorUnits, getMinorUnitsStep } from './format'
+import { formatAmount, formatDate, toEndOfDay, todayIso, formatDisplayDate, withDefaultTime, toMinorUnits, fromMinorUnits, getMinorUnitsStep } from './format'
 
 describe('formatAmount', () => {
   it('formats zero', () => {
@@ -99,6 +99,16 @@ describe('formatDisplayDate', () => {
 
   it('formats December correctly', () => {
     expect(formatDisplayDate('2025-12-25')).toBe('25 December 2025')
+  })
+})
+
+describe('withDefaultTime', () => {
+  it('appends the date picker default time to a date-only value', () => {
+    expect(withDefaultTime('2026-03-01')).toBe('2026-03-01T23:59:00')
+  })
+
+  it('leaves a datetime unchanged', () => {
+    expect(withDefaultTime('2026-03-01T08:15:00')).toBe('2026-03-01T08:15:00')
   })
 })
 
