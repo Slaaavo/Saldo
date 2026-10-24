@@ -86,6 +86,12 @@ pub fn is_iso_date(date_str: &str) -> bool {
         .is_ok_and(|date| date.format("%Y-%m-%d").to_string() == date_str)
 }
 
+/// True only for a zero-padded `YYYY-MM-DDTHH:MM:SS` datetime (see `is_iso_date`).
+pub fn is_iso_datetime(datetime_str: &str) -> bool {
+    NaiveDateTime::parse_from_str(datetime_str, "%Y-%m-%dT%H:%M:%S")
+        .is_ok_and(|dt| dt.format("%Y-%m-%dT%H:%M:%S").to_string() == datetime_str)
+}
+
 pub fn validate_event_date(date_str: &str) -> Result<(), AppError> {
     if date_str.is_empty() {
         return Err(AppError {
@@ -94,16 +100,24 @@ pub fn validate_event_date(date_str: &str) -> Result<(), AppError> {
         });
     }
     // Accept both YYYY-MM-DD and YYYY-MM-DDTHH:MM:SS
-    if NaiveDate::parse_from_str(date_str, "%Y-%m-%d").is_ok() {
-        return Ok(());
-    }
-    if NaiveDateTime::parse_from_str(date_str, "%Y-%m-%dT%H:%M:%S").is_ok() {
+    if is_iso_date(date_str) || is_iso_datetime(date_str) {
         return Ok(());
     }
     Err(AppError {
         code: "VALIDATION".into(),
         message: "event_date must be a valid date in YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS format"
             .into(),
+    })
+}
+
+/// Validates a date-only `YYYY-MM-DD` value; `field` names it in the error message.
+pub fn validate_iso_date(date_str: &str, field: &str) -> Result<(), AppError> {
+    if is_iso_date(date_str) {
+        return Ok(());
+    }
+    Err(AppError {
+        code: "VALIDATION".into(),
+        message: format!("{field} must be a valid date in YYYY-MM-DD format"),
     })
 }
 
@@ -227,7 +241,35 @@ mod rounding_tests {
 
 #[cfg(test)]
 mod date_tests {
-    use super::is_iso_date;
+    use super::{is_iso_date, validate_event_date};
+
+    #[test]
+    fn validate_event_date_accepts_padded_dates_and_datetimes() {
+        for date in ["2027-01-09", "2027-01-09T07:05:03", "2028-02-29T23:59:59"] {
+            assert!(validate_event_date(date).is_ok(), "{date:?}");
+        }
+    }
+
+    #[test]
+    fn validate_event_date_rejects_unpadded_or_malformed_values() {
+        for date in [
+            "",
+            "2027-1-1",
+            "2027-01-1",
+            "2027-1-01",
+            "2027-1-1T00:00:00",
+            "2027-01-01T0:00:00",
+            "2027-01-01T00:0:00",
+            "2027-01-01T00:00:0",
+            "2027-01-01T00:00",
+            "2027-01-01 00:00:00",
+            "2027-01-01T00:00:00.000",
+            "2027-02-30",
+        ] {
+            let err = validate_event_date(date).unwrap_err();
+            assert_eq!(err.code, "VALIDATION", "{date:?}");
+        }
+    }
 
     #[test]
     fn is_iso_date_accepts_a_zero_padded_date() {
