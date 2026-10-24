@@ -48,6 +48,14 @@ describe('parseCsvFile', () => {
     })
   })
 
+  it('reads the header row with the delimiter detected for the whole file', async () => {
+    // Two data rows make papaparse pick ';' for the file, while the header line alone would pick ','
+    const file = new File(['A;B,,C\n1;2\n3;4'], 'test.csv', { type: 'text/csv' })
+    const result = await parseCsvFile(file)
+    expect(result.headers).toEqual(['A', 'B,,C'])
+    expect(result.rows[0]).toMatchObject({ A: '1', 'B,,C': '2' })
+  })
+
   it('normalizes single missing header', async () => {
     const file = new File([',Amount\nval1,val2'], 'test.csv', { type: 'text/csv' })
     const result = await parseCsvFile(file)
