@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef } from 'react'
 import { toast } from 'sonner'
-import type { EkasaWizardState, EkasaRuleDraft, EkasaProcessedItem, ProcessReceiptResult } from './types'
+import type { EkasaWizardState, EkasaRuleDraft, EkasaProcessedItem, OfflineReceiptData, ProcessReceiptResult } from './types'
 import { makeEmptyLeg } from '../transactions/splitLegDraft'
 import type { SplitLegDraft } from '../transactions/splitLegDraft'
 import { fromMinorUnits, bpsToPct, pctToBps } from '../../shared/utils/format'
@@ -66,6 +66,27 @@ interface ProfileSnapshot {
   defaultVatReclaimablePct: string
 }
 
+// Offline receipts carry no item detail, so the review step gets a single leg for the total.
+const reviewOfflineReceipt = (prev: EkasaWizardState, offline: OfflineReceiptData): EkasaWizardState => {
+  const leg: SplitLegDraft = {
+    ...makeEmptyLeg(offline.eventDate),
+    amount: fromMinorUnits(offline.totalAmountMinor, 2),
+    expenseDeductiblePct: prev.defaultDeductiblePct,
+    vatReclaimablePct: prev.defaultVatReclaimablePct,
+  }
+  return {
+    ...prev,
+    receiptData: null,
+    processedItems: [],
+    processedLegs: [leg],
+    receiptDate: offline.eventDate,
+    vendorName: '',
+    offlineFallback: offline,
+    isProcessing: false,
+    step: 'review',
+  }
+}
+
 const snapshotFromState = (s: EkasaWizardState): ProfileSnapshot => ({
   rules: s.rules.map((r) => ({ namePattern: r.namePattern, deductiblePct: r.deductiblePct, vatReclaimablePct: r.vatReclaimablePct })),
   defaultDeductiblePct: s.defaultDeductiblePct,
@@ -84,13 +105,16 @@ export const useEkasaImportWizard = () => {
       ...prev,
       filePath,
       isProcessing: true,
+      offlineFallback: null,
       step: 'rules',
     }))
     promise
       .then(() => {
+        if (processingRef.current !== promise) return
         setState((prev) => ({ ...prev, isProcessing: false }))
       })
       .catch((err) => {
+        if (processingRef.current !== promise) return
         setState((prev) => ({
           ...prev,
           receiptError: extractErrorMessage(err),
@@ -101,13 +125,21 @@ export const useEkasaImportWizard = () => {
   }, [])
 
   const handleRulesConfirm = useCallback(async () => {
+    const promise = processingRef.current
     let result: ProcessReceiptResult
     try {
-      if (!processingRef.current) throw new Error('No file selected')
-      result = await processingRef.current
+      if (!promise) throw new Error('No file selected')
+      result = await promise
     } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : String(err)
-      setState((prev) => ({ ...prev, receiptError: errorMsg, isProcessing: false, step: 'error' }))
+      if (processingRef.current !== promise) return
+      setState((prev) => ({ ...prev, receiptError: extractErrorMessage(err), isProcessing: false, step: 'error' }))
+      return
+    }
+    if (processingRef.current !== promise) return
+
+    if (result.offlineFallback && result.processedItems.length === 0) {
+      const offline = result.offlineFallback
+      setState((prev) => reviewOfflineReceipt(prev, offline))
       return
     }
 
@@ -144,28 +176,9 @@ export const useEkasaImportWizard = () => {
       step: 'upload',
       filePath: null,
       receiptError: null,
+      offlineFallback: null,
       isProcessing: false,
     }))
-  }, [])
-
-  const handleOfflineFallback = useCallback(() => {
-    setState((prev) => {
-      if (!prev.offlineFallback) return prev
-      const { eventDate, totalAmountMinor } = prev.offlineFallback
-      const leg: SplitLegDraft = {
-        ...makeEmptyLeg(eventDate),
-        amount: fromMinorUnits(totalAmountMinor, 2),
-        expenseDeductiblePct: prev.defaultDeductiblePct,
-        vatReclaimablePct: prev.defaultVatReclaimablePct,
-      }
-      return {
-        ...prev,
-        processedLegs: [leg],
-        receiptDate: eventDate,
-        vendorName: '',
-        step: 'review',
-      }
-    })
   }, [])
 
   const loadProfile = useCallback(async (personId: number) => {
@@ -238,7 +251,6 @@ export const useEkasaImportWizard = () => {
     handleRulesConfirm,
     handleBack,
     handleTryAgain,
-    handleOfflineFallback,
     loadProfile,
     saveProfile,
     handleImportComplete,

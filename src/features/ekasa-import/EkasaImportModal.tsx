@@ -33,7 +33,6 @@ const EkasaImportModal = ({ onClose }: Props) => {
     handleRulesConfirm: wizardHandleRulesConfirm,
     handleBack,
     handleTryAgain,
-    handleOfflineFallback,
     handleImportComplete,
     loadProfile,
     saveProfile,
@@ -132,11 +131,6 @@ const EkasaImportModal = ({ onClose }: Props) => {
                 <Button type="button" variant="outline" onClick={handleTryAgain}>
                   {t('ekasaImport.errorStep.tryAgain')}
                 </Button>
-                {state.offlineFallback !== null && (
-                  <Button type="button" onClick={handleOfflineFallback}>
-                    {t('ekasaImport.errorStep.continuePartial')}
-                  </Button>
-                )}
               </div>
             </div>
           )}
