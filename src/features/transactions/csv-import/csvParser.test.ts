@@ -198,6 +198,22 @@ describe('parseAmount', () => {
   it('returns null for just a minus sign', () => {
     expect(parseAmount('-')).toBeNull()
   })
+
+  it('parses a trailing minus as negative: 45,00-', () => {
+    expect(parseAmount('45,00-')).toBe(-45)
+  })
+
+  it('parses parentheses as negative: (45.00)', () => {
+    expect(parseAmount('(45.00)')).toBe(-45)
+  })
+
+  it('parses the Unicode minus sign: −1 234,56', () => {
+    expect(parseAmount('−1 234,56')).toBe(-1234.56)
+  })
+
+  it('returns null for empty parentheses', () => {
+    expect(parseAmount('()')).toBeNull()
+  })
 })
 
 describe('parseDateString', () => {
@@ -251,5 +267,21 @@ describe('parseDateString', () => {
 
   it('returns null for YYYYMMDD with invalid day', () => {
     expect(parseDateString('20260132')).toBeNull()
+  })
+
+  it('returns null for a day past the end of the month: 31.02.2024', () => {
+    expect(parseDateString('31.02.2024')).toBeNull()
+    expect(parseDateString('2025-04-31')).toBeNull()
+  })
+
+  it('accepts 29 February only in a leap year', () => {
+    expect(parseDateString('29.02.2024')).toBe('2024-02-29T12:00:00')
+    expect(parseDateString('29.02.2025')).toBeNull()
+  })
+
+  it('ignores a time suffix: 2024-03-15 10:22:33', () => {
+    expect(parseDateString('2024-03-15 10:22:33')).toBe('2024-03-15T12:00:00')
+    expect(parseDateString('2024-03-15T10:22:33')).toBe('2024-03-15T12:00:00')
+    expect(parseDateString('15.03.2024 10:22')).toBe('2024-03-15T12:00:00')
   })
 })

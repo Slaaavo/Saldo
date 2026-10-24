@@ -52,6 +52,7 @@ export interface WizardState {
   selectedAccountId: number | null
   columnMapping: ColumnMapping
   importRows: ImportRow[]
+  unparseableRowCount: number
   importing: boolean
   rules: ImportRule[]
   loadedProfile: ImportProfileRow | null

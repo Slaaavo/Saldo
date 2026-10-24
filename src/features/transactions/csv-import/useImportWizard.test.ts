@@ -149,6 +149,15 @@ describe('useImportWizard', () => {
     setupMocks()
   })
 
+  describe('review', () => {
+    it('counts rows dropped for an unparseable date or amount', async () => {
+      const { result } = await renderAtReview('Date,Amount\n2026-03-01,-10.00\n31.02.2026,-5.00\n2026-03-02,n/a')
+
+      expect(result.current.wizardState.importRows).toHaveLength(1)
+      expect(result.current.wizardState.unparseableRowCount).toBe(2)
+    })
+  })
+
   describe('import', () => {
     it('reports a split that has only one leg', async () => {
       const { result } = await renderAtReview('Date,Amount\n2026-03-01,-50.00')

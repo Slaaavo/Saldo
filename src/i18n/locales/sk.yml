@@ -565,6 +565,7 @@ import:
   reviewStep:
     title: "Kontrola a import"
     summary: "{{total}} riadkov spracovaných, {{duplicates}} možných duplikátov"
+    unparseableRows: "Preskočené riadky: {{count}} (nepodarilo sa načítať dátum alebo sumu)"
     balanceWarning: "Aktualizácia zostatku existuje k {{dates}}"
     selectAll: "Vybrať všetko"
     deselectAll: "Zrušiť výber"

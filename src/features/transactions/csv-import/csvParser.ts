@@ -94,10 +94,24 @@ export const autoDetectMapping = (headers: string[]): ColumnMapping => {
 }
 
 export const parseAmount = (raw: string): number | null => {
-  // Strip currency symbols, spaces, and leading plus signs
-  const cleaned = raw.replace(/[€$£¥₹\s+]/g, '')
+  // Strip currency symbols, spaces, and leading plus signs; normalise the Unicode minus sign
+  let cleaned = raw.replace(/[€$£¥₹\s+]/g, '').replace(/−/g, '-')
 
-  if (cleaned === '' || cleaned === '-') return null
+  // Accounting notations for negatives: "(45.00)", "45,00-" and the usual "-45.00"
+  let negative = false
+  if (cleaned.startsWith('(') && cleaned.endsWith(')')) {
+    negative = true
+    cleaned = cleaned.slice(1, -1)
+  }
+  if (cleaned.endsWith('-')) {
+    negative = true
+    cleaned = cleaned.slice(0, -1)
+  } else if (cleaned.startsWith('-')) {
+    negative = true
+    cleaned = cleaned.slice(1)
+  }
+
+  if (cleaned === '') return null
 
   const lastComma = cleaned.lastIndexOf(',')
   const lastDot = cleaned.lastIndexOf('.')
@@ -111,12 +125,13 @@ export const parseAmount = (raw: string): number | null => {
     // US format: 1,234.56 — dot is decimal separator
     normalized = cleaned.replace(/,/g, '')
   } else {
-    // No separators at all (e.g., "1234" or "-45")
+    // No separators at all (e.g., "1234")
     normalized = cleaned
   }
 
   const value = parseFloat(normalized)
-  return isNaN(value) ? null : value
+  if (isNaN(value)) return null
+  return negative ? -value : value
 }
 
 const DATE_PATTERNS: Array<{
@@ -153,16 +168,18 @@ const DATE_PATTERNS: Array<{
 export const parseDateString = (raw: string): string | null => {
   if (!raw || raw.trim() === '') return null
 
-  const trimmed = raw.trim()
+  // Bank exports often append a time ("2024-03-15 10:22:33"); only the date part is used
+  const datePart = raw.trim().replace(/[ T]\d{1,2}:\d{2}(:\d{2}(\.\d+)?)?$/, '')
 
   for (const { regex, parse } of DATE_PATTERNS) {
-    const match = trimmed.match(regex)
+    const match = datePart.match(regex)
     if (!match) continue
 
     const [year, month, day] = parse(match)
 
     if (month < 1 || month > 12) return null
-    if (day < 1 || day > 31) return null
+    const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate()
+    if (day < 1 || day > daysInMonth) return null
 
     const yyyy = String(year).padStart(4, '0')
     const mm = String(month).padStart(2, '0')

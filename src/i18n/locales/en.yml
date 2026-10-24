@@ -588,6 +588,7 @@ import:
   reviewStep:
     title: "Review & Import"
     summary: "{{total}} rows parsed, {{duplicates}} possible duplicates"
+    unparseableRows: "Skipped rows: {{count}} (the date or amount could not be read)"
     balanceWarning: "Balance update exists on {{dates}}"
     selectAll: "Select All"
     deselectAll: "Deselect All"

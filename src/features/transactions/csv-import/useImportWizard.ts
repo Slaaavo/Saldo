@@ -42,6 +42,7 @@ const INITIAL_WIZARD_STATE: WizardState = {
   selectedAccountId: null,
   columnMapping: { ...INITIAL_COLUMN_MAPPING },
   importRows: [],
+  unparseableRowCount: 0,
   importing: false,
   rules: [],
   loadedProfile: null,
@@ -270,6 +271,7 @@ export const useImportWizard = (params: { snapshot: SnapshotRow[]; onClose: () =
     }
 
     const importRows: ImportRow[] = []
+    let unparseableRowCount = 0
     const transformedRows = applyRules(csvRows, rules, columnMapping)
 
     const nearDateTransferCandidates = cashflowEvents.filter((e) => e.eventType === 'transfer' && e.splitGroupId === null)
@@ -285,7 +287,10 @@ export const useImportWizard = (params: { snapshot: SnapshotRow[]; onClose: () =
 
       const parsedDate = csvRow.__overrideDateString ?? parseDateString(rawDate)
       const parsedAmount = parseAmount(rawAmount)
-      if (!parsedDate || parsedAmount === null) continue
+      if (!parsedDate || parsedAmount === null) {
+        unparseableRowCount++
+        continue
+      }
 
       let amountMinor = toMinorUnits(String(parsedAmount), selectedAccountMinorUnits)
       if (csvRow.__negateAmount) amountMinor = -amountMinor
@@ -375,7 +380,7 @@ export const useImportWizard = (params: { snapshot: SnapshotRow[]; onClose: () =
     const warnings = [...csvDateSet].filter((d) => balanceUpdateDateSet.has(d))
 
     setBalanceWarningDates(warnings)
-    setWizardState((prev) => ({ ...prev, step: 'review', importRows }))
+    setWizardState((prev) => ({ ...prev, step: 'review', importRows, unparseableRowCount }))
   }, [wizardState, existingEvents, ibanLookup, currencies, selectedAccountCurrencyCode, selectedAccountMinorUnits])
 
   // ── Step 3 actions ──────────────────────────────────────────────────────────

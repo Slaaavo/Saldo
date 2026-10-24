@@ -13,6 +13,7 @@ import { SplitEditorPanel } from './SplitEditorPanel'
 
 export interface ReviewStepProps {
   importRows: ImportRow[]
+  unparseableRowCount: number
   selectedCount: number
   duplicateCount: number
   nearDateSkippedCount: number
@@ -62,6 +63,7 @@ const ReviewTableColGroup = () => {
 
 const ReviewStep = ({
   importRows,
+  unparseableRowCount,
   selectedCount,
   duplicateCount,
   nearDateSkippedCount,
@@ -125,6 +127,12 @@ const ReviewStep = ({
     <>
       <div className="flex flex-col gap-3 min-h-0">
         <p className="text-sm text-muted-foreground">{t('import.reviewStep.summary', { total, duplicates: duplicateCount })}</p>
+
+        {unparseableRowCount > 0 && (
+          <div className="rounded-md border border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950 p-3 text-sm text-amber-800 dark:text-amber-200">
+            {t('import.reviewStep.unparseableRows', { count: unparseableRowCount })}
+          </div>
+        )}
 
         {balanceWarningDates.length > 0 && (
           <div className="rounded-md border border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950 p-3 text-sm text-blue-800 dark:text-blue-200">

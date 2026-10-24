@@ -110,6 +110,7 @@ const CsvImportModal = ({ snapshot, onClose, onSuccess }: CsvImportModalProps) =
           {wizardState.step === 'review' && (
             <ReviewStep
               importRows={wizardState.importRows}
+              unparseableRowCount={wizardState.unparseableRowCount}
               selectedCount={selectedCount}
               duplicateCount={duplicateCount}
               nearDateSkippedCount={nearDateSkippedCount}
