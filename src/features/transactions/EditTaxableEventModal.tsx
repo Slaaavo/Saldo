@@ -277,7 +277,7 @@ const EditTaxableEventModal = ({ event, onClose }: Props) => {
               {personId !== null && (
                 <CashflowPicker
                   personId={personId}
-                  eligibleAmountMinor={isExpense ? -event.amountMinor : event.amountMinor}
+                  eligibleAmountMinor={isExpense || isPrepaidExpense ? -event.amountMinor : event.amountMinor}
                   onLink={handleLink}
                   currencyMinorUnits={minorUnits}
                   currencyCode={event.currencyCode}
