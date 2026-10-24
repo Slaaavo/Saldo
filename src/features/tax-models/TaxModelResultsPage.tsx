@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../../shared/ui/card'
 import NumberValue from '../../shared/ui/NumberValue'
 import { getTaxModel, calculateTaxModel } from '../../shared/api'
 import { usePageTitle } from '../../app/usePageHeader'
+import { useConsolidationCurrencyQuery } from '../../shared/hooks/useConsolidationCurrencyQuery'
 import type { TaxEventBreakdown } from '../../shared/types'
 
 const TaxModelResultsPage = () => {
@@ -28,9 +29,13 @@ const TaxModelResultsPage = () => {
     staleTime: 0,
   })
 
+  const { data: consolidationCurrency, isLoading: isCurrencyLoading } = useConsolidationCurrencyQuery()
+  const minorUnits = consolidationCurrency?.minorUnits ?? 2
+  const currencyCode = consolidationCurrency?.code
+
   usePageTitle(model != null ? `${model.name} – ${model.calendarYear}` : t('taxModels.resultsTitle'))
 
-  if (isLoading || isResultFetching) return null
+  if (isLoading || isResultFetching || isCurrencyLoading) return null
 
   const isLegal = result?.personType === 'legal'
   const hasNoEvents = result != null && result.eventBreakdowns.length === 0
@@ -74,58 +79,61 @@ const TaxModelResultsPage = () => {
               <div className="text-sm">
                 <div className="flex justify-between py-2 border-b border-border">
                   <span>{t('taxModels.totalIncome')}</span>
-                  <NumberValue value={result?.totalIncomeMinor ?? 0} minorUnits={2} />
+                  <NumberValue value={result?.totalIncomeMinor ?? 0} minorUnits={minorUnits} currencyCode={currencyCode} />
                 </div>
                 <div className="flex justify-between py-2 border-b border-border">
                   <span>{t('taxModels.deductibleExpenses')}</span>
-                  <NumberValue value={result?.totalTaxDeductibleExpensesMinor ?? 0} minorUnits={2} />
+                  <NumberValue value={result?.totalTaxDeductibleExpensesMinor ?? 0} minorUnits={minorUnits} currencyCode={currencyCode} />
                 </div>
                 <div className="flex justify-between py-2 border-b border-border">
                   <span>{t('taxModels.grossProfit')}</span>
-                  <NumberValue value={result?.taxBasisMinor ?? 0} minorUnits={2} />
+                  <NumberValue value={result?.taxBasisMinor ?? 0} minorUnits={minorUnits} currencyCode={currencyCode} />
                 </div>
                 <div className="flex justify-between py-2 border-b border-border">
                   <span>{t('taxModels.totalTax')}</span>
-                  <NumberValue value={result?.taxAmountMinor ?? 0} minorUnits={2} />
+                  <NumberValue value={result?.taxAmountMinor ?? 0} minorUnits={minorUnits} currencyCode={currencyCode} />
                 </div>
                 <div className="flex justify-between py-2 border-b border-border">
                   <span>{t('taxModels.nonDeductibleExpenses')}</span>
-                  <NumberValue value={result?.totalNonTaxDeductibleExpensesMinor ?? 0} minorUnits={2} />
+                  <NumberValue value={result?.totalNonTaxDeductibleExpensesMinor ?? 0} minorUnits={minorUnits} currencyCode={currencyCode} />
                 </div>
                 <div className="flex justify-between py-2 border-b border-border">
                   <span>{t('taxModels.netProfit')}</span>
-                  <NumberValue value={result?.totalProfitMinor ?? 0} minorUnits={2} />
+                  <NumberValue value={result?.totalProfitMinor ?? 0} minorUnits={minorUnits} currencyCode={currencyCode} />
                 </div>
                 {isLegal && (
                   <>
                     <div className="flex justify-between py-2 border-b border-border">
                       <span>{t('taxModels.reserveFundAllocation')}</span>
-                      <NumberValue value={result?.reserveFundGenerationMinor ?? 0} minorUnits={2} />
+                      <NumberValue value={result?.reserveFundGenerationMinor ?? 0} minorUnits={minorUnits} currencyCode={currencyCode} />
                     </div>
                     <div className="flex justify-between py-2 border-b border-border">
                       <span>{t('taxModels.dividendAmount')}</span>
-                      <NumberValue value={result?.dividendMinor ?? 0} minorUnits={2} />
+                      <NumberValue value={result?.dividendMinor ?? 0} minorUnits={minorUnits} currencyCode={currencyCode} />
                     </div>
                     <div className="flex justify-between py-2 border-b border-border">
                       <span>{t('taxModels.withholdingTax')}</span>
-                      <NumberValue value={result?.withholdingTaxMinor ?? 0} minorUnits={2} />
+                      <NumberValue value={result?.withholdingTaxMinor ?? 0} minorUnits={minorUnits} currencyCode={currencyCode} />
                     </div>
                     <div className="flex justify-between py-2 border-b border-border">
                       <span>{t('taxModels.netDividend')}</span>
-                      <NumberValue value={result?.netDividendMinor ?? 0} minorUnits={2} />
+                      <NumberValue value={result?.netDividendMinor ?? 0} minorUnits={minorUnits} currencyCode={currencyCode} />
                     </div>
                   </>
                 )}
                 <div className="flex justify-between py-2 border-border">
                   <span>{t('taxModels.monthlyTaxBurden')}</span>
-                  <NumberValue value={result?.monthlyTaxBurdenMinor ?? 0} minorUnits={2} />
+                  <NumberValue value={result?.monthlyTaxBurdenMinor ?? 0} minorUnits={minorUnits} currencyCode={currencyCode} />
                 </div>
               </div>
             </CardContent>
           </Card>
 
           <details className="mt-6 text-sm">
-            <summary className="cursor-pointer select-none text-muted-foreground hover:text-foreground py-2">{t('taxModels.breakdownSection')}</summary>
+            <summary className="cursor-pointer select-none text-muted-foreground hover:text-foreground py-2">
+              {t('taxModels.breakdownSection')}
+              {currencyCode && ` (${currencyCode})`}
+            </summary>
             <div className="mt-3 overflow-x-auto">
               <table className="w-full text-xs border-collapse whitespace-nowrap">
                 <thead>
@@ -155,22 +163,22 @@ const TaxModelResultsPage = () => {
                           <td className="py-1.5 pr-3 text-muted-foreground max-w-[12rem] truncate">{row.note ?? ''}</td>
                           <td className="py-1.5 pr-3 whitespace-nowrap">{t('taxModels.revenueGroup')}</td>
                           <td className="py-1.5 pr-3 text-right">
-                            <NumberValue value={row.amountMinor} minorUnits={2} />
+                            <NumberValue value={row.amountMinor} minorUnits={minorUnits} />
                           </td>
                           <td className="py-1.5 pr-3 text-right">
-                            <NumberValue value={row.netAmountMinor} minorUnits={2} />
+                            <NumberValue value={row.netAmountMinor} minorUnits={minorUnits} />
                           </td>
                           <td className="py-1.5 pr-3 text-right">
-                            <NumberValue value={row.vatAmountMinor} minorUnits={2} />
+                            <NumberValue value={row.vatAmountMinor} minorUnits={minorUnits} />
                           </td>
                           <td className="py-1.5 pr-3 text-right">
-                            <NumberValue value={row.reclaimableVatMinor} minorUnits={2} />
+                            <NumberValue value={row.reclaimableVatMinor} minorUnits={minorUnits} />
                           </td>
                           <td className="py-1.5 pr-3 text-right">
-                            <NumberValue value={row.taxDeductibleCostMinor} minorUnits={2} />
+                            <NumberValue value={row.taxDeductibleCostMinor} minorUnits={minorUnits} />
                           </td>
                           <td className="py-1.5 text-right">
-                            <NumberValue value={row.nonTaxDeductibleCostMinor} minorUnits={2} />
+                            <NumberValue value={row.nonTaxDeductibleCostMinor} minorUnits={minorUnits} />
                           </td>
                         </tr>
                       ))}
@@ -179,22 +187,22 @@ const TaxModelResultsPage = () => {
                           {t('taxModels.breakdownTotal')}
                         </td>
                         <td className="py-1.5 pr-3 text-right">
-                          <NumberValue value={revenueTotals.amountMinor} minorUnits={2} />
+                          <NumberValue value={revenueTotals.amountMinor} minorUnits={minorUnits} />
                         </td>
                         <td className="py-1.5 pr-3 text-right">
-                          <NumberValue value={revenueTotals.netAmountMinor} minorUnits={2} />
+                          <NumberValue value={revenueTotals.netAmountMinor} minorUnits={minorUnits} />
                         </td>
                         <td className="py-1.5 pr-3 text-right">
-                          <NumberValue value={revenueTotals.vatAmountMinor} minorUnits={2} />
+                          <NumberValue value={revenueTotals.vatAmountMinor} minorUnits={minorUnits} />
                         </td>
                         <td className="py-1.5 pr-3 text-right">
-                          <NumberValue value={revenueTotals.reclaimableVatMinor} minorUnits={2} />
+                          <NumberValue value={revenueTotals.reclaimableVatMinor} minorUnits={minorUnits} />
                         </td>
                         <td className="py-1.5 pr-3 text-right">
-                          <NumberValue value={revenueTotals.taxDeductibleCostMinor} minorUnits={2} />
+                          <NumberValue value={revenueTotals.taxDeductibleCostMinor} minorUnits={minorUnits} />
                         </td>
                         <td className="py-1.5 text-right">
-                          <NumberValue value={revenueTotals.nonTaxDeductibleCostMinor} minorUnits={2} />
+                          <NumberValue value={revenueTotals.nonTaxDeductibleCostMinor} minorUnits={minorUnits} />
                         </td>
                       </tr>
                     </>
@@ -212,22 +220,22 @@ const TaxModelResultsPage = () => {
                           <td className="py-1.5 pr-3 text-muted-foreground max-w-[12rem] truncate">{row.note ?? ''}</td>
                           <td className="py-1.5 pr-3 whitespace-nowrap">{t('taxModels.expenseGroup')}</td>
                           <td className="py-1.5 pr-3 text-right">
-                            <NumberValue value={row.amountMinor} minorUnits={2} />
+                            <NumberValue value={row.amountMinor} minorUnits={minorUnits} />
                           </td>
                           <td className="py-1.5 pr-3 text-right">
-                            <NumberValue value={row.netAmountMinor} minorUnits={2} />
+                            <NumberValue value={row.netAmountMinor} minorUnits={minorUnits} />
                           </td>
                           <td className="py-1.5 pr-3 text-right">
-                            <NumberValue value={row.vatAmountMinor} minorUnits={2} />
+                            <NumberValue value={row.vatAmountMinor} minorUnits={minorUnits} />
                           </td>
                           <td className="py-1.5 pr-3 text-right">
-                            <NumberValue value={row.reclaimableVatMinor} minorUnits={2} />
+                            <NumberValue value={row.reclaimableVatMinor} minorUnits={minorUnits} />
                           </td>
                           <td className="py-1.5 pr-3 text-right">
-                            <NumberValue value={row.taxDeductibleCostMinor} minorUnits={2} />
+                            <NumberValue value={row.taxDeductibleCostMinor} minorUnits={minorUnits} />
                           </td>
                           <td className="py-1.5 text-right">
-                            <NumberValue value={row.nonTaxDeductibleCostMinor} minorUnits={2} />
+                            <NumberValue value={row.nonTaxDeductibleCostMinor} minorUnits={minorUnits} />
                           </td>
                         </tr>
                       ))}
@@ -236,22 +244,22 @@ const TaxModelResultsPage = () => {
                           {t('taxModels.breakdownTotal')}
                         </td>
                         <td className="py-1.5 pr-3 text-right">
-                          <NumberValue value={expenseTotals.amountMinor} minorUnits={2} />
+                          <NumberValue value={expenseTotals.amountMinor} minorUnits={minorUnits} />
                         </td>
                         <td className="py-1.5 pr-3 text-right">
-                          <NumberValue value={expenseTotals.netAmountMinor} minorUnits={2} />
+                          <NumberValue value={expenseTotals.netAmountMinor} minorUnits={minorUnits} />
                         </td>
                         <td className="py-1.5 pr-3 text-right">
-                          <NumberValue value={expenseTotals.vatAmountMinor} minorUnits={2} />
+                          <NumberValue value={expenseTotals.vatAmountMinor} minorUnits={minorUnits} />
                         </td>
                         <td className="py-1.5 pr-3 text-right">
-                          <NumberValue value={expenseTotals.reclaimableVatMinor} minorUnits={2} />
+                          <NumberValue value={expenseTotals.reclaimableVatMinor} minorUnits={minorUnits} />
                         </td>
                         <td className="py-1.5 pr-3 text-right">
-                          <NumberValue value={expenseTotals.taxDeductibleCostMinor} minorUnits={2} />
+                          <NumberValue value={expenseTotals.taxDeductibleCostMinor} minorUnits={minorUnits} />
                         </td>
                         <td className="py-1.5 text-right">
-                          <NumberValue value={expenseTotals.nonTaxDeductibleCostMinor} minorUnits={2} />
+                          <NumberValue value={expenseTotals.nonTaxDeductibleCostMinor} minorUnits={minorUnits} />
                         </td>
                       </tr>
                     </>

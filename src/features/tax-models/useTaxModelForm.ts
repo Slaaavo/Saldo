@@ -6,6 +6,7 @@ import { toast } from 'sonner'
 import { createTaxModel, updateTaxModel, type BracketInput } from '../../shared/api'
 import { toMinorUnits, fromMinorUnits, pctToBps, bpsToPct } from '../../shared/utils/format'
 import { extractErrorMessage } from '../../shared/utils/errors'
+import { useConsolidationCurrencyQuery } from '../../shared/hooks/useConsolidationCurrencyQuery'
 import type { PersonRow, TaxModelDetail } from '../../shared/types'
 import type { BracketFormState, TierFormState } from './BracketEditor'
 
@@ -37,14 +38,14 @@ const defaultFormState = (): FormState => ({
   brackets: [{ upperBoundMinor: '', rateType: 'flat', flatRateBps: '', tiers: [] }],
 })
 
-const formStateFromModel = (model: TaxModelDetail): FormState => {
+const formStateFromModel = (model: TaxModelDetail, minorUnits: number): FormState => {
   const parsedBrackets: BracketFormState[] = model.brackets.map((b, i, arr) => {
     let tiers: TierFormState[] = []
     if (b.rateType === 'progressive' && b.tiersJson) {
       try {
         const rawTiers = JSON.parse(b.tiersJson) as { thresholdMinor: number; rateBps: number }[]
         tiers = rawTiers.map((t) => ({
-          thresholdMinor: fromMinorUnits(t.thresholdMinor, 2),
+          thresholdMinor: fromMinorUnits(t.thresholdMinor, minorUnits),
           rateBps: bpsToPct(t.rateBps),
         }))
       } catch {
@@ -52,7 +53,7 @@ const formStateFromModel = (model: TaxModelDetail): FormState => {
       }
     }
     return {
-      upperBoundMinor: i < arr.length - 1 ? fromMinorUnits(arr[i + 1].lowerBoundMinor, 2) : '',
+      upperBoundMinor: i < arr.length - 1 ? fromMinorUnits(arr[i + 1].lowerBoundMinor, minorUnits) : '',
       rateType: b.rateType as 'flat' | 'progressive',
       flatRateBps: b.flatRateBps !== null ? bpsToPct(b.flatRateBps) : '',
       tiers,
@@ -65,9 +66,9 @@ const formStateFromModel = (model: TaxModelDetail): FormState => {
     personId: model.personId,
     vatStatus: model.vatStatus as 'none' | 'all_year' | 'from_date',
     vatFromDate: model.vatFromDate ?? '',
-    reserveFundCurrentMinor: model.reserveFundCurrentMinor !== null ? fromMinorUnits(model.reserveFundCurrentMinor, 2) : '',
+    reserveFundCurrentMinor: model.reserveFundCurrentMinor !== null ? fromMinorUnits(model.reserveFundCurrentMinor, minorUnits) : '',
     reserveFundPctBps: model.reserveFundPctBps !== null ? bpsToPct(model.reserveFundPctBps) : '',
-    reserveFundMaxMinor: model.reserveFundMaxMinor !== null ? fromMinorUnits(model.reserveFundMaxMinor, 2) : '',
+    reserveFundMaxMinor: model.reserveFundMaxMinor !== null ? fromMinorUnits(model.reserveFundMaxMinor, minorUnits) : '',
     dividendTaxRateBps: model.dividendTaxRateBps !== null ? bpsToPct(model.dividendTaxRateBps) : '',
     brackets: parsedBrackets.length > 0 ? parsedBrackets : [{ upperBoundMinor: '', rateType: 'flat', flatRateBps: '', tiers: [] }],
   }
@@ -78,13 +79,20 @@ export const useTaxModelForm = (modelId: number | undefined, persons: PersonRow[
   const navigate = useNavigate()
   const queryClient = useQueryClient()
 
-  const [form, setForm] = useState<FormState>(() => (initialData ? formStateFromModel(initialData) : defaultFormState()))
+  const { data: consolidationCurrency } = useConsolidationCurrencyQuery()
+  const minorUnits = consolidationCurrency?.minorUnits ?? 2
+  const currencyCode = consolidationCurrency?.code
 
+  const [form, setForm] = useState<FormState>(() => (initialData ? formStateFromModel(initialData, minorUnits) : defaultFormState()))
+
+  // The amount fields hold decimal strings, so they are re-derived when the model or the currency's minor units change.
   const [prevInitialData, setPrevInitialData] = useState(initialData)
-  if (initialData !== prevInitialData) {
+  const [prevMinorUnits, setPrevMinorUnits] = useState(minorUnits)
+  if (initialData !== prevInitialData || minorUnits !== prevMinorUnits) {
     setPrevInitialData(initialData)
+    setPrevMinorUnits(minorUnits)
     if (initialData) {
-      setForm(formStateFromModel(initialData))
+      setForm(formStateFromModel(initialData, minorUnits))
     }
   }
 
@@ -153,7 +161,7 @@ export const useTaxModelForm = (modelId: number | undefined, persons: PersonRow[
             toast.error(t('taxModels.validation.tierFieldsRequired', { bracket: bracketNum, tier: tierIndex + 1 }))
             return
           }
-          const thresholdMinor = toMinorUnits(tier.thresholdMinor, 2)
+          const thresholdMinor = toMinorUnits(tier.thresholdMinor, minorUnits)
           const rateBps = pctToBps(tier.rateBps)
           if (Number.isNaN(thresholdMinor) || rateBps === null) {
             toast.error(t('taxModels.validation.tierFieldsInvalid', { bracket: bracketNum, tier: tierIndex + 1 }))
@@ -175,7 +183,7 @@ export const useTaxModelForm = (modelId: number | undefined, persons: PersonRow[
       }
 
       if (!isLast) {
-        upperBoundMinor = toMinorUnits(bracket.upperBoundMinor, 2)
+        upperBoundMinor = toMinorUnits(bracket.upperBoundMinor, minorUnits)
         if (Number.isNaN(upperBoundMinor)) {
           toast.error(t('taxModels.validation.upperBoundInvalid', { bracket: bracketNum }))
           return
@@ -201,9 +209,9 @@ export const useTaxModelForm = (modelId: number | undefined, persons: PersonRow[
         personId,
         vatStatus: form.vatStatus,
         vatFromDate: form.vatStatus === 'from_date' ? form.vatFromDate : null,
-        reserveFundCurrentMinor: form.reserveFundCurrentMinor ? toMinorUnits(form.reserveFundCurrentMinor, 2) : null,
+        reserveFundCurrentMinor: form.reserveFundCurrentMinor ? toMinorUnits(form.reserveFundCurrentMinor, minorUnits) : null,
         reserveFundPctBps: form.reserveFundPctBps ? (pctToBps(form.reserveFundPctBps) ?? null) : null,
-        reserveFundMaxMinor: form.reserveFundMaxMinor ? toMinorUnits(form.reserveFundMaxMinor, 2) : null,
+        reserveFundMaxMinor: form.reserveFundMaxMinor ? toMinorUnits(form.reserveFundMaxMinor, minorUnits) : null,
         dividendTaxRateBps: form.dividendTaxRateBps ? (pctToBps(form.dividendTaxRateBps) ?? null) : null,
         brackets,
       }
@@ -246,6 +254,8 @@ export const useTaxModelForm = (modelId: number | undefined, persons: PersonRow[
     brackets: form.brackets,
     setBrackets: set('brackets'),
     selectedPersonType,
+    minorUnits,
+    currencyCode,
     handleSave,
   }
 }

@@ -199,7 +199,8 @@ describe('useTaxModelForm', () => {
 
     it('reloads an existing model in the right units when the currency arrives after the model', async () => {
       ;(getConsolidationCurrency as Mock).mockResolvedValue(JPY)
-      const { result } = renderHook(() => useTaxModelForm(7, [PHYSICAL], makeModel()), { wrapper: makeWrapper(makeQueryClient()) })
+      const model = makeModel()
+      const { result } = renderHook(() => useTaxModelForm(7, [PHYSICAL], model), { wrapper: makeWrapper(makeQueryClient()) })
 
       await waitFor(() => expect(result.current.brackets[0].upperBoundMinor).toBe('4000000'))
     })

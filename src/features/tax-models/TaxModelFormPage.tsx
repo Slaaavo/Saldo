@@ -13,6 +13,7 @@ import BracketEditor from './BracketEditor'
 import { useTaxModelForm } from './useTaxModelForm'
 import { listPersons, getTaxModel } from '../../shared/api'
 import { usePageTitle } from '../../app/usePageHeader'
+import { fromMinorUnits, getMinorUnitsStep } from '../../shared/utils/format'
 
 const TaxModelFormPage = () => {
   const { t } = useTranslation()
@@ -55,6 +56,8 @@ const TaxModelFormPage = () => {
     brackets,
     setBrackets,
     selectedPersonType,
+    minorUnits,
+    currencyCode,
     handleSave,
   } = useTaxModelForm(modelId, persons, modelData)
 
@@ -109,7 +112,7 @@ const TaxModelFormPage = () => {
               <CardTitle className="text-base">{t('taxModels.taxSettings')}</CardTitle>
             </CardHeader>
             <CardContent>
-              <BracketEditor brackets={brackets} onBracketsChange={setBrackets} />
+              <BracketEditor brackets={brackets} onBracketsChange={setBrackets} minorUnits={minorUnits} currencyCode={currencyCode} />
             </CardContent>
           </Card>
 
@@ -124,11 +127,12 @@ const TaxModelFormPage = () => {
                   <Label className="text-sm mb-1 block">{t('taxModels.reserveFundCurrent')}</Label>
                   <CurrencyInput
                     type="number"
-                    step="0.01"
+                    step={getMinorUnitsStep(minorUnits)}
                     min="0"
+                    currencyCode={currencyCode}
                     value={reserveFundCurrentMinor}
                     onChange={(e) => setReserveFundCurrentMinor(e.target.value)}
-                    placeholder="0.00"
+                    placeholder={fromMinorUnits(0, minorUnits)}
                   />
                 </div>
                 <div>
@@ -145,7 +149,15 @@ const TaxModelFormPage = () => {
                 </div>
                 <div>
                   <Label className="text-sm mb-1 block">{t('taxModels.reserveFundMax')}</Label>
-                  <CurrencyInput type="number" step="0.01" min="0" value={reserveFundMaxMinor} onChange={(e) => setReserveFundMaxMinor(e.target.value)} placeholder="0.00" />
+                  <CurrencyInput
+                    type="number"
+                    step={getMinorUnitsStep(minorUnits)}
+                    min="0"
+                    currencyCode={currencyCode}
+                    value={reserveFundMaxMinor}
+                    onChange={(e) => setReserveFundMaxMinor(e.target.value)}
+                    placeholder={fromMinorUnits(0, minorUnits)}
+                  />
                 </div>
                 <div>
                   <Label className="text-sm mb-1 block">{t('taxModels.dividendTaxRate')}</Label>

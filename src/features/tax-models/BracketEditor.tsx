@@ -4,6 +4,7 @@ import { CurrencyInput } from '../../shared/ui/CurrencyInput'
 import { PercentageInput } from '../../shared/ui/PercentageInput'
 import { Label } from '../../shared/ui/label'
 import { Card, CardContent, CardHeader, CardTitle } from '../../shared/ui/card'
+import { fromMinorUnits, getMinorUnitsStep } from '../../shared/utils/format'
 import TierEditor from './TierEditor'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../shared/ui/select'
 import type { TierFormState } from './TierEditor'
@@ -20,11 +21,13 @@ export interface BracketFormState {
 interface BracketEditorProps {
   brackets: BracketFormState[]
   onBracketsChange: (brackets: BracketFormState[]) => void
+  minorUnits: number
+  currencyCode?: string
 }
 
 const emptyBracket = (): BracketFormState => ({ upperBoundMinor: '', rateType: 'flat', flatRateBps: '', tiers: [] })
 
-const BracketEditor = ({ brackets, onBracketsChange }: BracketEditorProps) => {
+const BracketEditor = ({ brackets, onBracketsChange, minorUnits, currencyCode }: BracketEditorProps) => {
   const { t } = useTranslation()
 
   const handleBracketChange = <K extends keyof BracketFormState>(index: number, field: K, value: BracketFormState[K]) => {
@@ -90,6 +93,8 @@ const BracketEditor = ({ brackets, onBracketsChange }: BracketEditorProps) => {
                 <TierEditor
                   tiers={bracket.tiers.length > 0 ? bracket.tiers : [{ thresholdMinor: '', rateBps: '' }]}
                   onTiersChange={(tiers) => handleBracketChange(index, 'tiers', tiers)}
+                  minorUnits={minorUnits}
+                  currencyCode={currencyCode}
                 />
               )}
 
@@ -97,11 +102,12 @@ const BracketEditor = ({ brackets, onBracketsChange }: BracketEditorProps) => {
                 <Label className="text-sm mb-1 block">{t('taxModels.bracketUpperBound')}</Label>
                 <CurrencyInput
                   type="number"
-                  step="0.01"
+                  step={getMinorUnitsStep(minorUnits)}
                   min="0"
+                  currencyCode={currencyCode}
                   value={bracket.upperBoundMinor}
                   onChange={(e) => handleBracketChange(index, 'upperBoundMinor', e.target.value)}
-                  placeholder={isLast ? t('taxModels.bracketUpperBoundPlaceholder') : '0.00'}
+                  placeholder={isLast ? t('taxModels.bracketUpperBoundPlaceholder') : fromMinorUnits(0, minorUnits)}
                 />
               </div>
             </CardContent>

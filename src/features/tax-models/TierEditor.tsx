@@ -3,6 +3,7 @@ import { Button } from '../../shared/ui/button'
 import { CurrencyInput } from '../../shared/ui/CurrencyInput'
 import { PercentageInput } from '../../shared/ui/PercentageInput'
 import { Label } from '../../shared/ui/label'
+import { fromMinorUnits, getMinorUnitsStep } from '../../shared/utils/format'
 
 export interface TierFormState {
   thresholdMinor: string
@@ -12,9 +13,11 @@ export interface TierFormState {
 interface TierEditorProps {
   tiers: TierFormState[]
   onTiersChange: (tiers: TierFormState[]) => void
+  minorUnits: number
+  currencyCode?: string
 }
 
-const TierEditor = ({ tiers, onTiersChange }: TierEditorProps) => {
+const TierEditor = ({ tiers, onTiersChange, minorUnits, currencyCode }: TierEditorProps) => {
   const { t } = useTranslation()
 
   const handleTierChange = (index: number, field: keyof TierFormState, value: string) => {
@@ -38,11 +41,12 @@ const TierEditor = ({ tiers, onTiersChange }: TierEditorProps) => {
             <Label className="text-xs text-muted-foreground mb-1 block">{t('taxModels.tierThreshold')}</Label>
             <CurrencyInput
               type="number"
-              step="0.01"
+              step={getMinorUnitsStep(minorUnits)}
               min="0"
+              currencyCode={currencyCode}
               value={tier.thresholdMinor}
               onChange={(e) => handleTierChange(index, 'thresholdMinor', e.target.value)}
-              placeholder="0.00"
+              placeholder={fromMinorUnits(0, minorUnits)}
             />
           </div>
           <div className="flex-1">
