@@ -8,18 +8,7 @@ pub fn with_savepoint<T, F>(conn: &Connection, f: F) -> rusqlite::Result<T>
 where
     F: FnOnce() -> rusqlite::Result<T>,
 {
-    conn.execute_batch("SAVEPOINT repo_sp")?;
-    match f() {
-        Ok(val) => {
-            conn.execute_batch("RELEASE SAVEPOINT repo_sp")?;
-            Ok(val)
-        }
-        Err(e) => {
-            let _ = conn.execute_batch("ROLLBACK TO SAVEPOINT repo_sp");
-            let _ = conn.execute_batch("RELEASE SAVEPOINT repo_sp");
-            Err(e)
-        }
-    }
+    run_in_savepoint(conn, f)
 }
 
 /// Same as `with_savepoint` but for closures that return `Result<T, AppError>`.
@@ -27,20 +16,27 @@ pub fn with_savepoint_app<T, F>(conn: &Connection, f: F) -> Result<T, AppError>
 where
     F: FnOnce() -> Result<T, AppError>,
 {
-    conn.execute_batch("SAVEPOINT repo_sp")
-        .map_err(AppError::from)?;
-    match f() {
-        Ok(val) => {
-            conn.execute_batch("RELEASE SAVEPOINT repo_sp")
-                .map_err(AppError::from)?;
-            Ok(val)
-        }
-        Err(e) => {
-            let _ = conn.execute_batch("ROLLBACK TO SAVEPOINT repo_sp");
-            let _ = conn.execute_batch("RELEASE SAVEPOINT repo_sp");
-            Err(e)
-        }
+    run_in_savepoint(conn, f)
+}
+
+/// The outermost RELEASE is the commit, and it fails on a deferred foreign key violation
+/// (`event.latest_data_id`). That failure leaves the savepoint open, so it is rolled back and
+/// released too, or the connection would stay inside the transaction for good.
+fn run_in_savepoint<T, E, F>(conn: &Connection, f: F) -> Result<T, E>
+where
+    E: From<rusqlite::Error>,
+    F: FnOnce() -> Result<T, E>,
+{
+    conn.execute_batch("SAVEPOINT repo_sp")?;
+    let result = f().and_then(|val| {
+        conn.execute_batch("RELEASE SAVEPOINT repo_sp")?;
+        Ok(val)
+    });
+    if result.is_err() {
+        let _ = conn.execute_batch("ROLLBACK TO SAVEPOINT repo_sp");
+        let _ = conn.execute_batch("RELEASE SAVEPOINT repo_sp");
     }
+    result
 }
 
 pub fn local_now() -> String {
