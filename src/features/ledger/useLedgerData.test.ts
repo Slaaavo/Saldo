@@ -190,6 +190,41 @@ describe('useLedgerData', () => {
     expect(listEvents).toHaveBeenCalledWith({})
   })
 
+  // ── Loading state ─────────────────────────────────────────────────────────
+
+  it('stays not-loading with its rows while an invalidated events query refetches', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: 0, refetchOnWindowFocus: false } },
+    })
+    const wrapper = ({ children }: { children: React.ReactNode }) =>
+      React.createElement(QueryClientProvider, { client: queryClient }, React.createElement(SelectedPersonProvider, null, children))
+    const { result } = renderHook(() => useLedgerData(), { wrapper })
+
+    expect(result.current.loading).toBe(true)
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    expect(result.current.events).toHaveLength(1)
+
+    let resolveRefetch: (value: { events: EventWithData[]; totalCount: number }) => void = () => {}
+    ;(listEvents as Mock).mockReturnValue(
+      new Promise((resolve) => {
+        resolveRefetch = resolve
+      }),
+    )
+    act(() => {
+      void queryClient.invalidateQueries({ queryKey: ['events'] })
+    })
+    await waitFor(() => expect(queryClient.isFetching({ queryKey: ['events'] })).toBe(1))
+
+    expect(result.current.loading).toBe(false)
+    expect(result.current.events).toHaveLength(1)
+
+    await act(async () => {
+      resolveRefetch({ events: [makeEvent(), makeEvent({ id: 2 })], totalCount: 2 })
+    })
+    await waitFor(() => expect(result.current.events).toHaveLength(2))
+    expect(result.current.loading).toBe(false)
+  })
+
   // ── Bucket ID splitting ───────────────────────────────────────────────────
 
   it('routes bucket IDs to both accountIds and bucketIds', async () => {
