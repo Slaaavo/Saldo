@@ -170,6 +170,70 @@ pub fn convert_balance(
 }
 
 #[cfg(test)]
+mod savepoint_tests {
+    use super::{with_savepoint, with_savepoint_app};
+    use crate::error::AppError;
+    use rusqlite::Connection;
+
+    fn deferred_fk_conn() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "PRAGMA foreign_keys = ON;
+             CREATE TABLE parent (id INTEGER PRIMARY KEY);
+             CREATE TABLE child (
+                 id INTEGER PRIMARY KEY,
+                 parent_id INTEGER NOT NULL REFERENCES parent (id) DEFERRABLE INITIALLY DEFERRED
+             );",
+        )
+        .unwrap();
+        conn
+    }
+
+    fn count(conn: &Connection, table: &str) -> i64 {
+        conn.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+            row.get(0)
+        })
+        .unwrap()
+    }
+
+    fn insert_orphan(conn: &Connection) -> rusqlite::Result<usize> {
+        conn.execute("INSERT INTO child (id, parent_id) VALUES (1, 99)", [])
+    }
+
+    fn insert_parent(conn: &Connection) -> rusqlite::Result<usize> {
+        conn.execute("INSERT INTO parent (id) VALUES (1)", [])
+    }
+
+    #[test]
+    fn with_savepoint_rolls_back_when_the_commit_fails() {
+        let conn = deferred_fk_conn();
+
+        let result = with_savepoint(&conn, || insert_orphan(&conn));
+
+        assert!(result.is_err());
+        assert!(conn.is_autocommit());
+        with_savepoint(&conn, || insert_parent(&conn)).unwrap();
+        assert!(conn.is_autocommit());
+        assert_eq!(count(&conn, "parent"), 1);
+        assert_eq!(count(&conn, "child"), 0);
+    }
+
+    #[test]
+    fn with_savepoint_app_rolls_back_when_the_commit_fails() {
+        let conn = deferred_fk_conn();
+
+        let result = with_savepoint_app(&conn, || insert_orphan(&conn).map_err(AppError::from));
+
+        assert!(result.is_err());
+        assert!(conn.is_autocommit());
+        with_savepoint_app(&conn, || insert_parent(&conn).map_err(AppError::from)).unwrap();
+        assert!(conn.is_autocommit());
+        assert_eq!(count(&conn, "parent"), 1);
+        assert_eq!(count(&conn, "child"), 0);
+    }
+}
+
+#[cfg(test)]
 mod rounding_tests {
     use super::{convert_balance, div_round};
 
