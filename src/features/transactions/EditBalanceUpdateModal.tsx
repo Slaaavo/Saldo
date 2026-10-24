@@ -16,7 +16,7 @@ import BucketAllocationEditor from '../buckets/BucketAllocationEditor'
 interface Props {
   event: EventWithData
   accounts: SnapshotRow[]
-  onSubmit: (eventId: number, amountMinor: number, eventDate: string, note: string) => void
+  onSubmit: (eventId: number, amountMinor: number, eventDate: string, note: string) => Promise<void>
   onBucketSubmit?: (eventId: number, amountMinor: number, eventDate: string, note: string | null, linkedAccountIds: number[]) => Promise<void>
   onClose: () => void
 }
@@ -75,15 +75,17 @@ const EditBalanceUpdateModal = ({ event, accounts, onSubmit, onBucketSubmit, onC
         } else {
           toast.error(extractErrorMessage(err))
         }
+      } finally {
         setSubmitting(false)
       }
       return
     }
 
     try {
-      onSubmit(event.id, amountMinor, date, note)
+      await onSubmit(event.id, amountMinor, date, note)
     } catch (err) {
-      toast.error(extractErrorMessage(err))
+      toast.error(t('errors.updateEvent', { error: extractErrorMessage(err) }))
+    } finally {
       setSubmitting(false)
     }
   }

@@ -17,7 +17,7 @@ import BucketAllocationEditor from '../buckets/BucketAllocationEditor'
 interface Props {
   accounts: SnapshotRow[]
   preselectedAccountId?: number
-  onSubmit: (accountId: number, amountMinor: number, eventDate: string, note: string) => void
+  onSubmit: (accountId: number, amountMinor: number, eventDate: string, note: string) => Promise<void>
   onBucketSubmit?: (accountId: number, amountMinor: number, eventDate: string, note: string | null, linkedAccountIds: number[]) => Promise<void>
   onClose: () => void
 }
@@ -73,8 +73,8 @@ const CreateBalanceUpdateModal = ({ accounts, preselectedAccountId, onSubmit, on
 
     if (isBucket && onBucketSubmit) {
       try {
+        // The handler closes the modal itself, before it may open the FX rate prompt
         await onBucketSubmit(accountId, amountMinor, date, note || null, getLinkedAccountIds())
-        onClose()
       } catch (err) {
         const appErr = err as { code?: string; message?: string } | null
         if (appErr?.code === 'LINK_CONFLICT') {
@@ -97,15 +97,17 @@ const CreateBalanceUpdateModal = ({ accounts, preselectedAccountId, onSubmit, on
         } else {
           toast.error(extractErrorMessage(err))
         }
+      } finally {
         setSubmitting(false)
       }
       return
     }
 
     try {
-      onSubmit(accountId, amountMinor, date, note)
+      await onSubmit(accountId, amountMinor, date, note)
     } catch (err) {
-      toast.error(extractErrorMessage(err))
+      toast.error(t('errors.createBalanceUpdate', { error: extractErrorMessage(err) }))
+    } finally {
       setSubmitting(false)
     }
   }

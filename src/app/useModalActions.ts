@@ -36,35 +36,35 @@ export const useModalActions = ({ closeModal, onFxRatePrompt }: UseModalActionsO
   const consolidationCurrencyQuery = useConsolidationCurrencyQuery()
   const consolidationCurrency = consolidationCurrencyQuery.data ?? null
 
-  const handleCreateBalanceUpdate = async (accountId: number, amountMinor: number, eventDate: string, note: string) => {
+  // Prompt to fetch FX rates when a balance update was saved for a non-consolidation-currency account. The save has already
+  // succeeded, so a failed rate lookup must not surface as a failed save.
+  const promptForMissingFxRate = async (accountId: number, eventDate: string) => {
     const account = snapshot.find((r) => r.accountId === accountId)
+    if (!account || !consolidationCurrency || account.currencyCode === consolidationCurrency.code) return
     try {
-      await createBalanceUpdate(accountId, amountMinor, eventDate, note || undefined)
-      closeModal()
-      await queryClient.invalidateQueries({ queryKey: ['snapshot'] })
-      await queryClient.invalidateQueries({ queryKey: ['events'] })
-      // Prompt to fetch FX rates when saving a non-consolidation-currency balance update
-      if (account && consolidationCurrency && account.currencyCode !== consolidationCurrency.code) {
-        const rates = await listFxRates(eventDate)
-        const hasRate = rates.some((r) => r.toCurrencyCode === account.currencyCode)
-        if (!hasRate) {
-          onFxRatePrompt(eventDate)
-        }
+      const rates = await listFxRates(eventDate)
+      if (!rates.some((r) => r.toCurrencyCode === account.currencyCode)) {
+        onFxRatePrompt(eventDate)
       }
     } catch (err) {
-      toast.error(t('errors.createBalanceUpdate', { error: extractErrorMessage(err) }))
+      console.error('Failed to check FX rates:', err)
     }
   }
 
-  const handleEditBalanceUpdate = async (eventId: number, amountMinor: number, eventDate: string, note: string) => {
-    try {
-      await updateEvent(eventId, amountMinor, eventDate, note || undefined)
-      closeModal()
-      await queryClient.invalidateQueries({ queryKey: ['snapshot'] })
-      await queryClient.invalidateQueries({ queryKey: ['events'] })
-    } catch (err) {
-      toast.error(t('errors.updateEvent', { error: extractErrorMessage(err) }))
-    }
+  // The balance-update handlers let a failed save reach the modal, which reports it and re-enables its Save button.
+  const handleCreateBalanceUpdate = async (accountId: number, amountMinor: number, eventDate: string, note: string): Promise<void> => {
+    await createBalanceUpdate(accountId, amountMinor, eventDate, note || undefined)
+    closeModal()
+    await queryClient.invalidateQueries({ queryKey: ['snapshot'] })
+    await queryClient.invalidateQueries({ queryKey: ['events'] })
+    await promptForMissingFxRate(accountId, eventDate)
+  }
+
+  const handleEditBalanceUpdate = async (eventId: number, amountMinor: number, eventDate: string, note: string): Promise<void> => {
+    await updateEvent(eventId, amountMinor, eventDate, note || undefined)
+    closeModal()
+    await queryClient.invalidateQueries({ queryKey: ['snapshot'] })
+    await queryClient.invalidateQueries({ queryKey: ['events'] })
   }
 
   const handleDeleteEvent = async (eventId: number) => {
@@ -191,15 +191,12 @@ export const useModalActions = ({ closeModal, onFxRatePrompt }: UseModalActionsO
   }
 
   const handleCreateBucketBalanceUpdate = async (accountId: number, amountMinor: number, eventDate: string, note: string | null, linkedAccountIds: number[]): Promise<void> => {
-    const account = snapshot.find((r) => r.accountId === accountId)
     await createBucketBalanceUpdate(accountId, amountMinor, eventDate, note, linkedAccountIds)
+    // Close before the FX prompt opens: closing afterwards (as the modal used to) would close the prompt too.
+    closeModal()
     await queryClient.invalidateQueries({ queryKey: ['snapshot'] })
     await queryClient.invalidateQueries({ queryKey: ['events'] })
-    if (account && consolidationCurrency && account.currencyCode !== consolidationCurrency.code) {
-      const rates = await listFxRates(eventDate)
-      const hasRate = rates.some((r) => r.toCurrencyCode === account.currencyCode)
-      if (!hasRate) onFxRatePrompt(eventDate)
-    }
+    await promptForMissingFxRate(accountId, eventDate)
   }
 
   const handleEditBucketBalanceUpdate = async (eventId: number, amountMinor: number, eventDate: string, note: string | null, linkedAccountIds: number[]): Promise<void> => {
