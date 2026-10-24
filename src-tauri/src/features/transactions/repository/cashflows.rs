@@ -15,6 +15,16 @@ pub struct CashflowEntry {
     pub fx_rate_exponent: Option<i64>,
 }
 
+/// Amount of the counterpart leg of a transfer: the opposite sign of the source `amount_minor`,
+/// with the magnitude of `original_amount_minor` when the transfer crosses currencies.
+pub(crate) fn counterpart_leg_amount(amount_minor: i64, original_amount_minor: Option<i64>) -> i64 {
+    match original_amount_minor {
+        Some(original) if amount_minor > 0 => -original.abs(),
+        Some(original) => original.abs(),
+        None => -amount_minor,
+    }
+}
+
 pub(crate) fn create_cashflow_inner(
     conn: &Connection,
     entry: &CashflowEntry,
@@ -61,9 +71,8 @@ pub fn create_transfer(conn: &Connection, entry: &CashflowEntry) -> rusqlite::Re
 
         let source_id = create_cashflow_inner(conn, entry, "transfer", None)?;
 
-        // For cross-currency transfers, counterpart amount = source's original_amount_minor.
-        // For same-currency transfers, counterpart amount = inverted source amount.
-        let counterpart_amount = entry.original_amount_minor.unwrap_or(-entry.amount_minor);
+        let counterpart_amount =
+            counterpart_leg_amount(entry.amount_minor, entry.original_amount_minor);
 
         let counterpart_entry = CashflowEntry {
             account_id: counterpart_account_id,
@@ -104,7 +113,8 @@ pub fn bulk_create_cashflows(
 
             if counterpart_type.as_deref() == Some("account") {
                 let counterpart_account_id = entry.counterpart_account_id.unwrap();
-                let counterpart_amount = entry.original_amount_minor.unwrap_or(-entry.amount_minor);
+                let counterpart_amount =
+                    counterpart_leg_amount(entry.amount_minor, entry.original_amount_minor);
 
                 let source_id = create_cashflow_inner(conn, entry, "transfer", None)?;
 
@@ -138,4 +148,102 @@ pub fn bulk_create_cashflows(
         }
         Ok(ids)
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::initialize_in_memory;
+    use crate::features::accounts::repository::{create_account, CreateAccountParams};
+
+    fn mk_account(conn: &Connection) -> i64 {
+        create_account(
+            conn,
+            CreateAccountParams {
+                name: "Test Account".to_owned(),
+                currency_id: 1,
+                account_type: "account".to_owned(),
+                ..Default::default()
+            },
+        )
+        .expect("create account failed")
+    }
+
+    fn latest_amount(conn: &Connection, event_id: i64) -> i64 {
+        conn.query_row(
+            "SELECT ed.amount_minor FROM event e JOIN event_data ed ON ed.id = e.latest_data_id WHERE e.id = ?1",
+            params![event_id],
+            |row| row.get(0),
+        )
+        .unwrap()
+    }
+
+    fn fx_transfer(
+        from: i64,
+        to: i64,
+        amount_minor: i64,
+        original_amount_minor: Option<i64>,
+    ) -> CashflowEntry {
+        CashflowEntry {
+            account_id: from,
+            amount_minor,
+            event_date: "2026-03-01".to_owned(),
+            note: None,
+            counterpart_account_id: Some(to),
+            bucket_id: None,
+            original_currency_id: original_amount_minor.map(|_| 1),
+            original_amount_minor,
+            fx_rate_mantissa: original_amount_minor.map(|_| 1),
+            fx_rate_exponent: original_amount_minor.map(|_| 0),
+        }
+    }
+
+    #[test]
+    fn counterpart_leg_amount_inverts_the_source_amount_without_an_original() {
+        assert_eq!(counterpart_leg_amount(-5000, None), 5000);
+        assert_eq!(counterpart_leg_amount(5000, None), -5000);
+    }
+
+    #[test]
+    fn counterpart_leg_amount_takes_the_original_magnitude_with_the_opposite_sign() {
+        assert_eq!(counterpart_leg_amount(-5000, Some(4500)), 4500);
+        assert_eq!(counterpart_leg_amount(-5000, Some(-4500)), 4500);
+        assert_eq!(counterpart_leg_amount(5000, Some(4500)), -4500);
+        assert_eq!(counterpart_leg_amount(5000, Some(-4500)), -4500);
+    }
+
+    #[test]
+    fn create_transfer_credits_the_counterpart_when_original_has_the_source_sign() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let (from, to) = (mk_account(&conn), mk_account(&conn));
+
+        let (source_id, counterpart_id) =
+            create_transfer(&conn, &fx_transfer(from, to, -5000, Some(-4500))).unwrap();
+
+        assert_eq!(latest_amount(&conn, source_id), -5000);
+        assert_eq!(latest_amount(&conn, counterpart_id), 4500);
+    }
+
+    #[test]
+    fn create_transfer_still_credits_the_counterpart_with_a_positive_original() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let (from, to) = (mk_account(&conn), mk_account(&conn));
+
+        let (_, counterpart_id) =
+            create_transfer(&conn, &fx_transfer(from, to, -5000, Some(4500))).unwrap();
+
+        assert_eq!(latest_amount(&conn, counterpart_id), 4500);
+    }
+
+    #[test]
+    fn bulk_create_cashflows_credits_the_counterpart_when_original_has_the_source_sign() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let (from, to) = (mk_account(&conn), mk_account(&conn));
+
+        let ids =
+            bulk_create_cashflows(&conn, &[fx_transfer(from, to, -5000, Some(-4500))]).unwrap();
+
+        assert_eq!(latest_amount(&conn, ids[0]), -5000);
+        assert_eq!(latest_amount(&conn, ids[1]), 4500);
+    }
 }

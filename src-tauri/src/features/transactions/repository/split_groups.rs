@@ -1,4 +1,4 @@
-use super::cashflows::{create_cashflow_inner, CashflowEntry};
+use super::cashflows::{counterpart_leg_amount, create_cashflow_inner, CashflowEntry};
 use crate::error::AppError;
 use crate::features::accounts::repository::get_account_type;
 use crate::features::transactions::models::SplitGroupEntry;
@@ -35,7 +35,8 @@ pub fn create_split_group_with_legs(
 
             let leg_event_id = if counterpart_type.as_deref() == Some("account") {
                 let counterpart_account_id = leg.counterpart_account_id.unwrap();
-                let counterpart_amount = leg.original_amount_minor.unwrap_or(-leg.amount_minor);
+                let counterpart_amount =
+                    counterpart_leg_amount(leg.amount_minor, leg.original_amount_minor);
 
                 let source_entry = CashflowEntry {
                     account_id,
@@ -170,4 +171,77 @@ pub fn check_event_split_group_date_conflict(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::initialize_in_memory;
+    use crate::features::accounts::repository::{create_account, CreateAccountParams};
+
+    fn mk_account(conn: &Connection) -> i64 {
+        create_account(
+            conn,
+            CreateAccountParams {
+                name: "Test Account".to_owned(),
+                currency_id: 1,
+                account_type: "account".to_owned(),
+                ..Default::default()
+            },
+        )
+        .expect("create account failed")
+    }
+
+    fn transfer_leg(
+        counterpart_account_id: i64,
+        amount_minor: i64,
+        original_amount_minor: Option<i64>,
+    ) -> SplitGroupEntry {
+        SplitGroupEntry {
+            amount_minor,
+            event_date: "2026-03-01".to_owned(),
+            note: None,
+            counterpart_account_id: Some(counterpart_account_id),
+            bucket_id: None,
+            original_currency_id: original_amount_minor.map(|_| 1),
+            original_amount_minor,
+            fx_rate_mantissa: original_amount_minor.map(|_| 1),
+            fx_rate_exponent: original_amount_minor.map(|_| 0),
+        }
+    }
+
+    fn amounts_by_account(conn: &Connection, account_id: i64) -> Vec<i64> {
+        let mut stmt = conn
+            .prepare(
+                "SELECT ed.amount_minor FROM event e JOIN event_data ed ON ed.id = e.latest_data_id WHERE e.account_id = ?1 ORDER BY e.id",
+            )
+            .unwrap();
+        stmt.query_map(params![account_id], |row| row.get(0))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap()
+    }
+
+    #[test]
+    fn transfer_leg_credits_the_counterpart_when_original_has_the_source_sign() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let (source, counterpart) = (mk_account(&conn), mk_account(&conn));
+
+        create_split_group_with_legs(
+            &conn,
+            CreateSplitGroupWithLegsParams {
+                account_id: source,
+                group_note: None,
+                legs: vec![
+                    transfer_leg(counterpart, -5000, Some(-4500)),
+                    transfer_leg(counterpart, -2000, Some(1800)),
+                    transfer_leg(counterpart, -1000, None),
+                ],
+            },
+        )
+        .unwrap();
+
+        assert_eq!(amounts_by_account(&conn, source), [-5000, -2000, -1000]);
+        assert_eq!(amounts_by_account(&conn, counterpart), [4500, 1800, 1000]);
+    }
 }
