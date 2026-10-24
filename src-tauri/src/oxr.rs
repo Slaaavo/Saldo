@@ -34,10 +34,15 @@ pub async fn fetch_rates(api_key: &str, date: Option<&str>) -> Result<OxrRespons
 
     let response = client.get(&url).send().await.map_err(network_error)?;
 
-    if !response.status().is_success() {
+    let status = response.status();
+    if !status.is_success() {
+        let code = match status.as_u16() {
+            401 | 403 | 429 => "OXR_ACCESS_ERROR",
+            _ => "OXR_ERROR",
+        };
         return Err(AppError {
-            code: "OXR_ERROR".into(),
-            message: format!("OXR API returned status {}", response.status()),
+            code: code.into(),
+            message: format!("OXR API returned status {}", status),
         });
     }
 

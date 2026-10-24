@@ -459,10 +459,10 @@ async fn startup_auto_fetch(handle: tauri::AppHandle) {
     fetch_dates("ledger-backfill", &remaining, &db_unchanged, &fetch).await;
 }
 
-/// An error every remaining date would hit too: a missing key (`CONFIG_ERROR`) or a request OXR
-/// rejected, such as a bad key or an exhausted quota (`OXR_ERROR`).
+/// An error every remaining date would hit too: a missing key (`CONFIG_ERROR`) or a key OXR
+/// refused or throttled (`OXR_ACCESS_ERROR`). Other OXR errors can be specific to one date.
 fn is_fatal_fx_error(e: &error::AppError) -> bool {
-    matches!(e.code.as_str(), "OXR_ERROR" | "CONFIG_ERROR")
+    matches!(e.code.as_str(), "OXR_ACCESS_ERROR" | "CONFIG_ERROR")
 }
 
 /// Fetches rates for each of `dates` in turn, logging failures. Returns `false` when the whole
@@ -550,10 +550,17 @@ mod tests {
     }
 
     #[test]
-    fn fetch_dates_stops_on_an_oxr_error() {
-        let (requested, completed) = run_fetch_dates_failing_second("OXR_ERROR");
+    fn fetch_dates_stops_on_an_oxr_access_error() {
+        let (requested, completed) = run_fetch_dates_failing_second("OXR_ACCESS_ERROR");
         assert_eq!(requested, ["2026-03-01", "2026-03-02"]);
         assert!(!completed);
+    }
+
+    #[test]
+    fn fetch_dates_continues_past_an_oxr_error_for_one_date() {
+        let (requested, completed) = run_fetch_dates_failing_second("OXR_ERROR");
+        assert_eq!(requested, ["2026-03-01", "2026-03-02", "2026-03-03"]);
+        assert!(completed);
     }
 
     #[test]
