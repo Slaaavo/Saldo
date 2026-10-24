@@ -7,7 +7,7 @@ import AppModals from './AppModals'
 import Sidebar from '../shared/layout/Sidebar'
 import { useTheme } from '../features/settings/useTheme'
 import { ThemeProvider } from '../features/settings/ThemeContext'
-import { useDbLocation } from '../features/settings/useDbLocation'
+import { useDbLocation, useDbFallbackWarning } from '../features/settings/useDbLocation'
 import { useDemoMode } from '../features/settings/useDemoMode'
 import DemoModeBanner from '../features/settings/DemoModeBanner'
 import { Toaster } from 'sonner'
@@ -48,6 +48,8 @@ const AppShell = () => {
       queryClient.clear()
     },
   })
+
+  useDbFallbackWarning()
 
   const demo = useDemoMode()
 
