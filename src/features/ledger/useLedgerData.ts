@@ -34,7 +34,7 @@ export const useLedgerData = ({ snapshot }: UseLedgerDataOptions = {}) => {
     return map
   }, [snapshot])
 
-  const { data, isPending, isFetching } = useQuery({
+  const { data, isPending } = useQuery({
     queryKey: ['events', 'ledger', fromDate, toDate, selectedAccountIds, eventTypeFilter, unmatchedOnly, selectedPersonId],
     queryFn: async () => {
       const filter: Parameters<typeof listEvents>[0] = {}
@@ -70,6 +70,6 @@ export const useLedgerData = ({ snapshot }: UseLedgerDataOptions = {}) => {
     unmatchedOnly,
     setUnmatchedOnly,
     events: data ?? [],
-    loading: isPending || isFetching,
+    loading: isPending,
   }
 }
