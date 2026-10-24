@@ -100,13 +100,12 @@ fn seed_impl(
         )?;
     }
 
-    // D. Insert demo person (all non-partner accounts belong to this person).
-    conn.execute(
-        "INSERT INTO person (name, person_type, is_default, created_at)
-         VALUES ('Personal', 'physical', 1, strftime('%Y-%m-%dT%H:%M:%S', 'now', 'localtime'))",
-        [],
-    )?;
-    let demo_person_id = conn.last_insert_rowid();
+    // D. Reuse the default person created by the migrations (it already has its default
+    // taxable accounts); all demo accounts belong to it.
+    let demo_person_id: i64 =
+        conn.query_row("SELECT id FROM person WHERE is_default = 1", [], |row| {
+            row.get(0)
+        })?;
 
     // E. Insert 6 accounts (3 regular + 3 bucket + 1 asset).
     conn.execute(
@@ -357,6 +356,55 @@ mod tests {
             )
             .unwrap();
         assert_eq!(consol, "EUR");
+
+        // The demo accounts belong to the migration-seeded default person, which is the only person.
+        let persons =
+            crate::features::persons::repository::list_persons(&conn).expect("list_persons failed");
+        assert_eq!(persons.len(), 1);
+        let default_person = &persons[0];
+        assert!(default_person.is_default);
+
+        let default_person_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM person WHERE is_default = 1",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(default_person_count, 1);
+
+        for (account_id, expected_type) in [
+            (default_person.default_revenue_account_id, "default_revenue"),
+            (default_person.default_expense_account_id, "default_expense"),
+        ] {
+            let account_type: String = conn
+                .query_row(
+                    "SELECT account_type FROM account WHERE id = ?1 AND person_id = ?2",
+                    params![account_id, default_person.id],
+                    |r| r.get(0),
+                )
+                .expect("default taxable account should belong to the default person");
+            assert_eq!(account_type, expected_type);
+        }
+
+        let foreign_account_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM account WHERE person_id IS NOT ?1",
+                params![default_person.id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(foreign_account_count, 0);
+
+        let demo_account_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM account
+                 WHERE person_id = ?1 AND account_type IN ('account', 'bucket', 'asset')",
+                params![default_person.id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(demo_account_count, 8);
     }
 
     #[test]
