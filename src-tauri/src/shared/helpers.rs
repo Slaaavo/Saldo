@@ -69,9 +69,14 @@ pub fn format_end_of_month(year: i32, month: u32) -> String {
     format!("{:04}-{:02}-{:02}T23:59:59", year, month, last_day)
 }
 
-/// Integer division with rounding to nearest (half-up).
+/// Integer division with rounding to nearest, halves away from zero (symmetric for negatives).
 pub fn div_round(numerator: i64, denominator: i64) -> i64 {
-    (numerator + denominator / 2) / denominator
+    (numerator + numerator.signum() * (denominator.abs() / 2)) / denominator
+}
+
+/// `div_round` for the i128 intermediates of `convert_balance`; `denominator` must be positive.
+fn div_round_i128(numerator: i128, denominator: i128) -> i128 {
+    (numerator + numerator.signum() * (denominator / 2)) / denominator
 }
 
 /// True only for a zero-padded `YYYY-MM-DD` date. chrono's `%m` and `%d` also accept one-digit
@@ -107,16 +112,17 @@ pub fn validate_event_date(date_str: &str) -> Result<(), AppError> {
 /// When `is_direct = false` (standard FX rates):
 ///   `rate` is stored as: 1 destination unit = `rate_mantissa × 10^rate_exponent` source units.
 ///   `exp_adj = -rate_exponent + dest_minor_units - source_minor_units`
-///   if exp_adj >= 0: `converted = (balance × 10^exp_adj + mantissa/2) / mantissa`
-///   if exp_adj < 0: `converted = (balance + mantissa×10^|exp_adj|/2) / (mantissa×10^|exp_adj|)`
+///   if exp_adj >= 0: `converted = round(balance × 10^exp_adj / mantissa)`
+///   if exp_adj < 0: `converted = round(balance / (mantissa × 10^|exp_adj|))`
 ///
 /// When `is_direct = true` (unit asset rates — price per unit stored directly):
 ///   `rate` is stored as: 1 source unit = `rate_mantissa × 10^rate_exponent` destination units.
 ///   `exp_adj = rate_exponent + dest_minor_units - source_minor_units`
 ///   if exp_adj >= 0: `converted = balance × mantissa × 10^exp_adj`
-///   if exp_adj < 0: `converted = (balance × mantissa + factor/2) / factor` where `factor = 10^|exp_adj|`
+///   if exp_adj < 0: `converted = round(balance × mantissa / 10^|exp_adj|)`
 ///
-/// All intermediates use i128 to prevent overflow.
+/// `round` is half away from zero, so a negative balance converts to the negation of the
+/// positive one. All intermediates use i128 to prevent overflow.
 pub fn convert_balance(
     balance_minor: i64,
     rate_mantissa: i64,
@@ -135,18 +141,87 @@ pub fn convert_balance(
             (balance * mantissa * factor) as i64
         } else {
             let factor = 10_i128.pow((-exp_adj) as u32);
-            ((balance * mantissa + factor / 2) / factor) as i64
+            div_round_i128(balance * mantissa, factor) as i64
         }
     } else {
         let exp_adj = -rate_exponent + dest_minor_units - source_minor_units;
         if exp_adj >= 0 {
             let factor = 10_i128.pow(exp_adj as u32);
-            (((balance * factor) + mantissa / 2) / mantissa) as i64
+            div_round_i128(balance * factor, mantissa) as i64
         } else {
             let factor = 10_i128.pow((-exp_adj) as u32);
-            let denominator = mantissa * factor;
-            ((balance + denominator / 2) / denominator) as i64
+            div_round_i128(balance, mantissa * factor) as i64
         }
+    }
+}
+
+#[cfg(test)]
+mod rounding_tests {
+    use super::{convert_balance, div_round};
+
+    #[test]
+    fn div_round_rounds_half_away_from_zero() {
+        assert_eq!(div_round(7, 2), 4);
+        assert_eq!(div_round(-7, 2), -4);
+        assert_eq!(div_round(5, 3), 2);
+        assert_eq!(div_round(-5, 3), -2);
+        assert_eq!(div_round(1, 3), 0);
+        assert_eq!(div_round(-1, 3), 0);
+        assert_eq!(div_round(6, 3), 2);
+        assert_eq!(div_round(-6, 3), -2);
+        assert_eq!(div_round(0, 5), 0);
+    }
+
+    #[test]
+    fn div_round_is_symmetric_for_negative_denominators() {
+        assert_eq!(div_round(5, -2), -3);
+        assert_eq!(div_round(-5, -2), 3);
+    }
+
+    // exact value 100010000 / 10842 = 9224.33
+    #[test]
+    fn convert_balance_rounds_negative_balances_like_positive_ones() {
+        assert_eq!(convert_balance(10001, 10842, -4, 2, 2, false), 9224);
+        assert_eq!(convert_balance(-10001, 10842, -4, 2, 2, false), -9224);
+    }
+
+    #[test]
+    fn convert_balance_rounds_half_away_from_zero_on_exact_halves() {
+        // 3 / 2 = 1.5
+        assert_eq!(convert_balance(3, 2, 0, 2, 2, false), 2);
+        assert_eq!(convert_balance(-3, 2, 0, 2, 2, false), -2);
+    }
+
+    #[test]
+    fn convert_balance_is_symmetric_in_every_branch() {
+        // (mantissa, exponent, source_minor_units, dest_minor_units, is_direct)
+        let cases = [
+            (10842, -4, 2, 2, false),                // standard, exp_adj >= 0
+            (365, 2, 2, 2, false),                   // standard, exp_adj < 0
+            (15723, -2, 0, 2, false),                // standard, different minor units
+            (425, -1, 0, 2, true),                   // direct, exp_adj >= 0
+            (7, -3, 2, 2, true),                     // direct, exp_adj < 0
+            (123_456_789_012_345, -19, 2, 2, false), // 15 significant digits
+            (123_456_789_012_345, -13, 2, 2, true),
+        ];
+        for (mantissa, exponent, source, dest, is_direct) in cases {
+            for balance in [1, 5, 99, 10_001, 1_234_567, 99_999_999] {
+                assert_eq!(
+                    convert_balance(-balance, mantissa, exponent, source, dest, is_direct),
+                    -convert_balance(balance, mantissa, exponent, source, dest, is_direct),
+                    "balance {balance}, rate {mantissa}e{exponent}, direct {is_direct}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn convert_balance_negative_with_high_precision_rate_does_not_overflow() {
+        // exp_adj = 19, so the intermediate is balance * 10^19.
+        let converted = convert_balance(-10_000_000_000_000, 123_456_789_012_345, -19, 2, 2, false);
+        let expected = convert_balance(10_000_000_000_000, 123_456_789_012_345, -19, 2, 2, false);
+        assert_eq!(converted, -expected);
+        assert!(converted < 0);
     }
 }
 
