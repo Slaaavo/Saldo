@@ -49,10 +49,6 @@ const CreateRevenueModal = ({ onClose }: Props) => {
     return !isNaN(parsed) ? toMinorUnits(amount, currencyMinorUnits) : undefined
   })()
 
-  const handleLegsChange = (newLegs: SplitLegDraft[]) => {
-    setLegs(newLegs.map((l) => ({ ...l, eventDate: l.eventDate || date })))
-  }
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!personId) {
@@ -73,7 +69,7 @@ const CreateRevenueModal = ({ onClose }: Props) => {
           groupNote: groupNote.trim() || null,
           legs: legs.map((leg) => ({
             amountMinor: toMinorUnits(leg.amount, currencyMinorUnits),
-            eventDate: leg.eventDate || date,
+            eventDate: date,
             note: leg.note.trim() || null,
             vatRateBps: pctToBps(leg.vatRate),
             vatReclaimablePctBps: null,
@@ -157,7 +153,7 @@ const CreateRevenueModal = ({ onClose }: Props) => {
                 currencyCode={currencyCode}
                 currencyMinorUnits={currencyMinorUnits}
                 legs={legs}
-                onLegsChange={handleLegsChange}
+                onLegsChange={setLegs}
                 groupNote={groupNote}
                 onGroupNoteChange={setGroupNote}
               />
