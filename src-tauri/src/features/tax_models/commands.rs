@@ -1,6 +1,7 @@
 use crate::error::AppError;
 use crate::features::tax_models::models::{TaxCalculationResult, TaxModelDetail, TaxModelRow};
 use crate::AppState;
+use chrono::NaiveDate;
 use serde::Deserialize;
 use tauri::State;
 
@@ -85,6 +86,14 @@ fn validate_tax_model_input(
                     message: "vat_from_date is required when vat_status is 'from_date'.".into(),
                 });
             }
+        }
+    }
+    if let Some(d) = vat_from_date {
+        if NaiveDate::parse_from_str(d, "%Y-%m-%d").is_err() {
+            return Err(AppError {
+                code: "VALIDATION".into(),
+                message: "vat_from_date must be a valid date in YYYY-MM-DD format.".into(),
+            });
         }
     }
     for bps in [reserve_fund_pct_bps, dividend_tax_rate_bps]
@@ -183,6 +192,7 @@ fn validate_tax_model_input(
                         ),
                     });
                 }
+                let mut prev_threshold: Option<i64> = None;
                 for (j, tier) in tiers.iter().enumerate() {
                     let obj = tier.as_object().ok_or_else(|| AppError {
                         code: "VALIDATION".into(),
@@ -192,7 +202,8 @@ fn validate_tax_model_input(
                             j + 1
                         ),
                     })?;
-                    obj.get("thresholdMinor")
+                    let threshold_minor = obj
+                        .get("thresholdMinor")
                         .and_then(|v| v.as_i64())
                         .ok_or_else(|| AppError {
                             code: "VALIDATION".into(),
@@ -202,6 +213,30 @@ fn validate_tax_model_input(
                                 j + 1
                             ),
                         })?;
+                    // The last tier has no upper cap, so its threshold is never used.
+                    if j + 1 < tiers.len() {
+                        if threshold_minor < 0 {
+                            return Err(AppError {
+                                code: "VALIDATION".into(),
+                                message: format!(
+                                    "Bracket {}, tier {}: thresholdMinor must be >= 0.",
+                                    i + 1,
+                                    j + 1
+                                ),
+                            });
+                        }
+                        if prev_threshold.is_some_and(|prev| threshold_minor <= prev) {
+                            return Err(AppError {
+                                code: "VALIDATION".into(),
+                                message: format!(
+                                    "Bracket {}, tier {}: thresholdMinor must be strictly greater than the previous tier's.",
+                                    i + 1,
+                                    j + 1
+                                ),
+                            });
+                        }
+                        prev_threshold = Some(threshold_minor);
+                    }
                     let rate_bps =
                         obj.get("rateBps")
                             .and_then(|v| v.as_i64())
@@ -398,6 +433,83 @@ mod tests {
     #[test]
     fn reserve_fund_pct_with_max_is_valid() {
         assert!(validate_reserve(Some(1000), Some(50_000)).is_ok());
+    }
+
+    fn validate_tiers(tiers_json: &str) -> Result<(), AppError> {
+        let progressive = BracketInputData {
+            sort_order: 0,
+            lower_bound_minor: 0,
+            rate_type: "progressive".into(),
+            flat_rate_bps: None,
+            tiers_json: Some(tiers_json.into()),
+        };
+        validate_tax_model_input(
+            "Model",
+            2026,
+            "none",
+            &None,
+            &[progressive],
+            None,
+            None,
+            None,
+        )
+    }
+
+    fn validate_vat_from_date(vat_from_date: &str) -> Result<(), AppError> {
+        validate_tax_model_input(
+            "Model",
+            2026,
+            "from_date",
+            &Some(vat_from_date.into()),
+            &[flat(0)],
+            None,
+            None,
+            None,
+        )
+    }
+
+    #[test]
+    fn increasing_tier_thresholds_are_valid_and_last_threshold_is_ignored() {
+        let tiers = r#"[{"thresholdMinor":1000,"rateBps":1000},
+                        {"thresholdMinor":5000,"rateBps":2000},
+                        {"thresholdMinor":0,"rateBps":3000}]"#;
+        assert!(validate_tiers(tiers).is_ok());
+    }
+
+    #[test]
+    fn descending_tier_thresholds_are_rejected() {
+        let tiers = r#"[{"thresholdMinor":5000,"rateBps":1000},
+                        {"thresholdMinor":1000,"rateBps":2000},
+                        {"thresholdMinor":0,"rateBps":3000}]"#;
+        let err = validate_tiers(tiers).unwrap_err();
+        assert_eq!(err.code, "VALIDATION");
+        assert!(err.message.contains("tier 2"));
+    }
+
+    #[test]
+    fn equal_tier_thresholds_are_rejected() {
+        let tiers = r#"[{"thresholdMinor":5000,"rateBps":1000},
+                        {"thresholdMinor":5000,"rateBps":2000},
+                        {"thresholdMinor":0,"rateBps":3000}]"#;
+        assert_eq!(validate_tiers(tiers).unwrap_err().code, "VALIDATION");
+    }
+
+    #[test]
+    fn negative_tier_threshold_is_rejected() {
+        let tiers = r#"[{"thresholdMinor":-1,"rateBps":1000},
+                        {"thresholdMinor":0,"rateBps":3000}]"#;
+        let err = validate_tiers(tiers).unwrap_err();
+        assert_eq!(err.code, "VALIDATION");
+        assert!(err.message.contains("tier 1"));
+    }
+
+    #[test]
+    fn vat_from_date_must_be_a_plain_date() {
+        assert!(validate_vat_from_date("2026-06-01").is_ok());
+        for bad in ["2026-13-01", "2026-06-01T00:00:00", "01.06.2026", "garbage"] {
+            let err = validate_vat_from_date(bad).unwrap_err();
+            assert_eq!(err.code, "VALIDATION", "{bad} should be rejected");
+        }
     }
 
     #[test]

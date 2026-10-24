@@ -31,8 +31,8 @@ pub fn determine_can_reclaim(
                 None => return false,
             };
             // Compare first 10 chars (YYYY-MM-DD) — ISO format is lexicographically sortable.
-            let event_day = &event_date[..10.min(event_date.len())];
-            let from_day = &from_date[..10.min(from_date.len())];
+            let event_day = event_date.get(..10).unwrap_or(event_date);
+            let from_day = from_date.get(..10).unwrap_or(from_date);
             if event_day < from_day {
                 return false;
             }
@@ -516,6 +516,23 @@ mod tests {
             from,
             "2026-07-15",
             Some(false)
+        ));
+    }
+
+    #[test]
+    fn test_determine_can_reclaim_does_not_panic_on_multibyte_dates() {
+        // Byte 10 falls inside 'é'; the comparison must not slice through it.
+        assert!(determine_can_reclaim(
+            "from_date",
+            Some("2026-01-01"),
+            "2026-06-1é",
+            Some(true)
+        ));
+        assert!(!determine_can_reclaim(
+            "from_date",
+            Some("2026-06-1é"),
+            "2026-01-01",
+            Some(true)
         ));
     }
 
