@@ -65,7 +65,7 @@ const PartnersPage = () => {
                   <td className="py-2 text-right">
                     <div className="flex gap-2 justify-end">
                       <Button variant="ghost" size="sm" onClick={() => setEditingPartner(partner)}>
-                        {t('accounts.rename')}
+                        {t('partners.edit')}
                       </Button>
                       <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => setDeletingPartner(partner)}>
                         {t('accounts.delete')}

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import type { FxRateRow, Currency } from '../../shared/types'
 import { listFxRates, fetchFxRates, listCurrencies, getConsolidationCurrency, setFxRateManual, getMissingRateDates } from '../../shared/api'
 import { extractErrorMessage } from '../../shared/utils/errors'
@@ -7,6 +8,7 @@ import { formatRate, parseRateInput, buildRatePivot } from './fxRate'
 import { todayIso } from '../../shared/utils/format'
 
 export const useFxRates = () => {
+  const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [rates, setRates] = useState<FxRateRow[]>([])
   const [currencies, setCurrencies] = useState<Currency[]>([])
@@ -97,13 +99,13 @@ export const useFxRates = () => {
     if (!trimmed) return
     const parsed = parseRateInput(trimmed)
     if (!parsed) {
-      setError('fxRates.invalidRate')
+      setError(t('fxRates.invalidRate'))
       return
     }
     const fromId = codeToId.get(consolidationCode)
     const toId = codeToId.get(code)
     if (fromId == null || toId == null) {
-      setError('fxRates.currencyNotFound')
+      setError(t('fxRates.currencyNotFound'))
       return
     }
     try {

@@ -22,6 +22,7 @@ partners:
   iban: "IBAN"
   search: "Search partners..."
   deleteConfirm: 'Are you sure you want to delete partner "{{name}}"?'
+  edit: "Edit"
   errors:
     duplicateIban: "This IBAN is already in use by another account or partner."
     invalidIban: "IBAN must be 15\u201334 alphanumeric characters."
@@ -732,6 +733,7 @@ persons:
   manage: "Manage Persons"
   vatPayer: "VAT payer"
   save: "Save"
+  cancel: "Cancel"
 
 # ──── Taxable event cashflow linking ────
 taxable:

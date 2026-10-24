@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
+import { toast } from 'sonner'
 import { listLinksForEvent, getLatestBucketLinks } from '../../shared/api'
+import { extractErrorMessage } from '../../shared/utils/errors'
 import type { SnapshotRow } from '../../shared/types'
 
 export interface LinkRow {
@@ -30,6 +32,7 @@ interface UseBucketLinksParams {
 export const useBucketLinks = ({ isBucket, eventId, bucketAccountId, asOfDate, allAccounts }: UseBucketLinksParams): UseBucketLinksReturn => {
   const [links, setLinks] = useState<LinkRow[]>([])
   const [loadedForEventId, setLoadedForEventId] = useState<number | null>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!isBucket || eventId === null) return
@@ -45,10 +48,15 @@ export const useBucketLinks = ({ isBucket, eventId, bucketAccountId, asOfDate, a
             isNew: false,
           })),
         )
+        setLoadError(null)
         setLoadedForEventId(eventId)
       })
-      .catch(() => {
-        if (!cancelled) setLoadedForEventId(eventId)
+      .catch((err) => {
+        if (cancelled) return
+        const message = extractErrorMessage(err)
+        toast.error(message)
+        setLoadError(message)
+        setLoadedForEventId(eventId)
       })
     return () => {
       cancelled = true
@@ -70,9 +78,14 @@ export const useBucketLinks = ({ isBucket, eventId, bucketAccountId, asOfDate, a
             isNew: false,
           })),
         )
+        setLoadError(null)
       })
-      .catch(() => {
-        if (!cancelled) setLinks([])
+      .catch((err) => {
+        if (cancelled) return
+        const message = extractErrorMessage(err)
+        toast.error(message)
+        setLoadError(message)
+        setLinks([])
       })
     return () => {
       cancelled = true
@@ -100,7 +113,11 @@ export const useBucketLinks = ({ isBucket, eventId, bucketAccountId, asOfDate, a
   // Derived: loading while we haven't yet received data for the current event
   const loadingLinks = isBucket && eventId !== null && loadedForEventId !== eventId
 
-  const getLinkedAccountIds = (): number[] => effectiveLinks.filter((r) => r.sourceAccountId !== null).map((r) => r.sourceAccountId as number)
+  // Throwing makes the modal's submit catch toast it, instead of saving an empty set over links that never loaded
+  const getLinkedAccountIds = (): number[] => {
+    if (isBucket && loadError !== null) throw new Error(loadError)
+    return effectiveLinks.filter((r) => r.sourceAccountId !== null).map((r) => r.sourceAccountId as number)
+  }
 
   const currentIds = new Set(effectiveLinks.filter((r) => r.sourceAccountId !== null).map((r) => r.sourceAccountId!))
   const availableToLink = allAccounts.filter((a) => a.accountType === 'account' && !a.isBucketLinked && !currentIds.has(a.accountId))

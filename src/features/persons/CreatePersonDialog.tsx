@@ -73,7 +73,7 @@ const CreatePersonDialog = ({ open, onOpenChange, onSubmit }: Props) => {
           </DialogBody>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-              {t('modals.createPartner.cancel')}
+              {t('persons.cancel')}
             </Button>
             <Button type="submit" disabled={submitting}>
               {t('persons.createPerson')}

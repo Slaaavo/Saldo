@@ -14,7 +14,7 @@ export const useImportProfiles = () => {
       const data = await listImportProfiles()
       setProfiles(data)
     } catch (err) {
-      toast.error(String(err))
+      toast.error(extractErrorMessage(err))
     } finally {
       setLoading(false)
     }

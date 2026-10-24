@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Trash2 } from 'lucide-react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -104,8 +104,8 @@ const ImportProfilesPage = () => {
             </thead>
             <tbody>
               {ekasaProfiles.map((profile) => (
-                <>
-                  <tr key={profile.id} className="border-b border-border last:border-0 even:bg-muted/50">
+                <Fragment key={profile.id}>
+                  <tr className="border-b border-border last:border-0 even:bg-muted/50">
                     <td className="py-2 pr-4 font-medium">{resolvePersonName(profile.personId)}</td>
                     <td className="py-2 pr-4">{profile.rules.length}</td>
                     <td className="py-2 pr-4">{bpsToPct(profile.defaultDeductiblePctBps)}%</td>
@@ -118,7 +118,7 @@ const ImportProfilesPage = () => {
                     </td>
                   </tr>
                   {profile.rules.length > 0 && (
-                    <tr key={`${profile.id}-rules`} className="border-b border-border last:border-0">
+                    <tr className="border-b border-border last:border-0">
                       <td colSpan={5} className="py-1 pl-8 pr-4">
                         <div className="flex flex-col gap-1 text-xs text-muted-foreground">
                           {profile.rules.map((rule) => (
@@ -136,7 +136,7 @@ const ImportProfilesPage = () => {
                       </td>
                     </tr>
                   )}
-                </>
+                </Fragment>
               ))}
             </tbody>
           </table>

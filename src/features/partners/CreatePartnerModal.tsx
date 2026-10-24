@@ -5,7 +5,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogBody, DialogFoo
 import { Button } from '../../shared/ui/button'
 import { Input } from '../../shared/ui/input'
 import { Label } from '../../shared/ui/label'
-import { extractErrorMessage } from '../../shared/utils/errors'
+import { partnerErrorMessage } from './partnerErrorMessage'
 
 interface Props {
   currencyId: number
@@ -33,14 +33,7 @@ const CreatePartnerModal = ({ currencyId, onSubmit, onClose }: Props) => {
     try {
       await onSubmit(name.trim(), iban.trim(), currencyId)
     } catch (err) {
-      const msg = extractErrorMessage(err)
-      if (msg.includes('DUPLICATE_IBAN') || msg.toLowerCase().includes('already in use')) {
-        toast.error(t('partners.errors.duplicateIban'))
-      } else if (msg.includes('15') || msg.toLowerCase().includes('alphanumeric')) {
-        toast.error(t('partners.errors.invalidIban'))
-      } else {
-        toast.error(t('errors.createPartner', { error: msg }))
-      }
+      toast.error(partnerErrorMessage(t, err, 'errors.createPartner'))
       setSubmitting(false)
     }
   }

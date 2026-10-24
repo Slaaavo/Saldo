@@ -49,7 +49,7 @@ export const BalanceDisplay = ({ row, consolidationCurrency, allAccounts }: Bala
           <TooltipContent>
             <p className="text-xs flex flex-wrap items-center gap-1">
               <NumberValue value={row.balanceMinor} minorUnits={row.currencyMinorUnits} currencyCode={row.currencyCode} />
-              <span>{row.currencyCode} = </span>
+              <span>=</span>
               <NumberValue value={row.convertedBalanceMinor} minorUnits={consolidationCurrency.minorUnits} currencyCode={consolidationCurrency.code} />
             </p>
             {row.fxRateMissing && <p className="text-xs text-muted-foreground mt-1">{t('accounts.fxRateMissingTooltip')}</p>}
