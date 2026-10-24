@@ -69,7 +69,7 @@ const ReviewStep = ({ processedLegs, vendorName, receiptDate, onImportSuccess, o
   const hasAutoSelected = useRef(false)
 
   const cashflowsQuery = useQuery({
-    queryKey: ['eligible-cashflows', personId],
+    queryKey: ['events', 'eligible-cashflows', personId],
     queryFn: () => listEligibleCashflows(personId!, undefined, true),
     enabled: personId !== null,
   })
@@ -89,8 +89,14 @@ const ReviewStep = ({ processedLegs, vendorName, receiptDate, onImportSuccess, o
     setTimeout(() => setSelectedCashflowIds([closest.id]), 0)
   }, [cashflowsQuery.data, eligibleAmountMinor, processedLegs.length, multiDate, date])
 
-  const handleLegsChange = (newLegs: SplitLegDraft[]) => {
-    setLegs(newLegs.map((l) => ({ ...l, eventDate: l.eventDate || multiDate })))
+  // The event is already saved when linking fails, so a failed link is only a warning.
+  const linkSelectedCashflows = async (link: (cashflowIds: number[]) => Promise<void>) => {
+    if (selectedCashflowIds.length === 0) return
+    try {
+      await link(selectedCashflowIds)
+    } catch (err) {
+      toast.warning(extractErrorMessage(err))
+    }
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -108,7 +114,7 @@ const ReviewStep = ({ processedLegs, vendorName, receiptDate, onImportSuccess, o
           groupNote: groupNote.trim() || null,
           legs: legs.map((leg) => ({
             amountMinor: toMinorUnits(leg.amount, currencyMinorUnits),
-            eventDate: leg.eventDate || multiDate,
+            eventDate: multiDate,
             note: leg.note.trim() || null,
             vatRateBps: pctToBps(leg.vatRate),
             vatReclaimablePctBps: pctToBps(leg.vatReclaimablePct),
@@ -117,9 +123,7 @@ const ReviewStep = ({ processedLegs, vendorName, receiptDate, onImportSuccess, o
             reclaimedVat: leg.reclaimedVat,
           })),
         })
-        if (selectedCashflowIds.length > 0) {
-          linkCashflowsToSplitGroup(splitGroupId, selectedCashflowIds).catch((err) => toast.warning(extractErrorMessage(err)))
-        }
+        await linkSelectedCashflows((cashflowIds) => linkCashflowsToSplitGroup(splitGroupId, cashflowIds))
       } else {
         const parsed = parseFloat(amount)
         if (isNaN(parsed)) {
@@ -139,12 +143,11 @@ const ReviewStep = ({ processedLegs, vendorName, receiptDate, onImportSuccess, o
           prepaidUntil: null,
           reclaimedVat,
         })
-        if (selectedCashflowIds.length > 0) {
-          linkCashflowsToTaxable(newEventId, selectedCashflowIds).catch((err) => toast.warning(extractErrorMessage(err)))
-        }
+        await linkSelectedCashflows((cashflowIds) => linkCashflowsToTaxable(newEventId, cashflowIds))
       }
       setSubmitting(false)
       await queryClient.invalidateQueries({ queryKey: ['events'] })
+      await queryClient.invalidateQueries({ queryKey: ['snapshot'] })
       await onImportSuccess()
     } catch (err) {
       toast.error(extractErrorMessage(err))
@@ -210,7 +213,7 @@ const ReviewStep = ({ processedLegs, vendorName, receiptDate, onImportSuccess, o
           </>
         ) : (
           <>
-            {/* Global date (used as fallback for legs without a date) */}
+            {/* Date applied to every leg */}
             <div className="flex flex-col gap-2">
               <Label>{t('modals.createExpense.date')}</Label>
               <DatePicker value={multiDate} onChange={(d) => setMultiDate(d ?? todayIso())} />
@@ -222,7 +225,7 @@ const ReviewStep = ({ processedLegs, vendorName, receiptDate, onImportSuccess, o
               currencyCode={currencyCode}
               currencyMinorUnits={currencyMinorUnits}
               legs={legs}
-              onLegsChange={handleLegsChange}
+              onLegsChange={setLegs}
               groupNote={groupNote}
               onGroupNoteChange={setGroupNote}
             />
