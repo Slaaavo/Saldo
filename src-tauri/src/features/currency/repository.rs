@@ -225,8 +225,10 @@ pub fn get_latest_fx_rate_date(
     )
 }
 
-/// Return dates that have balance-update events for non-consolidation-currency accounts
-/// but lack a corresponding fx_rate row.  Used for ledger-driven backfill.
+/// Return dates of entries of every type (balance updates, cashflows, transfers) on
+/// accounts held in a standard non-consolidation currency that lack a corresponding
+/// fx_rate row. Custom units are skipped: OXR has no rate for them, so they would stay
+/// missing forever. Used for ledger-driven backfill.
 pub fn get_dates_needing_fx_rates(
     conn: &Connection,
     consolidation_id: i64,
@@ -236,7 +238,9 @@ pub fn get_dates_needing_fx_rates(
          FROM event e
          JOIN event_data ed ON ed.id = e.latest_data_id
          JOIN account a     ON a.id  = e.account_id
+         JOIN currency c    ON c.id  = a.currency_id
          WHERE a.currency_id != ?1
+           AND c.is_custom = 0
            AND e.deleted_at IS NULL
            AND e.latest_data_id IS NOT NULL
            AND NOT EXISTS (
