@@ -11,6 +11,15 @@ pub struct OxrResponse {
 
 const OXR_BASE_URL: &str = "https://openexchangerates.org/api";
 
+/// The API key travels in the URL query and reqwest prints the URL in its error text, so the
+/// message that reaches the FX Rates page, toasts and the log must not carry it.
+fn network_error(e: reqwest::Error) -> AppError {
+    AppError {
+        code: "NETWORK_ERROR".into(),
+        message: e.without_url().to_string(),
+    }
+}
+
 pub async fn fetch_rates(api_key: &str, date: Option<&str>) -> Result<OxrResponse, AppError> {
     let url = match date {
         None => format!("{}/latest.json?app_id={}", OXR_BASE_URL, api_key),
@@ -21,12 +30,9 @@ pub async fn fetch_rates(api_key: &str, date: Option<&str>) -> Result<OxrRespons
         .timeout(std::time::Duration::from_secs(10))
         .https_only(true)
         .build()
-        .map_err(|e| AppError::from(e.to_string()))?;
+        .map_err(|e| AppError::from(e.without_url().to_string()))?;
 
-    let response = client.get(&url).send().await.map_err(|e| AppError {
-        code: "NETWORK_ERROR".into(),
-        message: e.to_string(),
-    })?;
+    let response = client.get(&url).send().await.map_err(network_error)?;
 
     if !response.status().is_success() {
         return Err(AppError {
@@ -37,7 +43,7 @@ pub async fn fetch_rates(api_key: &str, date: Option<&str>) -> Result<OxrRespons
 
     let oxr_response = response.json::<OxrResponse>().await.map_err(|e| AppError {
         code: "PARSE_ERROR".into(),
-        message: format!("Failed to parse OXR response: {}", e),
+        message: format!("Failed to parse OXR response: {}", e.without_url()),
     })?;
 
     Ok(oxr_response)
@@ -314,6 +320,26 @@ mod tests {
         let (m, e) = compute_cross_rate(&rates, "EUR", "EUR").unwrap();
         let result = (m as f64) * 10_f64.powi(e as i32);
         assert!((result - 1.0).abs() < 1e-9, "expected 1.0, got {}", result);
+    }
+
+    #[test]
+    fn network_error_message_omits_the_api_key() {
+        // https_only rejects the plain-http URL before any connection is attempted.
+        let client = reqwest::ClientBuilder::new()
+            .https_only(true)
+            .build()
+            .unwrap();
+        let err = tauri::async_runtime::block_on(
+            client
+                .get("http://localhost/latest.json?app_id=SECRET_KEY")
+                .send(),
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("SECRET_KEY"));
+
+        let mapped = network_error(err);
+        assert_eq!(mapped.code, "NETWORK_ERROR");
+        assert!(!mapped.message.contains("SECRET_KEY"), "{}", mapped.message);
     }
 
     #[test]
