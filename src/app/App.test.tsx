@@ -1120,6 +1120,48 @@ describe('App', () => {
         expect(mockCloseModal).toHaveBeenCalled()
       })
     })
+
+    it('tells the user to add the OXR key or enter the rate when no key is configured', async () => {
+      mockFetchFxRates.mockRejectedValue({ code: 'CONFIG_ERROR', message: 'API key not configured. Set oxr_app_id in settings.' })
+      modalStateValue = { type: 'fetchFxRatePrompt', date: '2026-01-15' }
+      const user = userEvent.setup()
+      renderApp()
+      await waitFor(() => screen.getByTestId('confirm-ok'))
+      await user.click(screen.getByTestId('confirm-ok'))
+
+      await waitFor(() => {
+        expect(mockToastError).toHaveBeenCalledWith('modals.fetchFxRatePrompt.noApiKey')
+      })
+      expect(mockToastError).toHaveBeenCalledTimes(1)
+      expect(mockCloseModal).toHaveBeenCalled()
+    })
+
+    it('shows the message of any other fetch error', async () => {
+      mockFetchFxRates.mockRejectedValue({ code: 'OXR_ACCESS_ERROR', message: 'Invalid app_id' })
+      modalStateValue = { type: 'fetchFxRatePrompt', date: '2026-01-15' }
+      const user = userEvent.setup()
+      renderApp()
+      await waitFor(() => screen.getByTestId('confirm-ok'))
+      await user.click(screen.getByTestId('confirm-ok'))
+
+      await waitFor(() => {
+        expect(mockToastError).toHaveBeenCalledWith('Invalid app_id')
+      })
+      expect(mockToastError).toHaveBeenCalledTimes(1)
+    })
+
+    it('shows no error toast when the fetch succeeds', async () => {
+      modalStateValue = { type: 'fetchFxRatePrompt', date: '2026-01-15' }
+      const user = userEvent.setup()
+      renderApp()
+      await waitFor(() => screen.getByTestId('confirm-ok'))
+      await user.click(screen.getByTestId('confirm-ok'))
+
+      await waitFor(() => {
+        expect(mockCloseModal).toHaveBeenCalled()
+      })
+      expect(mockToastError).not.toHaveBeenCalled()
+    })
   })
 
   // ── ConfirmSwitchDb modal ──
