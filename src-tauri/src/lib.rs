@@ -1,5 +1,5 @@
 use std::path::PathBuf;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
 use tauri::Manager;
 
@@ -25,33 +25,100 @@ pub struct AppState {
     /// Set to true at startup when a configured custom folder is missing; cleared after any
     /// successful location change.
     pub fallback_warning: AtomicBool,
+    /// Bumped, with the `db` lock held, on every swap of `db` (demo mode enter/exit, DB location
+    /// change). An async task that read from one database and wants to write after an await
+    /// compares it first, so its result never lands in a different database.
+    db_generation: AtomicU64,
 }
 
 impl AppState {
+    pub fn new(
+        conn: rusqlite::Connection,
+        app_data_dir: PathBuf,
+        db_path: PathBuf,
+        fallback_warning: bool,
+    ) -> Self {
+        Self {
+            db: Mutex::new(conn),
+            persistent_db: Mutex::new(None),
+            demo_mode: AtomicBool::new(false),
+            app_data_dir,
+            db_path: Mutex::new(db_path),
+            fallback_warning: AtomicBool::new(fallback_warning),
+            db_generation: AtomicU64::new(0),
+        }
+    }
+
     pub fn conn(&self) -> Result<std::sync::MutexGuard<'_, rusqlite::Connection>, error::AppError> {
         self.db
             .lock()
             .map_err(|e| error::AppError::from(e.to_string()))
     }
+
+    /// The current DB generation. Read it while holding the `db` lock to pair it with the
+    /// connection being read.
+    pub fn db_generation(&self) -> u64 {
+        self.db_generation.load(Ordering::SeqCst)
+    }
+
+    /// Replace the connection behind an already-held `db` guard and return the old one. Every
+    /// swap of `db` goes through here (or `replace_conn`) so the generation is bumped under the lock.
+    pub fn swap_conn(
+        &self,
+        db: &mut rusqlite::Connection,
+        new_conn: rusqlite::Connection,
+    ) -> rusqlite::Connection {
+        self.db_generation.fetch_add(1, Ordering::SeqCst);
+        std::mem::replace(db, new_conn)
+    }
+
+    /// Lock `db`, swap in `new_conn` and return the old connection.
+    pub fn replace_conn(
+        &self,
+        new_conn: rusqlite::Connection,
+    ) -> Result<rusqlite::Connection, error::AppError> {
+        let mut db = self.conn()?;
+        Ok(self.swap_conn(&mut db, new_conn))
+    }
+}
+
+/// Upsert fetched `rates` unless the active database was swapped since `generation` was read
+/// (demo mode entered or exited, or the DB location changed, during the HTTP call). Returns
+/// whether the rates were written. The generation is compared under the `db` lock, which every
+/// swap also holds while bumping it, so a write can never land in a different database.
+fn store_fetched_rates(
+    state: &AppState,
+    generation: u64,
+    rates: &[(String, i64, i64, i64, i64)],
+) -> Result<bool, error::AppError> {
+    let conn = state.conn()?;
+    if state.db_generation() != generation {
+        return Ok(false);
+    }
+    features::currency::repository::upsert_fx_rates(&conn, rates)?;
+    Ok(true)
 }
 
 /// Fetch FX rates for `date`, skipping the OXR API call when all rates already exist
 /// (unless `force` is `true`). Follows the lock/drop/await/lock pattern: the DB mutex
-/// is never held across the async HTTP call.
+/// is never held across the async HTTP call. Rates fetched for a database that is no longer
+/// active when the call returns are discarded.
 pub async fn smart_fetch_fx_rates(
     state: &AppState,
     date: &str,
     force: bool,
 ) -> Result<Vec<features::currency::FxRateRow>, error::AppError> {
-    // 1. Read API key (lock → read → drop).
-    let api_key = {
+    // 1. Read API key (lock → read → drop), noting which database generation it came from.
+    let (api_key, generation) = {
         let conn = state.conn()?;
-        features::settings::repository::get_app_setting(&conn, "oxr_app_id")?
+        let generation = state.db_generation();
+        let api_key = features::settings::repository::get_app_setting(&conn, "oxr_app_id")?
             .filter(|k| !k.is_empty())
             .ok_or_else(|| error::AppError {
                 code: "CONFIG_ERROR".into(),
                 message: "API key not configured. Set oxr_app_id in settings.".into(),
-            })?
+            })?;
+        (api_key, generation)
     };
 
     // 2. Read consolidation currency and active non-consolidation currencies.
@@ -106,10 +173,12 @@ pub async fn smart_fetch_fx_rates(
         }
     }
 
-    // 7. Upsert rates.
-    if !rates.is_empty() {
-        let conn = state.conn()?;
-        features::currency::repository::upsert_fx_rates(&conn, &rates)?;
+    // 7. Upsert rates, unless the active database changed during the HTTP call.
+    if !rates.is_empty() && !store_fetched_rates(state, generation, &rates)? {
+        eprintln!(
+            "[smart_fetch_fx_rates] database changed while fetching {}; rates discarded",
+            date
+        );
     }
 
     // 8. Return the stored rates for this date.
@@ -143,14 +212,7 @@ pub fn run() {
                 eprintln!("Depreciation check failed: {}", e.message);
             }
 
-            app.manage(AppState {
-                db: Mutex::new(conn),
-                persistent_db: Mutex::new(None),
-                demo_mode: AtomicBool::new(false),
-                app_data_dir: app_dir,
-                db_path: Mutex::new(db_path),
-                fallback_warning: AtomicBool::new(fallback_warning),
-            });
+            app.manage(AppState::new(conn, app_dir, db_path, fallback_warning));
 
             // Spawn background FX rate fetch — non-blocking, errors are logged.
             let handle = app.handle().clone();
@@ -265,7 +327,9 @@ async fn startup_auto_fetch(handle: tauri::AppHandle) {
     let state = handle.state::<AppState>();
 
     // --- Skip silently if no API key configured. ---
-    {
+    // The date lists below are derived from this database; the generation lets the fetch loops
+    // stop once demo mode or the DB location has swapped it for another one.
+    let generation = {
         let conn = match state.conn() {
             Ok(g) => g,
             Err(_) => return,
@@ -278,7 +342,8 @@ async fn startup_auto_fetch(handle: tauri::AppHandle) {
         if !has_key {
             return;
         }
-    }
+        state.db_generation()
+    };
 
     // --- Read consolidation currency and active non-consolidation currencies. ---
     let (consolidation_id, active_currencies): (i64, Vec<(String, i64)>) = {
@@ -362,6 +427,9 @@ async fn startup_auto_fetch(handle: tauri::AppHandle) {
     };
 
     for date in &gap_dates {
+        if state.db_generation() != generation {
+            return;
+        }
         if let Err(e) = smart_fetch_fx_rates(&state, date, false).await {
             eprintln!("[fx-startup/gap-fill/{}] error: {}", date, e.message);
         }
@@ -390,8 +458,76 @@ async fn startup_auto_fetch(handle: tauri::AppHandle) {
         .collect();
 
     for date in &remaining {
+        if state.db_generation() != generation {
+            return;
+        }
         if let Err(e) = smart_fetch_fx_rates(&state, date, false).await {
             eprintln!("[fx-startup/ledger-backfill/{}] error: {}", date, e.message);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_state() -> AppState {
+        let conn = db::initialize_in_memory().expect("DB init failed");
+        AppState::new(conn, PathBuf::new(), PathBuf::new(), false)
+    }
+
+    fn eur_to_usd_rates(state: &AppState) -> Vec<(String, i64, i64, i64, i64)> {
+        let conn = state.conn().unwrap();
+        let id = |code: &str| -> i64 {
+            conn.query_row("SELECT id FROM currency WHERE code = ?1", [code], |r| {
+                r.get(0)
+            })
+            .unwrap()
+        };
+        vec![("2026-03-01".to_string(), id("EUR"), id("USD"), 10842, -4)]
+    }
+
+    fn stored_rate_count(state: &AppState) -> i64 {
+        let conn = state.conn().unwrap();
+        conn.query_row("SELECT COUNT(*) FROM fx_rate", [], |r| r.get(0))
+            .unwrap()
+    }
+
+    #[test]
+    fn store_fetched_rates_writes_when_the_database_is_unchanged() {
+        let state = test_state();
+        let rates = eur_to_usd_rates(&state);
+        let generation = state.db_generation();
+
+        assert!(store_fetched_rates(&state, generation, &rates).unwrap());
+        assert_eq!(stored_rate_count(&state), 1);
+    }
+
+    #[test]
+    fn store_fetched_rates_discards_rates_after_the_database_was_swapped() {
+        let state = test_state();
+        let rates = eur_to_usd_rates(&state);
+        let generation = state.db_generation();
+
+        let other_db = db::initialize_in_memory().expect("DB init failed");
+        state.replace_conn(other_db).unwrap();
+
+        assert!(!store_fetched_rates(&state, generation, &rates).unwrap());
+        assert_eq!(stored_rate_count(&state), 0);
+    }
+
+    #[test]
+    fn store_fetched_rates_discards_rates_after_a_swap_and_swap_back() {
+        let state = test_state();
+        let rates = eur_to_usd_rates(&state);
+        let generation = state.db_generation();
+
+        let first = state
+            .replace_conn(db::initialize_in_memory().expect("DB init failed"))
+            .unwrap();
+        state.replace_conn(first).unwrap();
+
+        assert!(!store_fetched_rates(&state, generation, &rates).unwrap());
+        assert_eq!(stored_rate_count(&state), 0);
     }
 }

@@ -51,6 +51,10 @@ pub fn set_app_setting(
 /// No-op if demo mode is already active.
 #[tauri::command]
 pub fn enter_demo_mode(state: State<'_, AppState>) -> Result<(), AppError> {
+    enter_demo(&state)
+}
+
+fn enter_demo(state: &AppState) -> Result<(), AppError> {
     if state.demo_mode.load(Ordering::SeqCst) {
         return Ok(());
     }
@@ -77,7 +81,7 @@ pub fn enter_demo_mode(state: State<'_, AppState>) -> Result<(), AppError> {
             .persistent_db
             .lock()
             .map_err(|e| AppError::from(e.to_string()))?;
-        let old_conn = std::mem::replace(&mut *db, demo_conn);
+        let old_conn = state.swap_conn(&mut db, demo_conn);
         *pdb = Some(old_conn);
     }
 
@@ -89,6 +93,10 @@ pub fn enter_demo_mode(state: State<'_, AppState>) -> Result<(), AppError> {
 /// All demo data is discarded. No-op if demo mode is not active.
 #[tauri::command]
 pub fn exit_demo_mode(state: State<'_, AppState>) -> Result<(), AppError> {
+    exit_demo(&state)
+}
+
+fn exit_demo(state: &AppState) -> Result<(), AppError> {
     if !state.demo_mode.load(Ordering::SeqCst) {
         return Ok(());
     }
@@ -106,7 +114,7 @@ pub fn exit_demo_mode(state: State<'_, AppState>) -> Result<(), AppError> {
             message: "No persistent connection stashed — state is inconsistent".into(),
         })?;
         // Old in-memory connection is dropped here, discarding all demo data.
-        let _demo = std::mem::replace(&mut *db, persistent);
+        let _demo = state.swap_conn(&mut db, persistent);
     }
 
     state.demo_mode.store(false, Ordering::SeqCst);
@@ -216,10 +224,7 @@ fn relocate_db(
     match action {
         "switch" => {
             let new_conn = crate::db::initialize_db(&new_db_path).map_err(AppError::from)?;
-            {
-                let mut db_guard = state.db.lock().map_err(|e| AppError::from(e.to_string()))?;
-                let _ = std::mem::replace(&mut *db_guard, new_conn);
-            }
+            state.replace_conn(new_conn)?;
             match config_action {
                 ConfigAction::WriteCustom => {
                     crate::config::write_db_location(&state.app_data_dir, target_folder)?
@@ -254,17 +259,14 @@ fn relocate_db(
             // 2. Swap to in-memory to release the file lock on Windows.
             {
                 let in_memory = crate::db::initialize_in_memory().map_err(AppError::from)?;
-                let mut db_guard = state.db.lock().map_err(|e| AppError::from(e.to_string()))?;
-                // _old_conn is dropped here, releasing the file lock.
-                let _old_conn = std::mem::replace(&mut *db_guard, in_memory);
+                // _old_conn is dropped at the end of this block, releasing the file lock.
+                let _old_conn = state.replace_conn(in_memory)?;
             }
 
             // 3. Copy file.
             if let Err(e) = std::fs::copy(&old_path, &new_db_path) {
                 if let Ok(restored) = crate::db::initialize_db(&old_path) {
-                    if let Ok(mut db_guard) = state.db.lock() {
-                        let _ = std::mem::replace(&mut *db_guard, restored);
-                    }
+                    let _ = state.replace_conn(restored);
                 }
                 return Err(AppError::from(e));
             }
@@ -275,9 +277,7 @@ fn relocate_db(
                 Err(e) => {
                     let _ = std::fs::remove_file(&new_db_path);
                     if let Ok(restored) = crate::db::initialize_db(&old_path) {
-                        if let Ok(mut db_guard) = state.db.lock() {
-                            let _ = std::mem::replace(&mut *db_guard, restored);
-                        }
+                        let _ = state.replace_conn(restored);
                     }
                     return Err(AppError::from(e));
                 }
@@ -288,18 +288,13 @@ fn relocate_db(
                 drop(new_conn);
                 let _ = std::fs::remove_file(&new_db_path);
                 if let Ok(restored) = crate::db::initialize_db(&old_path) {
-                    if let Ok(mut db_guard) = state.db.lock() {
-                        let _ = std::mem::replace(&mut *db_guard, restored);
-                    }
+                    let _ = state.replace_conn(restored);
                 }
                 return Err(e);
             }
 
             // 6. Swap to new connection.
-            {
-                let mut db_guard = state.db.lock().map_err(|e| AppError::from(e.to_string()))?;
-                let _ = std::mem::replace(&mut *db_guard, new_conn);
-            }
+            state.replace_conn(new_conn)?;
 
             // 7. Persist config and update tracked path.
             match config_action {
@@ -327,10 +322,7 @@ fn relocate_db(
         }
         "fresh" => {
             let new_conn = crate::db::initialize_db(&new_db_path).map_err(AppError::from)?;
-            {
-                let mut db_guard = state.db.lock().map_err(|e| AppError::from(e.to_string()))?;
-                let _ = std::mem::replace(&mut *db_guard, new_conn);
-            }
+            state.replace_conn(new_conn)?;
             match config_action {
                 ConfigAction::WriteCustom => {
                     crate::config::write_db_location(&state.app_data_dir, target_folder)?
@@ -424,4 +416,70 @@ pub fn set_bulk_update_exclusions(
     let conn = state.conn()?;
     repository::replace_bulk_update_exclusions(&conn, &account_ids)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config;
+
+    fn test_state(root: &std::path::Path) -> AppState {
+        let app_dir = root.join("app");
+        std::fs::create_dir_all(&app_dir).unwrap();
+        let db_path = app_dir.join(config::DB_FILENAME);
+        let conn = crate::db::initialize_db(&db_path).expect("DB init failed");
+        AppState::new(conn, app_dir, db_path, false)
+    }
+
+    #[test]
+    fn entering_and_exiting_demo_mode_bump_the_db_generation() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_state(dir.path());
+
+        let before_enter = state.db_generation();
+        enter_demo(&state).unwrap();
+        let after_enter = state.db_generation();
+        assert!(after_enter > before_enter);
+
+        exit_demo(&state).unwrap();
+        assert!(state.db_generation() > after_enter);
+    }
+
+    #[test]
+    fn fresh_location_creates_the_db_file_and_bumps_the_db_generation() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_state(dir.path());
+        let target = dir.path().join("custom");
+        std::fs::create_dir_all(&target).unwrap();
+
+        let before = state.db_generation();
+        relocate_db(&state, &target, "fresh", ConfigAction::WriteCustom).unwrap();
+
+        assert!(state.db_generation() > before);
+        assert_eq!(
+            config::resolve_db_path(&state.app_data_dir),
+            (target.join(config::DB_FILENAME), false)
+        );
+    }
+
+    #[test]
+    fn moving_the_location_relocates_the_file_and_bumps_the_db_generation() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_state(dir.path());
+        let old_path = state.db_path.lock().unwrap().clone();
+        let target = dir.path().join("custom");
+        std::fs::create_dir_all(&target).unwrap();
+
+        let before = state.db_generation();
+        relocate_db(&state, &target, "move", ConfigAction::WriteCustom).unwrap();
+
+        assert!(state.db_generation() > before);
+        assert!(!old_path.exists());
+        assert_eq!(
+            config::resolve_db_path(&state.app_data_dir),
+            (target.join(config::DB_FILENAME), false)
+        );
+        let conn = state.conn().unwrap();
+        repository::get_app_setting(&conn, "consolidation_currency_code").unwrap();
+    }
 }
