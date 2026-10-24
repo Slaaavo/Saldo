@@ -130,8 +130,10 @@ pub fn calculate_expense_breakdown(
         calculate_reclaimable_vat(vat_amount_minor, vat_reclaimable_pct_bps, can_reclaim);
     let non_reclaimable_vat_minor = vat_amount_minor - reclaimable_vat_minor;
     let expense_deductible_pct_bps = event.expense_deductible_pct_bps.unwrap_or(10000);
-    let tax_deductible_cost_minor = net_amount_minor * expense_deductible_pct_bps / 10000;
-    let non_tax_deductible_cost_minor = net_amount_minor - tax_deductible_cost_minor;
+    // VAT that cannot be reclaimed is part of what the expense costs.
+    let cost_minor = net_amount_minor + non_reclaimable_vat_minor;
+    let tax_deductible_cost_minor = cost_minor * expense_deductible_pct_bps / 10000;
+    let non_tax_deductible_cost_minor = cost_minor - tax_deductible_cost_minor;
     TaxEventBreakdown {
         event_id: event.event_id,
         event_type: event.event_type.clone(),
@@ -369,6 +371,9 @@ mod tests {
         assert_eq!(bd.vat_amount_minor, 2000);
         assert_eq!(bd.reclaimable_vat_minor, 1000);
         assert_eq!(bd.non_reclaimable_vat_minor, 1000);
+        // The non-reclaimable VAT is part of the cost: 10000 + 1000
+        assert_eq!(bd.tax_deductible_cost_minor, 11000);
+        assert_eq!(bd.non_tax_deductible_cost_minor, 0);
     }
 
     #[test]
@@ -391,11 +396,12 @@ mod tests {
     #[test]
     fn test_expense_breakdown_partial_deductible() {
         // 20% VAT, 75% expense-deductible, can_reclaim=false
+        // cost base = net 10000 + non-reclaimable VAT 2000 = 12000, split 75/25
         let event = make_event(4, "expense", 12000, Some(2000), Some(0), Some(7500), None);
         let bd = calculate_expense_breakdown(&event, false);
         assert_eq!(bd.net_amount_minor, 10000);
-        assert_eq!(bd.tax_deductible_cost_minor, 7500);
-        assert_eq!(bd.non_tax_deductible_cost_minor, 2500);
+        assert_eq!(bd.tax_deductible_cost_minor, 9000);
+        assert_eq!(bd.non_tax_deductible_cost_minor, 3000);
     }
 
     #[test]
@@ -403,8 +409,26 @@ mod tests {
         // expense_deductible_pct_bps = None → treated as 10000 (100%)
         let event = make_event(5, "expense", 12000, Some(2000), Some(0), None, None);
         let bd = calculate_expense_breakdown(&event, false);
-        assert_eq!(bd.tax_deductible_cost_minor, 10000);
+        assert_eq!(bd.tax_deductible_cost_minor, 12000);
         assert_eq!(bd.non_tax_deductible_cost_minor, 0);
+    }
+
+    #[test]
+    fn test_expense_breakdown_partial_reclaim_partial_deductible() {
+        // net 10000, VAT 2000 of which 50% reclaimable → 1000 non-reclaimable
+        // cost base 11000 split 60/40 → 6600 / 4400
+        let event = make_event(
+            7,
+            "expense",
+            12000,
+            Some(2000),
+            Some(5000),
+            Some(6000),
+            Some(true),
+        );
+        let bd = calculate_expense_breakdown(&event, true);
+        assert_eq!(bd.tax_deductible_cost_minor, 6600);
+        assert_eq!(bd.non_tax_deductible_cost_minor, 4400);
     }
 
     // --- calculate_revenue_breakdown ---
@@ -665,7 +689,7 @@ mod tests {
     fn test_aggregate_physical_person() {
         // Revenue: 100000 (no VAT) → net 100000
         // Expense: 24000 gross, 20% VAT, 100% reclaimable, 100% deductible, can_reclaim=true
-        //   net = 20000, vat = 4000, tax_deductible = 20000
+        //   net = 20000, vat = 4000
         // model: flat 20% tax, physical person, vat_status=none → reclaim is false (status=none)
         let model = make_flat_model("physical", 2000, None, None, None, None);
         let revenue = EventDataForCalc {
@@ -688,22 +712,22 @@ mod tests {
         let result = calculate_tax_model_results(&model, &events);
 
         // vat_status="none" → can_reclaim=false → all VAT is cost
-        // net expense = 20000, tax_deductible = 20000 (100%)
+        // cost = net 20000 + VAT 4000 = 24000, tax_deductible = 24000 (100%)
         assert_eq!(result.total_income_minor, 100_000);
-        assert_eq!(result.total_tax_deductible_expenses_minor, 20_000);
+        assert_eq!(result.total_tax_deductible_expenses_minor, 24_000);
         assert_eq!(result.total_non_tax_deductible_expenses_minor, 0);
-        assert_eq!(result.tax_basis_minor, 80_000);
-        // 20% flat tax on 80000 = 16000
-        assert_eq!(result.tax_amount_minor, 16_000);
-        // profit = 100000 - 20000 - 0 - 16000 = 64000
-        assert_eq!(result.total_profit_minor, 64_000);
+        assert_eq!(result.tax_basis_minor, 76_000);
+        // 20% flat tax on 76000 = 15200
+        assert_eq!(result.tax_amount_minor, 15_200);
+        // profit = 100000 - 24000 - 0 - 15200 = 60800
+        assert_eq!(result.total_profit_minor, 60_800);
         // physical person: no reserve/dividend/withholding
         assert_eq!(result.reserve_fund_generation_minor, 0);
         assert_eq!(result.dividend_minor, 0);
         assert_eq!(result.withholding_tax_minor, 0);
         assert_eq!(result.net_dividend_minor, 0);
-        // monthly burden = 16000 / 12 = 1333
-        assert_eq!(result.monthly_tax_burden_minor, 1_333);
+        // monthly burden = 15200 / 12 = 1266.67 → 1267
+        assert_eq!(result.monthly_tax_burden_minor, 1_267);
         assert_eq!(result.person_type, "physical");
         assert_eq!(result.event_breakdowns.len(), 2);
     }
@@ -711,10 +735,10 @@ mod tests {
     #[test]
     fn test_aggregate_legal_person() {
         // Same events as physical test, flat 20% tax
-        // Legal person: reserve_fund 10%, max 50000, current 0 → reserve = 10% of 64000 = 6400
-        // dividend = 64000 - 6400 = 57600
-        // withholding 7% = 57600 * 700 / 10000 = 4032
-        // net_dividend = 57600 - 4032 = 53568
+        // Legal person: reserve_fund 10%, max 50000, current 0 → reserve = 10% of 60800 = 6080
+        // dividend = 60800 - 6080 = 54720
+        // withholding 7% = 54720 * 700 / 10000 = 3830
+        // net_dividend = 54720 - 3830 = 50890
         let model = make_flat_model("legal", 2000, Some(1000), Some(0), Some(50_000), Some(700));
         let revenue = make_event(1, "revenue", 100_000, None, None, None, None);
         let expense = make_event(
@@ -728,17 +752,18 @@ mod tests {
         );
         let result = calculate_tax_model_results(&model, &[revenue, expense]);
 
-        assert_eq!(result.total_profit_minor, 64_000);
-        assert_eq!(result.reserve_fund_generation_minor, 6_400);
-        assert_eq!(result.dividend_minor, 57_600);
-        assert_eq!(result.withholding_tax_minor, 4_032);
-        assert_eq!(result.net_dividend_minor, 53_568);
-        assert_eq!(result.monthly_tax_burden_minor, (16_000 + 4_032) / 12);
+        assert_eq!(result.total_profit_minor, 60_800);
+        assert_eq!(result.reserve_fund_generation_minor, 6_080);
+        assert_eq!(result.dividend_minor, 54_720);
+        assert_eq!(result.withholding_tax_minor, 3_830);
+        assert_eq!(result.net_dividend_minor, 50_890);
+        // (15200 + 3830) / 12 = 1585.83 → 1586
+        assert_eq!(result.monthly_tax_burden_minor, 1_586);
     }
 
     #[test]
     fn test_aggregate_reserve_fund_cap() {
-        // Reserve target = 10% of 64000 = 6400, but cap = 50000 - 45000 = 5000
+        // Reserve target = 10% of 60800 = 6080, but cap = 50000 - 45000 = 5000
         let model = make_flat_model(
             "legal",
             2000,
@@ -760,7 +785,7 @@ mod tests {
         let result = calculate_tax_model_results(&model, &[revenue, expense]);
 
         assert_eq!(result.reserve_fund_generation_minor, 5_000);
-        assert_eq!(result.dividend_minor, 64_000 - 5_000);
+        assert_eq!(result.dividend_minor, 60_800 - 5_000);
     }
 
     #[test]
@@ -768,14 +793,15 @@ mod tests {
         // Expenses exceed income: profit < 0, reserve_fund = 0, dividend = 0
         let model = make_flat_model("legal", 2000, Some(1000), Some(0), Some(50_000), Some(700));
         let revenue = make_event(1, "revenue", 10_000, None, None, None, None);
-        // expense net = 20000 (deductible), tax_basis = max(0, 10000-20000) = 0
+        // expense cost = net 20000 + non-reclaimable VAT 4000 = 24000 (deductible),
+        // tax_basis = max(0, 10000-24000) = 0
         let expense = make_event(2, "expense", 24_000, Some(2000), None, None, None);
         let result = calculate_tax_model_results(&model, &[revenue, expense]);
 
         assert_eq!(result.tax_basis_minor, 0);
         assert_eq!(result.tax_amount_minor, 0);
-        // profit = 10000 - 20000 - 0 - 0 = -10000
-        assert_eq!(result.total_profit_minor, -10_000);
+        // profit = 10000 - 24000 - 0 - 0 = -14000
+        assert_eq!(result.total_profit_minor, -14_000);
         assert_eq!(result.reserve_fund_generation_minor, 0);
         assert_eq!(result.dividend_minor, 0);
         assert_eq!(result.withholding_tax_minor, 0);

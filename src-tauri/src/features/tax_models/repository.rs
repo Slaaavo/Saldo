@@ -565,11 +565,11 @@ mod tests {
         assert_eq!(exp.reclaimed_vat, Some(false));
 
         // Verify aggregate totals through calculate_tax_model_results (flat 20%, vat_status="none").
-        // vat_status=none → can_reclaim=false → no VAT reclaimed.
-        // net expense = 24000 * 10000 / 12000 = 20000; tax_deductible = 20000
-        // tax_basis = max(0, 100000 - 20000) = 80000
-        // tax = 80000 * 2000 / 10000 = 16000
-        // total_profit = 100000 - 20000 - 0 - 16000 = 64000
+        // vat_status=none → can_reclaim=false → no VAT reclaimed, so all VAT is cost.
+        // net expense = 24000 * 10000 / 12000 = 20000; cost = 20000 + 4000 VAT = 24000
+        // tax_deductible = 24000; tax_basis = max(0, 100000 - 24000) = 76000
+        // tax = 76000 * 2000 / 10000 = 15200
+        // total_profit = 100000 - 24000 - 0 - 15200 = 60800
         let model = TaxModelDetail {
             id: 1,
             name: "Integration Test Model".to_owned(),
@@ -597,10 +597,10 @@ mod tests {
         let result = calculate_tax_model_results(&model, &events);
 
         assert_eq!(result.total_income_minor, 100_000);
-        assert_eq!(result.total_tax_deductible_expenses_minor, 20_000);
-        assert_eq!(result.tax_basis_minor, 80_000);
-        assert_eq!(result.tax_amount_minor, 16_000);
-        assert_eq!(result.total_profit_minor, 64_000);
+        assert_eq!(result.total_tax_deductible_expenses_minor, 24_000);
+        assert_eq!(result.tax_basis_minor, 76_000);
+        assert_eq!(result.tax_amount_minor, 15_200);
+        assert_eq!(result.total_profit_minor, 60_800);
     }
 
     #[test]
