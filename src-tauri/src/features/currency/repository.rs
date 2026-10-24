@@ -530,4 +530,74 @@ mod tests {
             .unwrap();
         assert_eq!(is_manual, 1);
     }
+
+    fn mk_account(conn: &Connection, currency_id: i64, account_type: &str) -> i64 {
+        crate::features::accounts::repository::create_account(
+            conn,
+            crate::features::accounts::repository::CreateAccountParams {
+                name: "Test".to_owned(),
+                currency_id,
+                account_type: account_type.to_owned(),
+                ..Default::default()
+            },
+        )
+        .expect("create account failed")
+    }
+
+    fn cashflow_on(conn: &Connection, account_id: i64, date: &str) {
+        crate::features::transactions::repository::create_cashflow(
+            conn,
+            &crate::features::transactions::repository::CashflowEntry {
+                account_id,
+                amount_minor: 1000,
+                event_date: date.to_owned(),
+                note: None,
+                counterpart_account_id: None,
+                bucket_id: None,
+                original_currency_id: None,
+                original_amount_minor: None,
+                fx_rate_mantissa: None,
+                fx_rate_exponent: None,
+            },
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn dates_needing_fx_rates_skip_custom_units_and_count_every_entry_type() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let eur = get_consolidation_currency(&conn).unwrap().id;
+        let usd: i64 = conn
+            .query_row("SELECT id FROM currency WHERE code = 'USD'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        let unit = crate::features::assets::repository::create_custom_unit(
+            &conn,
+            crate::features::assets::repository::CreateCustomUnitParams {
+                name: "Gold".to_owned(),
+                minor_units: 2,
+            },
+        )
+        .unwrap();
+        let usd_account = mk_account(&conn, usd, "account");
+        let unit_asset = mk_account(&conn, unit, "asset");
+
+        cashflow_on(&conn, usd_account, "2026-03-01T10:00:00");
+        cashflow_on(&conn, unit_asset, "2026-03-02T10:00:00");
+        crate::features::transactions::repository::create_balance_update(
+            &conn,
+            crate::features::transactions::repository::CreateBalanceUpdateParams {
+                account_id: usd_account,
+                amount_minor: 5000,
+                event_date: "2026-03-03T10:00:00".to_owned(),
+                note: None,
+            },
+        )
+        .unwrap();
+
+        let dates = get_dates_needing_fx_rates(&conn, eur).unwrap();
+
+        assert_eq!(dates, ["2026-03-01", "2026-03-03"]);
+    }
 }
