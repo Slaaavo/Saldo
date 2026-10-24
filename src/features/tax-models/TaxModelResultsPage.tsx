@@ -20,15 +20,17 @@ const TaxModelResultsPage = () => {
     enabled: !!modelId,
   })
 
-  const { data: result, isLoading: isResultLoading } = useQuery({
+  // Results depend on events and model settings, so recalculate on every mount instead of serving the global infinite cache.
+  const { data: result, isFetching: isResultFetching } = useQuery({
     queryKey: ['taxModelResults', Number(modelId)],
     queryFn: () => calculateTaxModel(Number(modelId)),
     enabled: !!modelId,
+    staleTime: 0,
   })
 
   usePageTitle(model != null ? `${model.name} – ${model.calendarYear}` : t('taxModels.resultsTitle'))
 
-  if (isLoading || isResultLoading) return null
+  if (isLoading || isResultFetching) return null
 
   const isLegal = result?.personType === 'legal'
   const hasNoEvents = result != null && result.eventBreakdowns.length === 0

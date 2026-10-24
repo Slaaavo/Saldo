@@ -798,6 +798,19 @@ taxModels:
   vatFromDate: "From Date"
   vatFromDateLabel: "VAT Start Date"
   saveAndCalculate: "Save and Calculate"
+  validation:
+    bracketRequired: "At least one bracket is required"
+    personRequired: "A person must be selected"
+    rateTypeRequired: "Bracket {{bracket}}: rate type is required"
+    flatRateRequired: "Bracket {{bracket}}: flat rate is required"
+    flatRateInvalid: "Bracket {{bracket}}: flat rate is not a valid number"
+    tierRequired: "Bracket {{bracket}}: at least one tier is required"
+    tierFieldsRequired: "Bracket {{bracket}}, tier {{tier}}: threshold and rate are required"
+    tierFieldsInvalid: "Bracket {{bracket}}, tier {{tier}}: threshold and rate must be valid numbers"
+    upperBoundRequired: "Bracket {{bracket}}: upper bound is required"
+    upperBoundInvalid: "Bracket {{bracket}}: upper bound is not a valid number"
+    lastUpperBoundNotAllowed: "Bracket {{bracket}}: the last bracket must not have an upper bound set"
+    reserveFundMaxRequired: "Reserve fund maximum amount is required when an allocation percentage is set"
   backToList: "Back to List"
   resultsTitle: Tax Model Results
   adjustSettings: Adjust Settings

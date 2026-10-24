@@ -1,8 +1,9 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
 import { toast } from 'sonner'
-import { createTaxModel, updateTaxModel } from '../../shared/api'
+import { createTaxModel, updateTaxModel, type BracketInput } from '../../shared/api'
 import { toMinorUnits, fromMinorUnits, pctToBps, bpsToPct } from '../../shared/utils/format'
 import { extractErrorMessage } from '../../shared/utils/errors'
 import type { PersonRow, TaxModelDetail } from '../../shared/types'
@@ -73,6 +74,7 @@ const formStateFromModel = (model: TaxModelDetail): FormState => {
 }
 
 export const useTaxModelForm = (modelId: number | undefined, persons: PersonRow[], initialData: TaxModelDetail | undefined) => {
+  const { t } = useTranslation()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
 
@@ -86,19 +88,9 @@ export const useTaxModelForm = (modelId: number | undefined, persons: PersonRow[
     }
   }
 
-  // Auto-select first legal person in create mode when persons load
-  const [prevPersons, setPrevPersons] = useState(persons)
-  if (persons !== prevPersons) {
-    setPrevPersons(persons)
-    if (modelId === undefined && persons.length > 0) {
-      setForm((prev) => {
-        if (prev.personId !== null) return prev
-        const firstLegal = persons.find((p) => p.personType === 'legal')
-        const defaultPerson = firstLegal ?? persons[0]
-        return { ...prev, personId: defaultPerson.id }
-      })
-    }
-  }
+  // In create mode the person defaults to the first legal one until the user picks another.
+  const defaultPersonId = modelId === undefined ? ((persons.find((p) => p.personType === 'legal') ?? persons[0])?.id ?? null) : null
+  const personId = form.personId ?? defaultPersonId
 
   const set =
     <K extends keyof FormState>(key: K) =>
@@ -107,96 +99,120 @@ export const useTaxModelForm = (modelId: number | undefined, persons: PersonRow[
     }
 
   const selectedPersonType: string = (() => {
-    if (form.personId === null) return 'physical'
-    const found = persons.find((p) => p.id === form.personId)
+    if (personId === null) return 'physical'
+    const found = persons.find((p) => p.id === personId)
     return found?.personType ?? 'physical'
   })()
 
   const handleSave = async (): Promise<void> => {
     if (form.brackets.length === 0) {
-      toast.error('At least one bracket is required')
+      toast.error(t('taxModels.validation.bracketRequired'))
       return
     }
 
-    if (form.personId === null) {
-      toast.error('A person must be selected')
+    if (personId === null) {
+      toast.error(t('taxModels.validation.personRequired'))
       return
     }
+
+    const brackets: BracketInput[] = []
+    let lowerBoundMinor = 0
 
     for (let i = 0; i < form.brackets.length; i++) {
       const bracket = form.brackets[i]
       const bracketNum = i + 1
       const isLast = i === form.brackets.length - 1
+      let flatRateBps: number | null = null
+      let tiersJson: string | null = null
+      let upperBoundMinor = 0
 
       if (!bracket.rateType) {
-        toast.error(`Bracket ${bracketNum}: rate type is required`)
+        toast.error(t('taxModels.validation.rateTypeRequired', { bracket: bracketNum }))
         return
       }
 
       if (bracket.rateType === 'flat') {
         if (!bracket.flatRateBps) {
-          toast.error(`Bracket ${bracketNum}: flat rate is required`)
+          toast.error(t('taxModels.validation.flatRateRequired', { bracket: bracketNum }))
+          return
+        }
+        flatRateBps = pctToBps(bracket.flatRateBps)
+        if (flatRateBps === null) {
+          toast.error(t('taxModels.validation.flatRateInvalid', { bracket: bracketNum }))
           return
         }
       } else if (bracket.rateType === 'progressive') {
         if (bracket.tiers.length === 0) {
-          toast.error(`Bracket ${bracketNum}: at least one tier is required`)
+          toast.error(t('taxModels.validation.tierRequired', { bracket: bracketNum }))
           return
         }
-        for (let t = 0; t < bracket.tiers.length; t++) {
-          const tier = bracket.tiers[t]
+        const tiers: { thresholdMinor: number; rateBps: number }[] = []
+        for (let tierIndex = 0; tierIndex < bracket.tiers.length; tierIndex++) {
+          const tier = bracket.tiers[tierIndex]
           if (!tier.thresholdMinor || !tier.rateBps) {
-            toast.error(`Bracket ${bracketNum}, tier ${t + 1}: threshold and rate are required`)
+            toast.error(t('taxModels.validation.tierFieldsRequired', { bracket: bracketNum, tier: tierIndex + 1 }))
             return
           }
+          const thresholdMinor = toMinorUnits(tier.thresholdMinor, 2)
+          const rateBps = pctToBps(tier.rateBps)
+          if (Number.isNaN(thresholdMinor) || rateBps === null) {
+            toast.error(t('taxModels.validation.tierFieldsInvalid', { bracket: bracketNum, tier: tierIndex + 1 }))
+            return
+          }
+          tiers.push({ thresholdMinor, rateBps })
         }
+        tiersJson = JSON.stringify(tiers)
       }
 
       if (!isLast && !bracket.upperBoundMinor) {
-        toast.error(`Bracket ${bracketNum}: upper bound is required`)
+        toast.error(t('taxModels.validation.upperBoundRequired', { bracket: bracketNum }))
         return
       }
 
       if (isLast && bracket.upperBoundMinor) {
-        toast.error(`Bracket ${bracketNum}: the last bracket must not have an upper bound set`)
+        toast.error(t('taxModels.validation.lastUpperBoundNotAllowed', { bracket: bracketNum }))
+        return
+      }
+
+      if (!isLast) {
+        upperBoundMinor = toMinorUnits(bracket.upperBoundMinor, 2)
+        if (Number.isNaN(upperBoundMinor)) {
+          toast.error(t('taxModels.validation.upperBoundInvalid', { bracket: bracketNum }))
+          return
+        }
+      }
+
+      brackets.push({ sortOrder: i, lowerBoundMinor, rateType: bracket.rateType, flatRateBps, tiersJson })
+      lowerBoundMinor = upperBoundMinor
+    }
+
+    if (selectedPersonType === 'legal') {
+      const reservePctBps = pctToBps(form.reserveFundPctBps)
+      if (reservePctBps !== null && reservePctBps > 0 && !form.reserveFundMaxMinor) {
+        toast.error(t('taxModels.validation.reserveFundMaxRequired'))
         return
       }
     }
 
     try {
-      const buildBrackets = form.brackets.map((b, i) => ({
-        sortOrder: i,
-        lowerBoundMinor: i === 0 ? 0 : toMinorUnits(form.brackets[i - 1].upperBoundMinor, 2) || 0,
-        rateType: b.rateType,
-        flatRateBps: b.rateType === 'flat' ? (pctToBps(b.flatRateBps) ?? null) : null,
-        tiersJson:
-          b.rateType === 'progressive'
-            ? JSON.stringify(
-                b.tiers.map((t) => ({
-                  thresholdMinor: toMinorUnits(t.thresholdMinor, 2) ?? 0,
-                  rateBps: pctToBps(t.rateBps) ?? 0,
-                })),
-              )
-            : null,
-      }))
-
       const baseInput = {
         name: form.name,
         calendarYear: form.calendarYear,
-        personId: form.personId,
+        personId,
         vatStatus: form.vatStatus,
         vatFromDate: form.vatStatus === 'from_date' ? form.vatFromDate : null,
         reserveFundCurrentMinor: form.reserveFundCurrentMinor ? toMinorUnits(form.reserveFundCurrentMinor, 2) : null,
         reserveFundPctBps: form.reserveFundPctBps ? (pctToBps(form.reserveFundPctBps) ?? null) : null,
         reserveFundMaxMinor: form.reserveFundMaxMinor ? toMinorUnits(form.reserveFundMaxMinor, 2) : null,
         dividendTaxRateBps: form.dividendTaxRateBps ? (pctToBps(form.dividendTaxRateBps) ?? null) : null,
-        brackets: buildBrackets,
+        brackets,
       }
 
       if (modelId !== undefined) {
         await updateTaxModel({ ...baseInput, modelId })
         queryClient.invalidateQueries({ queryKey: ['taxModels'] })
         queryClient.invalidateQueries({ queryKey: ['taxModel', modelId] })
+        queryClient.invalidateQueries({ queryKey: ['taxModelResults', modelId] })
         navigate({ to: '/tax-models/$modelId/results', params: { modelId: String(modelId) } })
       } else {
         const newId = await createTaxModel(baseInput)
@@ -213,7 +229,7 @@ export const useTaxModelForm = (modelId: number | undefined, persons: PersonRow[
     setName: set('name'),
     calendarYear: form.calendarYear,
     setCalendarYear: set('calendarYear'),
-    personId: form.personId,
+    personId,
     setPersonId: set('personId'),
     vatStatus: form.vatStatus,
     setVatStatus: set('vatStatus'),

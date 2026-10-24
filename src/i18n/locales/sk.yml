@@ -796,6 +796,19 @@ taxModels:
   vatFromDate: "Od dátumu"
   vatFromDateLabel: "Dátum registrácie DPH"
   saveAndCalculate: "Uložiť a vypočítať"
+  validation:
+    bracketRequired: "Vyžaduje sa aspoň jedno pásmo"
+    personRequired: "Musí byť vybraná osoba"
+    rateTypeRequired: "Pásmo {{bracket}}: typ sadzby je povinný"
+    flatRateRequired: "Pásmo {{bracket}}: paušálna sadzba je povinná"
+    flatRateInvalid: "Pásmo {{bracket}}: paušálna sadzba nie je platné číslo"
+    tierRequired: "Pásmo {{bracket}}: vyžaduje sa aspoň jeden stupeň"
+    tierFieldsRequired: "Pásmo {{bracket}}, stupeň {{tier}}: hranica a sadzba sú povinné"
+    tierFieldsInvalid: "Pásmo {{bracket}}, stupeň {{tier}}: hranica a sadzba musia byť platné čísla"
+    upperBoundRequired: "Pásmo {{bracket}}: horná hranica je povinná"
+    upperBoundInvalid: "Pásmo {{bracket}}: horná hranica nie je platné číslo"
+    lastUpperBoundNotAllowed: "Pásmo {{bracket}}: posledné pásmo nesmie mať nastavenú hornú hranicu"
+    reserveFundMaxRequired: "Maximálna výška rezervného fondu je povinná, ak je zadaný percentuálny príspevok"
   backToList: "Späť na zoznam"
   resultsTitle: Výsledky daňového modelu
   adjustSettings: Upraviť nastavenia
