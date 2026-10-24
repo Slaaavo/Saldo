@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useQueryClient } from '@tanstack/react-query'
 import { Outlet, useRouterState } from '@tanstack/react-router'
 import Header from '../shared/layout/Header'
 import AppModals from './AppModals'
@@ -37,17 +36,10 @@ const PAGE_TITLE_PREFIXES: Array<[string, string]> = [['tax-models/', 'sidebar.t
 const AppShell = () => {
   const { t } = useTranslation()
   const { theme } = useTheme()
-  const { setModalState, closeModal } = useModal()
+  const { setModalState } = useModal()
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
-  const queryClient = useQueryClient()
 
-  const dbLocation = useDbLocation({
-    setModalState,
-    closeModal,
-    onAfterDbChange: async () => {
-      queryClient.clear()
-    },
-  })
+  const dbLocation = useDbLocation({ setModalState })
 
   useDbFallbackWarning()
 

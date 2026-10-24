@@ -521,10 +521,6 @@ dataStorage:
   noDbFoundCancel: "Zrušiť"
   confirmResetMessage: "Na predvolenom mieste bola nájdená databáza. Prepnúť na ňu? Vaše aktuálne dáta zostanú na pôvodnom mieste."
   toasts:
-    switched: "Prepnuté na databázu na {{path}}"
-    moved: "Databáza presunutá do {{path}}"
-    fresh: "Nová databáza vytvorená na {{path}}"
-    reset: "Databáza obnovená na predvolené umiestnenie."
     fallbackWarning: "Vlastné umiestnenie databázy nebolo nájdené. Používa sa predvolené umiestnenie."
   errors:
     change: "Nepodarilo sa zmeniť umiestnenie databázy: {{error}}"

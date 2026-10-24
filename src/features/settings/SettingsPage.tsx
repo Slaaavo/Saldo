@@ -32,14 +32,8 @@ const SettingsPage = () => {
   const { currencies, selectedCurrency, apiKey, setApiKey, apiKeySaved, currencySaved, handleCurrencySelect, handleSaveApiKey } = useSettings()
   const { isDemoMode, onEnterDemoMode, onExitDemoMode } = useDemo()
   const { themePreference, setThemePreference } = useTheme()
-  const { setModalState, closeModal } = useModal()
-  const dbLocation = useDbLocation({
-    setModalState,
-    closeModal,
-    onAfterDbChange: async () => {
-      queryClient.clear()
-    },
-  })
+  const { setModalState } = useModal()
+  const dbLocation = useDbLocation({ setModalState })
 
   return (
     <div className="px-4 md:px-10 py-8">

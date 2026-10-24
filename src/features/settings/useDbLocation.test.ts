@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest'
 import React from 'react'
 import { renderHook, waitFor, act } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -11,23 +11,26 @@ vi.mock('react-i18next', () => {
 })
 
 const mockToastWarning = vi.fn()
+const mockToastError = vi.fn()
 vi.mock('sonner', () => ({
   toast: {
-    success: vi.fn(),
-    error: vi.fn(),
+    error: (...args: unknown[]) => mockToastError(...args),
     warning: (...args: unknown[]) => mockToastWarning(...args),
   },
 }))
 
 vi.mock('../../shared/api', () => ({
   getDbLocation: vi.fn(),
+  getAppSetting: vi.fn(),
   pickDbFolder: vi.fn(),
   changeDbLocation: vi.fn(),
   resetDbLocation: vi.fn(),
   checkDefaultDb: vi.fn(),
 }))
 
-import { getDbLocation, changeDbLocation } from '../../shared/api'
+import { getDbLocation, getAppSetting, changeDbLocation } from '../../shared/api'
+
+const reload = vi.fn()
 
 const location = (overrides?: Partial<DbLocationInfo>): DbLocationInfo => ({
   currentPath: '/default/saldo.db',
@@ -47,37 +50,45 @@ const wrapperFor = (client: QueryClient) => {
 describe('useDbLocation', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    localStorage.clear()
     ;(getDbLocation as Mock).mockResolvedValue(location())
     ;(changeDbLocation as Mock).mockResolvedValue(undefined)
+    vi.stubGlobal('location', { ...window.location, reload })
   })
 
-  it('shows the new path in every instance after a switch', async () => {
-    const client = createClient()
-    const wrapper = wrapperFor(client)
-    const options = { setModalState: vi.fn(), closeModal: vi.fn(), onAfterDbChange: async () => client.clear() }
-    const appShell = renderHook(() => useDbLocation(options), { wrapper })
-    const settingsPage = renderHook(() => useDbLocation(options), { wrapper })
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
 
-    await waitFor(() => expect(settingsPage.result.current.path).toBe('/default/saldo.db'))
-    ;(getDbLocation as Mock).mockResolvedValue(location({ currentPath: '/custom/saldo.db', isDefault: false }))
+  it('caches the new database theme and reloads the window after a switch', async () => {
+    ;(getAppSetting as Mock).mockResolvedValue('dark')
+    const { result } = renderHook(() => useDbLocation({ setModalState: vi.fn() }), { wrapper: wrapperFor(createClient()) })
 
     await act(async () => {
-      await appShell.result.current.handleConfirmSwitch('/custom')
+      await result.current.handleConfirmSwitch('/custom')
     })
-    // closeModal re-renders Settings in the app, which is what re-attaches it to the refreshed query
-    settingsPage.rerender()
 
-    await waitFor(() => {
-      expect(settingsPage.result.current.path).toBe('/custom/saldo.db')
-      expect(settingsPage.result.current.isDefault).toBe(false)
+    expect(changeDbLocation).toHaveBeenCalledWith('/custom', 'switch')
+    expect(localStorage.getItem('theme')).toBe('dark')
+    expect(reload).toHaveBeenCalledTimes(1)
+  })
+
+  it('stays on the page and reports the error when the switch fails', async () => {
+    ;(changeDbLocation as Mock).mockRejectedValue({ code: 'IO_ERROR', message: 'disk full' })
+    const { result } = renderHook(() => useDbLocation({ setModalState: vi.fn() }), { wrapper: wrapperFor(createClient()) })
+
+    await act(async () => {
+      await result.current.handleConfirmSwitch('/custom')
     })
-    expect(appShell.result.current.path).toBe('/custom/saldo.db')
+
+    expect(mockToastError).toHaveBeenCalledWith('dataStorage.errors.change')
+    expect(reload).not.toHaveBeenCalled()
   })
 
   it('does not toast the fallback warning from useDbLocation, however many instances mount', async () => {
     ;(getDbLocation as Mock).mockResolvedValue(location({ fallbackWarning: true }))
     const client = createClient()
-    const options = { setModalState: vi.fn(), closeModal: vi.fn(), onAfterDbChange: async () => {} }
+    const options = { setModalState: vi.fn() }
 
     const first = renderHook(() => useDbLocation(options), { wrapper: wrapperFor(client) })
     await waitFor(() => expect(first.result.current.path).toBe('/default/saldo.db'))

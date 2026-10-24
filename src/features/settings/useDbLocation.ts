@@ -1,15 +1,14 @@
 import { useState, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import { getDbLocation, pickDbFolder, changeDbLocation, resetDbLocation, checkDefaultDb } from '../../shared/api'
 import type { ModalState } from '../../shared/types'
 import { extractErrorMessage } from '../../shared/utils/errors'
-
-const DB_LOCATION_QUERY_KEY = ['db-location']
+import { reloadAfterDbSwap } from './reloadAfterDbSwap'
 
 const useDbLocationQuery = () => {
-  return useQuery({ queryKey: DB_LOCATION_QUERY_KEY, queryFn: getDbLocation })
+  return useQuery({ queryKey: ['db-location'], queryFn: getDbLocation })
 }
 
 // Mounted once by the app shell, so the toast fires once per app start rather than on every Settings visit.
@@ -28,21 +27,12 @@ export const useDbFallbackWarning = () => {
 
 interface UseDbLocationOptions {
   setModalState: (state: ModalState) => void
-  closeModal: () => void
-  onAfterDbChange: () => Promise<void>
 }
 
-export const useDbLocation = ({ setModalState, closeModal, onAfterDbChange }: UseDbLocationOptions) => {
+export const useDbLocation = ({ setModalState }: UseDbLocationOptions) => {
   const { t } = useTranslation()
-  const queryClient = useQueryClient()
   const { data: info } = useDbLocationQuery()
   const [actionLoading, setActionLoading] = useState(false)
-
-  // onAfterDbChange clears the cache, so the location is fetched again into it for every consumer.
-  const afterDbChange = async () => {
-    await onAfterDbChange()
-    await queryClient.prefetchQuery({ queryKey: DB_LOCATION_QUERY_KEY, queryFn: getDbLocation, staleTime: 0 })
-  }
 
   const handleChange = async () => {
     try {
@@ -75,9 +65,7 @@ export const useDbLocation = ({ setModalState, closeModal, onAfterDbChange }: Us
     setActionLoading(true)
     try {
       await changeDbLocation(folder, 'switch')
-      await afterDbChange()
-      toast.success(t('dataStorage.toasts.switched', { path: folder }))
-      closeModal()
+      await reloadAfterDbSwap()
     } catch (err) {
       toast.error(t('dataStorage.errors.change', { error: extractErrorMessage(err) }))
     } finally {
@@ -93,15 +81,7 @@ export const useDbLocation = ({ setModalState, closeModal, onAfterDbChange }: Us
       } else {
         await changeDbLocation(folder, action)
       }
-      await afterDbChange()
-      if (isReset) {
-        toast.success(t('dataStorage.toasts.reset'))
-      } else if (action === 'move') {
-        toast.success(t('dataStorage.toasts.moved', { path: folder }))
-      } else {
-        toast.success(t('dataStorage.toasts.fresh', { path: folder }))
-      }
-      closeModal()
+      await reloadAfterDbSwap()
     } catch (err) {
       toast.error(isReset ? t('dataStorage.errors.reset', { error: extractErrorMessage(err) }) : t('dataStorage.errors.change', { error: extractErrorMessage(err) }))
     } finally {
@@ -113,9 +93,7 @@ export const useDbLocation = ({ setModalState, closeModal, onAfterDbChange }: Us
     setActionLoading(true)
     try {
       await resetDbLocation('switch')
-      await afterDbChange()
-      toast.success(t('dataStorage.toasts.reset'))
-      closeModal()
+      await reloadAfterDbSwap()
     } catch (err) {
       toast.error(t('dataStorage.errors.reset', { error: extractErrorMessage(err) }))
     } finally {

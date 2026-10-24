@@ -1176,8 +1176,7 @@ describe('App', () => {
 
       await waitFor(() => {
         expect(mockChangeDbLocation).toHaveBeenCalledWith('/existing/db', 'switch')
-        expect(mockToastSuccess).toHaveBeenCalled()
-        expect(mockCloseModal).toHaveBeenCalled()
+        expect(mockReload).toHaveBeenCalledOnce()
       })
     })
 
@@ -1207,8 +1206,7 @@ describe('App', () => {
 
       await waitFor(() => {
         expect(mockChangeDbLocation).toHaveBeenCalledWith('/new/path', 'move')
-        expect(mockToastSuccess).toHaveBeenCalled()
-        expect(mockCloseModal).toHaveBeenCalled()
+        expect(mockReload).toHaveBeenCalledOnce()
       })
     })
 
@@ -1221,7 +1219,7 @@ describe('App', () => {
 
       await waitFor(() => {
         expect(mockChangeDbLocation).toHaveBeenCalledWith('/new/path', 'fresh')
-        expect(mockToastSuccess).toHaveBeenCalled()
+        expect(mockReload).toHaveBeenCalledOnce()
       })
     })
 
@@ -1234,7 +1232,7 @@ describe('App', () => {
 
       await waitFor(() => {
         expect(mockResetDbLocation).toHaveBeenCalledWith('move')
-        expect(mockToastSuccess).toHaveBeenCalled()
+        expect(mockReload).toHaveBeenCalledOnce()
       })
     })
 
@@ -1277,8 +1275,7 @@ describe('App', () => {
 
       await waitFor(() => {
         expect(mockResetDbLocation).toHaveBeenCalledWith('switch')
-        expect(mockToastSuccess).toHaveBeenCalled()
-        expect(mockCloseModal).toHaveBeenCalled()
+        expect(mockReload).toHaveBeenCalledOnce()
       })
     })
 

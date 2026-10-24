@@ -543,10 +543,6 @@ dataStorage:
   noDbFoundCancel: "Cancel"
   confirmResetMessage: "A database was found at the default location. Switch to it? Your current data will remain at its original path."
   toasts:
-    switched: "Switched to database at {{path}}"
-    moved: "Database moved to {{path}}"
-    fresh: "New database created at {{path}}"
-    reset: "Database reset to default location."
     fallbackWarning: "Custom database location not found. Using default location."
   errors:
     change: "Failed to change database location: {{error}}"
