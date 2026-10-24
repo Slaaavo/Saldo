@@ -80,6 +80,25 @@ mod tests {
     }
 
     #[test]
+    fn wal_checkpoint_fails_while_a_reader_blocks_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("saldo.db");
+        let conn = initialize_db(&path).expect("DB init failed");
+        conn.busy_timeout(std::time::Duration::ZERO).unwrap();
+        let reader = Connection::open(&path).unwrap();
+        reader
+            .execute_batch("BEGIN; SELECT COUNT(*) FROM currency;")
+            .unwrap();
+        conn.execute(
+            "INSERT INTO app_setting (key, value) VALUES ('theme', 'dark')",
+            [],
+        )
+        .unwrap();
+
+        assert!(wal_checkpoint(&conn).is_err());
+    }
+
+    #[test]
     fn integrity_check_passes_on_fresh_db() {
         let conn = initialize_in_memory().expect("DB init failed");
         integrity_check(&conn).expect("integrity_check failed on fresh DB");
