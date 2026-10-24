@@ -88,9 +88,14 @@ pub fn calculate_progressive_tax(tax_basis_minor: i64, tiers: &[TaxTier]) -> i64
     total_tax
 }
 
-/// Dispatches to flat or progressive tax calculation based on the first bracket's `rate_type`.
+/// Picks the last bracket (in sort order) whose `lower_bound_minor` the basis reaches and applies
+/// its flat rate or progressive tiers to the whole basis. A basis below every bound is untaxed.
 pub fn calculate_tax_from_brackets(tax_basis_minor: i64, brackets: &[TaxModelBracketRow]) -> i64 {
-    let Some(bracket) = brackets.first() else {
+    let Some(bracket) = brackets
+        .iter()
+        .rev()
+        .find(|b| b.lower_bound_minor <= tax_basis_minor)
+    else {
         return 0;
     };
     match bracket.rate_type.as_str() {
@@ -557,6 +562,85 @@ mod tests {
             rate_bps: 1900,
         }];
         assert_eq!(calculate_progressive_tax(0, &tiers), 0);
+    }
+
+    // --- calculate_tax_from_brackets ---
+
+    fn bracket(
+        sort_order: i64,
+        lower_bound_minor: i64,
+        rate_type: &str,
+        flat_rate_bps: Option<i64>,
+        tiers_json: Option<&str>,
+    ) -> TaxModelBracketRow {
+        TaxModelBracketRow {
+            id: sort_order + 1,
+            sort_order,
+            lower_bound_minor,
+            rate_type: rate_type.to_owned(),
+            flat_rate_bps,
+            tiers_json: tiers_json.map(str::to_owned),
+        }
+    }
+
+    fn three_brackets() -> Vec<TaxModelBracketRow> {
+        vec![
+            bracket(0, 0, "flat", Some(1000), None),
+            bracket(1, 100_000, "flat", Some(2000), None),
+            bracket(
+                2,
+                200_000,
+                "progressive",
+                None,
+                Some(
+                    r#"[{"thresholdMinor":250000,"rateBps":3000},{"thresholdMinor":0,"rateBps":4000}]"#,
+                ),
+            ),
+        ]
+    }
+
+    #[test]
+    fn test_brackets_zero_basis_uses_first_bracket() {
+        assert_eq!(calculate_tax_from_brackets(0, &three_brackets()), 0);
+    }
+
+    #[test]
+    fn test_brackets_basis_below_bound_uses_previous_bracket() {
+        assert_eq!(
+            calculate_tax_from_brackets(99_999, &three_brackets()),
+            9_999
+        );
+    }
+
+    #[test]
+    fn test_brackets_basis_at_bound_uses_that_bracket_for_whole_basis() {
+        assert_eq!(
+            calculate_tax_from_brackets(100_000, &three_brackets()),
+            20_000
+        );
+    }
+
+    #[test]
+    fn test_brackets_basis_above_bound_uses_that_bracket_for_whole_basis() {
+        assert_eq!(
+            calculate_tax_from_brackets(150_000, &three_brackets()),
+            30_000
+        );
+    }
+
+    #[test]
+    fn test_brackets_progressive_bracket_tiers_apply_to_whole_basis() {
+        // 30% on 0..250000 = 75000, 40% on 250000..300000 = 20000
+        assert_eq!(
+            calculate_tax_from_brackets(300_000, &three_brackets()),
+            95_000
+        );
+    }
+
+    #[test]
+    fn test_brackets_basis_below_first_bound_is_untaxed() {
+        let brackets = vec![bracket(0, 50_000, "flat", Some(1000), None)];
+        assert_eq!(calculate_tax_from_brackets(40_000, &brackets), 0);
     }
 
     // --- calculate_tax_model_results ---
