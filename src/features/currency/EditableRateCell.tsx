@@ -1,3 +1,4 @@
+import { useRef } from 'react'
 import type { FxRateRow } from '../../shared/types'
 import { cn } from '@/shared/lib/utils'
 import { formatRate } from './fxRate'
@@ -15,6 +16,43 @@ interface EditableRateCellProps {
   manualLabel: string
 }
 
+interface RateInputProps {
+  editValue: string
+  onEditValueChange: (value: string) => void
+  onSave: (value: string) => void
+  onCancel: () => void
+}
+
+const RateInput = ({ editValue, onEditValueChange, onSave, onCancel }: RateInputProps) => {
+  // Enter and Escape unmount the input, and Chromium (WebView2) then fires blur on it, which must not save a second time or save after Escape.
+  const finished = useRef(false)
+
+  return (
+    <input
+      autoFocus
+      type="text"
+      value={editValue}
+      onChange={(e) => onEditValueChange(e.target.value)}
+      onBlur={(e) => {
+        if (finished.current) return
+        finished.current = true
+        onSave(e.target.value)
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault()
+          finished.current = true
+          onSave(editValue)
+        } else if (e.key === 'Escape') {
+          finished.current = true
+          onCancel()
+        }
+      }}
+      className="w-24 text-right font-mono text-sm border border-border rounded px-1 bg-background"
+    />
+  )
+}
+
 export const EditableRateCell = ({ date, code, row, isEditing, editValue, onCellClick, onEditValueChange, onSave, onCancel, manualLabel }: EditableRateCellProps) => {
   return (
     <td
@@ -24,22 +62,7 @@ export const EditableRateCell = ({ date, code, row, isEditing, editValue, onCell
       }}
     >
       {isEditing ? (
-        <input
-          autoFocus
-          type="text"
-          value={editValue}
-          onChange={(e) => onEditValueChange(e.target.value)}
-          onBlur={(e) => onSave(date, code, e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              e.preventDefault()
-              onSave(date, code, editValue)
-            } else if (e.key === 'Escape') {
-              onCancel()
-            }
-          }}
-          className="w-24 text-right font-mono text-sm border border-border rounded px-1 bg-background"
-        />
+        <RateInput editValue={editValue} onEditValueChange={onEditValueChange} onSave={(value) => onSave(date, code, value)} onCancel={onCancel} />
       ) : (
         <>
           {row ? formatRate(row) : '—'}
