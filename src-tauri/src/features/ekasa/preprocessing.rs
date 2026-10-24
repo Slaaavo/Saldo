@@ -56,7 +56,8 @@ pub fn parse_offline_qr(qr_content: &str) -> Option<OfflineReceiptData> {
     }
 
     let dt_str = parts[2];
-    if dt_str.len() != 12 {
+    // The helpers below slice by byte offset, so anything but 12 ASCII digits must stop here.
+    if dt_str.len() != 12 || !dt_str.bytes().all(|b| b.is_ascii_digit()) {
         return None;
     }
 
@@ -275,5 +276,21 @@ mod tests {
         // Month field (chars 2..4) = "99" → invalid for both YYMMDD and DDMMYY
         let qr = "ABCD1234:XYZ9876:269912121200:001:10.00";
         assert!(parse_offline_qr(qr).is_none());
+    }
+
+    #[test]
+    fn test_parse_offline_qr_non_ascii_datetime_returns_none() {
+        // "1é345678901" is 12 bytes, so a byte-length check passes but slicing [0..2] would
+        // cut the multi-byte 'é' in half.
+        let qr = "ABCD1234:XYZ9876:1é345678901:001:10.00";
+        assert!(parse_offline_qr(qr).is_none());
+    }
+
+    #[test]
+    fn test_parse_offline_qr_non_digit_datetime_returns_none() {
+        for dt in ["26121212120a", "2612121212 0", "-26121212120"] {
+            let qr = format!("ABCD1234:XYZ9876:{dt}:001:10.00");
+            assert!(parse_offline_qr(&qr).is_none(), "{dt:?}");
+        }
     }
 }
