@@ -70,7 +70,7 @@ fn enter_demo(state: &AppState) -> Result<(), AppError> {
     };
 
     // Create and seed the in-memory demo database.
-    let demo_conn = crate::db::initialize_in_memory().map_err(AppError::from)?;
+    let demo_conn = crate::db::initialize_in_memory()?;
     crate::demo::seed_demo_data(&demo_conn, oxr_app_id, theme)?;
 
     // Swap: stash persistent connection, promote demo connection.
@@ -223,7 +223,7 @@ fn relocate_db(
 
     match action {
         "switch" => {
-            let new_conn = crate::db::initialize_db(&new_db_path).map_err(AppError::from)?;
+            let new_conn = crate::db::initialize_db(&new_db_path)?;
             state.replace_conn(new_conn)?;
             match config_action {
                 ConfigAction::WriteCustom => {
@@ -253,12 +253,12 @@ fn relocate_db(
             // 1. WAL checkpoint — flush WAL to main DB file.
             {
                 let conn = state.conn()?;
-                crate::db::wal_checkpoint(&conn).map_err(AppError::from)?;
+                crate::db::wal_checkpoint(&conn)?;
             }
 
             // 2. Swap to in-memory to release the file lock on Windows.
             {
-                let in_memory = crate::db::initialize_in_memory().map_err(AppError::from)?;
+                let in_memory = crate::db::initialize_in_memory()?;
                 // _old_conn is dropped at the end of this block, releasing the file lock.
                 let _old_conn = state.replace_conn(in_memory)?;
             }
@@ -279,7 +279,7 @@ fn relocate_db(
                     if let Ok(restored) = crate::db::initialize_db(&old_path) {
                         let _ = state.replace_conn(restored);
                     }
-                    return Err(AppError::from(e));
+                    return Err(e);
                 }
             };
 
@@ -321,7 +321,7 @@ fn relocate_db(
             let _ = std::fs::remove_file(&old_shm);
         }
         "fresh" => {
-            let new_conn = crate::db::initialize_db(&new_db_path).map_err(AppError::from)?;
+            let new_conn = crate::db::initialize_db(&new_db_path)?;
             state.replace_conn(new_conn)?;
             match config_action {
                 ConfigAction::WriteCustom => {

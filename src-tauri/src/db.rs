@@ -1,34 +1,50 @@
-use rusqlite::{Connection, Result as SqlResult};
+use rusqlite::Connection;
 use std::path::Path;
 
 use crate::{error::AppError, migrations};
 
-pub fn initialize_db(db_path: &Path) -> SqlResult<Connection> {
+pub fn initialize_db(db_path: &Path) -> Result<Connection, AppError> {
     let conn = Connection::open(db_path)?;
     set_pragmas(&conn)?;
     migrations::run_pending(&conn)?;
     Ok(conn)
 }
 
-pub fn set_pragmas(conn: &Connection) -> SqlResult<()> {
-    conn.execute_batch(
-        "PRAGMA foreign_keys = ON;
-         PRAGMA journal_mode = WAL;
-         PRAGMA synchronous = NORMAL;",
-    )?;
+/// Pragmas that return a row run through `query_row`: `execute_batch` discards the row, so a
+/// result reporting failure would pass silently.
+fn set_pragmas(conn: &Connection) -> Result<(), AppError> {
+    conn.execute_batch("PRAGMA foreign_keys = ON;")?;
+    let journal_mode: String = conn.query_row("PRAGMA journal_mode = WAL", [], |row| row.get(0))?;
+    // An in-memory database has no WAL and reports "memory".
+    if journal_mode != "wal" && journal_mode != "memory" {
+        return Err(AppError {
+            code: "DB_ERROR".into(),
+            message: format!(
+                "Could not switch the database to WAL mode (it stayed in '{journal_mode}')"
+            ),
+        });
+    }
+    conn.execute_batch("PRAGMA synchronous = NORMAL;")?;
     Ok(())
 }
 
-pub fn initialize_in_memory() -> SqlResult<Connection> {
+pub fn initialize_in_memory() -> Result<Connection, AppError> {
     let conn = Connection::open_in_memory()?;
     set_pragmas(&conn)?;
     crate::migrations::run_pending(&conn)?;
     Ok(conn)
 }
 
-/// Flush the WAL to the main database file and truncate it.
-pub fn wal_checkpoint(conn: &Connection) -> SqlResult<()> {
-    conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")?;
+/// Flush the WAL to the main database file and truncate it. Fails when another connection's
+/// open read or write keeps the checkpoint from finishing.
+pub fn wal_checkpoint(conn: &Connection) -> Result<(), AppError> {
+    let busy: i64 = conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |row| row.get(0))?;
+    if busy != 0 {
+        return Err(AppError {
+            code: "DB_BUSY".into(),
+            message: "Another connection is using the database, so its write-ahead log could not be flushed".into(),
+        });
+    }
     Ok(())
 }
 
@@ -95,7 +111,7 @@ mod tests {
         )
         .unwrap();
 
-        assert!(wal_checkpoint(&conn).is_err());
+        assert_eq!(wal_checkpoint(&conn).unwrap_err().code, "DB_BUSY");
     }
 
     #[test]
