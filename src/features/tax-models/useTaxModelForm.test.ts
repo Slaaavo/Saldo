@@ -1,15 +1,16 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest'
-import { renderHook, act } from '@testing-library/react'
+import { renderHook, act, waitFor } from '@testing-library/react'
 import { createElement } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useTaxModelForm } from './useTaxModelForm'
-import type { PersonRow, TaxModelDetail } from '../../shared/types'
+import type { Currency, PersonRow, TaxModelDetail } from '../../shared/types'
 import type { BracketFormState } from './BracketEditor'
 
 vi.mock('../../shared/api', () => ({
   createTaxModel: vi.fn(),
   updateTaxModel: vi.fn(),
+  getConsolidationCurrency: vi.fn(),
 }))
 
 vi.mock('sonner', () => ({ toast: { error: vi.fn() } }))
@@ -28,7 +29,10 @@ vi.mock('react-i18next', () => ({
   }),
 }))
 
-import { createTaxModel, updateTaxModel } from '../../shared/api'
+import { createTaxModel, updateTaxModel, getConsolidationCurrency } from '../../shared/api'
+
+const EUR: Currency = { id: 1, code: 'EUR', name: 'Euro', minorUnits: 2, isCustom: false }
+const JPY: Currency = { id: 2, code: 'JPY', name: 'Japanese Yen', minorUnits: 0, isCustom: false }
 
 const makePerson = (overrides: Partial<PersonRow>): PersonRow => ({
   id: 1,
@@ -87,6 +91,7 @@ describe('useTaxModelForm', () => {
     vi.clearAllMocks()
     ;(createTaxModel as Mock).mockResolvedValue(11)
     ;(updateTaxModel as Mock).mockResolvedValue(undefined)
+    ;(getConsolidationCurrency as Mock).mockResolvedValue(EUR)
   })
 
   describe('default person', () => {
@@ -137,6 +142,66 @@ describe('useTaxModelForm', () => {
       const { result } = renderHook(() => useTaxModelForm(7, persons, undefined), { wrapper: makeWrapper(makeQueryClient()) })
 
       expect(result.current.personId).toBeNull()
+    })
+  })
+
+  describe('consolidation currency without decimals', () => {
+    const makeJpyClient = () => {
+      const queryClient = makeQueryClient()
+      queryClient.setQueryData(['consolidation-currency'], JPY)
+      return queryClient
+    }
+
+    it('exposes the consolidation currency code and minor units', async () => {
+      const { result } = renderHook(() => useTaxModelForm(undefined, [PHYSICAL], undefined), { wrapper: makeWrapper(makeJpyClient()) })
+
+      expect(result.current.currencyCode).toBe('JPY')
+      expect(result.current.minorUnits).toBe(0)
+    })
+
+    it('saves amounts as whole units: 1000 JPY stays 1000', async () => {
+      const { result } = renderHook(() => useTaxModelForm(undefined, [LEGAL], undefined), { wrapper: makeWrapper(makeJpyClient()) })
+      act(() => {
+        result.current.setBrackets([
+          flatBracket({ upperBoundMinor: '1000', flatRateBps: '15' }),
+          { upperBoundMinor: '', rateType: 'progressive', flatRateBps: '', tiers: [{ thresholdMinor: '250', rateBps: '20' }] },
+        ])
+        result.current.setReserveFundCurrentMinor('300')
+        result.current.setReserveFundPctBps('10')
+        result.current.setReserveFundMaxMinor('5000')
+      })
+
+      await act(() => result.current.handleSave())
+
+      const input = (createTaxModel as Mock).mock.calls[0][0]
+      expect(input.brackets[1].lowerBoundMinor).toBe(1000)
+      expect(JSON.parse(input.brackets[1].tiersJson)).toEqual([{ thresholdMinor: 250, rateBps: 2000 }])
+      expect(input.reserveFundCurrentMinor).toBe(300)
+      expect(input.reserveFundMaxMinor).toBe(5000)
+    })
+
+    it('loads an existing model without moving the decimal point', () => {
+      const model = makeModel({
+        reserveFundCurrentMinor: 700,
+        reserveFundMaxMinor: 9000,
+        brackets: [
+          { id: 1, sortOrder: 0, lowerBoundMinor: 0, rateType: 'flat', flatRateBps: 1500, tiersJson: null },
+          { id: 2, sortOrder: 1, lowerBoundMinor: 1000, rateType: 'progressive', flatRateBps: null, tiersJson: JSON.stringify([{ thresholdMinor: 250, rateBps: 2000 }]) },
+        ],
+      })
+      const { result } = renderHook(() => useTaxModelForm(7, [PHYSICAL], model), { wrapper: makeWrapper(makeJpyClient()) })
+
+      expect(result.current.brackets[0].upperBoundMinor).toBe('1000')
+      expect(result.current.brackets[1].tiers[0].thresholdMinor).toBe('250')
+      expect(result.current.reserveFundCurrentMinor).toBe('700')
+      expect(result.current.reserveFundMaxMinor).toBe('9000')
+    })
+
+    it('reloads an existing model in the right units when the currency arrives after the model', async () => {
+      ;(getConsolidationCurrency as Mock).mockResolvedValue(JPY)
+      const { result } = renderHook(() => useTaxModelForm(7, [PHYSICAL], makeModel()), { wrapper: makeWrapper(makeQueryClient()) })
+
+      await waitFor(() => expect(result.current.brackets[0].upperBoundMinor).toBe('4000000'))
     })
   })
 

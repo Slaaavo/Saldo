@@ -7,6 +7,7 @@ import type { TaxCalculationResult, TaxModelDetail } from '../../shared/types'
 vi.mock('../../shared/api', () => ({
   getTaxModel: vi.fn(),
   calculateTaxModel: vi.fn(),
+  getConsolidationCurrency: vi.fn(),
 }))
 
 vi.mock('@tanstack/react-router', () => ({
@@ -21,10 +22,17 @@ vi.mock('react-i18next', () => ({
 vi.mock('../../app/usePageHeader', () => ({ usePageTitle: vi.fn() }))
 
 vi.mock('../../shared/ui/NumberValue', () => ({
-  default: ({ value }: { value: number }) => <span data-testid="number-value">{value}</span>,
+  default: ({ value, minorUnits, currencyCode }: { value: number; minorUnits?: number; currencyCode?: string }) => (
+    <span data-testid="number-value" data-minor-units={minorUnits} data-currency-code={currencyCode}>
+      {value}
+    </span>
+  ),
 }))
 
-import { getTaxModel, calculateTaxModel } from '../../shared/api'
+import { getTaxModel, calculateTaxModel, getConsolidationCurrency } from '../../shared/api'
+
+const EUR = { id: 1, code: 'EUR', name: 'Euro', minorUnits: 2, isCustom: false }
+const JPY = { id: 2, code: 'JPY', name: 'Japanese Yen', minorUnits: 0, isCustom: false }
 
 const MODEL = { id: 5, name: 'Model', calendarYear: 2025 } as TaxModelDetail
 
@@ -62,6 +70,27 @@ describe('TaxModelResultsPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     ;(getTaxModel as Mock).mockResolvedValue(MODEL)
+    ;(getConsolidationCurrency as Mock).mockResolvedValue(EUR)
+  })
+
+  it('shows amounts in the minor units and code of the consolidation currency', async () => {
+    ;(getConsolidationCurrency as Mock).mockResolvedValue(JPY)
+    ;(calculateTaxModel as Mock).mockResolvedValue(makeResult(11111))
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: 0, staleTime: Infinity } } })
+    render(
+      <QueryClientProvider client={queryClient}>
+        <TaxModelResultsPage />
+      </QueryClientProvider>,
+    )
+
+    const taxAmount = await screen.findByText('11111')
+    expect(taxAmount).toHaveAttribute('data-minor-units', '0')
+    expect(taxAmount).toHaveAttribute('data-currency-code', 'JPY')
+    const values = screen.getAllByTestId('number-value')
+    expect(values.length).toBeGreaterThan(10)
+    for (const value of values) {
+      expect(value).toHaveAttribute('data-minor-units', '0')
+    }
   })
 
   it('recalculates the results every time the page is mounted', async () => {
