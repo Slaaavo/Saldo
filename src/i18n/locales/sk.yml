@@ -21,9 +21,10 @@ partners:
   iban: "IBAN"
   search: "H\u013eada\u0165 partnerov..."
   deleteConfirm: 'Naozaj chcete vymaza\u0165 partnera "{{name}}"?'
+  edit: "Upravi\u0165"
   errors:
     duplicateIban: "Tento IBAN u\u017e pou\u017e\u00edva in\u00fd \u00fa\u010det alebo partner."
-    invalidIban: "IBAN mus\u00ed obsahova\u0165 15\u201334 alfanumerickych znakov."
+    invalidIban: "IBAN mus\u00ed obsahova\u0165 15\u201334 alfanumerických znakov."
 
 # ──── Hlavička ────
 header:
@@ -54,7 +55,7 @@ accounts:
   scrollRight: Posunúť doprava
   fxRateMissingTooltip: "Chýba kurz — používa sa 1:1"
   overAllocated: "Prekročená alokácia"
-  overAllocationTooltip: "Alokované {{allocated}} z {{balance}} {{currency}} (prekročenie o {{over}}). Buckety: {{buckets}}"
+  overAllocationTooltip: "Alokované {{allocated}} z {{balance}} {{currency}} (prekročenie o {{over}}). Obálky: {{buckets}}"
   manageLinkedAssets: "Spravovať prepojené aktíva"
   linkedAssetTooltip: "Zabezpečené aktívom: {{assets}}"
   noIban: "Bez IBAN"
@@ -474,7 +475,7 @@ banner:
   dismiss: Zavrieť
 # ──── Validácia ────
 validation:
-  nameRequired: Názov je povinný.
+  nameRequired: "Názov je povinný ({{entity}})."
   invalidAmount: Zadajte platnú sumu.
   invalidBalance: Zadajte platný zostatok.
   currencyRequired: Vyberte menu.
@@ -499,7 +500,7 @@ errors:
   updatePartner: "Nepodarilo sa aktualizovať partnera: {{error}}"
   deletePartner: "Nepodarilo sa vymazať partnera: {{error}}"
   importCashflows: "Nepodarilo sa importovať transakcie: {{error}}"
-  linkConflict: "Nie je možné prepojiť {{accountName}} s týmto košom, pretože je prepojený s košom {{bucketName}} dňa {{date}}."
+  linkConflict: "Nie je možné prepojiť {{accountName}} s touto obálkou, pretože je prepojený s obálkou {{bucketName}} dňa {{date}}."
   updateTransfer: "Nepodarilo sa aktualizovať prevod: {{error}}"
 
 # ──── Uložisko dát ────
@@ -648,7 +649,7 @@ import:
       dateExample: "Príklad: (\\d{2}\\.\\d{2}\\.\\d{4}) extrahuje 15.03.2026"
       regexHint: "Referencia regulárnych výrazov"
     invalidRegex: "Neplatný regulárny výraz"
-    unmatchedColumn: "Stļpec „{{name}}\" sa nenašiel v CSV"
+    unmatchedColumn: "Stĺpec „{{name}}\" sa nenašiel v CSV"
 
 # ──── eKasa import ────
 ekasaImport:
@@ -731,7 +732,8 @@ persons:
   selector: "Osoba"
   manage: "Spravovať osoby"
   vatPayer: "Platca DPH"
-  save: "Uložit"
+  save: "Uložiť"
+  cancel: "Zrušiť"
 
 
 # ──── Demo režim ────
