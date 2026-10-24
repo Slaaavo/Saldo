@@ -192,6 +192,12 @@ pub fn carry_forward_bucket_links(
                AND  e.event_type    = 'balance_update'
                AND  e.deleted_at    IS NULL
                AND  e.id           != ?1
+               AND  substr(ed.event_date, 1, 10) <= (
+                   SELECT substr(new_ed.event_date, 1, 10)
+                   FROM   event new_e
+                   JOIN   event_data new_ed ON new_ed.id = new_e.latest_data_id
+                   WHERE  new_e.id = ?1
+               )
              ORDER BY ed.event_date DESC, e.created_at DESC
              LIMIT 1
          )",
@@ -355,7 +361,8 @@ mod tests {
     use crate::db::initialize_in_memory;
     use crate::features::accounts::repository::{create_account, CreateAccountParams};
     use crate::features::transactions::repository::{
-        create_balance_update, CreateBalanceUpdateParams,
+        bulk_create_balance_updates, create_balance_update, BulkCreateBalanceUpdatesParams,
+        CreateBalanceUpdateParams,
     };
 
     fn mk_account(conn: &Connection) -> i64 {
@@ -655,5 +662,104 @@ mod tests {
 
         let links = list_links_for_event(&conn, event1).unwrap();
         assert!(links.is_empty());
+    }
+
+    #[test]
+    fn test_bulk_backdated_update_carries_links_from_the_earlier_event() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let account_a = mk_account(&conn);
+        let account_b = mk_account(&conn);
+        let bucket_id = mk_bucket(&conn);
+
+        let january = create_balance_update(
+            &conn,
+            CreateBalanceUpdateParams {
+                account_id: bucket_id,
+                amount_minor: 0,
+                event_date: "2025-01-01".to_owned(),
+                note: None,
+            },
+        )
+        .unwrap();
+        set_bucket_event_links(
+            &conn,
+            SetBucketEventLinksParams {
+                event_id: january,
+                account_ids: vec![account_a],
+            },
+        )
+        .unwrap();
+        let june = create_balance_update(
+            &conn,
+            CreateBalanceUpdateParams {
+                account_id: bucket_id,
+                amount_minor: 0,
+                event_date: "2025-06-01".to_owned(),
+                note: None,
+            },
+        )
+        .unwrap();
+        set_bucket_event_links(
+            &conn,
+            SetBucketEventLinksParams {
+                event_id: june,
+                account_ids: vec![account_a, account_b],
+            },
+        )
+        .unwrap();
+
+        let ids = bulk_create_balance_updates(
+            &conn,
+            BulkCreateBalanceUpdatesParams {
+                entries: vec![(bucket_id, 500)],
+                event_date: "2025-03-01".to_owned(),
+                note: None,
+            },
+        )
+        .unwrap();
+
+        let links = list_links_for_event(&conn, ids[0]).unwrap();
+        let linked: Vec<i64> = links.iter().map(|l| l.source_account_id).collect();
+        assert_eq!(linked, vec![account_a]);
+    }
+
+    #[test]
+    fn test_carry_forward_uses_a_same_day_event_stored_with_a_time() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let account_id = mk_account(&conn);
+        let bucket_id = mk_bucket(&conn);
+
+        let earlier = create_balance_update(
+            &conn,
+            CreateBalanceUpdateParams {
+                account_id: bucket_id,
+                amount_minor: 0,
+                event_date: "2025-03-01T08:00:00".to_owned(),
+                note: None,
+            },
+        )
+        .unwrap();
+        set_bucket_event_links(
+            &conn,
+            SetBucketEventLinksParams {
+                event_id: earlier,
+                account_ids: vec![account_id],
+            },
+        )
+        .unwrap();
+
+        let ids = bulk_create_balance_updates(
+            &conn,
+            BulkCreateBalanceUpdatesParams {
+                entries: vec![(bucket_id, 500)],
+                event_date: "2025-03-01".to_owned(),
+                note: None,
+            },
+        )
+        .unwrap();
+
+        let links = list_links_for_event(&conn, ids[0]).unwrap();
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].source_account_id, account_id);
     }
 }
