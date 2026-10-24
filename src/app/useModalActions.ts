@@ -123,7 +123,7 @@ export const useModalActions = ({ closeModal, onFxRatePrompt }: UseModalActionsO
       await queryClient.invalidateQueries({ queryKey: ['snapshot'] })
       await queryClient.invalidateQueries({ queryKey: ['events'] })
     } catch (err) {
-      toast.error(t('errors.renameAccount', { error: extractErrorMessage(err) }))
+      toast.error(t('errors.updateAccount', { error: extractErrorMessage(err) }))
     }
   }
 
@@ -180,7 +180,7 @@ export const useModalActions = ({ closeModal, onFxRatePrompt }: UseModalActionsO
       await queryClient.invalidateQueries({ queryKey: ['snapshot'] })
       await queryClient.invalidateQueries({ queryKey: ['events'] })
     } catch (err) {
-      toast.error(extractErrorMessage(err))
+      toast.error(t('errors.setAccountAssetLinks', { error: extractErrorMessage(err) }))
     }
   }
 

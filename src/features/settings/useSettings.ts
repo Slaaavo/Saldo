@@ -1,11 +1,15 @@
 import { useState, useEffect, useCallback } from 'react'
+import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 import { useQueryClient } from '@tanstack/react-query'
 import type { Currency } from '../../shared/types'
 import { listCurrencies, getConsolidationCurrency, setConsolidationCurrency, getAppSetting, setAppSetting } from '../../shared/api'
+import { extractErrorMessage } from '../../shared/utils/errors'
 
 const SAVED_FLASH_MS = 2000
 
 export const useSettings = () => {
+  const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [currencies, setCurrencies] = useState<Currency[]>([])
   const [selectedCurrency, setSelectedCurrency] = useState<Currency | null>(null)
@@ -30,6 +34,7 @@ export const useSettings = () => {
 
   const handleCurrencySelect = useCallback(
     async (currency: Currency) => {
+      const previous = selectedCurrency
       setSelectedCurrency(currency)
       try {
         await setConsolidationCurrency(currency.id)
@@ -37,10 +42,11 @@ export const useSettings = () => {
         await queryClient.invalidateQueries({ queryKey: ['snapshot'] })
         flashSaved(setCurrencySaved)
       } catch (err) {
-        console.error('Failed to set consolidation currency:', err)
+        setSelectedCurrency(previous)
+        toast.error(t('settings.saveCurrencyError', { error: extractErrorMessage(err) }))
       }
     },
-    [queryClient, flashSaved],
+    [selectedCurrency, queryClient, flashSaved, t],
   )
 
   const handleSaveApiKey = useCallback(async () => {
@@ -48,9 +54,9 @@ export const useSettings = () => {
       await setAppSetting('oxr_app_id', apiKey.trim())
       flashSaved(setApiKeySaved)
     } catch (err) {
-      console.error('Failed to save API key:', err)
+      toast.error(t('settings.saveApiKeyError', { error: extractErrorMessage(err) }))
     }
-  }, [apiKey, flashSaved])
+  }, [apiKey, flashSaved, t])
 
   return {
     currencies,

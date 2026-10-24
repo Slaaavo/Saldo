@@ -3,7 +3,7 @@ import { renderHook } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { Currency, SnapshotRow } from '../shared/types'
 import { useModalActions } from './useModalActions'
-import { createBalanceUpdate, updateEvent, createBucketBalanceUpdate, listFxRates } from '../shared/api'
+import { createBalanceUpdate, updateEvent, createBucketBalanceUpdate, listFxRates, updateAccount, setAccountAssetLinks } from '../shared/api'
 
 vi.mock('../shared/api', () => ({
   createBalanceUpdate: vi.fn(),
@@ -54,6 +54,26 @@ const renderActions = () => {
   const wrapper = ({ children }: { children: React.ReactNode }) => <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
   return renderHook(() => useModalActions({ closeModal, onFxRatePrompt }), { wrapper })
 }
+
+describe('useModalActions error messages', () => {
+  it('says the account failed to update, not to rename, when editing an account fails', async () => {
+    ;(updateAccount as Mock).mockRejectedValue(new Error('name taken'))
+    const { result } = renderActions()
+
+    await result.current.handleEditAccount(1, 'Checking')
+
+    expect(mockToastError).toHaveBeenCalledWith('errors.updateAccount:{"error":"name taken"}')
+  })
+
+  it('uses the asset links message when saving account asset links fails', async () => {
+    ;(setAccountAssetLinks as Mock).mockRejectedValue(new Error('conflict'))
+    const { result } = renderActions()
+
+    await result.current.handleSetAccountAssetLinks(1, [4])
+
+    expect(mockToastError).toHaveBeenCalledWith('errors.setAccountAssetLinks:{"error":"conflict"}')
+  })
+})
 
 describe('useModalActions balance updates', () => {
   beforeEach(() => {

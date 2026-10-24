@@ -1,16 +1,34 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { DatePicker } from './date-picker'
 
+let mockLanguage = 'en'
 vi.mock('react-i18next', () => {
   const t = (key: string) => key
-  return { useTranslation: () => ({ t }) }
+  return { useTranslation: () => ({ t, i18n: { language: mockLanguage } }) }
 })
 
 const openPicker = async (user: ReturnType<typeof userEvent.setup>) => {
   await user.click(screen.getByRole('button', { name: /2026/ }))
 }
+
+beforeEach(() => {
+  mockLanguage = 'en'
+})
+
+describe('DatePicker display', () => {
+  it('formats the shown date in the current i18n language', () => {
+    mockLanguage = 'sk'
+    render(<DatePicker value="2026-03-05" onChange={vi.fn()} />)
+    expect(screen.getByRole('button', { name: '5. marca 2026' })).toBeInTheDocument()
+  })
+
+  it('keeps English dates in day-month-year order', () => {
+    render(<DatePicker value="2026-03-05" onChange={vi.fn()} />)
+    expect(screen.getByRole('button', { name: '5 March 2026' })).toBeInTheDocument()
+  })
+})
 
 describe('DatePicker with time', () => {
   it('shows the time carried by the value', async () => {

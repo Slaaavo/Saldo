@@ -63,7 +63,7 @@ export const DatePicker = ({
   withTime = false,
   defaultTime = DEFAULT_PICKER_TIME,
 }: DatePickerProps) => {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const [open, setOpen] = useState(false)
 
   const selected = value ? parseDateOnly(value) : undefined
@@ -108,7 +108,7 @@ export const DatePicker = ({
     }
   }
 
-  const displayDate = value ? formatDisplayDate(value.substring(0, 10)) : undefined
+  const displayDate = value ? formatDisplayDate(value.substring(0, 10), i18n.language) : undefined
 
   return (
     <Popover open={open} onOpenChange={setOpen}>

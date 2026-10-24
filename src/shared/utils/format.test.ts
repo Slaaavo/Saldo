@@ -100,6 +100,14 @@ describe('formatDisplayDate', () => {
   it('formats December correctly', () => {
     expect(formatDisplayDate('2025-12-25')).toBe('25 December 2025')
   })
+
+  it('keeps the day-month-year order for the English i18n language', () => {
+    expect(formatDisplayDate('2026-03-05', 'en')).toBe('5 March 2026')
+  })
+
+  it('formats in the Slovak i18n language', () => {
+    expect(formatDisplayDate('2026-03-05', 'sk')).toBe('5. marca 2026')
+  })
 })
 
 describe('withDefaultTime', () => {
@@ -127,6 +135,18 @@ describe('toMinorUnits', () => {
   it('handles 8-decimal (BTC) precision', () => {
     expect(toMinorUnits('0.50000000', 8)).toBe(50000000)
     expect(toMinorUnits('1.00000001', 8)).toBe(100000001)
+  })
+
+  it('accepts a decimal comma', () => {
+    expect(toMinorUnits('12,50', 2)).toBe(1250)
+    expect(toMinorUnits('0,01', 2)).toBe(1)
+    expect(toMinorUnits('-5,5', 2)).toBe(-550)
+    expect(toMinorUnits('7,5', 0)).toBe(8)
+  })
+
+  it('ignores surrounding whitespace', () => {
+    expect(toMinorUnits(' 12,50 ', 2)).toBe(1250)
+    expect(toMinorUnits('\t12.34\n', 2)).toBe(1234)
   })
 
   it('round-trips with fromMinorUnits', () => {

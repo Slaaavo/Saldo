@@ -16,6 +16,17 @@ vi.mock('../../shared/api', () => ({
 
 import { listCurrencies, getConsolidationCurrency, setConsolidationCurrency, getAppSetting, setAppSetting } from '../../shared/api'
 
+const mockToastError = vi.fn()
+vi.mock('sonner', () => ({
+  toast: { error: (...args: unknown[]) => mockToastError(...args) },
+}))
+
+// Stable `t` reference keeps the hook's useCallback deps from changing on every render
+vi.mock('react-i18next', () => {
+  const t = (key: string, opts?: Record<string, unknown>) => (opts ? `${key}:${JSON.stringify(opts)}` : key)
+  return { useTranslation: () => ({ t }) }
+})
+
 const makeWrapper = () => {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: 0 } } })
   const Wrapper = ({ children }: { children: Parameters<typeof createElement>[2] }) => createElement(QueryClientProvider, { client: queryClient }, children)
@@ -137,26 +148,23 @@ describe('useSettings', () => {
     expect(result.current.currencySaved).toBe(false)
   })
 
-  it('handles currency save failure gracefully', async () => {
+  it('toasts a currency save failure and reverts the selection', async () => {
     setupMocks()
-    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     ;(setConsolidationCurrency as Mock).mockRejectedValue(new Error('Save failed'))
 
     const { result } = renderHook(() => useSettings(), { wrapper: makeWrapper() })
 
     await waitFor(() => {
-      expect(result.current.currencies).toEqual(ALL_CURRENCIES)
+      expect(result.current.selectedCurrency).toEqual(EUR)
     })
 
     await act(async () => {
       await result.current.handleCurrencySelect(USD)
     })
 
-    expect(consoleSpy).toHaveBeenCalledWith('Failed to set consolidation currency:', expect.any(Error))
-    // TODO Phase 4: verify onConsolidationCurrencyChange equivalent (queryClient.invalidateQueries) not called
+    expect(mockToastError).toHaveBeenCalledWith('settings.saveCurrencyError:{"error":"Save failed"}')
+    expect(result.current.selectedCurrency).toEqual(EUR)
     expect(result.current.currencySaved).toBe(false)
-
-    consoleSpy.mockRestore()
   })
 
   // ── handleSaveApiKey ──────────────────────────────────────────────────
@@ -207,9 +215,8 @@ describe('useSettings', () => {
     expect(result.current.apiKeySaved).toBe(false)
   })
 
-  it('handles API key save failure gracefully', async () => {
+  it('toasts an API key save failure', async () => {
     setupMocks()
-    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     ;(setAppSetting as Mock).mockRejectedValue(new Error('Save failed'))
 
     const { result } = renderHook(() => useSettings(), { wrapper: makeWrapper() })
@@ -226,9 +233,7 @@ describe('useSettings', () => {
       await result.current.handleSaveApiKey()
     })
 
-    expect(consoleSpy).toHaveBeenCalledWith('Failed to save API key:', expect.any(Error))
+    expect(mockToastError).toHaveBeenCalledWith('settings.saveApiKeyError:{"error":"Save failed"}')
     expect(result.current.apiKeySaved).toBe(false)
-
-    consoleSpy.mockRestore()
   })
 })

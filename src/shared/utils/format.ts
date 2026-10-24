@@ -56,7 +56,10 @@ export const DEFAULT_PICKER_TIME = '23:59'
 export const withDefaultTime = (value: string): string => (value.includes('T') ? value : `${value}T${DEFAULT_PICKER_TIME}:00`)
 
 export const toMinorUnits = (decimalStr: string, minorUnits: number): number => {
-  return Math.round(parseFloat(decimalStr) * Math.pow(10, minorUnits))
+  const trimmed = decimalStr.trim()
+  // A decimal comma ("12,50") is only a separator when there is no decimal point to disagree with it
+  const normalized = trimmed.includes('.') ? trimmed : trimmed.replace(',', '.')
+  return Math.round(parseFloat(normalized) * Math.pow(10, minorUnits))
 }
 
 export const fromMinorUnits = (amountMinor: number, minorUnits: number): string => {
@@ -67,10 +70,14 @@ export const getMinorUnitsStep = (minorUnits: number): string => {
   return minorUnits === 0 ? '1' : '0.' + '0'.repeat(minorUnits - 1) + '1'
 }
 
+// i18n reports bare language codes; bare "en" would give US month-first dates, so English keeps the day-month-year order it always had here.
+const DISPLAY_LOCALES: Record<string, string> = { en: 'en-GB' }
+
+/** `locale` is the current i18n language (e.g. "en", "sk"). */
 export const formatDisplayDate = (dateStr: string, locale = 'en-GB'): string => {
   const [y, m, d] = dateStr.split('-').map(Number)
   const date = new Date(y, m - 1, d)
-  return date.toLocaleDateString(locale, {
+  return date.toLocaleDateString(DISPLAY_LOCALES[locale] ?? locale, {
     year: 'numeric',
     month: 'long',
     day: 'numeric',

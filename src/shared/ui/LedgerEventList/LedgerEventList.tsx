@@ -19,7 +19,7 @@ interface Props {
 }
 
 const LedgerEventList = ({ events, accounts, consolidationCurrency, onEditEvent, onDeleteEvent, onDeleteTransferEvent, onDeleteSplitGroup, onEditTaxableSplitGroup }: Props) => {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const [expandedGroups, setExpandedGroups] = useState<Set<number>>(new Set())
 
   const toggleGroup = (id: number) =>
@@ -73,7 +73,7 @@ const LedgerEventList = ({ events, accounts, consolidationCurrency, onEditEvent,
     <div className="flex flex-col gap-6">
       {sortedGroups.map(([dateKey, groupItems]) => (
         <div key={dateKey}>
-          <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">{formatDisplayDate(dateKey)}</h3>
+          <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">{formatDisplayDate(dateKey, i18n.language)}</h3>
           <div className="flex flex-col gap-2">
             {groupItems.map((item) => {
               if ('type' in item) {

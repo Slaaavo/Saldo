@@ -415,6 +415,8 @@ settings:
   oxrApiKeyPlaceholder: Enter your API key
   saveApiKey: Save API Key
   saved: Saved!
+  saveCurrencyError: "Failed to save consolidation currency: {{error}}"
+  saveApiKeyError: "Failed to save API key: {{error}}"
   sectionDisplay: "Display"
   sectionDisplayDesc: "Language and currency preferences"
   sectionIntegrations: "Integrations"
@@ -495,6 +497,7 @@ errors:
   deleteSplitGroup: "Failed to delete split group: {{error}}"
   createAccount: "Failed to create account: {{error}}"
   renameAccount: "Failed to rename account: {{error}}"
+  updateAccount: "Failed to update account: {{error}}"
   deleteAccount: "Failed to delete account: {{error}}"
   updateBalances: "Failed to update balances: {{error}}"
   deleteAccountLinked: "Cannot delete this account: it has active allocations. Unlink the allocations first."
