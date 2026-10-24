@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import LedgerPage from './LedgerPage'
@@ -90,13 +90,14 @@ import { listEvents, getAccountsSnapshot, getConsolidationCurrency, getUnmatched
 
 const renderLedgerPage = () => {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: 0 } } })
-  return render(
+  const utils = render(
     <QueryClientProvider client={queryClient}>
       <SelectedPersonProvider>
         <LedgerPage />
       </SelectedPersonProvider>
     </QueryClientProvider>,
   )
+  return { ...utils, queryClient }
 }
 
 describe('LedgerPage', () => {
@@ -120,6 +121,15 @@ describe('LedgerPage', () => {
   it('renders the Add Events button', () => {
     renderLedgerPage()
     expect(screen.getByText('ledger.addEvents')).toBeInTheDocument()
+  })
+
+  it('refetches the unmatched cashflow count when event queries are invalidated', async () => {
+    const { queryClient } = renderLedgerPage()
+    await waitFor(() => expect(getUnmatchedCashflowCount).toHaveBeenCalledTimes(1))
+
+    await act(() => queryClient.invalidateQueries({ queryKey: ['events'] }))
+
+    await waitFor(() => expect(getUnmatchedCashflowCount).toHaveBeenCalledTimes(2))
   })
 
   // ── Modal dispatch ────────────────────────────────────────────────────────

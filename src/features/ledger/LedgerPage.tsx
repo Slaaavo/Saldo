@@ -26,7 +26,7 @@ const LedgerPage = () => {
   const consolidationCurrency = consolidationCurrencyQuery.data ?? null
 
   const unmatchedCountQuery = useQuery({
-    queryKey: ['unmatched-cashflow-count', selectedPersonId],
+    queryKey: ['events', 'unmatched-cashflow-count', selectedPersonId],
     queryFn: () => getUnmatchedCashflowCount(selectedPersonId ?? undefined),
   })
   const unmatchedCount = unmatchedCountQuery.data ?? 0
