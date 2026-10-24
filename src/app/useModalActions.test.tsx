@@ -110,13 +110,13 @@ describe('useModalActions balance updates', () => {
       expect(onFxRatePrompt).not.toHaveBeenCalled()
     })
 
-    it('prompts for FX rates when none exist for a foreign-currency account', async () => {
+    it('prompts for FX rates on the calendar day of a timed foreign-currency balance update', async () => {
       const { result } = renderActions()
 
       await result.current.handleCreateBalanceUpdate(2, 1000, '2026-01-15T23:59:00', '')
 
-      expect(listFxRates).toHaveBeenCalledWith('2026-01-15T23:59:00')
-      expect(onFxRatePrompt).toHaveBeenCalledWith('2026-01-15T23:59:00')
+      expect(listFxRates).toHaveBeenCalledWith('2026-01-15')
+      expect(onFxRatePrompt).toHaveBeenCalledWith('2026-01-15')
     })
 
     it('does not report a saved balance update as failed when the FX lookup fails', async () => {
@@ -158,7 +158,7 @@ describe('useModalActions balance updates', () => {
 
       await result.current.handleCreateBucketBalanceUpdate(3, 1000, '2026-01-15T23:59:00', null, [])
 
-      expect(onFxRatePrompt).toHaveBeenCalledWith('2026-01-15T23:59:00')
+      expect(onFxRatePrompt).toHaveBeenCalledWith('2026-01-15')
       expect(closeModal.mock.invocationCallOrder[0]).toBeLessThan(onFxRatePrompt.mock.invocationCallOrder[0])
     })
 

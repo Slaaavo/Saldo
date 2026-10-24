@@ -41,10 +41,12 @@ export const useModalActions = ({ closeModal, onFxRatePrompt }: UseModalActionsO
   const promptForMissingFxRate = async (accountId: number, eventDate: string) => {
     const account = snapshot.find((r) => r.accountId === accountId)
     if (!account || !consolidationCurrency || account.currencyCode === consolidationCurrency.code) return
+    // FX rates are stored per calendar day, while a balance update carries a time.
+    const rateDate = eventDate.slice(0, 10)
     try {
-      const rates = await listFxRates(eventDate)
+      const rates = await listFxRates(rateDate)
       if (!rates.some((r) => r.toCurrencyCode === account.currencyCode)) {
-        onFxRatePrompt(eventDate)
+        onFxRatePrompt(rateDate)
       }
     } catch (err) {
       console.error('Failed to check FX rates:', err)
