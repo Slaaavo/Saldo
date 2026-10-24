@@ -10,8 +10,6 @@
 -- SQLite does not support ALTER TABLE ... DROP CONSTRAINT, so the table is
 -- recreated: new table created, data copied, original dropped, new renamed.
 
-BEGIN TRANSACTION;
-
 CREATE TABLE taxable_cashflow_link_new (
   id                INTEGER PRIMARY KEY AUTOINCREMENT,
   taxable_event_id  INTEGER NOT NULL REFERENCES event(id),
@@ -29,5 +27,3 @@ DROP TABLE taxable_cashflow_link;
 ALTER TABLE taxable_cashflow_link_new RENAME TO taxable_cashflow_link;
 
 CREATE INDEX idx_taxable_cashflow_link_taxable ON taxable_cashflow_link (taxable_event_id);
-
-COMMIT;

@@ -3,8 +3,4 @@
 -- NULL means not applicable (non-expense events and pre-existing events).
 -- Pre-existing expense events with NULL are treated as false (VAT not reclaimed).
 
-BEGIN TRANSACTION;
-
 ALTER TABLE event_data ADD COLUMN reclaimed_vat INTEGER DEFAULT NULL;
-
-COMMIT;

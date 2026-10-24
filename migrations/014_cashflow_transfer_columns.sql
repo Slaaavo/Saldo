@@ -1,10 +1,7 @@
 -- Migration 014: Add linked_event_id to event for transfer linking, and add
 -- cashflow-specific columns to event_data (counterpart, bucket, original currency/amount, fx rate).
 -- event table requires a full rebuild because SQLite does not support ADD CONSTRAINT.
-PRAGMA foreign_keys = OFF;
 PRAGMA legacy_alter_table = ON;
-
-BEGIN TRANSACTION;
 
 -- Step 1: Recreate event table with linked_event_id column
 
@@ -56,9 +53,4 @@ CREATE INDEX idx_event_type ON event (account_id, event_type, deleted_at);
 CREATE INDEX idx_event_linked ON event (linked_event_id);
 CREATE INDEX idx_eventdata_counterpart ON event_data (counterpart_account_id);
 
-COMMIT;
-
 PRAGMA legacy_alter_table = OFF;
-PRAGMA foreign_keys = ON;
-
-PRAGMA foreign_key_check;

@@ -1,9 +1,6 @@
 -- Migration 013: Add iban column to account and expand CHECK constraint to include 'partner'.
 -- SQLite does not support ALTER TABLE ... ADD CONSTRAINT, so we recreate the table.
-PRAGMA foreign_keys = OFF;
 PRAGMA legacy_alter_table = ON;
-
-BEGIN TRANSACTION;
 
 ALTER TABLE account RENAME TO account_old;
 
@@ -31,9 +28,4 @@ CREATE UNIQUE INDEX idx_account_iban ON account (iban);
 
 DROP TABLE account_old;
 
-COMMIT;
-
 PRAGMA legacy_alter_table = OFF;
-PRAGMA foreign_keys = ON;
-
-PRAGMA foreign_key_check;

@@ -1,7 +1,6 @@
 -- Migration 004: seed full currency list
 -- Uses INSERT OR IGNORE to preserve any existing rows (EUR was seeded in 002).
 -- minor_units per ISO 4217 and standard alternative-asset conventions.
-BEGIN TRANSACTION;
 
 INSERT OR IGNORE INTO currency (code, name, minor_units) VALUES ('AED', 'UAE Dirham', 2);
 INSERT OR IGNORE INTO currency (code, name, minor_units) VALUES ('AFN', 'Afghan Afghani', 2);
@@ -179,5 +178,3 @@ INSERT OR IGNORE INTO currency (code, name, minor_units) VALUES ('ZAR', 'South A
 INSERT OR IGNORE INTO currency (code, name, minor_units) VALUES ('ZMW', 'Zambian Kwacha', 2);
 INSERT OR IGNORE INTO currency (code, name, minor_units) VALUES ('ZWG', 'Zimbabwean ZiG', 2);
 INSERT OR IGNORE INTO currency (code, name, minor_units) VALUES ('ZWL', 'Zimbabwean Dollar', 2);
-
-COMMIT;

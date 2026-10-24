@@ -1,5 +1,4 @@
 -- Migration 005: create fx_rate and app_setting tables; seed consolidation currency
-BEGIN TRANSACTION;
 
 CREATE TABLE fx_rate (
   id               INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -23,5 +22,3 @@ CREATE TABLE app_setting (
 );
 
 INSERT INTO app_setting (key, value) VALUES ('consolidation_currency_code', 'EUR');
-
-COMMIT;

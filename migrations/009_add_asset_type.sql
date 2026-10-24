@@ -1,9 +1,6 @@
 -- Migration 009: rebuild account table to add CHECK constraint supporting 'asset' account_type.
 -- SQLite does not support ALTER TABLE ... DROP CONSTRAINT / ADD CONSTRAINT, so we recreate the table.
-PRAGMA foreign_keys = OFF;
 PRAGMA legacy_alter_table = ON;
-
-BEGIN TRANSACTION;
 
 ALTER TABLE account RENAME TO account_old;
 
@@ -28,9 +25,4 @@ CREATE INDEX idx_account_currency ON account (currency_id);
 
 DROP TABLE account_old;
 
-COMMIT;
-
 PRAGMA legacy_alter_table = OFF;
-PRAGMA foreign_keys = ON;
-
-PRAGMA foreign_key_check;

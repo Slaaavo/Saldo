@@ -1,5 +1,3 @@
-BEGIN TRANSACTION;
-
 CREATE TABLE import_profile (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL,
@@ -19,5 +17,3 @@ CREATE TABLE import_profile_rule (
 CREATE INDEX IF NOT EXISTS idx_import_profile_rule_profile_id ON import_profile_rule(profile_id);
 
 ALTER TABLE account ADD COLUMN preferred_profile_id INTEGER REFERENCES import_profile(id) ON DELETE SET NULL;
-
-COMMIT;

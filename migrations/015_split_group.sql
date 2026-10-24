@@ -1,9 +1,6 @@
 -- Migration 015: Add split_group table and split_group_id FK on event.
 -- event table requires a full rebuild because SQLite does not support ADD CONSTRAINT.
-PRAGMA foreign_keys = OFF;
 PRAGMA legacy_alter_table = ON;
-
-BEGIN TRANSACTION;
 
 -- Step 1: Create split_group table
 CREATE TABLE split_group (
@@ -55,9 +52,4 @@ BEGIN
     UPDATE event SET latest_data_id = NEW.id WHERE id = NEW.event_id;
 END;
 
-COMMIT;
-
 PRAGMA legacy_alter_table = OFF;
-PRAGMA foreign_keys = ON;
-
-PRAGMA foreign_key_check;

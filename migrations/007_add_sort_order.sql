@@ -1,5 +1,3 @@
-BEGIN TRANSACTION;
-
 ALTER TABLE account ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0;
 
 -- Backfill: assign 0-based sequential sort_order within each account_type group,
@@ -11,5 +9,3 @@ SET sort_order = (
     WHERE a2.account_type = account.account_type
       AND (a2.name < account.name OR (a2.name = account.name AND a2.id < account.id))
 );
-
-COMMIT;

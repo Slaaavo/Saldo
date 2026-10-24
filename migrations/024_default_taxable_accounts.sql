@@ -5,10 +5,7 @@
 -- ALTER TABLE ADD CONSTRAINT, so we recreate the table).
 -- Add FK columns to person for fast default account lookup.
 
-PRAGMA foreign_keys = OFF;
 PRAGMA legacy_alter_table = ON;
-
-BEGIN TRANSACTION;
 
 -- Rebuild account with expanded CHECK constraint
 
@@ -99,9 +96,4 @@ SET default_expense_account_id = (
     LIMIT 1
 );
 
-COMMIT;
-
 PRAGMA legacy_alter_table = OFF;
-PRAGMA foreign_keys = ON;
-
-PRAGMA foreign_key_check;

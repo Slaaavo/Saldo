@@ -1,5 +1,3 @@
-BEGIN TRANSACTION;
-
 ALTER TABLE fx_rate ADD COLUMN is_direct INTEGER NOT NULL DEFAULT 0;
 
 -- For custom-currency (unit asset) rows: flip stored 1/price back to price.
@@ -19,5 +17,3 @@ SET
   is_direct = 1
 WHERE to_currency_id IN (SELECT id FROM currency WHERE is_custom = 1)
   AND rate_mantissa != 0;
-
-COMMIT;

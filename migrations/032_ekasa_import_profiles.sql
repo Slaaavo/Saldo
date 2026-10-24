@@ -1,5 +1,3 @@
-BEGIN TRANSACTION;
-
 CREATE TABLE ekasa_import_profile (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   person_id INTEGER NOT NULL REFERENCES person(id) ON DELETE CASCADE,
@@ -20,5 +18,3 @@ CREATE TABLE ekasa_import_profile_rule (
 );
 
 CREATE INDEX IF NOT EXISTS idx_ekasa_import_profile_rule_profile_id ON ekasa_import_profile_rule(profile_id);
-
-COMMIT;

@@ -1,5 +1,3 @@
-BEGIN;
-
 CREATE TABLE tax_model (
     id                           INTEGER PRIMARY KEY AUTOINCREMENT,
     name                         TEXT    NOT NULL,
@@ -26,5 +24,3 @@ CREATE TABLE tax_model_bracket (
 );
 
 CREATE INDEX idx_tax_model_bracket_tax_model_id ON tax_model_bracket (tax_model_id);
-
-COMMIT;

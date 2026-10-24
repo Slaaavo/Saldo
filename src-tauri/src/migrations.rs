@@ -1,4 +1,4 @@
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
 
 use crate::error::AppError;
 
@@ -25,10 +25,43 @@ fn apply_pending(conn: &Connection, migrations: &[(&str, &str)]) -> Result<(), A
         )?;
 
         if !already_applied {
-            conn.execute_batch(sql)?;
-            conn.execute("INSERT INTO _migrations (filename) VALUES (?1)", [filename])?;
+            apply(conn, filename, sql).map_err(|e| AppError {
+                code: "MIGRATION_FAILED".into(),
+                message: format!("Migration {filename} failed: {}", e.message),
+            })?;
         }
     }
+    Ok(())
+}
+
+/// SQLite's procedure for schema changes. `foreign_keys` is a no-op inside a transaction, so it
+/// is switched off before BEGIN, which also keeps a table rebuild's DROP TABLE from cascading
+/// into child rows. `foreign_key_check` then reports any violation the body left.
+fn apply(conn: &Connection, filename: &str, sql: &str) -> Result<(), AppError> {
+    conn.execute_batch("PRAGMA foreign_keys = OFF; BEGIN;")?;
+    let result = apply_in_transaction(conn, filename, sql);
+    if result.is_err() {
+        let _ = conn.execute_batch("ROLLBACK");
+    }
+    conn.execute_batch("PRAGMA foreign_keys = ON;")?;
+    result
+}
+
+fn apply_in_transaction(conn: &Connection, filename: &str, sql: &str) -> Result<(), AppError> {
+    conn.execute_batch(sql)?;
+    let violation: Option<(String, String)> = conn
+        .query_row("PRAGMA foreign_key_check", [], |row| {
+            Ok((row.get(0)?, row.get(2)?))
+        })
+        .optional()?;
+    if let Some((table, parent)) = violation {
+        return Err(AppError {
+            code: "FOREIGN_KEY_VIOLATION".into(),
+            message: format!("it left a row in {table} that references a missing {parent} row"),
+        });
+    }
+    conn.execute("INSERT INTO _migrations (filename) VALUES (?1)", [filename])?;
+    conn.execute_batch("COMMIT")?;
     Ok(())
 }
 

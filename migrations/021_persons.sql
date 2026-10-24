@@ -1,5 +1,3 @@
-BEGIN;
-
 CREATE TABLE person (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     name        TEXT    NOT NULL,
@@ -16,5 +14,3 @@ ALTER TABLE account ADD COLUMN person_id INTEGER REFERENCES person(id) ON DELETE
 UPDATE account
 SET person_id = (SELECT id FROM person WHERE is_default = 1)
 WHERE account_type != 'partner';
-
-COMMIT;

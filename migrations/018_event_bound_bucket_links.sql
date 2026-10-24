@@ -1,5 +1,3 @@
-BEGIN TRANSACTION;
-
 -- Drop old tables (data loss is intentional per PRD NG-4)
 DROP TABLE IF EXISTS bucket_relative_link;
 DROP TABLE IF EXISTS bucket_allocation;
@@ -15,5 +13,3 @@ CREATE TABLE bucket_event_link (
 
 CREATE INDEX idx_bucket_event_link_event  ON bucket_event_link (event_id);
 CREATE INDEX idx_bucket_event_link_source ON bucket_event_link (source_account_id);
-
-COMMIT;

@@ -1,5 +1,4 @@
 -- Migration 001: initial schema
-BEGIN TRANSACTION;
 
 -- currency
 CREATE TABLE currency (
@@ -59,5 +58,3 @@ AFTER INSERT ON event_data
 BEGIN
   UPDATE event SET latest_data_id = NEW.id WHERE id = NEW.event_id;
 END;
-
-COMMIT;
