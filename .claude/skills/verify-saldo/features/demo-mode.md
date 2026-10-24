@@ -31,6 +31,7 @@ Preconditions:
 
 ## Gotchas
 
-- Not yet driven end to end. Added on 2026-10-24 with the reload-on-swap change; the first run should record which sub-features it drove here.
+- Last driven end to end on 2026-10-24 (run `20261024-130430-worktree-code-review-fixes`): `demo-enter`, `demo-persons`, `demo-theme` (System → Light in demo, dark System back after exit) and `demo-exit`. The person-filter step was not driven, because the dev DB had only one person by then.
+- A screenshot taken right after `Start Demo Mode` or `Exit Demo` can be blank while the reloaded page paints. The AX summary already lists the new page; take another screenshot for the proof.
 - No success toast shows after `Exit Demo`, because the reload drops it. The proof is the banner disappearing and the real data coming back.
 - A reload resets the router to the Dashboard. Navigate again after each swap instead of expecting to stay on Settings.
