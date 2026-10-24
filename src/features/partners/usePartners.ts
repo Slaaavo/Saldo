@@ -1,9 +1,11 @@
 import { useState, useEffect, useCallback } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import type { PartnerAccount } from '../../shared/types'
 import { listPartnerAccounts, createPartnerAccount, updatePartnerAccount, deletePartnerAccount, getConsolidationCurrency } from '../../shared/api'
 import { extractErrorMessage } from '../../shared/utils/errors'
 
 export const usePartners = () => {
+  const queryClient = useQueryClient()
   const [partners, setPartners] = useState<PartnerAccount[]>([])
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
@@ -46,14 +48,14 @@ export const usePartners = () => {
     setActionError(null)
     await updatePartnerAccount(accountId, name, iban)
     setEditingPartner(null)
-    await loadPartners()
+    await Promise.all([loadPartners(), queryClient.invalidateQueries({ queryKey: ['events'] })])
   }
 
   const handleDelete = async (accountId: number) => {
     setActionError(null)
     await deletePartnerAccount(accountId)
     setDeletingPartner(null)
-    await loadPartners()
+    await Promise.all([loadPartners(), queryClient.invalidateQueries({ queryKey: ['events'] })])
   }
 
   return {
