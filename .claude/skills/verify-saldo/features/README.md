@@ -45,3 +45,4 @@ Keep implementation details out of the map. Name only user paths, stable handles
 - [Buckets](./buckets.md): create a bucket, allocate to it, link an account, and read Left to Spend.
 - [CSV import](./csv-import.md): import cashflows from a bank CSV through the import wizard.
 - [FX rates](./fx-rates.md): list stored rates, edit one by hand, and fetch rates for a date.
+- [Demo mode](./demo-mode.md): enter and leave the seeded demo database without real data, persons, or theme leaking across.

@@ -86,6 +86,7 @@ These are the rules that worked on 2026-10-18:
 - **Popovers can paint late.** If the AX element count jumps but the screenshot shows nothing new, take another screenshot. While a calendar or a select list is open, the AX walk is truncated, so use screenshot coordinates.
 - **Navigate with the sidebar `AXLink`s** (Dashboard, Ledger, Persons, Tax Models, Partners, Import Profiles, Settings, FX Rates, Units). The page title in the header confirms where you are. The sidebar highlight can stay on an earlier page in a background window. Don't treat it as proof of navigation.
 - **Demo mode moves everything down.** Its amber banner (`DEMO MODE` … `Exit Demo`) shifts the layout about 53 px. Take a fresh screenshot before any coordinate click after entering or leaving demo mode.
+- **Entering or leaving demo mode reloads the window.** The page comes back on the Dashboard, and no success toast shows. Wait for the sidebar links to reappear in the AX summary before the next click.
 - **Scroll** with `app_scroll` at a point inside the page, `dy` 5 to 20.
 - **Quit** with `app_menu` path `["Saldo Dev", "Quit Saldo Dev"]`.
 
