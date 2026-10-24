@@ -432,6 +432,13 @@ mod tests {
     }
 
     #[test]
+    fn consolidation_currency_is_not_a_generic_setting() {
+        let err = validate_setting_key("consolidation_currency_code").unwrap_err();
+
+        assert_eq!(err.code, "VALIDATION");
+    }
+
+    #[test]
     fn entering_and_exiting_demo_mode_bump_the_db_generation() {
         let dir = tempfile::tempdir().unwrap();
         let state = test_state(dir.path());
