@@ -630,8 +630,10 @@ export const useImportWizard = (params: { snapshot: SnapshotRow[]; onClose: () =
     if (!selectedAccountId) return
 
     setWizardState((prev) => ({ ...prev, importing: true }))
+    // Each write below commits on its own, so a failure part-way leaves earlier rows saved.
+    const committedRowIndexes = new Set<number>()
     try {
-      const selectedRows = importRows.filter((r) => r.isSelected && !r.isDuplicate)
+      const selectedRows = importRows.filter((r) => r.isSelected)
       const regularRows = selectedRows.filter((r) => r.splitLegs === null)
       const splitRows = selectedRows.filter((r) => r.splitLegs !== null)
 
@@ -641,6 +643,7 @@ export const useImportWizard = (params: { snapshot: SnapshotRow[]; onClose: () =
         const matchedEvent = existingEvents.find((e) => e.id === row.nearDateDuplicateEventId)
         if (matchedEvent) {
           await updateEvent(matchedEvent.id, matchedEvent.amountMinor, row.date, matchedEvent.note ?? undefined)
+          committedRowIndexes.add(row.index)
         }
       }
 
@@ -665,6 +668,7 @@ export const useImportWizard = (params: { snapshot: SnapshotRow[]; onClose: () =
         })
 
         await bulkCreateCashflows({ entries })
+        for (const row of regularRows) committedRowIndexes.add(row.index)
       }
 
       for (const splitRow of splitRows) {
@@ -685,6 +689,7 @@ export const useImportWizard = (params: { snapshot: SnapshotRow[]; onClose: () =
             fxRateExponent: splitRow.fxRateExponent ?? null,
           })),
         })
+        committedRowIndexes.add(splitRow.index)
       }
 
       const totalImported = regularRows.length + splitRows.reduce((n, r) => n + r.splitLegs!.length, 0)
@@ -696,15 +701,21 @@ export const useImportWizard = (params: { snapshot: SnapshotRow[]; onClose: () =
         setPreferredProfile(selectedAccountId, loadedProfileId).catch(() => {})
       }
 
+      await onSuccess()
       if (loadedProfileId === null || profileChanged) {
         setWizardState((prev) => ({ ...prev, step: 'save-profile', importedCount: totalImported }))
       } else {
         toast.success(t('import.success', { count: totalImported }))
-        await onSuccess()
         onClose()
       }
     } catch (err) {
       toast.error(t('errors.importCashflows', { error: extractErrorMessage(err) }))
+      if (committedRowIndexes.size > 0) {
+        // Drop the saved rows so a retry cannot insert them a second time.
+        setWizardState((prev) => ({ ...prev, importRows: prev.importRows.filter((r) => !committedRowIndexes.has(r.index)) }))
+        toast.warning(t('import.reviewStep.partialImport'))
+        await onSuccess()
+      }
     } finally {
       setWizardState((prev) => ({ ...prev, importing: false }))
     }
@@ -733,13 +744,12 @@ export const useImportWizard = (params: { snapshot: SnapshotRow[]; onClose: () =
           setPreferredProfile(accountId, newId).catch(() => {})
         }
         toast.success(t('import.saveStep.profileSaved'))
-        await onSuccess()
         onClose()
       } catch (err) {
         toast.error(extractErrorMessage(err))
       }
     },
-    [wizardState, t, onSuccess, onClose],
+    [wizardState, t, onClose],
   )
 
   const handleUpdateProfile = useCallback(async () => {
@@ -753,24 +763,22 @@ export const useImportWizard = (params: { snapshot: SnapshotRow[]; onClose: () =
     })
     try {
       await updateImportProfile(loadedProfileId, originalProfileName, columnMappingJson, ruleInputs)
-      await onSuccess()
       onClose()
     } catch (err) {
       toast.error(extractErrorMessage(err))
     }
-  }, [wizardState, availableProfiles, onSuccess, onClose])
-
-  const handleSkipSaveProfile = useCallback(async () => {
-    await onSuccess()
-    onClose()
-  }, [onSuccess, onClose])
+  }, [wizardState, availableProfiles, onClose])
 
   const splitValidationErrors = useMemo(
     () =>
       wizardState.importRows
         .filter((r) => r.splitLegs !== null && r.isSelected)
-        .filter((r) => r.splitLegs!.reduce((sum, l) => sum + l.amountMinor, 0) !== r.amountMinor)
-        .map((r) => t('import.reviewStep.split.validationError', { date: r.date.substring(0, 10) })),
+        .flatMap((r) => {
+          const date = r.date.substring(0, 10)
+          if (r.splitLegs!.length < 2) return [t('import.reviewStep.split.minLegsError', { date })]
+          if (r.splitLegs!.reduce((sum, l) => sum + l.amountMinor, 0) !== r.amountMinor) return [t('import.reviewStep.split.validationError', { date })]
+          return []
+        }),
     [wizardState.importRows, t],
   )
 
@@ -816,7 +824,6 @@ export const useImportWizard = (params: { snapshot: SnapshotRow[]; onClose: () =
     handleImport,
     handleSaveNewProfile,
     handleUpdateProfile,
-    handleSkipSaveProfile,
     goBack,
   }
 }

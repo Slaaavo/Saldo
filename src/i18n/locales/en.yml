@@ -607,6 +607,7 @@ import:
     transfer: "Transfer"
     assignCounterpart: "Assign account"
     counterpartAssigned: "Account assigned"
+    partialImport: "Some rows were saved before the error and have been removed from the list"
     split:
       actionsColumn: "Actions"
       splitButton: "Split"
@@ -616,6 +617,7 @@ import:
       remaining: "Remaining"
       addSplit: "+ Add split"
       validationError: "Row {{date}}: remaining amount must be zero"
+      minLegsError: "Row {{date}}: a split needs at least two parts"
       validationBanner: "Some split groups are incomplete"
   success: "Imported {{count}} transactions"
   error: "Failed to import transactions"

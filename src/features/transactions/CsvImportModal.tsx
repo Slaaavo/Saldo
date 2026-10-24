@@ -57,7 +57,6 @@ const CsvImportModal = ({ snapshot, onClose, onSuccess }: CsvImportModalProps) =
     handleImport,
     handleSaveNewProfile,
     handleUpdateProfile,
-    handleSkipSaveProfile,
     goBack,
   } = useImportWizard({ snapshot, onClose, onSuccess })
 
@@ -149,7 +148,7 @@ const CsvImportModal = ({ snapshot, onClose, onSuccess }: CsvImportModalProps) =
               loadedProfileName={wizardState.loadedProfileId !== null ? (availableProfiles.find((p) => p.id === wizardState.loadedProfileId)?.name ?? null) : null}
               onSaveNew={handleSaveNewProfile}
               onUpdate={handleUpdateProfile}
-              onClose={handleSkipSaveProfile}
+              onClose={onClose}
             />
           )}
         </DialogBody>

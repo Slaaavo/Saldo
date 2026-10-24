@@ -584,6 +584,7 @@ import:
     transfer: "Prevod"
     assignCounterpart: "Priradiť účet"
     counterpartAssigned: "Účet priradený"
+    partialImport: "Niektoré riadky sa uložili pred chybou a boli odstránené zo zoznamu"
     split:
       actionsColumn: "Akcie"
       splitButton: "Rozdeliť"
@@ -593,6 +594,7 @@ import:
       remaining: "Zostatok"
       addSplit: "+ Pridať časť"
       validationError: "Riadok {{date}}: zostatok musí byť nula"
+      minLegsError: "Riadok {{date}}: rozdelenie musí mať aspoň dve časti"
       validationBanner: "Niektoré skupiny rozdelenia sú neúplné"
   success: "Importovaných {{count}} transakcií"
   error: "Nepodarilo sa importovať transakcie"
