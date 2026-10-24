@@ -106,10 +106,3 @@ pub struct CreateSplitGroupInput {
     pub group_note: Option<String>,
     pub legs: Vec<SplitGroupEntry>,
 }
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct UpdateSplitGroupDateInput {
-    pub split_group_id: i64,
-    pub new_date: String,
-}

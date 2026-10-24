@@ -23,9 +23,8 @@ pub use events::{
 };
 
 pub use split_groups::{
-    check_event_split_group_date_conflict, create_split_group_with_legs, update_split_group_date,
+    check_event_split_group_date_conflict, create_split_group_with_legs,
     CheckEventSplitGroupDateConflictParams, CreateSplitGroupWithLegsParams,
-    UpdateSplitGroupDateParams,
 };
 
 pub use queries::{

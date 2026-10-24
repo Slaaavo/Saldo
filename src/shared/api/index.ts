@@ -383,10 +383,6 @@ export const createSplitGroup = (input: { accountId: number; groupNote: string |
   return invoke('create_split_group', { input })
 }
 
-export const updateSplitGroupDate = (splitGroupId: number, newDate: string): Promise<void> => {
-  return invoke('update_split_group_date', { input: { splitGroupId, newDate } })
-}
-
 export const listImportProfiles = (): Promise<ImportProfileRow[]> => {
   return invoke('list_import_profiles')
 }

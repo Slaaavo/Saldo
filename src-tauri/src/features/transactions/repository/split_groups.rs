@@ -99,47 +99,6 @@ pub fn create_split_group_with_legs(
     })
 }
 
-pub struct UpdateSplitGroupDateParams {
-    pub split_group_id: i64,
-    pub new_date: String,
-}
-
-pub fn update_split_group_date(
-    conn: &Connection,
-    params: UpdateSplitGroupDateParams,
-) -> Result<(), AppError> {
-    let UpdateSplitGroupDateParams {
-        split_group_id,
-        new_date,
-    } = params;
-    with_savepoint_app(conn, || {
-        let mut stmt = conn.prepare(
-            "SELECT e.id FROM event e WHERE e.split_group_id = ?1 AND e.deleted_at IS NULL",
-        )?;
-        let event_ids: Vec<i64> = stmt
-            .query_map(params![split_group_id], |row| row.get(0))?
-            .collect::<rusqlite::Result<_>>()?;
-
-        if event_ids.is_empty() {
-            return Err(AppError {
-                code: "VALIDATION".into(),
-                message: "Split group not found or has no active legs".into(),
-            });
-        }
-
-        for event_id in event_ids {
-            conn.execute(
-                "INSERT INTO event_data (event_id, amount_minor, event_date, note, counterpart_account_id, bucket_id, original_currency_id, original_amount_minor, fx_rate_mantissa, fx_rate_exponent)
-                 SELECT event_id, amount_minor, ?1, note, counterpart_account_id, bucket_id, original_currency_id, original_amount_minor, fx_rate_mantissa, fx_rate_exponent
-                 FROM event_data WHERE id = (SELECT latest_data_id FROM event WHERE id = ?2)",
-                params![new_date, event_id],
-            )?;
-        }
-
-        Ok(())
-    })
-}
-
 pub struct CheckEventSplitGroupDateConflictParams {
     pub event_id: i64,
     pub new_date: String,
@@ -165,7 +124,7 @@ pub fn check_event_split_group_date_conflict(
         if current_date != new_date {
             return Err(AppError {
                 code: "VALIDATION".into(),
-                message: "Cannot change the date of an event that belongs to a split group. Use update_split_group_date instead.".into(),
+                message: "Cannot change the date of an event that belongs to a split group.".into(),
             });
         }
     }

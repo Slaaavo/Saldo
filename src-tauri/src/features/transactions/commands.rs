@@ -8,9 +8,7 @@ use rusqlite::Connection;
 use serde::Deserialize;
 use tauri::State;
 
-use super::models::{
-    CreateSplitGroupInput, EventWithData, ListEventsResult, SnapshotRow, UpdateSplitGroupDateInput,
-};
+use super::models::{CreateSplitGroupInput, EventWithData, ListEventsResult, SnapshotRow};
 use super::repository::{self, GetSnapshotParams};
 
 #[derive(Deserialize)]
@@ -418,23 +416,6 @@ pub fn create_split_group(
         },
     )?;
     Ok(split_group_id)
-}
-
-#[tauri::command]
-pub fn update_split_group_date(
-    state: State<'_, AppState>,
-    input: UpdateSplitGroupDateInput,
-) -> Result<(), AppError> {
-    crate::shared::validate_event_date(&input.new_date)?;
-    let conn = state.conn()?;
-    repository::update_split_group_date(
-        &conn,
-        repository::UpdateSplitGroupDateParams {
-            split_group_id: input.split_group_id,
-            new_date: input.new_date,
-        },
-    )?;
-    Ok(())
 }
 
 #[tauri::command]
