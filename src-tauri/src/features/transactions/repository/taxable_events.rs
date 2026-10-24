@@ -198,34 +198,56 @@ pub fn create_taxable_split_group_with_legs(
     })
 }
 
+/// What `update_taxable_event` stored, for callers that regenerate prepaid children.
+pub struct UpdatedTaxableEvent {
+    pub account_id: i64,
+    pub reclaimed_vat: Option<bool>,
+}
+
+/// An expense-kind event with no `reclaimed_vat` takes the owning person's `vat_payer`.
+fn resolve_reclaimed_vat(
+    event_type: &str,
+    reclaimed_vat: Option<bool>,
+    person_vat_payer: Option<bool>,
+) -> Option<bool> {
+    match event_type {
+        "expense" | "prepaid_expense" => reclaimed_vat.or(person_vat_payer),
+        _ => reclaimed_vat,
+    }
+}
+
 /// Update a standalone (or split-group) taxable event by inserting a new event_data row.
 pub fn update_taxable_event(
     conn: &Connection,
     params: UpdateTaxableEventParams,
-) -> Result<(), AppError> {
-    let row: Option<(Option<String>, String)> = conn
+) -> Result<UpdatedTaxableEvent, AppError> {
+    let row: Option<(Option<String>, String, i64, Option<bool>)> = conn
         .query_row(
-            "SELECT deleted_at, event_type FROM event WHERE id = ?1",
+            "SELECT e.deleted_at, e.event_type, e.account_id, p.vat_payer
+             FROM event e
+             JOIN account a ON a.id = e.account_id
+             LEFT JOIN person p ON p.id = a.person_id
+             WHERE e.id = ?1",
             params![params.event_id],
-            |row| Ok((row.get(0)?, row.get(1)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
         )
         .optional()
         .map_err(AppError::from)?;
 
-    match row {
+    let (account_id, event_type, person_vat_payer) = match row {
         None => {
             return Err(AppError {
                 code: "NOT_FOUND".into(),
                 message: "Event not found".into(),
             })
         }
-        Some((Some(_), _)) => {
+        Some((Some(_), _, _, _)) => {
             return Err(AppError {
                 code: "VALIDATION".into(),
                 message: "Cannot update a deleted event".into(),
             })
         }
-        Some((None, ref ev_type))
+        Some((None, ref ev_type, _, _))
             if ev_type != "revenue" && ev_type != "expense" && ev_type != "prepaid_expense" =>
         {
             return Err(AppError {
@@ -234,8 +256,9 @@ pub fn update_taxable_event(
                     .into(),
             });
         }
-        Some((None, _)) => {} // valid, proceed
-    }
+        Some((None, ev_type, account_id, vat_payer)) => (account_id, ev_type, vat_payer),
+    };
+    let reclaimed_vat = resolve_reclaimed_vat(&event_type, params.reclaimed_vat, person_vat_payer);
 
     insert_taxable_event_data(
         conn,
@@ -247,11 +270,14 @@ pub fn update_taxable_event(
         params.vat_reclaimable_pct_bps,
         params.expense_deductible_pct_bps,
         params.prepaid_until.as_deref(),
-        params.reclaimed_vat,
+        reclaimed_vat,
     )
     .map_err(AppError::from)?;
 
-    Ok(())
+    Ok(UpdatedTaxableEvent {
+        account_id,
+        reclaimed_vat,
+    })
 }
 
 /// Atomically update a taxable split group: soft-delete legs, update legs, and add new legs.

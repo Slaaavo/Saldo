@@ -4,6 +4,7 @@ use crate::error::AppError;
 use crate::features::persons::repository::{get_person_vat_payer, resolve_default_taxable_account};
 use crate::shared::with_savepoint_app;
 use crate::AppState;
+use rusqlite::Connection;
 use serde::Deserialize;
 use tauri::State;
 
@@ -709,6 +710,14 @@ pub fn create_taxable_event(
     state: State<'_, AppState>,
     input: CreateTaxableEventInput,
 ) -> Result<i64, AppError> {
+    let conn = state.conn()?;
+    create_taxable_event_inner(&conn, input)
+}
+
+fn create_taxable_event_inner(
+    conn: &Connection,
+    input: CreateTaxableEventInput,
+) -> Result<i64, AppError> {
     validate_event_type_taxable(&input.event_type)?;
     crate::shared::validate_event_date(&input.event_date)?;
     validate_expense_only_fields(
@@ -727,16 +736,18 @@ pub fn create_taxable_event(
         &input.event_date,
         input.prepaid_until.as_deref(),
     )?;
-    let conn = state.conn()?;
-    let account_id = resolve_default_taxable_account(&conn, input.person_id, &input.event_type)?;
-    let resolved_reclaimed_vat = if input.event_type == "expense" && input.reclaimed_vat.is_none() {
-        Some(get_person_vat_payer(&conn, input.person_id)?)
+    let account_id = resolve_default_taxable_account(conn, input.person_id, &input.event_type)?;
+    let resolved_reclaimed_vat = if (input.event_type == "expense"
+        || input.event_type == "prepaid_expense")
+        && input.reclaimed_vat.is_none()
+    {
+        Some(get_person_vat_payer(conn, input.person_id)?)
     } else {
         input.reclaimed_vat
     };
     let event_type_is_prepaid = input.event_type == "prepaid_expense";
     let id = repository::create_taxable_event(
-        &conn,
+        conn,
         repository::CreateTaxableEventParams {
             account_id,
             event_type: input.event_type,
@@ -760,8 +771,11 @@ pub fn create_taxable_event(
                 total_amount_minor: input.amount_minor,
                 expense_deductible_pct_bps: input.expense_deductible_pct_bps,
                 note: input.note,
+                vat_rate_bps: input.vat_rate_bps,
+                vat_reclaimable_pct_bps: input.vat_reclaimable_pct_bps,
+                reclaimed_vat: resolved_reclaimed_vat.unwrap_or(false),
             };
-            repository::prepaid_expenses::generate_prepaid_child_events(&conn, &ctx)?;
+            repository::prepaid_expenses::generate_prepaid_child_events(conn, &ctx)?;
         }
     }
     Ok(id)
@@ -831,6 +845,14 @@ pub fn update_taxable_event(
     state: State<'_, AppState>,
     input: UpdateTaxableEventInput,
 ) -> Result<(), AppError> {
+    let conn = state.conn()?;
+    update_taxable_event_inner(&conn, input)
+}
+
+fn update_taxable_event_inner(
+    conn: &Connection,
+    input: UpdateTaxableEventInput,
+) -> Result<(), AppError> {
     validate_event_type_taxable(&input.event_type)?;
     validate_expense_only_fields(
         &input.event_type,
@@ -849,17 +871,16 @@ pub fn update_taxable_event(
         &input.event_date,
         input.prepaid_until.as_deref(),
     )?;
-    let conn = state.conn()?;
-    repository::check_event_not_system_generated(&conn, input.event_id)?;
+    repository::check_event_not_system_generated(conn, input.event_id)?;
     repository::check_event_split_group_date_conflict(
-        &conn,
+        conn,
         repository::CheckEventSplitGroupDateConflictParams {
             event_id: input.event_id,
             new_date: input.event_date.clone(),
         },
     )?;
-    repository::update_taxable_event(
-        &conn,
+    let updated = repository::update_taxable_event(
+        conn,
         repository::UpdateTaxableEventParams {
             event_id: input.event_id,
             amount_minor: input.amount_minor,
@@ -873,23 +894,19 @@ pub fn update_taxable_event(
         },
     )?;
     if let Some(prepaid_until) = input.prepaid_until {
-        let account_id: i64 = conn
-            .query_row(
-                "SELECT account_id FROM event WHERE id = ?1",
-                rusqlite::params![input.event_id],
-                |row| row.get(0),
-            )
-            .map_err(AppError::from)?;
         let ctx = repository::prepaid_expenses::PrepaidExpenseContext {
             parent_event_id: input.event_id,
-            account_id,
+            account_id: updated.account_id,
             expense_date: input.event_date,
             prepaid_until,
             total_amount_minor: input.amount_minor,
             expense_deductible_pct_bps: input.expense_deductible_pct_bps,
             note: input.note,
+            vat_rate_bps: input.vat_rate_bps,
+            vat_reclaimable_pct_bps: input.vat_reclaimable_pct_bps,
+            reclaimed_vat: updated.reclaimed_vat.unwrap_or(false),
         };
-        repository::prepaid_expenses::regenerate_prepaid_child_events(&conn, &ctx)?;
+        repository::prepaid_expenses::regenerate_prepaid_child_events(conn, &ctx)?;
     }
     Ok(())
 }
@@ -1094,6 +1111,7 @@ mod tests {
     use super::*;
     use crate::db::initialize_in_memory;
     use crate::features::accounts::repository::{create_account, CreateAccountParams};
+    use crate::features::persons::repository::{create_person, CreatePersonParams};
     use crate::features::transactions::models::SplitGroupEntry;
     use rusqlite::{params, Connection};
 
@@ -1170,6 +1188,61 @@ mod tests {
             "SELECT ed.event_date, ed.amount_minor FROM event e JOIN event_data ed ON ed.id = e.latest_data_id WHERE e.id = ?1",
             params![event_id],
             |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap()
+    }
+
+    fn mk_person(conn: &Connection, vat_payer: bool) -> i64 {
+        create_person(
+            conn,
+            CreatePersonParams {
+                name: "Alice".to_owned(),
+                person_type: "physical".to_owned(),
+                vat_payer,
+            },
+        )
+        .expect("create person failed")
+    }
+
+    /// 1,230.00 gross with 23% VAT, fully reclaimable, prepaid for a year.
+    fn prepaid_input(person_id: i64) -> CreateTaxableEventInput {
+        CreateTaxableEventInput {
+            person_id,
+            event_type: "prepaid_expense".to_owned(),
+            amount_minor: 123_000,
+            event_date: "2024-07-01".to_owned(),
+            note: None,
+            vat_rate_bps: Some(2300),
+            vat_reclaimable_pct_bps: Some(10000),
+            expense_deductible_pct_bps: None,
+            prepaid_until: Some("2025-06-30".to_owned()),
+            reclaimed_vat: None,
+        }
+    }
+
+    fn prepaid_update_input(event_id: i64, amount_minor: i64) -> UpdateTaxableEventInput {
+        UpdateTaxableEventInput {
+            event_id,
+            event_type: "prepaid_expense".to_owned(),
+            amount_minor,
+            event_date: "2024-07-01".to_owned(),
+            note: None,
+            vat_rate_bps: Some(2300),
+            vat_reclaimable_pct_bps: Some(10000),
+            expense_deductible_pct_bps: None,
+            prepaid_until: Some("2025-06-30".to_owned()),
+            reclaimed_vat: None,
+        }
+    }
+
+    fn children_sum(conn: &Connection, parent_event_id: i64) -> i64 {
+        conn.query_row(
+            "SELECT COALESCE(SUM(ed.amount_minor), 0)
+             FROM event e
+             JOIN event_data ed ON ed.id = e.latest_data_id
+             WHERE e.linked_prepaid_event_id = ?1 AND e.is_system_generated = 1",
+            params![parent_event_id],
+            |row| row.get(0),
         )
         .unwrap()
     }
@@ -1267,5 +1340,36 @@ mod tests {
             latest_date_and_amount(&conn, to),
             ("2026-03-05".to_owned(), 5000)
         );
+    }
+
+    #[test]
+    fn prepaid_for_vat_payer_splits_gross_minus_reclaimed_vat() {
+        let conn = initialize_in_memory().unwrap();
+        let person_id = mk_person(&conn, true);
+
+        let id = create_taxable_event_inner(&conn, prepaid_input(person_id)).unwrap();
+
+        assert_eq!(children_sum(&conn, id), 100_000);
+    }
+
+    #[test]
+    fn prepaid_for_non_vat_payer_splits_full_gross() {
+        let conn = initialize_in_memory().unwrap();
+        let person_id = mk_person(&conn, false);
+
+        let id = create_taxable_event_inner(&conn, prepaid_input(person_id)).unwrap();
+
+        assert_eq!(children_sum(&conn, id), 123_000);
+    }
+
+    #[test]
+    fn prepaid_update_without_reclaimed_vat_resolves_it_like_create() {
+        let conn = initialize_in_memory().unwrap();
+        let person_id = mk_person(&conn, true);
+        let id = create_taxable_event_inner(&conn, prepaid_input(person_id)).unwrap();
+
+        update_taxable_event_inner(&conn, prepaid_update_input(id, 246_000)).unwrap();
+
+        assert_eq!(children_sum(&conn, id), 200_000);
     }
 }
