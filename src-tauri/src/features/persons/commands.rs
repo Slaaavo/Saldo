@@ -1,6 +1,5 @@
 use crate::error::AppError;
 use crate::features::persons::models::PersonRow;
-use crate::shared::with_savepoint_app;
 use crate::AppState;
 use serde::Deserialize;
 use tauri::State;
@@ -81,12 +80,5 @@ pub fn update_person(state: State<'_, AppState>, input: UpdatePersonInput) -> Re
 #[tauri::command]
 pub fn delete_person(state: State<'_, AppState>, person_id: i64) -> Result<(), AppError> {
     let conn = state.conn()?;
-    with_savepoint_app(&conn, || {
-        let account_ids =
-            repository::get_person_accounts(&conn, person_id).map_err(AppError::from)?;
-        for account_id in account_ids {
-            crate::features::accounts::repository::delete_account(&conn, account_id)?;
-        }
-        repository::delete_person_row(&conn, person_id)
-    })
+    repository::delete_person(&conn, person_id)
 }

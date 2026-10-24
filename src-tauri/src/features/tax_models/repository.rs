@@ -266,6 +266,16 @@ pub fn delete_tax_model(conn: &Connection, model_id: i64) -> Result<(), AppError
     Ok(())
 }
 
+/// Delete every tax model of a person. Brackets go with them via ON DELETE CASCADE.
+pub fn delete_tax_models_for_person(conn: &Connection, person_id: i64) -> Result<(), AppError> {
+    conn.execute(
+        "DELETE FROM tax_model WHERE person_id = ?1",
+        params![person_id],
+    )
+    .map_err(AppError::from)?;
+    Ok(())
+}
+
 pub struct ListTaxableEventsForModelParams {
     pub person_id: i64,
     pub calendar_year: i32,

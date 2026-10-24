@@ -198,7 +198,34 @@ pub fn get_person_accounts(conn: &Connection, person_id: i64) -> rusqlite::Resul
     rows.collect()
 }
 
-pub fn delete_person_row(conn: &Connection, person_id: i64) -> Result<(), AppError> {
+/// Delete a non-default person together with their tax models, accounts and events.
+pub fn delete_person(conn: &Connection, person_id: i64) -> Result<(), AppError> {
+    with_savepoint_app(conn, || {
+        ensure_person_deletable(conn, person_id)?;
+
+        // The hidden default accounts are deleted below with the rest, so the person
+        // must stop pointing at them first.
+        conn.execute(
+            "UPDATE person SET default_revenue_account_id = NULL, default_expense_account_id = NULL
+             WHERE id = ?1",
+            params![person_id],
+        )
+        .map_err(AppError::from)?;
+
+        crate::features::tax_models::repository::delete_tax_models_for_person(conn, person_id)?;
+
+        let account_ids = get_person_accounts(conn, person_id).map_err(AppError::from)?;
+        for account_id in account_ids {
+            crate::features::accounts::repository::delete_account(conn, account_id)?;
+        }
+
+        conn.execute("DELETE FROM person WHERE id = ?1", params![person_id])
+            .map_err(AppError::from)?;
+        Ok(())
+    })
+}
+
+fn ensure_person_deletable(conn: &Connection, person_id: i64) -> Result<(), AppError> {
     let is_default: i64 = conn
         .query_row(
             "SELECT is_default FROM person WHERE id = ?1",
@@ -219,16 +246,6 @@ pub fn delete_person_row(conn: &Connection, person_id: i64) -> Result<(), AppErr
             message: "Cannot delete the default person.".into(),
         });
     }
-
-    let affected = conn
-        .execute("DELETE FROM person WHERE id = ?1", params![person_id])
-        .map_err(AppError::from)?;
-    if affected == 0 {
-        return Err(AppError {
-            code: "NOT_FOUND".into(),
-            message: "Person not found.".into(),
-        });
-    }
     Ok(())
 }
 
@@ -236,6 +253,18 @@ pub fn delete_person_row(conn: &Connection, person_id: i64) -> Result<(), AppErr
 mod tests {
     use super::*;
     use crate::db::initialize_in_memory;
+    use crate::features::accounts::repository::{create_account, CreateAccountParams};
+    use crate::features::tax_models::repository::{
+        create_tax_model, BracketInput, CreateTaxModelParams,
+    };
+    use crate::features::transactions::repository::depreciation::generate_depreciation_events;
+    use crate::features::transactions::repository::taxable_links::{
+        link_cashflows_to_taxable, LinkCashflowsParams,
+    };
+    use crate::features::transactions::repository::{
+        create_cashflow, create_taxable_event, create_transfer, CashflowEntry,
+        CreateTaxableEventParams,
+    };
 
     fn get_default_person_id(conn: &Connection) -> i64 {
         conn.query_row("SELECT id FROM person WHERE is_default = 1", [], |row| {
@@ -338,11 +367,213 @@ mod tests {
         );
     }
 
+    fn mk_account(conn: &Connection, params: CreateAccountParams) -> i64 {
+        create_account(conn, params).expect("create account failed")
+    }
+
+    fn count(conn: &Connection, sql: &str, id: i64) -> i64 {
+        conn.query_row(sql, params![id], |row| row.get(0))
+            .expect("count query failed")
+    }
+
+    #[test]
+    fn delete_person_removes_all_their_data() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let default_id = get_default_person_id(&conn);
+        let person_id = create_person(
+            &conn,
+            CreatePersonParams {
+                name: "Leaving Ltd".to_owned(),
+                person_type: "legal".to_owned(),
+                vat_payer: false,
+            },
+        )
+        .expect("create_person failed");
+
+        let other_account_id = mk_account(
+            &conn,
+            CreateAccountParams {
+                name: "Other Checking".to_owned(),
+                currency_id: 1,
+                account_type: "account".to_owned(),
+                person_id: Some(default_id),
+                ..Default::default()
+            },
+        );
+        let checking_id = mk_account(
+            &conn,
+            CreateAccountParams {
+                name: "Leaving Checking".to_owned(),
+                currency_id: 1,
+                account_type: "account".to_owned(),
+                person_id: Some(person_id),
+                ..Default::default()
+            },
+        );
+        let asset_id = mk_account(
+            &conn,
+            CreateAccountParams {
+                name: "Leaving Laptop".to_owned(),
+                currency_id: 1,
+                account_type: "asset".to_owned(),
+                person_id: Some(person_id),
+                purchase_price_minor: Some(120_000),
+                purchase_date: Some("2024-01-01".to_owned()),
+                depreciation_period_months: Some(12),
+                ..Default::default()
+            },
+        );
+        generate_depreciation_events(&conn).expect("depreciation failed");
+
+        let (_, other_leg_id) = create_transfer(
+            &conn,
+            &CashflowEntry {
+                account_id: checking_id,
+                amount_minor: -2_000,
+                event_date: "2026-02-01T12:00:00".to_owned(),
+                note: None,
+                counterpart_account_id: Some(other_account_id),
+                bucket_id: None,
+                original_currency_id: None,
+                original_amount_minor: None,
+                fx_rate_mantissa: None,
+                fx_rate_exponent: None,
+            },
+        )
+        .expect("create_transfer failed");
+
+        let cashflow_id = create_cashflow(
+            &conn,
+            &CashflowEntry {
+                account_id: checking_id,
+                amount_minor: 5_000,
+                event_date: "2026-03-01T12:00:00".to_owned(),
+                note: None,
+                counterpart_account_id: None,
+                bucket_id: None,
+                original_currency_id: None,
+                original_amount_minor: None,
+                fx_rate_mantissa: None,
+                fx_rate_exponent: None,
+            },
+        )
+        .expect("create_cashflow failed");
+        let revenue_account_id =
+            resolve_default_taxable_account(&conn, person_id, "revenue").unwrap();
+        let revenue_id = create_taxable_event(
+            &conn,
+            CreateTaxableEventParams {
+                account_id: revenue_account_id,
+                event_type: "revenue".to_owned(),
+                amount_minor: 5_000,
+                event_date: "2026-03-01T00:00:00".to_owned(),
+                ..Default::default()
+            },
+        )
+        .expect("create_taxable_event failed");
+        link_cashflows_to_taxable(
+            &conn,
+            LinkCashflowsParams {
+                taxable_event_id: revenue_id,
+                cashflow_event_ids: vec![cashflow_id],
+            },
+        )
+        .expect("link failed");
+
+        let tax_model_id = create_tax_model(
+            &conn,
+            CreateTaxModelParams {
+                name: "Leaving 2026".to_owned(),
+                calendar_year: 2026,
+                person_id,
+                vat_status: "none".to_owned(),
+                vat_from_date: None,
+                reserve_fund_current_minor: None,
+                reserve_fund_pct_bps: None,
+                reserve_fund_max_minor: None,
+                dividend_tax_rate_bps: None,
+                brackets: vec![BracketInput {
+                    sort_order: 0,
+                    lower_bound_minor: 0,
+                    rate_type: "flat".to_owned(),
+                    flat_rate_bps: Some(1500),
+                    tiers_json: None,
+                }],
+            },
+        )
+        .expect("create_tax_model failed");
+
+        let account_ids = get_person_accounts(&conn, person_id).unwrap();
+        assert_eq!(account_ids.len(), 4);
+
+        delete_person(&conn, person_id).expect("delete_person failed");
+
+        assert_eq!(
+            count(
+                &conn,
+                "SELECT COUNT(*) FROM person WHERE id = ?1",
+                person_id
+            ),
+            0
+        );
+        assert_eq!(
+            count(
+                &conn,
+                "SELECT COUNT(*) FROM account WHERE person_id = ?1",
+                person_id
+            ),
+            0
+        );
+        for account_id in account_ids {
+            assert_eq!(
+                count(
+                    &conn,
+                    "SELECT COUNT(*) FROM event WHERE account_id = ?1",
+                    account_id
+                ),
+                0
+            );
+        }
+        assert_eq!(
+            count(
+                &conn,
+                "SELECT COUNT(*) FROM event WHERE linked_asset_id = ?1",
+                asset_id
+            ),
+            0
+        );
+        assert_eq!(
+            count(
+                &conn,
+                "SELECT COUNT(*) FROM tax_model WHERE person_id = ?1",
+                person_id
+            ),
+            0
+        );
+        assert_eq!(
+            count(
+                &conn,
+                "SELECT COUNT(*) FROM tax_model_bracket WHERE tax_model_id = ?1",
+                tax_model_id
+            ),
+            0
+        );
+        let (event_type, linked_event_id): (String, Option<i64>) = conn
+            .query_row(
+                "SELECT event_type, linked_event_id FROM event WHERE id = ?1",
+                params![other_leg_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(event_type, "cashflow");
+        assert_eq!(linked_event_id, None);
+    }
+
     #[test]
     fn default_person_cannot_be_deleted() {
         let conn = initialize_in_memory().expect("DB init failed");
         let default_id = get_default_person_id(&conn);
-        let result = delete_person_row(&conn, default_id);
+        let result = delete_person(&conn, default_id);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert_eq!(err.code, "DOMAIN_ERROR");
