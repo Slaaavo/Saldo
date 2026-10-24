@@ -787,6 +787,7 @@ taxModels:
   tierRate: "Tier Rate"
   addTier: "Add Tier"
   removeTier: "Remove Tier"
+  removeBracket: "Remove Bracket"
   legalPersonSettings: "Legal Person Settings"
   reserveFundCurrent: "Reserve Fund Current Amount"
   reserveFundPct: "Reserve Fund Allocation %"

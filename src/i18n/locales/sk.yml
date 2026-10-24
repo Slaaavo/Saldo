@@ -785,6 +785,7 @@ taxModels:
   tierRate: "Sadzba stupňa"
   addTier: "Pridať stupeň"
   removeTier: "Odstrániť stupeň"
+  removeBracket: "Odstrániť pásmo"
   legalPersonSettings: "Nastavenia právnickej osoby"
   reserveFundCurrent: "Aktuálna výška rezervného fondu"
   reserveFundPct: "Príspevok do rezervného fondu %"

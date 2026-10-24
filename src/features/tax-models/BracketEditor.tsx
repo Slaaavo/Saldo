@@ -1,4 +1,5 @@
 import { useTranslation } from 'react-i18next'
+import { Button } from '../../shared/ui/button'
 import { CurrencyInput } from '../../shared/ui/CurrencyInput'
 import { PercentageInput } from '../../shared/ui/PercentageInput'
 import { Label } from '../../shared/ui/label'
@@ -28,12 +29,16 @@ const BracketEditor = ({ brackets, onBracketsChange }: BracketEditorProps) => {
 
   const handleBracketChange = <K extends keyof BracketFormState>(index: number, field: K, value: BracketFormState[K]) => {
     const updated = brackets.map((b, i) => (i === index ? { ...b, [field]: value } : b))
-    const firstEmptyIndex = updated.findIndex((b) => b.upperBoundMinor === '')
-    if (firstEmptyIndex !== -1) {
-      onBracketsChange(updated.slice(0, firstEmptyIndex + 1))
-    } else {
-      onBracketsChange([...updated, emptyBracket()])
+    if (updated[updated.length - 1].upperBoundMinor !== '') {
+      updated.push(emptyBracket())
     }
+    onBracketsChange(updated)
+  }
+
+  const handleRemoveBracket = (index: number) => {
+    const remaining = brackets.filter((_, i) => i !== index)
+    // The last bracket is the catch-all, so removing the final one promotes its predecessor and drops that bound.
+    onBracketsChange(remaining.map((b, i) => (i === remaining.length - 1 ? { ...b, upperBoundMinor: '' } : b)))
   }
 
   return (
@@ -47,6 +52,11 @@ const BracketEditor = ({ brackets, onBracketsChange }: BracketEditorProps) => {
                 <CardTitle className="text-base">
                   {t('taxModels.bracket')} {index + 1}
                 </CardTitle>
+                {index > 0 && (
+                  <Button type="button" variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => handleRemoveBracket(index)}>
+                    {t('taxModels.removeBracket')}
+                  </Button>
+                )}
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
