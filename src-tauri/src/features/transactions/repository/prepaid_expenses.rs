@@ -223,7 +223,6 @@ pub(crate) fn delete_prepaid_child_events(
 }
 
 /// Delete existing child events and regenerate them from the updated context.
-#[allow(dead_code)]
 pub(crate) fn regenerate_prepaid_child_events(
     conn: &Connection,
     ctx: &PrepaidExpenseContext,

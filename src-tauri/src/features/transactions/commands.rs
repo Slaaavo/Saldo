@@ -752,39 +752,41 @@ fn create_taxable_event_inner(
         input.reclaimed_vat
     };
     let event_type_is_prepaid = input.event_type == "prepaid_expense";
-    let id = repository::create_taxable_event(
-        conn,
-        repository::CreateTaxableEventParams {
-            account_id,
-            event_type: input.event_type,
-            amount_minor: input.amount_minor,
-            event_date: input.event_date.clone(),
-            note: input.note.clone(),
-            vat_rate_bps: input.vat_rate_bps,
-            vat_reclaimable_pct_bps: input.vat_reclaimable_pct_bps,
-            expense_deductible_pct_bps: input.expense_deductible_pct_bps,
-            prepaid_until: input.prepaid_until.clone(),
-            reclaimed_vat: resolved_reclaimed_vat,
-        },
-    )?;
-    if event_type_is_prepaid {
-        if let Some(until) = input.prepaid_until {
-            let ctx = repository::prepaid_expenses::PrepaidExpenseContext {
-                parent_event_id: id,
+    with_savepoint_app(conn, || {
+        let id = repository::create_taxable_event(
+            conn,
+            repository::CreateTaxableEventParams {
                 account_id,
-                expense_date: input.event_date,
-                prepaid_until: until,
-                total_amount_minor: input.amount_minor,
-                expense_deductible_pct_bps: input.expense_deductible_pct_bps,
-                note: input.note,
+                event_type: input.event_type,
+                amount_minor: input.amount_minor,
+                event_date: input.event_date.clone(),
+                note: input.note.clone(),
                 vat_rate_bps: input.vat_rate_bps,
                 vat_reclaimable_pct_bps: input.vat_reclaimable_pct_bps,
-                reclaimed_vat: resolved_reclaimed_vat.unwrap_or(false),
-            };
-            repository::prepaid_expenses::generate_prepaid_child_events(conn, &ctx)?;
+                expense_deductible_pct_bps: input.expense_deductible_pct_bps,
+                prepaid_until: input.prepaid_until.clone(),
+                reclaimed_vat: resolved_reclaimed_vat,
+            },
+        )?;
+        if event_type_is_prepaid {
+            if let Some(until) = input.prepaid_until {
+                let ctx = repository::prepaid_expenses::PrepaidExpenseContext {
+                    parent_event_id: id,
+                    account_id,
+                    expense_date: input.event_date,
+                    prepaid_until: until,
+                    total_amount_minor: input.amount_minor,
+                    expense_deductible_pct_bps: input.expense_deductible_pct_bps,
+                    note: input.note,
+                    vat_rate_bps: input.vat_rate_bps,
+                    vat_reclaimable_pct_bps: input.vat_reclaimable_pct_bps,
+                    reclaimed_vat: resolved_reclaimed_vat.unwrap_or(false),
+                };
+                repository::prepaid_expenses::generate_prepaid_child_events(conn, &ctx)?;
+            }
         }
-    }
-    Ok(id)
+        Ok(id)
+    })
 }
 
 #[tauri::command]
@@ -885,41 +887,43 @@ fn update_taxable_event_inner(
             new_date: input.event_date.clone(),
         },
     )?;
-    let updated = repository::update_taxable_event(
-        conn,
-        repository::UpdateTaxableEventParams {
-            event_id: input.event_id,
-            event_type: input.event_type.clone(),
-            amount_minor: input.amount_minor,
-            event_date: input.event_date.clone(),
-            note: input.note.clone(),
-            vat_rate_bps: input.vat_rate_bps,
-            vat_reclaimable_pct_bps: input.vat_reclaimable_pct_bps,
-            expense_deductible_pct_bps: input.expense_deductible_pct_bps,
-            prepaid_until: input.prepaid_until.clone(),
-            reclaimed_vat: input.reclaimed_vat,
-        },
-    )?;
-    // The repository has confirmed that input.event_type is the stored type.
-    if input.event_type != "prepaid_expense" {
-        return Ok(());
-    }
-    if let Some(prepaid_until) = input.prepaid_until {
-        let ctx = repository::prepaid_expenses::PrepaidExpenseContext {
-            parent_event_id: input.event_id,
-            account_id: updated.account_id,
-            expense_date: input.event_date,
-            prepaid_until,
-            total_amount_minor: input.amount_minor,
-            expense_deductible_pct_bps: input.expense_deductible_pct_bps,
-            note: input.note,
-            vat_rate_bps: input.vat_rate_bps,
-            vat_reclaimable_pct_bps: input.vat_reclaimable_pct_bps,
-            reclaimed_vat: updated.reclaimed_vat.unwrap_or(false),
-        };
-        repository::prepaid_expenses::regenerate_prepaid_child_events(conn, &ctx)?;
-    }
-    Ok(())
+    with_savepoint_app(conn, || {
+        let updated = repository::update_taxable_event(
+            conn,
+            repository::UpdateTaxableEventParams {
+                event_id: input.event_id,
+                event_type: input.event_type.clone(),
+                amount_minor: input.amount_minor,
+                event_date: input.event_date.clone(),
+                note: input.note.clone(),
+                vat_rate_bps: input.vat_rate_bps,
+                vat_reclaimable_pct_bps: input.vat_reclaimable_pct_bps,
+                expense_deductible_pct_bps: input.expense_deductible_pct_bps,
+                prepaid_until: input.prepaid_until.clone(),
+                reclaimed_vat: input.reclaimed_vat,
+            },
+        )?;
+        // The repository has confirmed that input.event_type is the stored type.
+        if input.event_type != "prepaid_expense" {
+            return Ok(());
+        }
+        if let Some(prepaid_until) = input.prepaid_until {
+            let ctx = repository::prepaid_expenses::PrepaidExpenseContext {
+                parent_event_id: input.event_id,
+                account_id: updated.account_id,
+                expense_date: input.event_date,
+                prepaid_until,
+                total_amount_minor: input.amount_minor,
+                expense_deductible_pct_bps: input.expense_deductible_pct_bps,
+                note: input.note,
+                vat_rate_bps: input.vat_rate_bps,
+                vat_reclaimable_pct_bps: input.vat_reclaimable_pct_bps,
+                reclaimed_vat: updated.reclaimed_vat.unwrap_or(false),
+            };
+            repository::prepaid_expenses::regenerate_prepaid_child_events(conn, &ctx)?;
+        }
+        Ok(())
+    })
 }
 
 #[tauri::command]
@@ -1432,6 +1436,47 @@ mod tests {
 
         assert_eq!(err.code, "VALIDATION");
         assert_eq!(children_count(&conn, id), 0);
+    }
+
+    fn fail_child_inserts(conn: &Connection) {
+        conn.execute_batch(
+            "CREATE TEMP TRIGGER fail_child_insert BEFORE INSERT ON event
+             WHEN NEW.is_system_generated = 1
+             BEGIN SELECT RAISE(ABORT, 'child insert failed'); END;",
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn create_prepaid_rolls_back_parent_when_children_fail() {
+        let conn = initialize_in_memory().unwrap();
+        let person_id = mk_person(&conn, false);
+        fail_child_inserts(&conn);
+
+        assert!(create_taxable_event_inner(&conn, prepaid_input(person_id)).is_err());
+
+        let parents: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM event WHERE event_type = 'prepaid_expense'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(parents, 0);
+    }
+
+    #[test]
+    fn update_prepaid_rolls_back_parent_when_children_fail() {
+        let conn = initialize_in_memory().unwrap();
+        let person_id = mk_person(&conn, false);
+        let id = create_taxable_event_inner(&conn, prepaid_input(person_id)).unwrap();
+        fail_child_inserts(&conn);
+
+        assert!(update_taxable_event_inner(&conn, prepaid_update_input(id, 246_000)).is_err());
+
+        let stored = repository::get_event_by_id(&conn, id).unwrap().unwrap();
+        assert_eq!(stored.amount_minor, 123_000);
+        assert_eq!(children_sum(&conn, id), 123_000);
     }
 
     #[test]
