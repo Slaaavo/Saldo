@@ -414,14 +414,86 @@ pub fn update_taxable_split_group(
     })
 }
 
-/// Soft-deletes all non-deleted legs belonging to a taxable split group.
+/// Soft-deletes all non-deleted legs belonging to a split group, plus the counterpart
+/// leg of each transfer leg (only the source leg carries `split_group_id`).
 pub fn delete_split_group(conn: &Connection, split_group_id: i64) -> rusqlite::Result<()> {
     with_savepoint(conn, || {
         let now = local_now();
+        conn.execute(
+            "UPDATE event SET deleted_at = ?1
+             WHERE deleted_at IS NULL
+               AND id IN (SELECT linked_event_id FROM event WHERE split_group_id = ?2)",
+            params![now, split_group_id],
+        )?;
         conn.execute(
             "UPDATE event SET deleted_at = ?1 WHERE split_group_id = ?2 AND deleted_at IS NULL",
             params![now, split_group_id],
         )?;
         Ok(())
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::initialize_in_memory;
+    use crate::features::accounts::repository::{create_account, CreateAccountParams};
+    use crate::features::transactions::models::SplitGroupEntry;
+    use crate::features::transactions::repository::{
+        create_split_group_with_legs, CreateSplitGroupWithLegsParams,
+    };
+
+    fn mk_account(conn: &Connection, name: &str) -> i64 {
+        create_account(
+            conn,
+            CreateAccountParams {
+                name: name.to_owned(),
+                currency_id: 1,
+                account_type: "account".to_owned(),
+                ..Default::default()
+            },
+        )
+        .expect("create account failed")
+    }
+
+    fn leg(amount_minor: i64, counterpart_account_id: Option<i64>) -> SplitGroupEntry {
+        SplitGroupEntry {
+            amount_minor,
+            event_date: "2026-03-01T12:00:00".to_owned(),
+            note: None,
+            counterpart_account_id,
+            bucket_id: None,
+            original_currency_id: None,
+            original_amount_minor: None,
+            fx_rate_mantissa: None,
+            fx_rate_exponent: None,
+        }
+    }
+
+    #[test]
+    fn delete_split_group_also_deletes_transfer_counterpart() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let account_id = mk_account(&conn, "Checking");
+        let other_id = mk_account(&conn, "Savings");
+        let split_group_id = create_split_group_with_legs(
+            &conn,
+            CreateSplitGroupWithLegsParams {
+                account_id,
+                group_note: None,
+                legs: vec![leg(-1_000, Some(other_id)), leg(-500, None)],
+            },
+        )
+        .expect("create_split_group_with_legs failed");
+
+        delete_split_group(&conn, split_group_id).expect("delete_split_group failed");
+
+        let active_on_other: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM event WHERE account_id = ?1 AND deleted_at IS NULL",
+                params![other_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(active_on_other, 0, "the counterpart leg must be deleted");
+    }
 }

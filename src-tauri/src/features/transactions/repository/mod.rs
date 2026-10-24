@@ -18,7 +18,8 @@ pub use balance_updates::{
 pub use cashflows::{bulk_create_cashflows, create_cashflow, create_transfer, CashflowEntry};
 
 pub use events::{
-    delete_event, update_event, update_transfer, UpdateEventParams, UpdateTransferParams,
+    delete_event, get_active_event_type, update_event, update_transfer, UpdateEventParams,
+    UpdateTransferParams,
 };
 
 pub use split_groups::{

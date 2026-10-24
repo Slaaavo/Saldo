@@ -205,13 +205,7 @@ pub fn delete_event(state: State<'_, AppState>, event_id: i64) -> Result<(), App
     repository::check_event_not_system_generated(&conn, event_id)?;
 
     // If this is a prepaid_expense parent, cascade-delete its system-generated children first.
-    let event_type: String = conn
-        .query_row(
-            "SELECT event_type FROM event WHERE id = ?1 AND deleted_at IS NULL",
-            rusqlite::params![event_id],
-            |row| row.get(0),
-        )
-        .map_err(AppError::from)?;
+    let event_type = repository::get_active_event_type(&conn, event_id)?;
 
     with_savepoint_app(&conn, || {
         if event_type == "prepaid_expense" {

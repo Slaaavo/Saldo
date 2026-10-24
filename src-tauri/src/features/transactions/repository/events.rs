@@ -1,5 +1,5 @@
 use crate::error::AppError;
-use crate::shared::{local_now, with_savepoint, with_savepoint_app};
+use crate::shared::{local_now, with_savepoint_app};
 use rusqlite::{params, Connection, OptionalExtension};
 
 pub struct UpdateEventParams {
@@ -186,19 +186,35 @@ pub fn update_transfer(conn: &Connection, params: UpdateTransferParams) -> Resul
     })
 }
 
-fn delete_event_inner(conn: &Connection, event_id: i64, now: &str) -> rusqlite::Result<()> {
+fn event_not_found() -> AppError {
+    AppError {
+        code: "NOT_FOUND".into(),
+        message: "Event not found".into(),
+    }
+}
+
+/// Returns the event type of a non-deleted event, or NOT_FOUND.
+pub fn get_active_event_type(conn: &Connection, event_id: i64) -> Result<String, AppError> {
+    conn.query_row(
+        "SELECT event_type FROM event WHERE id = ?1 AND deleted_at IS NULL",
+        params![event_id],
+        |row| row.get(0),
+    )
+    .optional()?
+    .ok_or_else(event_not_found)
+}
+
+/// Soft-deletes the event and returns whether it was still active.
+fn soft_delete_event(conn: &Connection, event_id: i64, now: &str) -> rusqlite::Result<bool> {
     let rows = conn.execute(
         "UPDATE event SET deleted_at = ?1 WHERE id = ?2 AND deleted_at IS NULL",
         params![now, event_id],
     )?;
-    if rows == 0 {
-        return Err(rusqlite::Error::QueryReturnedNoRows);
-    }
-    Ok(())
+    Ok(rows > 0)
 }
 
-pub fn delete_event(conn: &Connection, event_id: i64) -> rusqlite::Result<Vec<i64>> {
-    with_savepoint(conn, || {
+pub fn delete_event(conn: &Connection, event_id: i64) -> Result<Vec<i64>, AppError> {
+    with_savepoint_app(conn, || {
         let now = local_now();
 
         let linked_event_id: Option<i64> = conn
@@ -210,14 +226,97 @@ pub fn delete_event(conn: &Connection, event_id: i64) -> rusqlite::Result<Vec<i6
             .optional()?
             .flatten();
 
-        delete_event_inner(conn, event_id, &now)?;
+        if !soft_delete_event(conn, event_id, &now)? {
+            return Err(event_not_found());
+        }
 
         let mut deleted = vec![event_id];
+        // The linked leg may already be gone (e.g. orphaned by an older split-group delete).
         if let Some(linked_id) = linked_event_id {
-            delete_event_inner(conn, linked_id, &now)?;
-            deleted.push(linked_id);
+            if soft_delete_event(conn, linked_id, &now)? {
+                deleted.push(linked_id);
+            }
         }
 
         Ok(deleted)
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::initialize_in_memory;
+    use crate::features::accounts::repository::{create_account, CreateAccountParams};
+    use crate::features::transactions::repository::{create_transfer, CashflowEntry};
+
+    fn mk_account(conn: &Connection, name: &str) -> i64 {
+        create_account(
+            conn,
+            CreateAccountParams {
+                name: name.to_owned(),
+                currency_id: 1,
+                account_type: "account".to_owned(),
+                ..Default::default()
+            },
+        )
+        .expect("create account failed")
+    }
+
+    fn mk_transfer(conn: &Connection) -> (i64, i64) {
+        let from_id = mk_account(conn, "From");
+        let to_id = mk_account(conn, "To");
+        create_transfer(
+            conn,
+            &CashflowEntry {
+                account_id: from_id,
+                amount_minor: -1_000,
+                event_date: "2026-03-01T12:00:00".to_owned(),
+                note: None,
+                counterpart_account_id: Some(to_id),
+                bucket_id: None,
+                original_currency_id: None,
+                original_amount_minor: None,
+                fx_rate_mantissa: None,
+                fx_rate_exponent: None,
+            },
+        )
+        .expect("create_transfer failed")
+    }
+
+    #[test]
+    fn delete_event_succeeds_when_linked_leg_already_deleted() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let (source_id, counterpart_id) = mk_transfer(&conn);
+        conn.execute(
+            "UPDATE event SET deleted_at = '2026-03-02T00:00:00' WHERE id = ?1",
+            params![source_id],
+        )
+        .unwrap();
+
+        let deleted = delete_event(&conn, counterpart_id).expect("delete_event failed");
+
+        assert_eq!(deleted, vec![counterpart_id]);
+        let deleted_at: Option<String> = conn
+            .query_row(
+                "SELECT deleted_at FROM event WHERE id = ?1",
+                params![counterpart_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(deleted_at.is_some());
+    }
+
+    #[test]
+    fn delete_event_on_deleted_event_returns_not_found() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let (source_id, _) = mk_transfer(&conn);
+        delete_event(&conn, source_id).expect("first delete failed");
+
+        let err = delete_event(&conn, source_id).unwrap_err();
+        assert_eq!(err.code, "NOT_FOUND");
+        assert_eq!(
+            get_active_event_type(&conn, source_id).unwrap_err().code,
+            "NOT_FOUND"
+        );
+    }
 }
