@@ -1,6 +1,6 @@
 use crate::error::AppError;
 use crate::features::currency::repository::get_consolidation_currency;
-use crate::shared::is_iso_date;
+use crate::shared::{is_iso_date, with_savepoint_app};
 use crate::AppState;
 use rusqlite::Connection;
 use serde::Deserialize;
@@ -104,37 +104,43 @@ fn create_account_with_conn(conn: &Connection, input: CreateAccountInput) -> Res
             message: "person_id is required for non-partner accounts".into(),
         });
     }
-    let id = repository::create_account(
-        conn,
-        repository::CreateAccountParams {
-            name: input.name.trim().to_owned(),
-            currency_id: input.currency_id,
-            account_type: account_type.to_owned(),
-            initial_balance_minor: input.initial_balance_minor,
-            price_per_unit: input.price_per_unit.clone(),
-            iban: input.iban.clone(),
-            person_id: input.person_id,
-            purchase_price_minor: input.purchase_price_minor,
-            purchase_date: input.purchase_date.clone(),
-            depreciation_period_months,
-        },
-    )?;
+    with_savepoint_app(conn, || {
+        let id = repository::create_account(
+            conn,
+            repository::CreateAccountParams {
+                name: input.name.trim().to_owned(),
+                currency_id: input.currency_id,
+                account_type: account_type.to_owned(),
+                initial_balance_minor: input.initial_balance_minor,
+                price_per_unit: input.price_per_unit.clone(),
+                iban: input.iban.clone(),
+                person_id: input.person_id,
+                purchase_price_minor: input.purchase_price_minor,
+                purchase_date: input.purchase_date.clone(),
+                depreciation_period_months,
+            },
+        )?;
 
-    // Link to assets if provided and this is a regular account.
-    if account_type == "account" {
-        if let Some(asset_ids) = &input.linked_asset_ids {
-            if !asset_ids.is_empty() {
-                crate::features::assets::repository::set_account_asset_links(conn, id, asset_ids)?;
+        // Link to assets if provided and this is a regular account.
+        if account_type == "account" {
+            if let Some(asset_ids) = &input.linked_asset_ids {
+                if !asset_ids.is_empty() {
+                    crate::features::assets::repository::set_account_asset_links(
+                        conn, id, asset_ids,
+                    )?;
+                }
             }
         }
-    }
 
-    // Generate depreciation events immediately for new asset accounts.
-    if account_type == "asset" {
-        crate::features::transactions::repository::recalculate_depreciation_for_asset(conn, id)?;
-    }
+        // Generate depreciation events immediately for new asset accounts.
+        if account_type == "asset" {
+            crate::features::transactions::repository::recalculate_depreciation_for_asset(
+                conn, id,
+            )?;
+        }
 
-    Ok(id)
+        Ok(id)
+    })
 }
 
 #[tauri::command]
@@ -177,29 +183,31 @@ fn update_account_with_conn(conn: &Connection, input: UpdateAccountInput) -> Res
         input.purchase_date.as_deref(),
         is_consolidation_currency(conn, account_currency_id)?,
     )?;
-    repository::update_account(
-        conn,
-        repository::UpdateAccountParams {
-            account_id: input.account_id,
-            name: input.name.trim().to_owned(),
-            iban: input.iban.clone(),
-            person_id: input.person_id,
-            purchase_price_minor: input.purchase_price_minor,
-            purchase_date: input.purchase_date.clone(),
-            depreciation_period_months,
-        },
-    )?;
-
-    // If this is an asset account, recalculate depreciation events so they stay
-    // in sync with any metadata change (price, date, period — or clearing them).
-    if account_type == "asset" {
-        crate::features::transactions::repository::recalculate_depreciation_for_asset(
+    with_savepoint_app(conn, || {
+        repository::update_account(
             conn,
-            input.account_id,
+            repository::UpdateAccountParams {
+                account_id: input.account_id,
+                name: input.name.trim().to_owned(),
+                iban: input.iban.clone(),
+                person_id: input.person_id,
+                purchase_price_minor: input.purchase_price_minor,
+                purchase_date: input.purchase_date.clone(),
+                depreciation_period_months,
+            },
         )?;
-    }
 
-    Ok(())
+        // If this is an asset account, recalculate depreciation events so they stay
+        // in sync with any metadata change (price, date, period — or clearing them).
+        if account_type == "asset" {
+            crate::features::transactions::repository::recalculate_depreciation_for_asset(
+                conn,
+                input.account_id,
+            )?;
+        }
+
+        Ok(())
+    })
 }
 
 #[tauri::command]
