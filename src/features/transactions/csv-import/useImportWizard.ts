@@ -102,6 +102,17 @@ const resolveProfile = (profile: ImportProfileRow, csvHeaders: string[]): Partia
   }
 }
 
+// Shares a split row's original-currency amount across its legs by each leg's share of the row; the last leg takes the rounding remainder.
+const prorateOriginalAmount = (originalAmountMinor: number, legAmounts: number[], rowAmountMinor: number): number[] => {
+  let allocated = 0
+  return legAmounts.map((legAmount, i) => {
+    if (i === legAmounts.length - 1) return originalAmountMinor - allocated
+    const share = rowAmountMinor === 0 ? 0 : Math.round((originalAmountMinor * legAmount) / rowAmountMinor)
+    allocated += share
+    return share
+  })
+}
+
 const rateToMantissaExponent = (rate: number): { mantissa: number; exponent: number } => {
   const str = rate.toString()
   const dotIndex = str.indexOf('.')
@@ -320,6 +331,7 @@ export const useImportWizard = (params: { snapshot: SnapshotRow[]; onClose: () =
         if (foreignCurrency) {
           originalCurrencyCode = foreignCurrency.code
           originalAmountMinor = toMinorUnits(String(parsedAmount), foreignCurrency.minorUnits)
+          if (csvRow.__negateAmount) originalAmountMinor = -originalAmountMinor
         }
       }
 
@@ -668,18 +680,20 @@ export const useImportWizard = (params: { snapshot: SnapshotRow[]; onClose: () =
 
       for (const splitRow of splitRows) {
         const originalCurrencyId = splitRow.originalCurrencyCode ? (currencies.find((c) => c.code === splitRow.originalCurrencyCode)?.id ?? null) : null
+        const legAmounts = splitRow.splitLegs!.map((leg) => leg.amountMinor)
+        const legOriginalAmounts = splitRow.originalAmountMinor !== null ? prorateOriginalAmount(splitRow.originalAmountMinor, legAmounts, splitRow.amountMinor) : null
 
         await createSplitGroup({
           accountId: selectedAccountId,
           groupNote: splitRow.note ?? null,
-          legs: splitRow.splitLegs!.map((leg) => ({
+          legs: splitRow.splitLegs!.map((leg, i) => ({
             amountMinor: leg.amountMinor,
             eventDate: splitRow.date,
             note: leg.note ?? null,
             counterpartAccountId: leg.counterpartAccountId ?? null,
             bucketId: leg.bucketId ?? null,
             originalCurrencyId: originalCurrencyId ?? null,
-            originalAmountMinor: splitRow.originalAmountMinor ?? null,
+            originalAmountMinor: legOriginalAmounts?.[i] ?? null,
             fxRateMantissa: splitRow.fxRateMantissa ?? null,
             fxRateExponent: splitRow.fxRateExponent ?? null,
           })),

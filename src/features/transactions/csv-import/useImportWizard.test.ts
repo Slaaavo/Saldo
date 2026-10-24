@@ -47,6 +47,7 @@ import {
 } from '../../../shared/api'
 
 const EUR: Currency = { id: 1, code: 'EUR', name: 'Euro', minorUnits: 2, isCustom: false }
+const JPY: Currency = { id: 3, code: 'JPY', name: 'Japanese Yen', minorUnits: 0, isCustom: false }
 
 const makeAccount = (overrides: Partial<SnapshotRow>): SnapshotRow => ({
   accountId: 1,
@@ -117,7 +118,7 @@ const SNAPSHOT: SnapshotRow[] = [makeAccount({ accountId: 1, accountName: 'Check
 const setupMocks = (overrides?: { events?: EventWithData[] }) => {
   ;(listEvents as Mock).mockResolvedValue({ events: overrides?.events ?? [] })
   ;(listPartnerAccounts as Mock).mockResolvedValue([])
-  ;(listCurrencies as Mock).mockResolvedValue([EUR])
+  ;(listCurrencies as Mock).mockResolvedValue([EUR, JPY])
   ;(listImportProfiles as Mock).mockResolvedValue([])
   ;(getPreferredProfile as Mock).mockResolvedValue(null)
   ;(setPreferredProfile as Mock).mockResolvedValue(undefined)
@@ -155,6 +156,37 @@ describe('useImportWizard', () => {
 
       expect(result.current.wizardState.importRows).toHaveLength(1)
       expect(result.current.wizardState.unparseableRowCount).toBe(2)
+    })
+  })
+
+  describe('foreign currency', () => {
+    it('applies a sign rule to the original amount as well as the amount', async () => {
+      const wizard = renderWizard()
+      await act(() => wizard.result.current.handleFileSelect(csvFile('Date,Amount,Currency,Typ\n2026-03-01,10.00,JPY,D')))
+      await act(() => wizard.result.current.handleAccountSelect(1))
+      act(() => wizard.result.current.goToMapping())
+      act(() => wizard.result.current.setRules([{ type: 'sign_from_column', sortOrder: 0, typeColumn: 'Typ', negativeType: 'D' }]))
+      act(() => wizard.result.current.goToReview())
+
+      expect(wizard.result.current.wizardState.importRows[0]).toMatchObject({ amountMinor: -1000, originalAmountMinor: -10, originalCurrencyCode: 'JPY' })
+    })
+
+    it('pro-rates the original amount across split legs with the remainder on the last leg', async () => {
+      const { result } = await renderAtReview('Date,Amount,Currency\n2026-03-01,-10.00,JPY')
+      act(() => result.current.handleSplitOpen(0))
+      act(() => result.current.handleLegAmountChange(0, 0, -333))
+      act(() => result.current.handleAddLeg(0))
+      act(() => result.current.handleLegAmountChange(0, 1, -333))
+      act(() => result.current.handleAddLeg(0))
+
+      await act(() => result.current.handleImport())
+
+      const legs = (createSplitGroup as Mock).mock.calls[0][0].legs
+      expect(legs.map((l: { amountMinor: number; originalAmountMinor: number }) => [l.amountMinor, l.originalAmountMinor])).toEqual([
+        [-333, -3],
+        [-333, -3],
+        [-334, -4],
+      ])
     })
   })
 
