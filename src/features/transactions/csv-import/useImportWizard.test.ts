@@ -39,6 +39,7 @@ import {
   listEvents,
   listPartnerAccounts,
   listCurrencies,
+  updateAccount,
   bulkCreateCashflows,
   createSplitGroup,
   listImportProfiles,
@@ -273,6 +274,18 @@ describe('useImportWizard', () => {
       await act(() => result.current.handleFileSelect(csvFile(CSV)))
 
       expect(result.current.wizardState.columnMapping).toMatchObject({ date: 'Datum', amount: 'Suma', note: 'Popis' })
+    })
+  })
+
+  describe('assign IBAN', () => {
+    it('keeps the target account person and depreciation fields', async () => {
+      const car = makeAccount({ accountId: 2, accountName: 'Car', personId: 5, purchasePriceMinor: 2000000, purchaseDate: '2025-01-01', depreciationPeriodMonths: 60 })
+      ;(updateAccount as Mock).mockResolvedValue(undefined)
+      const { result } = renderWizard([...SNAPSHOT, car])
+
+      await act(() => result.current.handleAssignIban('sk31 1200 0000 1987 4263 7541', 2))
+
+      expect(updateAccount).toHaveBeenCalledWith(2, 'Car', 'SK3112000000198742637541', 5, 2000000, '2025-01-01', 60)
     })
   })
 

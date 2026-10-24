@@ -491,7 +491,15 @@ export const useImportWizard = (params: { snapshot: SnapshotRow[]; onClose: () =
       if (!targetRow) return
       const normalizedIban = normalizeIban(iban)
       try {
-        await updateAccount(targetAccountId, targetRow.accountName, normalizedIban)
+        await updateAccount(
+          targetAccountId,
+          targetRow.accountName,
+          normalizedIban,
+          targetRow.personId,
+          targetRow.purchasePriceMinor,
+          targetRow.purchaseDate,
+          targetRow.depreciationPeriodMonths,
+        )
         const entry: IbanLookupEntry = {
           accountId: targetAccountId,
           accountName: targetRow.accountName,
