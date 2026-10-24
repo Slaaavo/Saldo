@@ -431,6 +431,57 @@ mod tests {
         AppState::new(conn, app_dir, db_path, false)
     }
 
+    fn file_names(folder: &std::path::Path) -> Vec<String> {
+        let mut names: Vec<String> = std::fs::read_dir(folder)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+            .collect();
+        names.sort();
+        names
+    }
+
+    /// Writes `marker` through the app's connection and reads it back from `db_path` directly,
+    /// so it passes only when the app is still writing to that file.
+    fn assert_app_writes_to(state: &AppState, db_path: &std::path::Path, marker: &str) {
+        repository::set_app_setting(&state.conn().unwrap(), "theme", marker).unwrap();
+        let direct = rusqlite::Connection::open(db_path).unwrap();
+        assert_eq!(
+            repository::get_app_setting(&direct, "theme")
+                .unwrap()
+                .as_deref(),
+            Some(marker)
+        );
+    }
+
+    #[test]
+    fn a_failed_config_write_keeps_the_old_database_live() {
+        for action in ["switch", "move", "fresh"] {
+            let dir = tempfile::tempdir().unwrap();
+            let state = test_state(dir.path());
+            let old_path = state.db_path.lock().unwrap().clone();
+            let target = dir.path().join("custom");
+            std::fs::create_dir_all(&target).unwrap();
+            if action == "switch" {
+                drop(crate::db::initialize_db(&target.join(config::DB_FILENAME)).unwrap());
+            }
+            std::fs::create_dir(state.app_data_dir.join("db-location.json")).unwrap();
+
+            let result = relocate_db(&state, &target, action, ConfigAction::WriteCustom);
+
+            assert!(result.is_err(), "{action}");
+            assert_eq!(*state.db_path.lock().unwrap(), old_path, "{action}");
+            assert_app_writes_to(&state, &old_path, action);
+            assert_eq!(config::read_db_location(&state.app_data_dir), None);
+            assert!(state.app_data_dir.join("db-location.json").is_dir());
+            let expected_left: &[&str] = if action == "switch" {
+                &["saldo.db"]
+            } else {
+                &[]
+            };
+            assert_eq!(file_names(&target), expected_left, "{action}");
+        }
+    }
+
     #[test]
     fn consolidation_currency_is_not_a_generic_setting() {
         let err = validate_setting_key("consolidation_currency_code").unwrap_err();
