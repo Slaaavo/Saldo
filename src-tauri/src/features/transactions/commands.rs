@@ -450,6 +450,14 @@ pub fn update_transfer(
     state: State<'_, AppState>,
     input: UpdateTransferInput,
 ) -> Result<(), AppError> {
+    let conn = state.conn()?;
+    update_transfer_with_conn(&conn, input)
+}
+
+fn update_transfer_with_conn(
+    conn: &rusqlite::Connection,
+    input: UpdateTransferInput,
+) -> Result<(), AppError> {
     crate::shared::validate_event_date(&input.from_date)?;
     crate::shared::validate_event_date(&input.to_date)?;
     if input.from_event_id == input.to_event_id {
@@ -487,9 +495,20 @@ pub fn update_transfer(
     } else {
         None
     };
-    let conn = state.conn()?;
+    for (event_id, new_date) in [
+        (input.from_event_id, &input.from_date),
+        (input.to_event_id, &input.to_date),
+    ] {
+        repository::check_event_split_group_date_conflict(
+            conn,
+            repository::CheckEventSplitGroupDateConflictParams {
+                event_id,
+                new_date: new_date.clone(),
+            },
+        )?;
+    }
     repository::update_transfer(
-        &conn,
+        conn,
         repository::UpdateTransferParams {
             from_event_id: input.from_event_id,
             to_event_id: input.to_event_id,
@@ -1068,4 +1087,185 @@ pub fn get_unmatched_cashflow_count(
 ) -> Result<i64, AppError> {
     let conn = state.conn()?;
     repository::count_unmatched_cashflows(&conn, person_id).map_err(AppError::from)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::initialize_in_memory;
+    use crate::features::accounts::repository::{create_account, CreateAccountParams};
+    use crate::features::transactions::models::SplitGroupEntry;
+    use rusqlite::{params, Connection};
+
+    fn mk_account(conn: &Connection) -> i64 {
+        create_account(
+            conn,
+            CreateAccountParams {
+                name: "Test Account".to_owned(),
+                currency_id: 1,
+                account_type: "account".to_owned(),
+                ..Default::default()
+            },
+        )
+        .expect("create account failed")
+    }
+
+    fn leg(counterpart_account_id: Option<i64>, amount_minor: i64) -> SplitGroupEntry {
+        SplitGroupEntry {
+            amount_minor,
+            event_date: "2026-03-01".to_owned(),
+            note: None,
+            counterpart_account_id,
+            bucket_id: None,
+            original_currency_id: None,
+            original_amount_minor: None,
+            fx_rate_mantissa: None,
+            fx_rate_exponent: None,
+        }
+    }
+
+    /// Creates a split group on a fresh account with a transfer leg and a plain cashflow leg,
+    /// both dated 2026-03-01, and returns the transfer's `(from_event_id, to_event_id)`.
+    fn seed_split_group_with_transfer(conn: &Connection) -> (i64, i64) {
+        let (source, counterpart) = (mk_account(conn), mk_account(conn));
+        repository::create_split_group_with_legs(
+            conn,
+            repository::CreateSplitGroupWithLegsParams {
+                account_id: source,
+                group_note: None,
+                legs: vec![leg(Some(counterpart), -4000), leg(None, -1000)],
+            },
+        )
+        .unwrap();
+        conn.query_row(
+            "SELECT id, linked_event_id FROM event WHERE account_id = ?1 AND event_type = 'transfer'",
+            params![source],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap()
+    }
+
+    fn transfer_input(
+        from_event_id: i64,
+        to_event_id: i64,
+        from_date: &str,
+        to_date: &str,
+    ) -> UpdateTransferInput {
+        UpdateTransferInput {
+            from_event_id,
+            to_event_id,
+            from_date: from_date.to_owned(),
+            to_date: to_date.to_owned(),
+            amount_minor: -5000,
+            to_amount_minor: 5000,
+            note: None,
+            original_currency_id: None,
+            fx_rate_mantissa: None,
+            fx_rate_exponent: None,
+        }
+    }
+
+    fn latest_date_and_amount(conn: &Connection, event_id: i64) -> (String, i64) {
+        conn.query_row(
+            "SELECT ed.event_date, ed.amount_minor FROM event e JOIN event_data ed ON ed.id = e.latest_data_id WHERE e.id = ?1",
+            params![event_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn update_transfer_rejects_moving_a_split_group_leg_to_another_date() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let (from, to) = seed_split_group_with_transfer(&conn);
+
+        let err =
+            update_transfer_with_conn(&conn, transfer_input(from, to, "2026-03-05", "2026-03-05"))
+                .unwrap_err();
+
+        assert_eq!(err.code, "VALIDATION");
+        assert!(err.message.contains("split group"));
+        assert_eq!(
+            latest_date_and_amount(&conn, from),
+            ("2026-03-01".to_owned(), -4000)
+        );
+        assert_eq!(
+            latest_date_and_amount(&conn, to),
+            ("2026-03-01".to_owned(), 4000)
+        );
+    }
+
+    #[test]
+    fn update_transfer_checks_the_to_leg_date_too() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let (from, to) = seed_split_group_with_transfer(&conn);
+        // create_split_group_with_legs only tags the source leg, so tag the counterpart directly.
+        conn.execute(
+            "UPDATE event SET split_group_id = (SELECT split_group_id FROM event WHERE id = ?1) WHERE id = ?2",
+            params![from, to],
+        )
+        .unwrap();
+
+        let err =
+            update_transfer_with_conn(&conn, transfer_input(from, to, "2026-03-01", "2026-03-05"))
+                .unwrap_err();
+
+        assert_eq!(err.code, "VALIDATION");
+        assert_eq!(
+            latest_date_and_amount(&conn, to),
+            ("2026-03-01".to_owned(), 4000)
+        );
+    }
+
+    #[test]
+    fn update_transfer_allows_editing_a_split_group_leg_without_changing_its_date() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let (from, to) = seed_split_group_with_transfer(&conn);
+
+        update_transfer_with_conn(&conn, transfer_input(from, to, "2026-03-01", "2026-03-01"))
+            .unwrap();
+
+        assert_eq!(
+            latest_date_and_amount(&conn, from),
+            ("2026-03-01".to_owned(), -5000)
+        );
+        assert_eq!(
+            latest_date_and_amount(&conn, to),
+            ("2026-03-01".to_owned(), 5000)
+        );
+    }
+
+    #[test]
+    fn update_transfer_moves_a_transfer_that_is_not_in_a_split_group() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let (source, counterpart) = (mk_account(&conn), mk_account(&conn));
+        let (from, to) = repository::create_transfer(
+            &conn,
+            &repository::CashflowEntry {
+                account_id: source,
+                amount_minor: -4000,
+                event_date: "2026-03-01".to_owned(),
+                note: None,
+                counterpart_account_id: Some(counterpart),
+                bucket_id: None,
+                original_currency_id: None,
+                original_amount_minor: None,
+                fx_rate_mantissa: None,
+                fx_rate_exponent: None,
+            },
+        )
+        .unwrap();
+
+        update_transfer_with_conn(&conn, transfer_input(from, to, "2026-03-05", "2026-03-05"))
+            .unwrap();
+
+        assert_eq!(
+            latest_date_and_amount(&conn, from),
+            ("2026-03-05".to_owned(), -5000)
+        );
+        assert_eq!(
+            latest_date_and_amount(&conn, to),
+            ("2026-03-05".to_owned(), 5000)
+        );
+    }
 }
