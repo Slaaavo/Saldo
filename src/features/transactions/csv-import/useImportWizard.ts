@@ -522,7 +522,7 @@ export const useImportWizard = (params: { snapshot: SnapshotRow[]; onClose: () =
       importRows: prev.importRows.map((r) => {
         if (r.index !== rowIndex) return r
         const leg0: SplitLeg = {
-          legIndex: 0,
+          legId: 0,
           amountMinor: r.amountMinor,
           note: null,
           rawIban: r.rawIban,
@@ -542,53 +542,53 @@ export const useImportWizard = (params: { snapshot: SnapshotRow[]; onClose: () =
     }))
   }, [])
 
-  const handleLegAmountChange = useCallback((rowIndex: number, legIndex: number, amountMinor: number) => {
+  const handleLegAmountChange = useCallback((rowIndex: number, legId: number, amountMinor: number) => {
     setWizardState((prev) => ({
       ...prev,
       importRows: prev.importRows.map((r) => {
         if (r.index !== rowIndex || r.splitLegs === null) return r
         return {
           ...r,
-          splitLegs: r.splitLegs.map((l) => (l.legIndex === legIndex ? { ...l, amountMinor } : l)),
+          splitLegs: r.splitLegs.map((l) => (l.legId === legId ? { ...l, amountMinor } : l)),
         }
       }),
     }))
   }, [])
 
-  const handleLegNoteChange = useCallback((rowIndex: number, legIndex: number, note: string | null) => {
+  const handleLegNoteChange = useCallback((rowIndex: number, legId: number, note: string | null) => {
     setWizardState((prev) => ({
       ...prev,
       importRows: prev.importRows.map((r) => {
         if (r.index !== rowIndex || r.splitLegs === null) return r
         return {
           ...r,
-          splitLegs: r.splitLegs.map((l) => (l.legIndex === legIndex ? { ...l, note } : l)),
+          splitLegs: r.splitLegs.map((l) => (l.legId === legId ? { ...l, note } : l)),
         }
       }),
     }))
   }, [])
 
-  const handleLegPartnerChange = useCallback((rowIndex: number, legIndex: number, rawIban: string | null, ibanMatch: IbanMatchResult, counterpartAccountId: number | null) => {
+  const handleLegPartnerChange = useCallback((rowIndex: number, legId: number, rawIban: string | null, ibanMatch: IbanMatchResult, counterpartAccountId: number | null) => {
     setWizardState((prev) => ({
       ...prev,
       importRows: prev.importRows.map((r) => {
         if (r.index !== rowIndex || r.splitLegs === null) return r
         return {
           ...r,
-          splitLegs: r.splitLegs.map((l) => (l.legIndex === legIndex ? { ...l, rawIban, ibanMatch, counterpartAccountId } : l)),
+          splitLegs: r.splitLegs.map((l) => (l.legId === legId ? { ...l, rawIban, ibanMatch, counterpartAccountId } : l)),
         }
       }),
     }))
   }, [])
 
-  const handleLegBucketChange = useCallback((rowIndex: number, legIndex: number, bucketId: number | null) => {
+  const handleLegBucketChange = useCallback((rowIndex: number, legId: number, bucketId: number | null) => {
     setWizardState((prev) => ({
       ...prev,
       importRows: prev.importRows.map((r) => {
         if (r.index !== rowIndex || r.splitLegs === null) return r
         return {
           ...r,
-          splitLegs: r.splitLegs.map((l) => (l.legIndex === legIndex ? { ...l, bucketId } : l)),
+          splitLegs: r.splitLegs.map((l) => (l.legId === legId ? { ...l, bucketId } : l)),
         }
       }),
     }))
@@ -601,7 +601,7 @@ export const useImportWizard = (params: { snapshot: SnapshotRow[]; onClose: () =
         if (r.index !== rowIndex || r.splitLegs === null) return r
         const allocated = r.splitLegs.reduce((sum, l) => sum + l.amountMinor, 0)
         const newLeg: SplitLeg = {
-          legIndex: r.splitLegs.length,
+          legId: Math.max(...r.splitLegs.map((l) => l.legId)) + 1,
           amountMinor: r.amountMinor - allocated,
           note: null,
           rawIban: null,
@@ -614,13 +614,12 @@ export const useImportWizard = (params: { snapshot: SnapshotRow[]; onClose: () =
     }))
   }, [])
 
-  const handleRemoveLeg = useCallback((rowIndex: number, legIndex: number) => {
+  const handleRemoveLeg = useCallback((rowIndex: number, legId: number) => {
     setWizardState((prev) => ({
       ...prev,
       importRows: prev.importRows.map((r) => {
         if (r.index !== rowIndex || r.splitLegs === null || r.splitLegs.length <= 1) return r
-        const filtered = r.splitLegs.filter((l) => l.legIndex !== legIndex)
-        return { ...r, splitLegs: filtered.map((l, i) => ({ ...l, legIndex: i })) }
+        return { ...r, splitLegs: r.splitLegs.filter((l) => l.legId !== legId) }
       }),
     }))
   }, [])

@@ -35,12 +35,12 @@ export interface ReviewStepProps {
   onCancel: () => void
   onSplitOpen: (rowIndex: number) => void
   onSplitCancel: (rowIndex: number) => void
-  onLegAmountChange: (rowIndex: number, legIndex: number, amountMinor: number) => void
-  onLegNoteChange: (rowIndex: number, legIndex: number, note: string | null) => void
-  onLegPartnerChange: (rowIndex: number, legIndex: number, rawIban: string | null, ibanMatch: IbanMatchResult, counterpartAccountId: number | null) => void
-  onLegBucketChange: (rowIndex: number, legIndex: number, bucketId: number | null) => void
+  onLegAmountChange: (rowIndex: number, legId: number, amountMinor: number) => void
+  onLegNoteChange: (rowIndex: number, legId: number, note: string | null) => void
+  onLegPartnerChange: (rowIndex: number, legId: number, rawIban: string | null, ibanMatch: IbanMatchResult, counterpartAccountId: number | null) => void
+  onLegBucketChange: (rowIndex: number, legId: number, bucketId: number | null) => void
   onAddLeg: (rowIndex: number) => void
-  onRemoveLeg: (rowIndex: number, legIndex: number) => void
+  onRemoveLeg: (rowIndex: number, legId: number) => void
   splitValidationErrors: string[]
 }
 

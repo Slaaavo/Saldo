@@ -8,6 +8,7 @@ import { Button } from '../../../../shared/ui/button'
 import { Input } from '../../../../shared/ui/input'
 import { CurrencyInput } from '../../../../shared/ui/CurrencyInput'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../../../shared/ui/select'
+import { parseAmount } from '../csvParser'
 import { PartnerCell } from './PartnerCell'
 
 const BUCKET_NONE = '__none__'
@@ -21,11 +22,11 @@ interface SplitLegRowProps {
   accountsWithoutIban: SnapshotRow[]
   allAccounts: SnapshotRow[]
   canRemove: boolean
-  onAmountChange: (legIndex: number, amountMinor: number) => void
-  onNoteChange: (legIndex: number, note: string | null) => void
-  onPartnerChange: (legIndex: number, rawIban: string | null, ibanMatch: IbanMatchResult, counterpartAccountId: number | null) => void
-  onBucketChange: (legIndex: number, bucketId: number | null) => void
-  onRemove: (legIndex: number) => void
+  onAmountChange: (legId: number, amountMinor: number) => void
+  onNoteChange: (legId: number, note: string | null) => void
+  onPartnerChange: (legId: number, rawIban: string | null, ibanMatch: IbanMatchResult, counterpartAccountId: number | null) => void
+  onBucketChange: (legId: number, bucketId: number | null) => void
+  onRemove: (legId: number) => void
   onCreatePartner: (iban: string, name: string) => Promise<void>
   onAssignIban: (iban: string, targetAccountId: number) => Promise<void>
 }
@@ -53,7 +54,7 @@ export const SplitLegRow = ({
 
   // Construct a synthetic ImportRow so we can reuse PartnerCell unchanged
   const syntheticRow: ImportRow = {
-    index: leg.legIndex,
+    index: leg.legId,
     date: '',
     amountMinor: leg.amountMinor,
     currencyCode: selectedAccountCurrencyCode,
@@ -74,14 +75,14 @@ export const SplitLegRow = ({
 
   const handleCounterpartChange = (_index: number, accountId: number | null) => {
     if (accountId === null) {
-      onPartnerChange(leg.legIndex, null, { type: 'none' }, null)
+      onPartnerChange(leg.legId, null, { type: 'none' }, null)
       return
     }
     const account = allAccounts.find((a) => a.accountId === accountId)
     if (!account) return
     const ibanMatch: IbanMatchResult =
       account.accountType === 'account' ? { type: 'ownAccount', accountId, accountName: account.accountName } : { type: 'partner', accountId, accountName: account.accountName }
-    onPartnerChange(leg.legIndex, null, ibanMatch, accountId)
+    onPartnerChange(leg.legId, null, ibanMatch, accountId)
   }
 
   return (
@@ -97,9 +98,14 @@ export const SplitLegRow = ({
           currencyCode={selectedAccountCurrencyCode}
           onChange={(e) => setAmountStr(e.target.value)}
           onBlur={() => {
-            const parsed = toMinorUnits(amountStr, selectedAccountMinorUnits)
-            onAmountChange(leg.legIndex, parsed)
-            setAmountStr(fromMinorUnits(parsed, selectedAccountMinorUnits))
+            const parsed = parseAmount(amountStr)
+            if (parsed === null) {
+              setAmountStr(fromMinorUnits(leg.amountMinor, selectedAccountMinorUnits))
+              return
+            }
+            const amountMinor = toMinorUnits(String(parsed), selectedAccountMinorUnits)
+            onAmountChange(leg.legId, amountMinor)
+            setAmountStr(fromMinorUnits(amountMinor, selectedAccountMinorUnits))
           }}
         />
       </td>
@@ -115,10 +121,10 @@ export const SplitLegRow = ({
         />
       </td>
       <td className="px-2 py-1.5 border-b border-border/50">
-        <Input className="h-7 text-xs" value={leg.note ?? ''} onChange={(e) => onNoteChange(leg.legIndex, e.target.value || null)} />
+        <Input className="h-7 text-xs" value={leg.note ?? ''} onChange={(e) => onNoteChange(leg.legId, e.target.value || null)} />
       </td>
       <td className="px-2 py-1.5 border-b border-border/50">
-        <Select value={leg.bucketId !== null ? String(leg.bucketId) : BUCKET_NONE} onValueChange={(v) => onBucketChange(leg.legIndex, v === BUCKET_NONE ? null : Number(v))}>
+        <Select value={leg.bucketId !== null ? String(leg.bucketId) : BUCKET_NONE} onValueChange={(v) => onBucketChange(leg.legId, v === BUCKET_NONE ? null : Number(v))}>
           <SelectTrigger className="h-7 text-xs">
             <SelectValue placeholder={t('import.reviewStep.selectBucket')} />
           </SelectTrigger>
@@ -134,7 +140,7 @@ export const SplitLegRow = ({
       </td>
       <td className="px-2 py-1.5 border-b border-border/50">
         {canRemove && (
-          <Button type="button" variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => onRemove(leg.legIndex)}>
+          <Button type="button" variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => onRemove(leg.legId)}>
             <X className="h-3.5 w-3.5" />
           </Button>
         )}

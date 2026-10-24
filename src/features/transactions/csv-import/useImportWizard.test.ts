@@ -198,4 +198,26 @@ describe('useImportWizard', () => {
       expect(bulkCreateCashflows).toHaveBeenCalledWith({ entries: [expect.objectContaining({ amountMinor: -1000 })] })
     })
   })
+
+  describe('split legs', () => {
+    it('keeps leg ids stable when a leg is removed', async () => {
+      const { result } = await renderAtReview('Date,Amount\n2026-03-01,-60.00')
+      act(() => result.current.handleSplitOpen(0))
+      act(() => result.current.handleLegAmountChange(0, 0, -1000))
+      act(() => result.current.handleAddLeg(0))
+      act(() => result.current.handleLegAmountChange(0, 1, -2000))
+      act(() => result.current.handleAddLeg(0))
+
+      act(() => result.current.handleRemoveLeg(0, 1))
+      act(() => result.current.handleLegAmountChange(0, 2, -5000))
+
+      expect(result.current.wizardState.importRows[0].splitLegs!.map((l) => [l.legId, l.amountMinor])).toEqual([
+        [0, -1000],
+        [2, -5000],
+      ])
+
+      act(() => result.current.handleAddLeg(0))
+      expect(result.current.wizardState.importRows[0].splitLegs!.map((l) => l.legId)).toEqual([0, 2, 3])
+    })
+  })
 })

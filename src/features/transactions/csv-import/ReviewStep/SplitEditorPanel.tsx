@@ -28,12 +28,12 @@ interface SplitEditorPanelProps {
   availableBuckets: SnapshotRow[]
   accountsWithoutIban: SnapshotRow[]
   allAccounts: SnapshotRow[]
-  onLegAmountChange: (rowIndex: number, legIndex: number, amountMinor: number) => void
-  onLegNoteChange: (rowIndex: number, legIndex: number, note: string | null) => void
-  onLegPartnerChange: (rowIndex: number, legIndex: number, rawIban: string | null, ibanMatch: IbanMatchResult, counterpartAccountId: number | null) => void
-  onLegBucketChange: (rowIndex: number, legIndex: number, bucketId: number | null) => void
+  onLegAmountChange: (rowIndex: number, legId: number, amountMinor: number) => void
+  onLegNoteChange: (rowIndex: number, legId: number, note: string | null) => void
+  onLegPartnerChange: (rowIndex: number, legId: number, rawIban: string | null, ibanMatch: IbanMatchResult, counterpartAccountId: number | null) => void
+  onLegBucketChange: (rowIndex: number, legId: number, bucketId: number | null) => void
   onAddLeg: (rowIndex: number) => void
-  onRemoveLeg: (rowIndex: number, legIndex: number) => void
+  onRemoveLeg: (rowIndex: number, legId: number) => void
   onCreatePartner: (iban: string, name: string) => Promise<void>
   onAssignIban: (iban: string, targetAccountId: number) => Promise<void>
 }
@@ -74,7 +74,7 @@ export const SplitEditorPanel = ({
           </tr>
           {legs.map((leg, i) => (
             <SplitLegRow
-              key={leg.legIndex}
+              key={leg.legId}
               leg={leg}
               legNumber={i + 1}
               selectedAccountMinorUnits={selectedAccountMinorUnits}
@@ -83,11 +83,11 @@ export const SplitEditorPanel = ({
               accountsWithoutIban={accountsWithoutIban}
               allAccounts={allAccounts}
               canRemove={legs.length > 1}
-              onAmountChange={(legIndex, amountMinor) => onLegAmountChange(row.index, legIndex, amountMinor)}
-              onNoteChange={(legIndex, note) => onLegNoteChange(row.index, legIndex, note)}
-              onPartnerChange={(legIndex, rawIban, ibanMatch, counterpartAccountId) => onLegPartnerChange(row.index, legIndex, rawIban, ibanMatch, counterpartAccountId)}
-              onBucketChange={(legIndex, bucketId) => onLegBucketChange(row.index, legIndex, bucketId)}
-              onRemove={(legIndex) => onRemoveLeg(row.index, legIndex)}
+              onAmountChange={(legId, amountMinor) => onLegAmountChange(row.index, legId, amountMinor)}
+              onNoteChange={(legId, note) => onLegNoteChange(row.index, legId, note)}
+              onPartnerChange={(legId, rawIban, ibanMatch, counterpartAccountId) => onLegPartnerChange(row.index, legId, rawIban, ibanMatch, counterpartAccountId)}
+              onBucketChange={(legId, bucketId) => onLegBucketChange(row.index, legId, bucketId)}
+              onRemove={(legId) => onRemoveLeg(row.index, legId)}
               onCreatePartner={onCreatePartner}
               onAssignIban={onAssignIban}
             />

@@ -13,7 +13,7 @@ export type IbanMatchResult =
   | { type: 'none' }
 
 export interface SplitLeg {
-  legIndex: number
+  legId: number
   amountMinor: number
   note: string | null
   rawIban: string | null
