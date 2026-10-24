@@ -22,7 +22,7 @@ const CashflowPicker = ({ personId, eligibleAmountMinor, selectedIds, onToggle, 
   const { t } = useTranslation()
 
   const cashflowsQuery = useQuery({
-    queryKey: ['eligible-cashflows', personId],
+    queryKey: ['events', 'eligible-cashflows', personId],
     queryFn: () => listEligibleCashflows(personId, undefined, true),
   })
 

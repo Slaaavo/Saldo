@@ -72,17 +72,14 @@ const EditTaxableEventModal = ({ event, onClose }: Props) => {
   const personId = persons.find((p) => p.defaultRevenueAccountId === event.accountId || p.defaultExpenseAccountId === event.accountId)?.id ?? null
 
   const linkedCashflowsQuery = useQuery({
-    queryKey: ['linked-cashflows', event.id],
+    queryKey: ['events', 'linked-cashflows', event.id],
     queryFn: () => listLinkedCashflows(event.id),
   })
 
   const handleLink = async (cashflowId: number) => {
     try {
       await linkCashflowsToTaxable(event.id, [cashflowId])
-      await queryClient.invalidateQueries({ queryKey: ['linked-cashflows', event.id] })
-      await queryClient.invalidateQueries({ queryKey: ['eligible-cashflows'] })
       await queryClient.invalidateQueries({ queryKey: ['events'] })
-      await queryClient.invalidateQueries({ queryKey: ['unmatched-cashflow-count'] })
     } catch (err) {
       toast.error(extractErrorMessage(err))
     }
@@ -91,10 +88,7 @@ const EditTaxableEventModal = ({ event, onClose }: Props) => {
   const handleUnlink = async (cashflowId: number) => {
     try {
       await unlinkCashflowFromTaxable(event.id, cashflowId)
-      await queryClient.invalidateQueries({ queryKey: ['linked-cashflows', event.id] })
-      await queryClient.invalidateQueries({ queryKey: ['eligible-cashflows'] })
       await queryClient.invalidateQueries({ queryKey: ['events'] })
-      await queryClient.invalidateQueries({ queryKey: ['unmatched-cashflow-count'] })
     } catch (err) {
       toast.error(extractErrorMessage(err))
     }

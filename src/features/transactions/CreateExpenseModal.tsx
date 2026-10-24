@@ -92,7 +92,7 @@ const CreateExpenseModal = ({ onClose }: Props) => {
           })),
         })
         if (selectedCashflowIds.length > 0) {
-          linkCashflowsToSplitGroup(splitGroupId, selectedCashflowIds).catch((err) => toast.warning(extractErrorMessage(err)))
+          await linkCashflowsToSplitGroup(splitGroupId, selectedCashflowIds).catch((err) => toast.warning(extractErrorMessage(err)))
         }
       } else {
         const parsed = parseFloat(amount)
