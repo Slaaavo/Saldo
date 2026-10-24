@@ -233,6 +233,29 @@ pub fn delete_account(conn: &Connection, account_id: i64) -> Result<(), AppError
         )
         .map_err(AppError::from)?;
 
+        // A transfer leg on another account keeps its amount as a plain cashflow, so
+        // that account's balance history does not change.
+        conn.execute(
+            "UPDATE event SET event_type = 'cashflow', linked_event_id = NULL
+             WHERE account_id != ?1
+               AND linked_event_id IN (SELECT id FROM event WHERE account_id = ?1)",
+            params![account_id],
+        )
+        .map_err(AppError::from)?;
+
+        conn.execute(
+            "DELETE FROM taxable_cashflow_link
+             WHERE cashflow_event_id IN (SELECT id FROM event WHERE account_id = ?1)
+                OR taxable_event_id  IN (SELECT id FROM event WHERE account_id = ?1)",
+            params![account_id],
+        )
+        .map_err(AppError::from)?;
+
+        // An asset's depreciation events live on the person's default expense account.
+        crate::features::transactions::repository::depreciation::delete_system_events_for_asset(
+            conn, account_id,
+        )?;
+
         // Delete all events for this account.
         // ON DELETE CASCADE on event_data.event_id removes event_data rows.
         // DEFERRABLE FK on event.latest_data_id is checked at savepoint release.
@@ -300,9 +323,15 @@ mod tests {
     use crate::features::assets::repository::{create_custom_unit, CreateCustomUnitParams};
     use crate::features::buckets::repository::{set_bucket_event_links, SetBucketEventLinksParams};
     use crate::features::currency::repository::{set_fx_rate_manual, SetFxRateManualParams};
+    use crate::features::persons::repository::resolve_default_taxable_account;
+    use crate::features::transactions::repository::depreciation::generate_depreciation_events;
+    use crate::features::transactions::repository::taxable_links::{
+        link_cashflows_to_taxable, LinkCashflowsParams,
+    };
     use crate::features::transactions::repository::{
-        create_balance_update, get_accounts_snapshot, list_events, CreateBalanceUpdateParams,
-        GetSnapshotParams, ListEventsQuery,
+        create_balance_update, create_cashflow, create_taxable_event, create_transfer,
+        get_accounts_snapshot, list_events, CashflowEntry, CreateBalanceUpdateParams,
+        CreateTaxableEventParams, GetSnapshotParams, ListEventsQuery,
     };
 
     fn mk_account(conn: &Connection) -> i64 {
@@ -351,6 +380,180 @@ mod tests {
         )
         .unwrap();
         assert_eq!(result.events.len(), 0);
+    }
+
+    fn mk_person_account(conn: &Connection, name: &str, account_type: &str) -> i64 {
+        create_account(
+            conn,
+            CreateAccountParams {
+                name: name.to_owned(),
+                currency_id: 1,
+                account_type: account_type.to_owned(),
+                person_id: Some(1),
+                ..Default::default()
+            },
+        )
+        .expect("create account failed")
+    }
+
+    fn balance_at(conn: &Connection, account_id: i64, datetime: &str) -> i64 {
+        get_accounts_snapshot(
+            conn,
+            GetSnapshotParams {
+                selected_datetime: datetime.to_owned(),
+                ..Default::default()
+            },
+        )
+        .unwrap()
+        .into_iter()
+        .find(|r| r.account_id == account_id)
+        .expect("account missing from snapshot")
+        .balance_minor
+    }
+
+    #[test]
+    fn delete_account_turns_other_transfer_leg_into_cashflow() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let deleted_id = mk_person_account(&conn, "Checking", "account");
+        let other_id = mk_person_account(&conn, "Savings", "account");
+        create_balance_update(
+            &conn,
+            CreateBalanceUpdateParams {
+                account_id: other_id,
+                amount_minor: 10_000,
+                event_date: "2026-01-01".to_owned(),
+                note: None,
+            },
+        )
+        .unwrap();
+        let (_, counterpart_id) = create_transfer(
+            &conn,
+            &CashflowEntry {
+                account_id: deleted_id,
+                amount_minor: -3_000,
+                event_date: "2026-02-01T12:00:00".to_owned(),
+                note: None,
+                counterpart_account_id: Some(other_id),
+                bucket_id: None,
+                original_currency_id: None,
+                original_amount_minor: None,
+                fx_rate_mantissa: None,
+                fx_rate_exponent: None,
+            },
+        )
+        .unwrap();
+        let balance_before = balance_at(&conn, other_id, "2026-12-31T23:59:59");
+        assert_eq!(balance_before, 13_000);
+
+        delete_account(&conn, deleted_id).expect("delete_account failed");
+
+        let (event_type, linked_event_id): (String, Option<i64>) = conn
+            .query_row(
+                "SELECT event_type, linked_event_id FROM event WHERE id = ?1",
+                params![counterpart_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(event_type, "cashflow");
+        assert_eq!(linked_event_id, None);
+        assert_eq!(
+            balance_at(&conn, other_id, "2026-12-31T23:59:59"),
+            balance_before
+        );
+    }
+
+    #[test]
+    fn delete_account_removes_taxable_links_to_its_events() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let account_id = mk_person_account(&conn, "Checking", "account");
+        let cashflow_id = create_cashflow(
+            &conn,
+            &CashflowEntry {
+                account_id,
+                amount_minor: 5_000,
+                event_date: "2026-02-01T12:00:00".to_owned(),
+                note: None,
+                counterpart_account_id: None,
+                bucket_id: None,
+                original_currency_id: None,
+                original_amount_minor: None,
+                fx_rate_mantissa: None,
+                fx_rate_exponent: None,
+            },
+        )
+        .unwrap();
+        let revenue_account_id = resolve_default_taxable_account(&conn, 1, "revenue").unwrap();
+        let revenue_id = create_taxable_event(
+            &conn,
+            CreateTaxableEventParams {
+                account_id: revenue_account_id,
+                event_type: "revenue".to_owned(),
+                amount_minor: 5_000,
+                event_date: "2026-02-01T00:00:00".to_owned(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        link_cashflows_to_taxable(
+            &conn,
+            LinkCashflowsParams {
+                taxable_event_id: revenue_id,
+                cashflow_event_ids: vec![cashflow_id],
+            },
+        )
+        .unwrap();
+
+        delete_account(&conn, account_id).expect("delete_account failed");
+
+        let link_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM taxable_cashflow_link WHERE taxable_event_id = ?1",
+                params![revenue_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(link_count, 0);
+        let revenue_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM event WHERE id = ?1 AND deleted_at IS NULL",
+                params![revenue_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(revenue_count, 1, "the revenue itself must survive");
+    }
+
+    #[test]
+    fn delete_asset_removes_its_depreciation_events() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let asset_id = create_account(
+            &conn,
+            CreateAccountParams {
+                name: "Laptop".to_owned(),
+                currency_id: 1,
+                account_type: "asset".to_owned(),
+                person_id: Some(1),
+                purchase_price_minor: Some(120_000),
+                purchase_date: Some("2024-01-01".to_owned()),
+                depreciation_period_months: Some(12),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        generate_depreciation_events(&conn).unwrap();
+        let count_depreciation = |conn: &Connection| -> i64 {
+            conn.query_row(
+                "SELECT COUNT(*) FROM event WHERE linked_asset_id = ?1",
+                params![asset_id],
+                |row| row.get(0),
+            )
+            .unwrap()
+        };
+        assert_eq!(count_depreciation(&conn), 12);
+
+        delete_account(&conn, asset_id).expect("delete_account failed");
+
+        assert_eq!(count_depreciation(&conn), 0);
     }
 
     #[test]

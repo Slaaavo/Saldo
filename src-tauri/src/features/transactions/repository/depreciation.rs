@@ -324,45 +324,53 @@ pub fn generate_depreciation_events(conn: &Connection) -> Result<(), AppError> {
 // Recalculation — hard-delete all system-generated events and regenerate
 // ---------------------------------------------------------------------------
 
+/// Hard-delete every system-generated depreciation event of an asset, together with
+/// its event_data rows and any taxable_cashflow_link rows that reference it.
+pub(crate) fn delete_system_events_for_asset(
+    conn: &Connection,
+    asset_account_id: i64,
+) -> Result<(), AppError> {
+    // Link rows go first: they reference the events without ON DELETE CASCADE.
+    conn.execute(
+        "DELETE FROM taxable_cashflow_link
+         WHERE cashflow_event_id IN (
+                   SELECT id FROM event
+                   WHERE linked_asset_id = ?1 AND is_system_generated = 1
+               )
+            OR taxable_event_id IN (
+                   SELECT id FROM event
+                   WHERE linked_asset_id = ?1 AND is_system_generated = 1
+               )",
+        params![asset_account_id],
+    )
+    .map_err(AppError::from)?;
+
+    conn.execute(
+        "DELETE FROM event_data WHERE event_id IN (
+             SELECT id FROM event
+             WHERE linked_asset_id = ?1 AND is_system_generated = 1
+         )",
+        params![asset_account_id],
+    )
+    .map_err(AppError::from)?;
+
+    conn.execute(
+        "DELETE FROM event WHERE linked_asset_id = ?1 AND is_system_generated = 1",
+        params![asset_account_id],
+    )
+    .map_err(AppError::from)?;
+
+    Ok(())
+}
+
 pub(crate) fn recalculate_depreciation_for_asset(
     conn: &Connection,
     asset_account_id: i64,
 ) -> Result<(), AppError> {
     with_savepoint_app(conn, || {
-        // 1. Clean up orphaned taxable_cashflow_link rows first (before deleting the
-        //    referenced events, to avoid FK constraint violations).
-        conn.execute(
-            "DELETE FROM taxable_cashflow_link
-             WHERE cashflow_event_id IN (
-                       SELECT id FROM event
-                       WHERE linked_asset_id = ?1 AND is_system_generated = 1
-                   )
-                OR taxable_event_id IN (
-                       SELECT id FROM event
-                       WHERE linked_asset_id = ?1 AND is_system_generated = 1
-                   )",
-            params![asset_account_id],
-        )
-        .map_err(AppError::from)?;
+        delete_system_events_for_asset(conn, asset_account_id)?;
 
-        // 2. Delete event_data rows for system-generated events of this asset.
-        conn.execute(
-            "DELETE FROM event_data WHERE event_id IN (
-                 SELECT id FROM event
-                 WHERE linked_asset_id = ?1 AND is_system_generated = 1
-             )",
-            params![asset_account_id],
-        )
-        .map_err(AppError::from)?;
-
-        // 3. Hard-delete the system-generated event rows.
-        conn.execute(
-            "DELETE FROM event WHERE linked_asset_id = ?1 AND is_system_generated = 1",
-            params![asset_account_id],
-        )
-        .map_err(AppError::from)?;
-
-        // 4. Re-query the asset to determine current depreciation fields.
+        // Re-query the asset to determine current depreciation fields.
         struct AssetRow {
             name: String,
             person_id: i64,
