@@ -69,11 +69,9 @@ pub(crate) fn calculate_prepaid_segments(
     expense_date: &str,
     prepaid_until: &str,
     total_amount_minor: i64,
-) -> Vec<PrepaidSegment> {
-    let start =
-        NaiveDate::parse_from_str(&expense_date[..10], "%Y-%m-%d").expect("invalid expense_date");
-    let end =
-        NaiveDate::parse_from_str(&prepaid_until[..10], "%Y-%m-%d").expect("invalid prepaid_until");
+) -> Result<Vec<PrepaidSegment>, AppError> {
+    let start = parse_date_prefix("expense_date", expense_date)?;
+    let end = parse_date_prefix("prepaid_until", prepaid_until)?;
 
     // Inclusive day count.
     let total_days = (end - start).num_days() + 1;
@@ -117,7 +115,18 @@ pub(crate) fn calculate_prepaid_segments(
         });
     }
 
-    segments
+    Ok(segments)
+}
+
+/// Parses the `YYYY-MM-DD` prefix of a date or datetime string.
+fn parse_date_prefix(field: &str, value: &str) -> Result<NaiveDate, AppError> {
+    value
+        .get(..10)
+        .and_then(|day| NaiveDate::parse_from_str(day, "%Y-%m-%d").ok())
+        .ok_or_else(|| AppError {
+            code: "VALIDATION".into(),
+            message: format!("Invalid {} format: {}", field, value),
+        })
 }
 
 // ---------------------------------------------------------------------------
@@ -134,7 +143,7 @@ pub(crate) fn generate_prepaid_child_events(
             &ctx.expense_date,
             &ctx.prepaid_until,
             ctx.amount_to_split_minor(),
-        );
+        )?;
 
         for segment in &segments {
             conn.execute(
@@ -241,7 +250,7 @@ mod tests {
         // Segment 1: 2024-07-01..2024-12-31 = 184 days
         // Segment 2: 2025-01-01..2025-12-31 = 365 days
         // Total: 549 days
-        let segs = calculate_prepaid_segments("2024-07-01", "2025-12-31", 10_000);
+        let segs = calculate_prepaid_segments("2024-07-01", "2025-12-31", 10_000).unwrap();
         assert_eq!(segs.len(), 2);
         assert_eq!(segs[0].year, 2024);
         assert_eq!(segs[0].event_date, "2024-07-01T00:00:00");
@@ -257,7 +266,7 @@ mod tests {
         // Segment 2: 2025-01-01..2025-12-31 = 365 days
         // Segment 3: 2026-01-01..2026-05-31 = 151 days
         // Total: 730 days
-        let segs = calculate_prepaid_segments("2024-06-01", "2026-05-31", 10_000);
+        let segs = calculate_prepaid_segments("2024-06-01", "2026-05-31", 10_000).unwrap();
         assert_eq!(segs.len(), 3);
         assert_eq!(segs[0].year, 2024);
         assert_eq!(segs[0].event_date, "2024-06-01T00:00:00");
@@ -274,7 +283,7 @@ mod tests {
         // Segment 1: 2023-11-01..2023-12-31 = 61 days (Nov: 30, Dec: 31)
         // Segment 2: 2024-01-01..2024-03-31 = 91 days (Jan: 31, Feb: 29, Mar: 31)
         // Total: 152 days — Feb 29 2024 is real.
-        let segs = calculate_prepaid_segments("2023-11-01", "2024-03-31", 10_000);
+        let segs = calculate_prepaid_segments("2023-11-01", "2024-03-31", 10_000).unwrap();
         assert_eq!(segs.len(), 2);
         assert_eq!(segs[0].year, 2023);
         assert_eq!(segs[0].event_date, "2023-11-01T00:00:00");
@@ -286,7 +295,7 @@ mod tests {
     #[test]
     fn test_exact_year_boundary() {
         // 2024-01-01 to 2024-12-31 → single segment, entire amount unchanged.
-        let segs = calculate_prepaid_segments("2024-01-01", "2024-12-31", 10_000);
+        let segs = calculate_prepaid_segments("2024-01-01", "2024-12-31", 10_000).unwrap();
         assert_eq!(segs.len(), 1);
         assert_eq!(segs[0].year, 2024);
         assert_eq!(segs[0].event_date, "2024-01-01T00:00:00");
@@ -295,9 +304,23 @@ mod tests {
     }
 
     #[test]
+    fn test_invalid_dates_return_validation_errors() {
+        for (expense_date, prepaid_until) in [
+            ("2024-07-0", "2025-12-31"),
+            ("2024-07-01", "garbage"),
+            ("2024-07-1é", "2025-12-31"),
+        ] {
+            let err = calculate_prepaid_segments(expense_date, prepaid_until, 10_000)
+                .err()
+                .expect("invalid dates must be rejected");
+            assert_eq!(err.code, "VALIDATION");
+        }
+    }
+
+    #[test]
     fn test_datetime_format_expense_date() {
         // expense_date supplied as full datetime string — only date portion is used.
-        let segs = calculate_prepaid_segments("2024-07-01T14:30:00", "2025-12-31", 10_000);
+        let segs = calculate_prepaid_segments("2024-07-01T14:30:00", "2025-12-31", 10_000).unwrap();
         assert_eq!(segs.len(), 2);
         assert_eq!(segs[0].event_date, "2024-07-01T00:00:00");
         assert_eq!(sum_amounts(&segs), 10_000);

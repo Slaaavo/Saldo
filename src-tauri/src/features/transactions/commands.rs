@@ -661,15 +661,19 @@ fn validate_expense_only_fields(
 ) -> Result<(), AppError> {
     if event_type != "expense"
         && event_type != "prepaid_expense"
-        && (vat_reclaimable_pct_bps.is_some()
-            || expense_deductible_pct_bps.is_some()
-            || prepaid_until.is_some())
+        && (vat_reclaimable_pct_bps.is_some() || expense_deductible_pct_bps.is_some())
     {
         return Err(AppError {
             code: "VALIDATION".into(),
             message:
-                "vat_reclaimable_pct_bps, expense_deductible_pct_bps, and prepaid_until are only valid for expense or prepaid_expense events"
+                "vat_reclaimable_pct_bps and expense_deductible_pct_bps are only valid for expense or prepaid_expense events"
                     .into(),
+        });
+    }
+    if event_type != "prepaid_expense" && prepaid_until.is_some() {
+        return Err(AppError {
+            code: "VALIDATION".into(),
+            message: "prepaid_until is only valid for prepaid_expense events".into(),
         });
     }
     Ok(())
@@ -687,10 +691,12 @@ fn validate_prepaid_until(
         code: "VALIDATION".into(),
         message: "prepaid_until is required for prepaid_expense events".into(),
     })?;
-    let expense_date =
-        NaiveDate::parse_from_str(&event_date[..10], "%Y-%m-%d").map_err(|_| AppError {
+    let expense_date = event_date
+        .get(..10)
+        .and_then(|day| NaiveDate::parse_from_str(day, "%Y-%m-%d").ok())
+        .ok_or_else(|| AppError {
             code: "VALIDATION".into(),
-            message: format!("Invalid event_date format: {}", &event_date[..10]),
+            message: format!("Invalid event_date format: {}", event_date),
         })?;
     let until_date = NaiveDate::parse_from_str(until_str, "%Y-%m-%d").map_err(|_| AppError {
         code: "VALIDATION".into(),
@@ -883,6 +889,7 @@ fn update_taxable_event_inner(
         conn,
         repository::UpdateTaxableEventParams {
             event_id: input.event_id,
+            event_type: input.event_type.clone(),
             amount_minor: input.amount_minor,
             event_date: input.event_date.clone(),
             note: input.note.clone(),
@@ -893,6 +900,10 @@ fn update_taxable_event_inner(
             reclaimed_vat: input.reclaimed_vat,
         },
     )?;
+    // The repository has confirmed that input.event_type is the stored type.
+    if input.event_type != "prepaid_expense" {
+        return Ok(());
+    }
     if let Some(prepaid_until) = input.prepaid_until {
         let ctx = repository::prepaid_expenses::PrepaidExpenseContext {
             parent_event_id: input.event_id,
@@ -1371,5 +1382,72 @@ mod tests {
         update_taxable_event_inner(&conn, prepaid_update_input(id, 246_000)).unwrap();
 
         assert_eq!(children_sum(&conn, id), 200_000);
+    }
+
+    fn expense_input(person_id: i64) -> CreateTaxableEventInput {
+        CreateTaxableEventInput {
+            event_type: "expense".to_owned(),
+            prepaid_until: None,
+            ..prepaid_input(person_id)
+        }
+    }
+
+    fn children_count(conn: &Connection, parent_event_id: i64) -> i64 {
+        conn.query_row(
+            "SELECT COUNT(*) FROM event WHERE linked_prepaid_event_id = ?1",
+            params![parent_event_id],
+            |row| row.get(0),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn update_rejects_prepaid_sent_as_expense() {
+        let conn = initialize_in_memory().unwrap();
+        let person_id = mk_person(&conn, false);
+        let id = create_taxable_event_inner(&conn, prepaid_input(person_id)).unwrap();
+
+        let err = update_taxable_event_inner(
+            &conn,
+            UpdateTaxableEventInput {
+                event_type: "expense".to_owned(),
+                prepaid_until: None,
+                ..prepaid_update_input(id, 123_000)
+            },
+        )
+        .unwrap_err();
+
+        assert_eq!(err.code, "VALIDATION");
+        let stored = repository::get_event_by_id(&conn, id).unwrap().unwrap();
+        assert_eq!(stored.prepaid_until.as_deref(), Some("2025-06-30"));
+    }
+
+    #[test]
+    fn update_rejects_expense_sent_as_prepaid_and_generates_no_children() {
+        let conn = initialize_in_memory().unwrap();
+        let person_id = mk_person(&conn, false);
+        let id = create_taxable_event_inner(&conn, expense_input(person_id)).unwrap();
+
+        let err = update_taxable_event_inner(&conn, prepaid_update_input(id, 123_000)).unwrap_err();
+
+        assert_eq!(err.code, "VALIDATION");
+        assert_eq!(children_count(&conn, id), 0);
+    }
+
+    #[test]
+    fn prepaid_until_is_rejected_for_plain_expense() {
+        let conn = initialize_in_memory().unwrap();
+        let person_id = mk_person(&conn, false);
+
+        let err = create_taxable_event_inner(
+            &conn,
+            CreateTaxableEventInput {
+                prepaid_until: Some("2025-06-30".to_owned()),
+                ..expense_input(person_id)
+            },
+        )
+        .unwrap_err();
+
+        assert_eq!(err.code, "VALIDATION");
     }
 }

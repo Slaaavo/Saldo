@@ -2173,6 +2173,7 @@ mod tests {
             &conn,
             UpdateTaxableEventParams {
                 event_id,
+                event_type: "revenue".to_owned(),
                 amount_minor: 35000,
                 event_date: "2026-04-15".to_owned(),
                 note: Some("updated".to_owned()),

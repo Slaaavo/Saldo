@@ -42,6 +42,8 @@ pub struct CreateTaxableSplitGroupWithLegsParams {
 #[derive(Default)]
 pub struct UpdateTaxableEventParams {
     pub event_id: i64,
+    /// The type the caller believes the event has; it must match the stored type.
+    pub event_type: String,
     pub amount_minor: i64,
     pub event_date: String,
     pub note: Option<String>,
@@ -258,6 +260,15 @@ pub fn update_taxable_event(
         }
         Some((None, ev_type, account_id, vat_payer)) => (account_id, ev_type, vat_payer),
     };
+    if event_type != params.event_type {
+        return Err(AppError {
+            code: "VALIDATION".into(),
+            message: format!(
+                "Event is a '{}' event, not '{}'; its type cannot be changed",
+                event_type, params.event_type
+            ),
+        });
+    }
     let reclaimed_vat = resolve_reclaimed_vat(&event_type, params.reclaimed_vat, person_vat_payer);
 
     insert_taxable_event_data(
