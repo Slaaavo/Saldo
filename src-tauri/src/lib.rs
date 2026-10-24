@@ -132,16 +132,9 @@ pub fn run() {
                 .expect("failed to get app data dir");
             std::fs::create_dir_all(&app_dir).expect("failed to create app data dir");
 
-            // Resolve DB path: use custom folder if configured and present; fall back
-            // to app_data_dir with a warning flag when the custom folder is missing.
-            let (db_path, fallback_warning) = match config::read_db_location(&app_dir) {
-                Some(folder) if folder.exists() => (folder.join(config::DB_FILENAME), false),
-                Some(_missing_folder) => {
-                    // Configured custom folder no longer exists — fall back silently.
-                    (app_dir.join(config::DB_FILENAME), true)
-                }
-                None => (app_dir.join(config::DB_FILENAME), false),
-            };
+            // Use the custom location when its saldo.db is present; otherwise fall back to
+            // app_data_dir with a warning flag.
+            let (db_path, fallback_warning) = config::resolve_db_path(&app_dir);
 
             let conn = db::initialize_db(&db_path).expect("failed to initialize database");
 

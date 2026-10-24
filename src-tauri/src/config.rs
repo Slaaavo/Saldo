@@ -24,6 +24,27 @@ pub fn read_db_location(app_data_dir: &Path) -> Option<PathBuf> {
     Some(PathBuf::from(folder))
 }
 
+/// Resolves the database file to open at startup, plus whether to warn that the configured
+/// custom location was unavailable.
+///
+/// The custom location is used only when its `saldo.db` is present: opening a missing file would
+/// silently create an empty database there (e.g. a cloud-sync file that was evicted or not yet
+/// downloaded). Otherwise the default path is used with the warning flag set.
+pub fn resolve_db_path(app_data_dir: &Path) -> (PathBuf, bool) {
+    let default_path = app_data_dir.join(DB_FILENAME);
+    match read_db_location(app_data_dir) {
+        Some(folder) => {
+            let custom_path = folder.join(DB_FILENAME);
+            if custom_path.exists() {
+                (custom_path, false)
+            } else {
+                (default_path, true)
+            }
+        }
+        None => (default_path, false),
+    }
+}
+
 /// Writes the custom DB folder path to the config file.
 pub fn write_db_location(app_data_dir: &Path, folder: &Path) -> Result<(), AppError> {
     let config = DbLocationConfig {
@@ -95,6 +116,70 @@ mod tests {
         let config_path = dir.path().join("db-location.json");
         fs::write(&config_path, r#"{"db_folder": null}"#).unwrap();
         assert_eq!(read_db_location(dir.path()), None);
+    }
+
+    #[test]
+    fn resolve_without_config_uses_default_path() {
+        let dir = make_temp_dir();
+        assert_eq!(
+            resolve_db_path(dir.path()),
+            (dir.path().join(DB_FILENAME), false)
+        );
+    }
+
+    #[test]
+    fn resolve_uses_custom_folder_when_db_file_exists() {
+        let dir = make_temp_dir();
+        let folder = dir.path().join("custom-db");
+        fs::create_dir_all(&folder).unwrap();
+        fs::write(folder.join(DB_FILENAME), b"").unwrap();
+        write_db_location(dir.path(), &folder).unwrap();
+
+        assert_eq!(
+            resolve_db_path(dir.path()),
+            (folder.join(DB_FILENAME), false)
+        );
+    }
+
+    #[test]
+    fn resolve_falls_back_when_custom_folder_is_missing() {
+        let dir = make_temp_dir();
+        write_db_location(dir.path(), &dir.path().join("gone")).unwrap();
+
+        assert_eq!(
+            resolve_db_path(dir.path()),
+            (dir.path().join(DB_FILENAME), true)
+        );
+    }
+
+    #[test]
+    fn resolve_falls_back_when_custom_folder_has_no_db_file() {
+        let dir = make_temp_dir();
+        let folder = dir.path().join("custom-db");
+        fs::create_dir_all(&folder).unwrap();
+        write_db_location(dir.path(), &folder).unwrap();
+
+        assert_eq!(
+            resolve_db_path(dir.path()),
+            (dir.path().join(DB_FILENAME), true)
+        );
+    }
+
+    #[test]
+    fn resolve_finds_db_file_created_when_the_location_was_set() {
+        // The "fresh" location flow opens the database at switch time, which must leave a file
+        // behind for the next launch to find.
+        let dir = make_temp_dir();
+        let folder = dir.path().join("custom-db");
+        fs::create_dir_all(&folder).unwrap();
+        write_db_location(dir.path(), &folder).unwrap();
+
+        crate::db::initialize_db(&folder.join(DB_FILENAME)).expect("DB init failed");
+
+        assert_eq!(
+            resolve_db_path(dir.path()),
+            (folder.join(DB_FILENAME), false)
+        );
     }
 
     #[test]
