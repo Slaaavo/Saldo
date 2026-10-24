@@ -2269,6 +2269,7 @@ mod tests {
             &conn,
             UpdateTaxableSplitGroupParams {
                 split_group_id,
+                event_type: "expense".to_owned(),
                 group_note: Some("updated note".to_owned()),
                 updated_legs: vec![UpdatedSplitLeg {
                     event_id: leg_to_update,
@@ -2396,6 +2397,7 @@ mod tests {
             &conn,
             UpdateTaxableSplitGroupParams {
                 split_group_id,
+                event_type: "revenue".to_owned(),
                 group_note: None,
                 updated_legs: vec![],
                 new_legs: vec![],

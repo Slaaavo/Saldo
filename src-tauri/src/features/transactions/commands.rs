@@ -631,6 +631,17 @@ fn validate_event_type_taxable(event_type: &str) -> Result<(), AppError> {
     Ok(())
 }
 
+/// Prepaid expenses generate children per event, so they cannot be split.
+fn validate_split_group_event_type(event_type: &str) -> Result<(), AppError> {
+    if event_type != "revenue" && event_type != "expense" {
+        return Err(AppError {
+            code: "VALIDATION".into(),
+            message: "A split group's event_type must be 'revenue' or 'expense'".into(),
+        });
+    }
+    Ok(())
+}
+
 fn validate_taxable_field_ranges(
     vat_rate_bps: Option<i64>,
     vat_reclaimable_pct_bps: Option<i64>,
@@ -794,7 +805,15 @@ pub fn create_taxable_split_group(
     state: State<'_, AppState>,
     input: CreateTaxableSplitGroupInput,
 ) -> Result<i64, AppError> {
-    validate_event_type_taxable(&input.event_type)?;
+    let conn = state.conn()?;
+    create_taxable_split_group_inner(&conn, input)
+}
+
+fn create_taxable_split_group_inner(
+    conn: &Connection,
+    input: CreateTaxableSplitGroupInput,
+) -> Result<i64, AppError> {
+    validate_split_group_event_type(&input.event_type)?;
     if input.legs.len() < 2 {
         return Err(AppError {
             code: "VALIDATION".into(),
@@ -815,10 +834,9 @@ pub fn create_taxable_split_group(
             leg.expense_deductible_pct_bps,
         )?;
     }
-    let conn = state.conn()?;
-    let account_id = resolve_default_taxable_account(&conn, input.person_id, &input.event_type)?;
+    let account_id = resolve_default_taxable_account(conn, input.person_id, &input.event_type)?;
     let default_reclaimed_vat = if input.event_type == "expense" {
-        Some(get_person_vat_payer(&conn, input.person_id)?)
+        Some(get_person_vat_payer(conn, input.person_id)?)
     } else {
         None
     };
@@ -837,7 +855,7 @@ pub fn create_taxable_split_group(
         })
         .collect();
     let id = repository::create_taxable_split_group_with_legs(
-        &conn,
+        conn,
         repository::CreateTaxableSplitGroupWithLegsParams {
             account_id,
             event_type: input.event_type,
@@ -931,7 +949,15 @@ pub fn update_taxable_split_group(
     state: State<'_, AppState>,
     input: UpdateTaxableSplitGroupInput,
 ) -> Result<(), AppError> {
-    validate_event_type_taxable(&input.event_type)?;
+    let conn = state.conn()?;
+    update_taxable_split_group_inner(&conn, input)
+}
+
+fn update_taxable_split_group_inner(
+    conn: &Connection,
+    input: UpdateTaxableSplitGroupInput,
+) -> Result<(), AppError> {
+    validate_split_group_event_type(&input.event_type)?;
     for leg in &input.updated_legs {
         crate::shared::validate_event_date(&leg.event_date)?;
         validate_expense_only_fields(
@@ -960,8 +986,7 @@ pub fn update_taxable_split_group(
             leg.expense_deductible_pct_bps,
         )?;
     }
-    let conn = state.conn()?;
-    repository::check_split_group_not_system_generated(&conn, input.split_group_id)?;
+    repository::check_split_group_not_system_generated(conn, input.split_group_id)?;
     let updated_legs = input
         .updated_legs
         .into_iter()
@@ -992,9 +1017,10 @@ pub fn update_taxable_split_group(
         })
         .collect();
     repository::update_taxable_split_group(
-        &conn,
+        conn,
         repository::UpdateTaxableSplitGroupParams {
             split_group_id: input.split_group_id,
+            event_type: input.event_type,
             group_note: input.group_note,
             updated_legs,
             new_legs,
@@ -1477,6 +1503,106 @@ mod tests {
         let stored = repository::get_event_by_id(&conn, id).unwrap().unwrap();
         assert_eq!(stored.amount_minor, 123_000);
         assert_eq!(children_sum(&conn, id), 123_000);
+    }
+
+    fn split_leg(amount_minor: i64) -> SplitTaxableLegInput {
+        SplitTaxableLegInput {
+            amount_minor,
+            event_date: "2024-07-01".to_owned(),
+            note: None,
+            vat_rate_bps: None,
+            vat_reclaimable_pct_bps: None,
+            expense_deductible_pct_bps: None,
+            prepaid_until: None,
+            reclaimed_vat: None,
+        }
+    }
+
+    fn split_input(person_id: i64, event_type: &str) -> CreateTaxableSplitGroupInput {
+        CreateTaxableSplitGroupInput {
+            person_id,
+            event_type: event_type.to_owned(),
+            group_note: None,
+            legs: vec![split_leg(3000), split_leg(2000)],
+        }
+    }
+
+    fn split_update_input(split_group_id: i64, event_type: &str) -> UpdateTaxableSplitGroupInput {
+        UpdateTaxableSplitGroupInput {
+            split_group_id,
+            event_type: event_type.to_owned(),
+            group_note: Some("changed".to_owned()),
+            updated_legs: vec![],
+            new_legs: vec![],
+            removed_leg_ids: vec![],
+        }
+    }
+
+    fn split_group_note(conn: &Connection, split_group_id: i64) -> Option<String> {
+        conn.query_row(
+            "SELECT note FROM split_group WHERE id = ?1",
+            params![split_group_id],
+            |row| row.get(0),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn split_group_create_rejects_prepaid_expense() {
+        let conn = initialize_in_memory().unwrap();
+        let person_id = mk_person(&conn, false);
+
+        let err =
+            create_taxable_split_group_inner(&conn, split_input(person_id, "prepaid_expense"))
+                .unwrap_err();
+
+        assert_eq!(err.code, "VALIDATION");
+    }
+
+    #[test]
+    fn split_group_update_rejects_prepaid_expense() {
+        let conn = initialize_in_memory().unwrap();
+        let person_id = mk_person(&conn, false);
+        let group_id =
+            create_taxable_split_group_inner(&conn, split_input(person_id, "expense")).unwrap();
+
+        let err = update_taxable_split_group_inner(
+            &conn,
+            split_update_input(group_id, "prepaid_expense"),
+        )
+        .unwrap_err();
+
+        assert_eq!(err.code, "VALIDATION");
+        assert_eq!(split_group_note(&conn, group_id), None);
+    }
+
+    #[test]
+    fn split_group_update_rejects_type_mismatch() {
+        let conn = initialize_in_memory().unwrap();
+        let person_id = mk_person(&conn, false);
+        let group_id =
+            create_taxable_split_group_inner(&conn, split_input(person_id, "expense")).unwrap();
+
+        let err = update_taxable_split_group_inner(&conn, split_update_input(group_id, "revenue"))
+            .unwrap_err();
+
+        assert_eq!(err.code, "VALIDATION");
+        assert_eq!(split_group_note(&conn, group_id), None);
+    }
+
+    #[test]
+    fn split_group_update_with_matching_type_succeeds() {
+        let conn = initialize_in_memory().unwrap();
+        let person_id = mk_person(&conn, false);
+        let group_id =
+            create_taxable_split_group_inner(&conn, split_input(person_id, "revenue")).unwrap();
+
+        update_taxable_split_group_inner(&conn, split_update_input(group_id, "revenue")).unwrap();
+
+        assert_eq!(
+            split_group_note(&conn, group_id).as_deref(),
+            Some("changed")
+        );
     }
 
     #[test]

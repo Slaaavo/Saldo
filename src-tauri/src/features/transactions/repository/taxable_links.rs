@@ -171,15 +171,15 @@ pub fn link_cashflows_to_split_group(
     with_savepoint_app(conn, || {
         // Query all non-deleted legs of the split group together with their person_id.
         let mut stmt = conn.prepare(
-            "SELECT e.id, a.person_id
+            "SELECT e.id, a.person_id, e.event_type
              FROM event e
              JOIN account a ON a.id = e.account_id
              WHERE e.split_group_id = ?1 AND e.deleted_at IS NULL",
         )?;
 
-        let leg_rows: Vec<(i64, i64)> = stmt
+        let leg_rows: Vec<(i64, i64, String)> = stmt
             .query_map(params![params.split_group_id], |row| {
-                Ok((row.get(0)?, row.get(1)?))
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?;
 
@@ -193,8 +193,21 @@ pub fn link_cashflows_to_split_group(
             });
         }
 
+        if leg_rows
+            .iter()
+            .any(|(_, _, event_type)| event_type != "revenue" && event_type != "expense")
+        {
+            return Err(AppError {
+                code: "VALIDATION".into(),
+                message: format!(
+                    "Split group {} is not a revenue or expense group",
+                    params.split_group_id
+                ),
+            });
+        }
+
         let leg_person_id = leg_rows[0].1;
-        let leg_event_ids: Vec<i64> = leg_rows.into_iter().map(|(id, _)| id).collect();
+        let leg_event_ids: Vec<i64> = leg_rows.into_iter().map(|(id, _, _)| id).collect();
 
         // Validate each cashflow event and insert link rows for all legs.
         for &cashflow_id in &params.cashflow_event_ids {
@@ -1008,6 +1021,49 @@ mod tests {
             );
             assert_eq!(linked[0].id, cashflow_id);
         }
+    }
+
+    #[test]
+    fn link_cashflow_to_cashflow_split_group_is_rejected() {
+        use crate::features::transactions::models::SplitGroupEntry;
+        use crate::features::transactions::repository::{
+            create_split_group_with_legs, CreateSplitGroupWithLegsParams,
+        };
+        let conn = initialize_in_memory().expect("DB init failed");
+        let person_id = mk_person(&conn, "Alice");
+        let account_id = mk_account(&conn, person_id);
+        let cashflow_id = mk_cashflow(&conn, account_id, 5000);
+        let leg = |amount_minor| SplitGroupEntry {
+            amount_minor,
+            event_date: "2024-01-20T00:00:00".to_owned(),
+            note: None,
+            counterpart_account_id: None,
+            bucket_id: None,
+            original_currency_id: None,
+            original_amount_minor: None,
+            fx_rate_mantissa: None,
+            fx_rate_exponent: None,
+        };
+        let split_group_id = create_split_group_with_legs(
+            &conn,
+            CreateSplitGroupWithLegsParams {
+                account_id,
+                group_note: None,
+                legs: vec![leg(-3000), leg(-2000)],
+            },
+        )
+        .expect("create cashflow split group failed");
+
+        let err = link_cashflows_to_split_group(
+            &conn,
+            LinkCashflowsToSplitGroupParams {
+                split_group_id,
+                cashflow_event_ids: vec![cashflow_id],
+            },
+        )
+        .unwrap_err();
+
+        assert_eq!(err.code, "VALIDATION");
     }
 
     #[test]

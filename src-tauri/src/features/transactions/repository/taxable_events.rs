@@ -80,6 +80,8 @@ pub struct NewSplitLeg {
 #[derive(Default)]
 pub struct UpdateTaxableSplitGroupParams {
     pub split_group_id: i64,
+    /// The type the caller believes the group has; it must match the stored type.
+    pub event_type: String,
     pub group_note: Option<String>,
     pub updated_legs: Vec<UpdatedSplitLeg>,
     pub new_legs: Vec<NewSplitLeg>,
@@ -314,6 +316,21 @@ pub fn update_taxable_split_group(
             code: "NOT_FOUND".into(),
             message: "Split group not found or has no active legs".into(),
         })?;
+        if event_type != "revenue" && event_type != "expense" {
+            return Err(AppError {
+                code: "VALIDATION".into(),
+                message: "Split group is not a revenue or expense group".into(),
+            });
+        }
+        if event_type != params.event_type {
+            return Err(AppError {
+                code: "VALIDATION".into(),
+                message: format!(
+                    "Split group is a '{}' group, not '{}'",
+                    event_type, params.event_type
+                ),
+            });
+        }
 
         // Count non-deleted legs currently in the group.
         let current_count: i64 = conn.query_row(
