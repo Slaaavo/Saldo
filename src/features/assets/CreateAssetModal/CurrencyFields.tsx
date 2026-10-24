@@ -15,7 +15,7 @@ interface CurrencyFieldsProps {
   setSelectedCurrency: (currency: Currency | null) => void
   initialValue: string
   setInitialValue: (value: string) => void
-  selectedPerson: { personType: string } | null | undefined
+  showDepreciation: boolean
   purchasePrice: string
   setPurchasePrice: (value: string) => void
   purchaseDate: string
@@ -30,7 +30,7 @@ const CurrencyFields = ({
   setSelectedCurrency,
   initialValue,
   setInitialValue,
-  selectedPerson,
+  showDepreciation,
   purchasePrice,
   setPurchasePrice,
   purchaseDate,
@@ -58,7 +58,7 @@ const CurrencyFields = ({
           currencyCode={selectedCurrency?.code}
         />
       </div>
-      {selectedPerson?.personType === 'legal' && (
+      {showDepreciation && (
         <>
           <h3 className="text-base font-semibold border-t border-border pt-2 mt-1">{t('modals.assetDepreciation.sectionTitle')}</h3>
           <div className="flex flex-col gap-2">

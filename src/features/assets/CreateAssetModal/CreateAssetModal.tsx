@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { useQuery } from '@tanstack/react-query'
 import { toMinorUnits, todayIso } from '../../../shared/utils/format'
+import { parsePositivePrice } from '../unitPricing'
 import type { Currency } from '../../../shared/types'
 import { listCurrencies, getConsolidationCurrency, listCustomUnits, createCustomUnit, createAccount, listPersons } from '../../../shared/api'
 import { useSelectedPerson } from '../../../app/useSelectedPerson'
@@ -57,6 +58,8 @@ const CreateAssetModal = ({ onSuccess, onClose }: Props) => {
   const [purchasePrice, setPurchasePrice] = useState('')
   const [purchaseDate, setPurchaseDate] = useState(todayIso().slice(0, 10))
   const [depreciationPeriod, setDepreciationPeriod] = useState('')
+  // The backend only accepts depreciation for legal persons and for assets held in the consolidation currency.
+  const showDepreciation = selectedPerson?.personType === 'legal' && selectedCurrency !== null && selectedCurrency.id === consolidationCurrency?.id
 
   const isCreatingNewUnit = selectedUnitId === NEW_UNIT_VALUE
   const selectedUnit = customUnits.find((u) => String(u.id) === selectedUnitId) ?? null
@@ -84,7 +87,7 @@ const CreateAssetModal = ({ onSuccess, onClose }: Props) => {
           setSelectedUnitId(NEW_UNIT_VALUE)
         }
       })
-      .catch((err) => console.error('Failed to load data:', err))
+      .catch((err) => toast.error(extractErrorMessage(err)))
   }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -113,9 +116,11 @@ const CreateAssetModal = ({ onSuccess, onClose }: Props) => {
           initialBalanceMinor = toMinorUnits(initialValue, selectedCurrency.minorUnits)
         }
 
-        const purchasePriceMinor = purchasePrice.trim() ? toMinorUnits(purchasePrice, selectedCurrency.minorUnits) : null
-        const purchaseDateValue = purchaseDate.trim() ? purchaseDate.trim() : null
-        const periodMonths = depreciationPeriod.trim() !== '' ? Math.max(0, parseInt(depreciationPeriod, 10)) : null
+        // Fields hidden from the form must not be sent, and the default purchase date only means something next to a purchase price.
+        const hasPurchasePrice = showDepreciation && purchasePrice.trim() !== ''
+        const purchasePriceMinor = hasPurchasePrice ? toMinorUnits(purchasePrice, selectedCurrency.minorUnits) : null
+        const purchaseDateValue = hasPurchasePrice && purchaseDate.trim() ? purchaseDate.trim() : null
+        const periodMonths = showDepreciation && depreciationPeriod.trim() !== '' ? Math.max(0, parseInt(depreciationPeriod, 10)) : null
 
         await createAccount(
           assetName.trim(),
@@ -141,16 +146,10 @@ const CreateAssetModal = ({ onSuccess, onClose }: Props) => {
           return
         }
 
-        let currencyId: number
-        let unitMinorUnits: number
-
-        if (isCreatingNewUnit) {
-          const decimals = parseInt(newUnitDecimals) || 0
-          currencyId = await createCustomUnit(newUnitName.trim(), decimals)
-          unitMinorUnits = decimals
-        } else {
-          currencyId = effectiveUnit!.id
-          unitMinorUnits = effectiveUnit!.minorUnits
+        // Everything createAccount can reject is checked before the unit is created, so a failure never leaves an orphan unit.
+        if (personId === null) {
+          toast.error(t('modals.createAsset.personRequired'))
+          return
         }
 
         let initialQuantityMinor: number | undefined
@@ -160,10 +159,26 @@ const CreateAssetModal = ({ onSuccess, onClose }: Props) => {
             toast.error(t('validation.invalidBalance'))
             return
           }
-          initialQuantityMinor = toMinorUnits(quantity, unitMinorUnits)
+          initialQuantityMinor = toMinorUnits(quantity, effectiveMinorUnits)
         }
 
         const price = pricePerUnit.trim() || undefined
+        if (price !== undefined && parsePositivePrice(price) === null) {
+          toast.error(t('units.invalidPrice'))
+          return
+        }
+
+        let currencyId: number
+        if (isCreatingNewUnit) {
+          const unitName = newUnitName.trim()
+          const decimals = parseInt(newUnitDecimals) || 0
+          currencyId = await createCustomUnit(unitName, decimals)
+          // Select the new unit so a retry after a failed createAccount reuses it instead of creating it again.
+          setCustomUnits((prev) => [...prev, { id: currencyId, code: unitName, name: unitName, minorUnits: decimals, isCustom: true }])
+          setSelectedUnitId(String(currencyId))
+        } else {
+          currencyId = effectiveUnit!.id
+        }
 
         await createAccount(assetName.trim(), currencyId, initialQuantityMinor, 'asset', price, undefined, undefined, personId ?? undefined)
       }
@@ -252,7 +267,7 @@ const CreateAssetModal = ({ onSuccess, onClose }: Props) => {
                 setSelectedCurrency={setSelectedCurrency}
                 initialValue={initialValue}
                 setInitialValue={setInitialValue}
-                selectedPerson={selectedPerson}
+                showDepreciation={showDepreciation}
                 purchasePrice={purchasePrice}
                 setPurchasePrice={setPurchasePrice}
                 purchaseDate={purchaseDate}

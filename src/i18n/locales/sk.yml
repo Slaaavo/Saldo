@@ -194,6 +194,7 @@ modals:
     createNewUnit: "Vytvoriť novú jednotku"
     unitName: Názov jednotky
     unitNameRequired: Názov jednotky je povinný
+    personRequired: Vyberte osobu pre toto aktívum
     decimalPlaces: Desatinné miesta
     quantity: "Množstvo (voliteľné)"
     pricePerUnit: "Cena za jednotku (voliteľná)"

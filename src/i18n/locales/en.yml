@@ -195,6 +195,7 @@ modals:
     createNewUnit: "Create new unit"
     unitName: Unit name
     unitNameRequired: Unit name is required
+    personRequired: Select a person for this asset
     decimalPlaces: Decimal places
     quantity: "Quantity (optional)"
     pricePerUnit: "Price per unit (optional)"

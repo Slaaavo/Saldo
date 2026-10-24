@@ -13,6 +13,17 @@ export const formatPrice = (r: FxRateRow): string => {
   }
 }
 
+/** Returns the price as a plain decimal string, or null when the input is not a positive number. */
+export const parsePositivePrice = (input: string): string | null => {
+  try {
+    const d = new Decimal(input)
+    if (d.isZero() || d.isNegative()) return null
+    return d.toString()
+  } catch {
+    return null
+  }
+}
+
 export const parsePriceAsRate = (input: string): { mantissa: number; exponent: number } | null => {
   try {
     const price = new Decimal(input)
