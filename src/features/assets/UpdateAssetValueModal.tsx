@@ -72,8 +72,8 @@ const UpdateAssetValueModal = ({ accountId, accountName, currencyCode, currencyM
     const quantityChanged = newQuantityMinor !== null && newQuantityMinor !== balanceMinor
 
     const priceInput = pricePerUnit.trim()
-    // A new date records the price for that date even when the price itself is unchanged
-    const priceChanged = priceInput !== '' && (priceInput !== originalPriceStr || date !== originalPriceDate)
+    // With an unchanged quantity, moving the date re-records the current price on that date, so the update is not empty.
+    const priceChanged = priceInput !== '' && (priceInput !== originalPriceStr || (!quantityChanged && date !== originalPriceDate))
     const parsedPrice = priceInput ? parsePositivePrice(priceInput) : null
 
     if (priceChanged && !parsedPrice) {

@@ -137,6 +137,27 @@ describe('UpdateAssetValueModal', () => {
     expect(onSubmit).toHaveBeenCalledWith(42, null, '0.001', '2026-02-15', null)
   })
 
+  it('does not re-record the unchanged price when the quantity changes on a new date', async () => {
+    setupMocks()
+    const onSubmit = vi.fn()
+    const user = userEvent.setup()
+    render(<UpdateAssetValueModal {...defaultProps} onSubmit={onSubmit} />)
+
+    await waitFor(() => {
+      expect(screen.getByDisplayValue('0.001')).toBeInTheDocument()
+    })
+
+    const quantityInput = screen.getByDisplayValue('2.00')
+    await user.clear(quantityInput)
+    await user.type(quantityInput, '3')
+    const datePicker = screen.getByTestId('date-picker')
+    await user.clear(datePicker)
+    await user.type(datePicker, '2026-02-15')
+    await user.click(screen.getByText('modals.editBalanceUpdate.submit'))
+
+    expect(onSubmit).toHaveBeenCalledWith(42, 300, null, '2026-02-15', null)
+  })
+
   it('ignores prices quoted against a different consolidation currency', async () => {
     ;(listFxRates as Mock).mockResolvedValue([
       {
