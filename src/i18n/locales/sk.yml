@@ -244,6 +244,7 @@ modals:
 
   fetchFxRatePrompt:
     message: "Pre {{date}} chýba kurz meny. Načítať kurzy pre tento dátum?"
+    noApiKey: "Nie je uložený API kľúč Open Exchange Rates. Pridajte ho v Nastaveniach alebo zadajte kurz na stránke Výmenné kurzy."
 
   bulkUpdate:
     title: Aktualizovať všetky zostatky

@@ -1,7 +1,9 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQueryClient } from '@tanstack/react-query'
+import { toast } from 'sonner'
 import { fetchFxRates } from '../shared/api'
+import { extractErrorMessage, hasErrorCode } from '../shared/utils/errors'
 import { useModalActions } from './useModalActions'
 import { useModal } from './useModal'
 import { useSnapshotQuery } from '../shared/hooks/useSnapshotQuery'
@@ -175,8 +177,8 @@ const AppModals = ({ selectedDate, dbLocation }: AppModalsProps) => {
               await fetchFxRates(modalState.date)
               await queryClient.invalidateQueries({ queryKey: ['fx-rates'] })
               await queryClient.invalidateQueries({ queryKey: ['snapshot'] })
-            } catch {
-              // Silently ignore fetch errors — user can retry from FX Rates screen
+            } catch (err) {
+              toast.error(hasErrorCode(err, 'CONFIG_ERROR') ? t('modals.fetchFxRatePrompt.noApiKey') : extractErrorMessage(err))
             } finally {
               setFetchLoading(false)
               closeModal()
