@@ -200,12 +200,6 @@ modals:
     pricePerUnit: "Cena za jednotku (voliteľná)"
     computedTotal: "Celková hodnota"
 
-  renameAccount:
-    title: Premenovať účet
-    nameLabel: Nový názov
-    cancel: Zrušiť
-    submit: Premenovať
-
   editAccount:
     title: Upraviť účet
     nameLabel: Názov
@@ -494,7 +488,6 @@ errors:
   deleteEvent: "Nepodarilo sa vymazať udalosť: {{error}}"
   deleteSplitGroup: "Nepodarilo sa vymazať rozdelenú skupinu: {{error}}"
   createAccount: "Nepodarilo sa vytvoriť účet: {{error}}"
-  renameAccount: "Nepodarilo sa premenovať účet: {{error}}"
   updateAccount: "Nepodarilo sa aktualizovať účet: {{error}}"
   deleteAccount: "Nepodarilo sa vymazať účet: {{error}}"
   updateBalances: "Nepodarilo sa aktualizovať zostatky: {{error}}"
@@ -690,7 +683,6 @@ ekasaImport:
     save: "Uložiť"
   errorStep:
     tryAgain: "Skúsiť znova"
-    continuePartial: "Pokračovať s čiastočnými dátami"
   saveStep:
     prompt: "Import úspešný. Uložiť tieto pravidlá ako eKasa importný profil?"
     save: "Uložiť profil"
@@ -752,7 +744,6 @@ demo:
   settingsTitle: "Demo režim"
   settingsDesc: "Preskúmajte aplikáciu so vzorovými údajmi. Vaše skutočné údaje nebudú ovplyvnené."
   settingsNote: "Vaše údaje nebudú ovplyvnené. Všetky zmeny v demo režime sú dočasné."
-  exitedToast: "Demo režim ukončený"
   emptyCta: "Vyskúšať demo režim"
   emptyTitle: "Zatiaľ žiadne účty"
   emptyDesc: "Vytvorte svoj prvý účet alebo preskúmajte aplikáciu so vzorovými údajmi."

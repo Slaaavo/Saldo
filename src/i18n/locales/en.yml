@@ -201,12 +201,6 @@ modals:
     pricePerUnit: "Price per unit (optional)"
     computedTotal: "Computed total"
 
-  renameAccount:
-    title: Rename Account
-    nameLabel: New Name
-    cancel: Cancel
-    submit: Rename
-
   editAccount:
     title: Edit Account
     nameLabel: Name
@@ -497,7 +491,6 @@ errors:
   deleteEvent: "Failed to delete event: {{error}}"
   deleteSplitGroup: "Failed to delete split group: {{error}}"
   createAccount: "Failed to create account: {{error}}"
-  renameAccount: "Failed to rename account: {{error}}"
   updateAccount: "Failed to update account: {{error}}"
   deleteAccount: "Failed to delete account: {{error}}"
   updateBalances: "Failed to update balances: {{error}}"
@@ -527,7 +520,6 @@ demo:
   settingsTitle: "Demo Mode"
   settingsDesc: "Explore the app with sample data. Your real data will not be affected."
   settingsNote: "Your data will not be affected. Any changes made in demo mode are temporary."
-  exitedToast: "Demo mode ended"
   emptyCta: "Try Demo Mode"
   emptyTitle: "No accounts yet"
   emptyDesc: "Create your first account or explore the app with sample data."
@@ -713,7 +705,6 @@ ekasaImport:
     save: "Save"
   errorStep:
     tryAgain: "Try Again"
-    continuePartial: "Continue with partial data"
   saveStep:
     prompt: "Import successful. Save these rules as your eKasa import profile?"
     save: "Save Profile"
