@@ -39,6 +39,7 @@ export type ModalState =
       currentIban?: string | null
       currentPersonId?: number | null
       isCustomUnit: boolean
+      currencyCode: string
       currencyMinorUnits: number
       currentPurchasePriceMinor: number | null
       currentPurchaseDate: string | null

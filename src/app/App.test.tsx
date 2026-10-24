@@ -893,6 +893,7 @@ describe('App', () => {
         currentName: 'Test',
         accountType: 'account',
         isCustomUnit: false,
+        currencyCode: 'EUR',
         currencyMinorUnits: 2,
         currentPurchasePriceMinor: null,
         currentPurchaseDate: null,

@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { listPersons } from '../../shared/api'
+import { useConsolidationCurrencyQuery } from '../../shared/hooks/useConsolidationCurrencyQuery'
 import { fromMinorUnits, toMinorUnits } from '../../shared/utils/format'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogBody, DialogFooter } from '../../shared/ui/dialog'
 import { Button } from '../../shared/ui/button'
@@ -19,6 +20,7 @@ interface Props {
   currentIban?: string | null
   currentPersonId?: number | null
   isCustomUnit: boolean
+  currencyCode: string
   currencyMinorUnits: number
   currentPurchasePriceMinor: number | null
   currentPurchaseDate: string | null
@@ -42,6 +44,7 @@ const EditAccountModal = ({
   currentIban,
   currentPersonId,
   isCustomUnit,
+  currencyCode,
   currencyMinorUnits,
   currentPurchasePriceMinor,
   currentPurchaseDate,
@@ -58,7 +61,11 @@ const EditAccountModal = ({
   const showIban = accountType === 'account'
   const showPersonSelector = accountType !== 'partner' && !!persons && persons.length > 1
   const selectedPerson = persons?.find((p) => p.id === personId)
-  const showDepreciation = accountType === 'asset' && !isCustomUnit && selectedPerson?.personType === 'legal'
+  const { data: consolidationCurrency } = useConsolidationCurrencyQuery()
+  // Depreciation is booked in the consolidation currency. An asset that already has depreciation data keeps the
+  // fields visible so the user can clear them instead of losing them unseen.
+  const showDepreciation =
+    accountType === 'asset' && !isCustomUnit && selectedPerson?.personType === 'legal' && (currencyCode === consolidationCurrency?.code || currentPurchasePriceMinor !== null)
 
   // Depreciation state — currency of asset is needed for CurrencyInput but we don't have it here;
   // we use a generic "amount" input with no currency symbol (the parent supplies currencyCode via snapshot)

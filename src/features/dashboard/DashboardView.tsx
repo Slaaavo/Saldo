@@ -82,6 +82,7 @@ const DashboardView = () => {
       currentIban: row?.iban,
       currentPersonId: row?.personId,
       isCustomUnit: row?.isCustom ?? false,
+      currencyCode: row?.currencyCode ?? '',
       currencyMinorUnits: row?.currencyMinorUnits ?? 2,
       currentPurchasePriceMinor: row?.purchasePriceMinor ?? null,
       currentPurchaseDate: row?.purchaseDate ?? null,

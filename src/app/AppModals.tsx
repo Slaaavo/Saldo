@@ -116,6 +116,7 @@ const AppModals = ({ selectedDate, dbLocation }: AppModalsProps) => {
           currentIban={modalState.currentIban}
           currentPersonId={modalState.currentPersonId}
           isCustomUnit={modalState.isCustomUnit}
+          currencyCode={modalState.currencyCode}
           currencyMinorUnits={modalState.currencyMinorUnits}
           currentPurchasePriceMinor={modalState.currentPurchasePriceMinor}
           currentPurchaseDate={modalState.currentPurchaseDate}
