@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest'
-import { renderHook, act } from '@testing-library/react'
-import type { Currency, EventWithData, SnapshotRow } from '../../../shared/types'
+import { renderHook, act, waitFor } from '@testing-library/react'
+import type { Currency, EventWithData, ImportProfileRow, SnapshotRow } from '../../../shared/types'
 import { useImportWizard } from './useImportWizard'
 
 vi.mock('react-i18next', () => ({
@@ -196,6 +196,42 @@ describe('useImportWizard', () => {
       await act(() => result.current.handleImport())
 
       expect(bulkCreateCashflows).toHaveBeenCalledWith({ entries: [expect.objectContaining({ amountMinor: -1000 })] })
+    })
+  })
+
+  describe('profiles', () => {
+    const PROFILE: ImportProfileRow = {
+      id: 7,
+      name: 'Bank',
+      columnMappingJson: JSON.stringify({ date: 'Datum', amount: 'Suma', partner: null, note: 'Popis', currency: null, fxRate: null }),
+      rules: [{ id: 1, profileId: 7, ruleType: 'sign_from_column', sortOrder: 0, paramsJson: JSON.stringify({ typeColumn: 'Typ', negativeType: 'D' }) }],
+      createdAt: '2026-01-01T00:00:00',
+      updatedAt: '2026-01-01T00:00:00',
+    }
+    const CSV = 'Datum,Suma,Popis,Typ\n01.03.2026,10.00,Coffee,D'
+
+    it('resolves a preferred profile picked before the file against the file headers', async () => {
+      ;(getPreferredProfile as Mock).mockResolvedValue(PROFILE)
+      const { result } = renderWizard()
+
+      await act(() => result.current.handleAccountSelect(1))
+      await act(() => result.current.handleFileSelect(csvFile(CSV)))
+      act(() => result.current.goToMapping())
+
+      expect(result.current.wizardState.columnMapping).toMatchObject({ date: 'Datum', amount: 'Suma', note: 'Popis' })
+      expect(result.current.wizardState.rules).toEqual([{ type: 'sign_from_column', sortOrder: 0, typeColumn: 'Typ', negativeType: 'D' }])
+      expect(result.current.wizardState.originalProfileColumnMapping).toEqual(result.current.wizardState.columnMapping)
+    })
+
+    it('resolves a profile chosen from the list before the file against the file headers', async () => {
+      ;(listImportProfiles as Mock).mockResolvedValue([PROFILE])
+      const { result } = renderWizard()
+      await waitFor(() => expect(result.current.availableProfiles).toHaveLength(1))
+
+      act(() => result.current.handleProfileSelect(PROFILE.id))
+      await act(() => result.current.handleFileSelect(csvFile(CSV)))
+
+      expect(result.current.wizardState.columnMapping).toMatchObject({ date: 'Datum', amount: 'Suma', note: 'Popis' })
     })
   })
 

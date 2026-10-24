@@ -44,7 +44,7 @@ const INITIAL_WIZARD_STATE: WizardState = {
   importRows: [],
   importing: false,
   rules: [],
-  loadedProfileId: null,
+  loadedProfile: null,
   originalProfileColumnMapping: null,
   originalProfileRules: null,
   importedCount: null,
@@ -80,6 +80,25 @@ const matchProfileRules = (savedRules: ImportRule[], csvHeaders: string[]): Impo
     }
     return rule
   })
+}
+
+// A profile can be picked before the CSV, so callers re-run this whenever the headers change.
+const resolveProfile = (profile: ImportProfileRow, csvHeaders: string[]): Partial<WizardState> => {
+  const savedMapping = JSON.parse(profile.columnMappingJson) as ColumnMapping
+  const columnMapping = matchProfileMapping(savedMapping, csvHeaders)
+  const parsedRules = profile.rules.map((r) => ({
+    type: r.ruleType,
+    sortOrder: r.sortOrder,
+    ...JSON.parse(r.paramsJson),
+  })) as ImportRule[]
+  const rules = matchProfileRules(parsedRules, csvHeaders)
+  return {
+    loadedProfile: profile,
+    columnMapping,
+    rules,
+    originalProfileColumnMapping: columnMapping,
+    originalProfileRules: rules,
+  }
 }
 
 const rateToMantissaExponent = (rate: number): { mantissa: number; exponent: number } => {
@@ -135,7 +154,13 @@ export const useImportWizard = (params: { snapshot: SnapshotRow[]; onClose: () =
       }
       try {
         const { headers, rows } = await parseCsvFile(file)
-        setWizardState((prev) => ({ ...prev, file, csvHeaders: headers, csvRows: rows }))
+        setWizardState((prev) => ({
+          ...prev,
+          file,
+          csvHeaders: headers,
+          csvRows: rows,
+          ...(prev.loadedProfile !== null ? resolveProfile(prev.loadedProfile, headers) : {}),
+        }))
       } catch (err) {
         toast.error(extractErrorMessage(err))
       }
@@ -157,24 +182,7 @@ export const useImportWizard = (params: { snapshot: SnapshotRow[]; onClose: () =
       try {
         const profile = await getPreferredProfile(accountId)
         if (profile) {
-          setWizardState((prev) => {
-            const savedMapping = JSON.parse(profile.columnMappingJson) as ColumnMapping
-            const resolvedMapping = matchProfileMapping(savedMapping, prev.csvHeaders)
-            const parsedRules = profile.rules.map((r) => ({
-              type: r.ruleType,
-              sortOrder: r.sortOrder,
-              ...JSON.parse(r.paramsJson),
-            })) as ImportRule[]
-            const resolvedRules = matchProfileRules(parsedRules, prev.csvHeaders)
-            return {
-              ...prev,
-              loadedProfileId: profile.id,
-              columnMapping: resolvedMapping,
-              rules: resolvedRules,
-              originalProfileColumnMapping: resolvedMapping,
-              originalProfileRules: resolvedRules,
-            }
-          })
+          setWizardState((prev) => ({ ...prev, ...resolveProfile(profile, prev.csvHeaders) }))
         }
       } catch {
         // swallow silently — profiles are a non-critical enhancement
@@ -187,7 +195,7 @@ export const useImportWizard = (params: { snapshot: SnapshotRow[]; onClose: () =
 
   const goToMapping = useCallback(() => {
     setWizardState((prev) => {
-      const newMapping = prev.loadedProfileId !== null ? prev.columnMapping : autoDetectMapping(prev.csvHeaders)
+      const newMapping = prev.loadedProfile !== null ? prev.columnMapping : autoDetectMapping(prev.csvHeaders)
       return { ...prev, step: 'mapping', columnMapping: newMapping }
     })
   }, [])
@@ -218,7 +226,7 @@ export const useImportWizard = (params: { snapshot: SnapshotRow[]; onClose: () =
       if (profileId === null) {
         setWizardState((prev) => ({
           ...prev,
-          loadedProfileId: null,
+          loadedProfile: null,
           originalProfileColumnMapping: null,
           originalProfileRules: null,
           columnMapping: autoDetectMapping(prev.csvHeaders),
@@ -228,24 +236,7 @@ export const useImportWizard = (params: { snapshot: SnapshotRow[]; onClose: () =
       }
       const profile = availableProfiles.find((p) => p.id === profileId)
       if (!profile) return
-      setWizardState((prev) => {
-        const savedMapping = JSON.parse(profile.columnMappingJson) as ColumnMapping
-        const resolvedMapping = matchProfileMapping(savedMapping, prev.csvHeaders)
-        const parsedRules = profile.rules.map((r) => ({
-          type: r.ruleType,
-          sortOrder: r.sortOrder,
-          ...JSON.parse(r.paramsJson),
-        })) as ImportRule[]
-        const resolvedRules = matchProfileRules(parsedRules, prev.csvHeaders)
-        return {
-          ...prev,
-          loadedProfileId: profile.id,
-          columnMapping: resolvedMapping,
-          rules: resolvedRules,
-          originalProfileColumnMapping: resolvedMapping,
-          originalProfileRules: resolvedRules,
-        }
-      })
+      setWizardState((prev) => ({ ...prev, ...resolveProfile(profile, prev.csvHeaders) }))
     },
     [availableProfiles],
   )
@@ -693,15 +684,15 @@ export const useImportWizard = (params: { snapshot: SnapshotRow[]; onClose: () =
 
       const totalImported = regularRows.length + splitRows.reduce((n, r) => n + r.splitLegs!.length, 0)
 
-      const { columnMapping, rules, loadedProfileId, originalProfileColumnMapping, originalProfileRules } = wizardState
+      const { columnMapping, rules, loadedProfile, originalProfileColumnMapping, originalProfileRules } = wizardState
       const profileChanged = JSON.stringify(columnMapping) !== JSON.stringify(originalProfileColumnMapping) || JSON.stringify(rules) !== JSON.stringify(originalProfileRules)
 
-      if (loadedProfileId !== null) {
-        setPreferredProfile(selectedAccountId, loadedProfileId).catch(() => {})
+      if (loadedProfile !== null) {
+        setPreferredProfile(selectedAccountId, loadedProfile.id).catch(() => {})
       }
 
       await onSuccess()
-      if (loadedProfileId === null || profileChanged) {
+      if (loadedProfile === null || profileChanged) {
         setWizardState((prev) => ({ ...prev, step: 'save-profile', importedCount: totalImported }))
       } else {
         toast.success(t('import.success', { count: totalImported }))
@@ -752,21 +743,20 @@ export const useImportWizard = (params: { snapshot: SnapshotRow[]; onClose: () =
   )
 
   const handleUpdateProfile = useCallback(async () => {
-    const { columnMapping, rules, loadedProfileId } = wizardState
-    if (loadedProfileId === null) return
-    const originalProfileName = availableProfiles.find((p) => p.id === loadedProfileId)?.name ?? ''
+    const { columnMapping, rules, loadedProfile } = wizardState
+    if (loadedProfile === null) return
     const columnMappingJson = JSON.stringify(columnMapping)
     const ruleInputs = rules.map((rule) => {
       const { type, sortOrder, ...params } = rule
       return { ruleType: type, sortOrder, paramsJson: JSON.stringify(params) }
     })
     try {
-      await updateImportProfile(loadedProfileId, originalProfileName, columnMappingJson, ruleInputs)
+      await updateImportProfile(loadedProfile.id, loadedProfile.name, columnMappingJson, ruleInputs)
       onClose()
     } catch (err) {
       toast.error(extractErrorMessage(err))
     }
-  }, [wizardState, availableProfiles, onClose])
+  }, [wizardState, onClose])
 
   const splitValidationErrors = useMemo(
     () =>

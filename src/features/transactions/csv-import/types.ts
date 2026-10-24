@@ -1,4 +1,4 @@
-import type { ImportRule } from '../../../shared/types'
+import type { ImportProfileRow, ImportRule } from '../../../shared/types'
 
 export type CsvRow = Record<string, string>
 
@@ -54,7 +54,7 @@ export interface WizardState {
   importRows: ImportRow[]
   importing: boolean
   rules: ImportRule[]
-  loadedProfileId: number | null
+  loadedProfile: ImportProfileRow | null
   originalProfileColumnMapping: ColumnMapping | null
   originalProfileRules: ImportRule[] | null
   importedCount: number | null

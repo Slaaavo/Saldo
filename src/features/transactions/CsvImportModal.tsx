@@ -81,7 +81,7 @@ const CsvImportModal = ({ snapshot, onClose, onSuccess }: CsvImportModalProps) =
               selectedAccountId={wizardState.selectedAccountId}
               accounts={accountOnlyRows}
               profiles={availableProfiles}
-              selectedProfileId={wizardState.loadedProfileId}
+              selectedProfileId={wizardState.loadedProfile?.id ?? null}
               onProfileSelect={handleProfileSelect}
               onFileSelect={handleFileSelect}
               onAccountSelect={handleAccountSelect}
@@ -145,7 +145,7 @@ const CsvImportModal = ({ snapshot, onClose, onSuccess }: CsvImportModalProps) =
           {wizardState.step === 'save-profile' && (
             <SaveProfileStep
               importedCount={wizardState.importedCount ?? 0}
-              loadedProfileName={wizardState.loadedProfileId !== null ? (availableProfiles.find((p) => p.id === wizardState.loadedProfileId)?.name ?? null) : null}
+              loadedProfileName={wizardState.loadedProfile?.name ?? null}
               onSaveNew={handleSaveNewProfile}
               onUpdate={handleUpdateProfile}
               onClose={onClose}
