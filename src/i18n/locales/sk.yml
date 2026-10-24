@@ -586,6 +586,9 @@ import:
     assignCounterpart: "Priradiť účet"
     counterpartAssigned: "Účet priradený"
     partialImport: "Niektoré riadky sa uložili pred chybou a boli odstránené zo zoznamu"
+    partnerCurrencyMissing: "Partnera nie je možné vytvoriť: mena účtu nie je načítaná"
+    resolveAbove: "↑ vyriešte vyššie"
+    importing: "Importuje sa…"
     split:
       actionsColumn: "Akcie"
       splitButton: "Rozdeliť"

@@ -18,7 +18,7 @@ const SaveProfileStep = ({ importedCount, loadedProfileName, onSaveNew, onUpdate
   const [saving, setSaving] = useState(false)
 
   const handleSaveNew = async () => {
-    if (!profileName.trim()) return
+    if (!profileName.trim() || saving) return
     setSaving(true)
     try {
       await onSaveNew(profileName.trim())

@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useEffect } from 'react'
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import type { SnapshotRow, Currency, EventWithData, ImportProfileRow, ImportRule } from '../../../shared/types/index'
@@ -132,6 +132,8 @@ export const useImportWizard = (params: { snapshot: SnapshotRow[]; onClose: () =
   const [currencies, setCurrencies] = useState<Currency[]>([])
   const [balanceWarningDates, setBalanceWarningDates] = useState<string[]>([])
   const [availableProfiles, setAvailableProfiles] = useState<ImportProfileRow[]>([])
+  // Responses for an account the user has since switched away from are dropped.
+  const selectedAccountIdRef = useRef<number | null>(null)
 
   // Derived: selected account row from snapshot
   const selectedAccount = snapshot.find((r) => r.accountId === wizardState.selectedAccountId) ?? null
@@ -182,9 +184,20 @@ export const useImportWizard = (params: { snapshot: SnapshotRow[]; onClose: () =
 
   const handleAccountSelect = useCallback(
     async (accountId: number) => {
-      setWizardState((prev) => ({ ...prev, selectedAccountId: accountId }))
+      selectedAccountIdRef.current = accountId
+      // The previous account's profile must not carry over when this one has no preferred profile.
+      setWizardState((prev) => ({
+        ...prev,
+        selectedAccountId: accountId,
+        loadedProfile: null,
+        columnMapping: { ...INITIAL_COLUMN_MAPPING },
+        rules: [],
+        originalProfileColumnMapping: null,
+        originalProfileRules: null,
+      }))
       try {
         const [{ events }, partners, loadedCurrencies] = await Promise.all([listEvents({ accountId }), listPartnerAccounts(), listCurrencies()])
+        if (selectedAccountIdRef.current !== accountId) return
         setExistingEvents(events)
         setCurrencies(loadedCurrencies)
         setIbanLookup(buildIbanLookup(snapshot, partners))
@@ -193,7 +206,7 @@ export const useImportWizard = (params: { snapshot: SnapshotRow[]; onClose: () =
       }
       try {
         const profile = await getPreferredProfile(accountId)
-        if (profile) {
+        if (profile && selectedAccountIdRef.current === accountId) {
           setWizardState((prev) => ({ ...prev, ...resolveProfile(profile, prev.csvHeaders) }))
         }
       } catch {
@@ -444,8 +457,11 @@ export const useImportWizard = (params: { snapshot: SnapshotRow[]; onClose: () =
   )
 
   const handleCreatePartner = useCallback(
-    async (iban: string, name: string) => {
-      if (!selectedAccountCurrencyId) return
+    async (iban: string, name: string): Promise<boolean> => {
+      if (!selectedAccountCurrencyId) {
+        toast.error(t('import.reviewStep.partnerCurrencyMissing'))
+        return false
+      }
       const normalizedIban = normalizeIban(iban)
       try {
         const newId = await createPartnerAccount(name, selectedAccountCurrencyId, normalizedIban)
@@ -474,8 +490,10 @@ export const useImportWizard = (params: { snapshot: SnapshotRow[]; onClose: () =
           }),
         }))
         toast.success(t('import.reviewStep.partnerCreated'))
+        return true
       } catch (err) {
         toast.error(t('errors.createPartner', { error: extractErrorMessage(err) }))
+        return false
       }
     },
     [selectedAccountCurrencyId, t],

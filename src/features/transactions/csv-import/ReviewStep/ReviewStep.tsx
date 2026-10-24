@@ -28,7 +28,7 @@ export interface ReviewStepProps {
   onSelectAll: () => void
   onDeselectAll: () => void
   onBucketChange: (index: number, bucketId: number | null) => void
-  onCreatePartner: (iban: string, name: string) => Promise<void>
+  onCreatePartner: (iban: string, name: string) => Promise<boolean>
   onAssignIban: (iban: string, targetAccountId: number) => Promise<void>
   onCounterpartChange: (index: number, accountId: number | null) => void
   onImport: () => Promise<void>
@@ -303,7 +303,7 @@ const ReviewStep = ({
         </Button>
         <div className="flex flex-col items-end gap-1">
           <Button type="button" onClick={onImport} disabled={(selectedCount === 0 && nearDateSkippedCount === 0) || importing || splitValidationErrors.length > 0}>
-            {importing ? '...' : t('import.reviewStep.importButton', { count: selectedCount })}
+            {importing ? t('import.reviewStep.importing') : t('import.reviewStep.importButton', { count: selectedCount })}
           </Button>
           {nearDateSkippedCount > 0 && <p className="text-xs text-muted-foreground">{t('import.reviewStep.updateTransfersNote', { count: nearDateSkippedCount })}</p>}
         </div>

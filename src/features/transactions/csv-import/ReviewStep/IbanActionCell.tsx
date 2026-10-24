@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 export interface IbanActionCellProps {
   row: ImportRow
   accountsWithoutIban: SnapshotRow[]
-  onCreatePartner: (iban: string, name: string) => Promise<void>
+  onCreatePartner: (iban: string, name: string) => Promise<boolean>
   onAssignIban: (iban: string, targetAccountId: number) => Promise<void>
   isFirstOccurrence: boolean
 }
@@ -24,7 +24,7 @@ export const IbanActionCell = ({ row, accountsWithoutIban, onCreatePartner, onAs
   if (row.ibanMatch.type !== 'unmatched' || !row.rawIban) return null
 
   if (!isFirstOccurrence) {
-    return <span className="text-xs text-muted-foreground italic">↑ resolve above</span>
+    return <span className="text-xs text-muted-foreground italic">{t('import.reviewStep.resolveAbove')}</span>
   }
 
   return (
@@ -44,9 +44,9 @@ export const IbanActionCell = ({ row, accountsWithoutIban, onCreatePartner, onAs
           disabled={creating || partnerName.trim() === ''}
           onClick={async () => {
             setCreating(true)
-            await onCreatePartner(row.rawIban!, partnerName.trim())
+            const created = await onCreatePartner(row.rawIban!, partnerName.trim())
             setCreating(false)
-            setPartnerName('')
+            if (created) setPartnerName('')
           }}
         >
           {t('import.reviewStep.createPartner')}

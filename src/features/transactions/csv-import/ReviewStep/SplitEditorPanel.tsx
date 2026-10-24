@@ -34,7 +34,7 @@ interface SplitEditorPanelProps {
   onLegBucketChange: (rowIndex: number, legId: number, bucketId: number | null) => void
   onAddLeg: (rowIndex: number) => void
   onRemoveLeg: (rowIndex: number, legId: number) => void
-  onCreatePartner: (iban: string, name: string) => Promise<void>
+  onCreatePartner: (iban: string, name: string) => Promise<boolean>
   onAssignIban: (iban: string, targetAccountId: number) => Promise<void>
 }
 

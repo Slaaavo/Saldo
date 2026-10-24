@@ -27,7 +27,7 @@ interface SplitLegRowProps {
   onPartnerChange: (legId: number, rawIban: string | null, ibanMatch: IbanMatchResult, counterpartAccountId: number | null) => void
   onBucketChange: (legId: number, bucketId: number | null) => void
   onRemove: (legId: number) => void
-  onCreatePartner: (iban: string, name: string) => Promise<void>
+  onCreatePartner: (iban: string, name: string) => Promise<boolean>
   onAssignIban: (iban: string, targetAccountId: number) => Promise<void>
 }
 

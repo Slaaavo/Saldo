@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest'
 import { renderHook, act, waitFor } from '@testing-library/react'
 import type { Currency, EventWithData, ImportProfileRow, SnapshotRow } from '../../../shared/types'
+import { toast } from 'sonner'
 import { useImportWizard } from './useImportWizard'
 
 vi.mock('react-i18next', () => ({
@@ -39,6 +40,7 @@ import {
   listEvents,
   listPartnerAccounts,
   listCurrencies,
+  createPartnerAccount,
   updateAccount,
   bulkCreateCashflows,
   createSplitGroup,
@@ -274,6 +276,73 @@ describe('useImportWizard', () => {
       await act(() => result.current.handleFileSelect(csvFile(CSV)))
 
       expect(result.current.wizardState.columnMapping).toMatchObject({ date: 'Datum', amount: 'Suma', note: 'Popis' })
+    })
+  })
+
+  describe('account switch', () => {
+    const SAVINGS = makeAccount({ accountId: 2, accountName: 'Savings' })
+
+    it("drops the previous account's profile when the new account has none", async () => {
+      ;(getPreferredProfile as Mock).mockImplementation(async (accountId: number) =>
+        accountId === 1
+          ? {
+              id: 7,
+              name: 'Bank',
+              columnMappingJson: JSON.stringify({ date: 'Date', amount: 'Amount', partner: null, note: null, currency: null, fxRate: null }),
+              rules: [],
+              createdAt: '',
+              updatedAt: '',
+            }
+          : null,
+      )
+      const { result } = renderWizard([...SNAPSHOT, SAVINGS])
+      await act(() => result.current.handleFileSelect(csvFile('Date,Amount\n2026-03-01,-10.00')))
+
+      await act(() => result.current.handleAccountSelect(1))
+      expect(result.current.wizardState.loadedProfile?.id).toBe(7)
+      await act(() => result.current.handleAccountSelect(2))
+
+      expect(result.current.wizardState.loadedProfile).toBeNull()
+      expect(result.current.wizardState.originalProfileColumnMapping).toBeNull()
+    })
+
+    it('ignores events that arrive late for an account no longer selected', async () => {
+      let resolveFirst: (value: { events: EventWithData[] }) => void = () => {}
+      ;(listEvents as Mock).mockImplementation(({ accountId }: { accountId: number }) =>
+        accountId === 1 ? new Promise((resolve) => (resolveFirst = resolve)) : Promise.resolve({ events: [] }),
+      )
+      const { result } = renderWizard([...SNAPSHOT, SAVINGS])
+      await act(() => result.current.handleFileSelect(csvFile('Date,Amount\n2026-03-01,-10.00')))
+
+      let firstSelect: Promise<void> = Promise.resolve()
+      act(() => {
+        firstSelect = result.current.handleAccountSelect(1)
+      })
+      await act(() => result.current.handleAccountSelect(2))
+      await act(async () => {
+        resolveFirst({ events: [makeEvent({ accountId: 1, eventDate: '2026-03-01T12:00:00', amountMinor: -1000 })] })
+        await firstSelect
+      })
+      act(() => result.current.goToMapping())
+      act(() => result.current.goToReview())
+
+      expect(result.current.wizardState.importRows[0].isDuplicate).toBe(false)
+    })
+  })
+
+  describe('create partner', () => {
+    it('reports failure and shows an error when the account currency is unknown', async () => {
+      ;(listCurrencies as Mock).mockResolvedValue([])
+      const { result } = await renderAtReview('Date,Amount\n2026-03-01,-10.00')
+
+      let created = true
+      await act(async () => {
+        created = await result.current.handleCreatePartner('SK3112000000198742637541', 'Shop')
+      })
+
+      expect(created).toBe(false)
+      expect(toast.error).toHaveBeenCalledWith('import.reviewStep.partnerCurrencyMissing')
+      expect(createPartnerAccount).not.toHaveBeenCalled()
     })
   })
 

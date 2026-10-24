@@ -11,7 +11,7 @@ export interface PartnerCellProps {
   row: ImportRow
   accountsWithoutIban: SnapshotRow[]
   counterpartAccounts: SnapshotRow[]
-  onCreatePartner: (iban: string, name: string) => Promise<void>
+  onCreatePartner: (iban: string, name: string) => Promise<boolean>
   onAssignIban: (iban: string, targetAccountId: number) => Promise<void>
   onCounterpartChange: (index: number, accountId: number | null) => void
   isFirstOccurrence: boolean

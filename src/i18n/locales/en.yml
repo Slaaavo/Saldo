@@ -609,6 +609,9 @@ import:
     assignCounterpart: "Assign account"
     counterpartAssigned: "Account assigned"
     partialImport: "Some rows were saved before the error and have been removed from the list"
+    partnerCurrencyMissing: "Cannot create a partner: the account's currency is not loaded"
+    resolveAbove: "↑ resolve above"
+    importing: "Importing…"
     split:
       actionsColumn: "Actions"
       splitButton: "Split"
