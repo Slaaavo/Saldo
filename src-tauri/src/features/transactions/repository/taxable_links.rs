@@ -44,7 +44,8 @@ pub fn link_cashflows_to_taxable(
     }
 
     with_savepoint_app(conn, || {
-        // Validate taxable event: exists, not deleted, event_type in (revenue, expense), get person_id
+        // Validate taxable event: exists, not deleted, event_type in (revenue, expense,
+        // prepaid_expense), get person_id
         let taxable_row: Option<(String, Option<String>, i64)> = conn
             .query_row(
                 "SELECT e.event_type, e.deleted_at, a.person_id
@@ -69,10 +70,13 @@ pub fn link_cashflows_to_taxable(
             });
         }
 
-        if taxable_type != "revenue" && taxable_type != "expense" {
+        if !matches!(
+            taxable_type.as_str(),
+            "revenue" | "expense" | "prepaid_expense"
+        ) {
             return Err(AppError {
                 code: "VALIDATION".into(),
-                message: "Target event must be a revenue or expense event".into(),
+                message: "Target event must be a revenue, expense, or prepaid expense event".into(),
             });
         }
 
@@ -485,6 +489,39 @@ mod tests {
         .expect("link should succeed");
 
         let linked = list_linked_cashflows(&conn, taxable_id).expect("list linked cashflows");
+        assert_eq!(linked.len(), 1);
+        assert_eq!(linked[0].id, cashflow_id);
+    }
+
+    #[test]
+    fn link_cashflow_to_prepaid_expense() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let person_id = mk_person(&conn, "Alice");
+        let account_id = mk_account(&conn, person_id);
+        let cashflow_id = mk_cashflow(&conn, account_id, 5000);
+        let prepaid_id = create_taxable_event(
+            &conn,
+            CreateTaxableEventParams {
+                account_id: resolve_default_expense_account(&conn, person_id),
+                event_type: "prepaid_expense".to_owned(),
+                amount_minor: 5000,
+                event_date: "2024-01-20T00:00:00".to_owned(),
+                prepaid_until: Some("2025-01-19".to_owned()),
+                ..Default::default()
+            },
+        )
+        .expect("create prepaid expense failed");
+
+        link_cashflows_to_taxable(
+            &conn,
+            LinkCashflowsParams {
+                taxable_event_id: prepaid_id,
+                cashflow_event_ids: vec![cashflow_id],
+            },
+        )
+        .expect("link should succeed");
+
+        let linked = list_linked_cashflows(&conn, prepaid_id).expect("list linked cashflows");
         assert_eq!(linked.len(), 1);
         assert_eq!(linked[0].id, cashflow_id);
     }
