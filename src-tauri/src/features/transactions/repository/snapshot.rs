@@ -211,7 +211,7 @@ pub fn get_accounts_snapshot(
     }
 
     // Pass 2: Event-bound bucket links
-    let all_bucket_links = list_all_latest_bucket_links(conn, snapshot_date)?;
+    let all_bucket_links = list_all_latest_bucket_links(conn, selected_datetime)?;
     let account_index_map: HashMap<i64, usize> = result
         .iter()
         .enumerate()
@@ -356,4 +356,105 @@ pub fn get_accounts_snapshot(
     }
 
     Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::initialize_in_memory;
+    use crate::features::accounts::repository::{create_account, CreateAccountParams};
+    use crate::features::buckets::repository::{set_bucket_event_links, SetBucketEventLinksParams};
+    use crate::features::transactions::repository::{
+        create_balance_update, CreateBalanceUpdateParams,
+    };
+
+    fn mk_account(conn: &Connection, account_type: &str) -> i64 {
+        create_account(
+            conn,
+            CreateAccountParams {
+                name: format!("Test {account_type}"),
+                currency_id: 1,
+                account_type: account_type.to_owned(),
+                ..Default::default()
+            },
+        )
+        .expect("create account failed")
+    }
+
+    #[test]
+    fn bucket_links_on_a_timed_balance_update_show_on_that_day() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let source_id = mk_account(&conn, "account");
+        let bucket_id = mk_account(&conn, "bucket");
+        let event_id = create_balance_update(
+            &conn,
+            CreateBalanceUpdateParams {
+                account_id: bucket_id,
+                amount_minor: 0,
+                event_date: "2026-10-23T23:59:00".to_owned(),
+                note: None,
+            },
+        )
+        .unwrap();
+        set_bucket_event_links(
+            &conn,
+            SetBucketEventLinksParams {
+                event_id,
+                account_ids: vec![source_id],
+            },
+        )
+        .unwrap();
+
+        let snapshot = get_accounts_snapshot(
+            &conn,
+            GetSnapshotParams {
+                selected_datetime: "2026-10-23T23:59:59".to_owned(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        let bucket = snapshot.iter().find(|r| r.account_id == bucket_id).unwrap();
+        assert_eq!(bucket.bucket_links.len(), 1);
+        assert_eq!(bucket.bucket_links[0].source_account_id, source_id);
+        let source = snapshot.iter().find(|r| r.account_id == source_id).unwrap();
+        assert!(source.is_bucket_linked);
+    }
+
+    #[test]
+    fn bucket_links_do_not_show_before_the_balance_update() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let source_id = mk_account(&conn, "account");
+        let bucket_id = mk_account(&conn, "bucket");
+        let event_id = create_balance_update(
+            &conn,
+            CreateBalanceUpdateParams {
+                account_id: bucket_id,
+                amount_minor: 0,
+                event_date: "2026-10-23T09:00:00".to_owned(),
+                note: None,
+            },
+        )
+        .unwrap();
+        set_bucket_event_links(
+            &conn,
+            SetBucketEventLinksParams {
+                event_id,
+                account_ids: vec![source_id],
+            },
+        )
+        .unwrap();
+
+        let snapshot = get_accounts_snapshot(
+            &conn,
+            GetSnapshotParams {
+                selected_datetime: "2026-10-22T23:59:59".to_owned(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        let bucket = snapshot.iter().find(|r| r.account_id == bucket_id).unwrap();
+        assert!(bucket.bucket_links.is_empty());
+    }
 }

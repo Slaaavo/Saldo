@@ -128,7 +128,7 @@ pub fn list_latest_links_for_bucket(
 
 pub fn list_all_latest_bucket_links(
     conn: &Connection,
-    snapshot_date: &str,
+    snapshot_datetime: &str,
 ) -> rusqlite::Result<Vec<(i64, BucketLink)>> {
     let mut stmt = conn.prepare(
         "SELECT e.account_id AS bucket_id,
@@ -160,7 +160,7 @@ pub fn list_all_latest_bucket_links(
            )
          ORDER BY e.account_id, bel.id",
     )?;
-    let rows = stmt.query_map(params![snapshot_date], |row| {
+    let rows = stmt.query_map(params![snapshot_datetime], |row| {
         let bucket_id: i64 = row.get(0)?;
         let link = BucketLink {
             id: row.get(1)?,
