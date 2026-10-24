@@ -7,7 +7,7 @@ use tauri::State;
 use super::models::{DbLocationInfo, PickDbFolderResult};
 use super::repository;
 
-const SETTING_ALLOWLIST: &[&str] = &["consolidation_currency_code", "oxr_app_id", "theme"];
+const SETTING_ALLOWLIST: &[&str] = &["oxr_app_id", "theme"];
 
 fn validate_setting_key(key: &str) -> Result<(), AppError> {
     if SETTING_ALLOWLIST.contains(&key) {
