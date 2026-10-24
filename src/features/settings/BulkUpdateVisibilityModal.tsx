@@ -65,17 +65,8 @@ const BulkUpdateVisibilityModal = ({ accounts, currentExclusions, onSave, onClos
     })
   }
 
-  const toggleSelectAll = (state: CheckedState) => {
-    setExcluded(() => {
-      if (state === true) {
-        // All included → exclude all
-        return new Set(allIds)
-      } else {
-        // Some or none included → include all
-        return new Set()
-      }
-    })
-  }
+  // `accounts` is filtered by the selected person, so only touch those ids; exclusions of other persons' accounts must survive.
+  const toggleSelectAll = (state: CheckedState) => toggleSection(allIds, state)
 
   const handleSave = () => {
     onSave(Array.from(excluded))
