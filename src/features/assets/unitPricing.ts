@@ -24,6 +24,24 @@ export const parsePositivePrice = (input: string): string | null => {
   }
 }
 
+/**
+ * Value of a unit holding in the consolidation currency's minor units: quantity x price, rounded half up.
+ * Returns null when the price is not a positive number.
+ */
+export const computeUnitTotalMinor = (quantityMinor: number, quantityMinorUnits: number, price: string, totalMinorUnits: number): number | null => {
+  try {
+    const priceDecimal = new Decimal(price)
+    if (!priceDecimal.isFinite() || priceDecimal.lte(0)) return null
+    return new Decimal(quantityMinor)
+      .times(priceDecimal)
+      .times(new Decimal(`1e${totalMinorUnits - quantityMinorUnits}`))
+      .toDecimalPlaces(0, Decimal.ROUND_HALF_UP)
+      .toNumber()
+  } catch {
+    return null
+  }
+}
+
 export const parsePriceAsRate = (input: string): { mantissa: number; exponent: number } | null => {
   try {
     const price = new Decimal(input)

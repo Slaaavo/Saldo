@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { useQuery } from '@tanstack/react-query'
 import { toMinorUnits, todayIso } from '../../../shared/utils/format'
-import { parsePositivePrice } from '../unitPricing'
+import { computeUnitTotalMinor, parsePositivePrice } from '../unitPricing'
 import type { Currency } from '../../../shared/types'
 import { listCurrencies, getConsolidationCurrency, listCustomUnits, createCustomUnit, createAccount, listPersons } from '../../../shared/api'
 import { useSelectedPerson } from '../../../app/useSelectedPerson'
@@ -68,11 +68,8 @@ const CreateAssetModal = ({ onSuccess, onClose }: Props) => {
 
   // Compute total for unit path
   const quantityMinor = quantity.trim() ? toMinorUnits(quantity, effectiveMinorUnits) : null
-  const priceDecimal = parseFloat(pricePerUnit)
   const totalMinor =
-    quantityMinor !== null && !isNaN(priceDecimal) && priceDecimal > 0 && consolidationCurrency
-      ? Math.round((quantityMinor / Math.pow(10, effectiveMinorUnits)) * priceDecimal * Math.pow(10, consolidationCurrency.minorUnits))
-      : null
+    quantityMinor !== null && consolidationCurrency ? computeUnitTotalMinor(quantityMinor, effectiveMinorUnits, pricePerUnit, consolidationCurrency.minorUnits) : null
 
   useEffect(() => {
     Promise.all([listCurrencies(false), getConsolidationCurrency(), listCustomUnits()])

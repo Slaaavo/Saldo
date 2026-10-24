@@ -12,6 +12,8 @@ import { Label } from '../../shared/ui/label'
 import { DatePicker } from '../../shared/ui/date-picker'
 import NumberValue from '../../shared/ui/NumberValue'
 import type { Currency } from '../../shared/types'
+import { extractErrorMessage } from '../../shared/utils/errors'
+import { computeUnitTotalMinor, parsePositivePrice } from './unitPricing'
 
 interface Props {
   accountId: number
@@ -24,16 +26,6 @@ interface Props {
   onClose: () => void
 }
 
-const parsePriceInput = (input: string): string | null => {
-  try {
-    const d = new Decimal(input)
-    if (d.isZero() || d.isNegative()) return null
-    return d.toString()
-  } catch {
-    return null
-  }
-}
-
 const UpdateAssetValueModal = ({ accountId, accountName, currencyCode, currencyMinorUnits, balanceMinor, consolidationCurrency, onSubmit, onClose }: Props) => {
   const { t } = useTranslation()
 
@@ -41,14 +33,18 @@ const UpdateAssetValueModal = ({ accountId, accountName, currencyCode, currencyM
   const [quantity, setQuantity] = useState(originalQuantityStr)
   const [pricePerUnit, setPricePerUnit] = useState('')
   const [originalPriceStr, setOriginalPriceStr] = useState('')
+  const [originalPriceDate, setOriginalPriceDate] = useState('')
   const [date, setDate] = useState(todayIso())
   const [note, setNote] = useState('')
 
+  const consolidationCurrencyCode = consolidationCurrency?.code
+
   useEffect(() => {
+    if (!consolidationCurrencyCode) return
     listFxRates()
       .then((rates) => {
-        // Find the latest rate for this custom unit
-        const rate = rates.find((r) => r.toCurrencyCode === currencyCode)
+        // Latest price of this unit in the current consolidation currency; rates quoted in an earlier one no longer apply
+        const rate = rates.find((r) => r.fromCurrencyCode === consolidationCurrencyCode && r.toCurrencyCode === currencyCode)
         if (rate) {
           try {
             const raw = new Decimal(`${rate.rateMantissa}e${rate.rateExponent}`)
@@ -56,20 +52,18 @@ const UpdateAssetValueModal = ({ accountId, accountName, currencyCode, currencyM
             const priceStr = price.toDecimalPlaces(8).toString()
             setPricePerUnit(priceStr)
             setOriginalPriceStr(priceStr)
+            setOriginalPriceDate(rate.date)
           } catch {
             // ignore
           }
         }
       })
-      .catch((err) => console.error('Failed to load FX rates:', err))
-  }, [currencyCode])
+      .catch((err) => toast.error(extractErrorMessage(err)))
+  }, [currencyCode, consolidationCurrencyCode])
 
   const quantityMinor = quantity.trim() ? toMinorUnits(quantity, currencyMinorUnits) : null
-  const priceDecimal = parseFloat(pricePerUnit)
   const totalMinor =
-    quantityMinor !== null && !isNaN(priceDecimal) && priceDecimal > 0 && consolidationCurrency
-      ? Math.round((quantityMinor / Math.pow(10, currencyMinorUnits)) * priceDecimal * Math.pow(10, consolidationCurrency.minorUnits))
-      : null
+    quantityMinor !== null && consolidationCurrency ? computeUnitTotalMinor(quantityMinor, currencyMinorUnits, pricePerUnit, consolidationCurrency.minorUnits) : null
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -78,8 +72,9 @@ const UpdateAssetValueModal = ({ accountId, accountName, currencyCode, currencyM
     const quantityChanged = newQuantityMinor !== null && newQuantityMinor !== balanceMinor
 
     const priceInput = pricePerUnit.trim()
-    const priceChanged = priceInput !== '' && priceInput !== originalPriceStr
-    const parsedPrice = priceInput ? parsePriceInput(priceInput) : null
+    // A new date records the price for that date even when the price itself is unchanged
+    const priceChanged = priceInput !== '' && (priceInput !== originalPriceStr || date !== originalPriceDate)
+    const parsedPrice = priceInput ? parsePositivePrice(priceInput) : null
 
     if (priceChanged && !parsedPrice) {
       toast.error(t('units.invalidPrice'))

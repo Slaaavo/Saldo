@@ -38,6 +38,7 @@ vi.mock('sonner', () => ({
   toast: { error: vi.fn(), success: vi.fn() },
 }))
 
+import { toast } from 'sonner'
 import { listFxRates } from '../../shared/api'
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -92,7 +93,7 @@ describe('UpdateAssetValueModal', () => {
     })
   })
 
-  it('submits null for pricePerUnit when price is unchanged', async () => {
+  it('submits null for pricePerUnit when price and date are unchanged', async () => {
     setupMocks()
     const onSubmit = vi.fn()
     const user = userEvent.setup()
@@ -103,15 +104,65 @@ describe('UpdateAssetValueModal', () => {
       expect(screen.getByDisplayValue('0.001')).toBeInTheDocument()
     })
 
+    // The date defaults to today; the price is only "unchanged" on the date of the rate it came from
+    const datePicker = screen.getByTestId('date-picker')
+    await user.clear(datePicker)
+    await user.type(datePicker, '2026-01-02')
     await user.click(screen.getByText('modals.editBalanceUpdate.submit'))
 
     expect(onSubmit).toHaveBeenCalledWith(
       42, // accountId
       null, // amountMinor — quantity unchanged
       null, // pricePerUnit — price unchanged
-      expect.any(String), // date
+      '2026-01-02', // date
       null, // note
     )
+  })
+
+  it('submits the prefilled price when only the date is changed', async () => {
+    setupMocks()
+    const onSubmit = vi.fn()
+    const user = userEvent.setup()
+    render(<UpdateAssetValueModal {...defaultProps} onSubmit={onSubmit} />)
+
+    await waitFor(() => {
+      expect(screen.getByDisplayValue('0.001')).toBeInTheDocument()
+    })
+
+    const datePicker = screen.getByTestId('date-picker')
+    await user.clear(datePicker)
+    await user.type(datePicker, '2026-02-15')
+    await user.click(screen.getByText('modals.editBalanceUpdate.submit'))
+
+    expect(onSubmit).toHaveBeenCalledWith(42, null, '0.001', '2026-02-15', null)
+  })
+
+  it('ignores prices quoted against a different consolidation currency', async () => {
+    ;(listFxRates as Mock).mockResolvedValue([
+      {
+        id: 1,
+        date: '2026-01-02',
+        fromCurrencyCode: 'USD',
+        toCurrencyCode: 'GOLD',
+        rateMantissa: 5,
+        rateExponent: -1,
+        isManual: false,
+        fetchedAt: '2026-01-02T12:00:00',
+        isDirect: true,
+      },
+    ])
+    render(<UpdateAssetValueModal {...defaultProps} />)
+
+    await waitFor(() => expect(listFxRates).toHaveBeenCalled())
+
+    expect(screen.queryByDisplayValue('0.5')).not.toBeInTheDocument()
+  })
+
+  it('shows a toast when the prices cannot be loaded', async () => {
+    ;(listFxRates as Mock).mockRejectedValue({ code: 'DB', message: 'offline' })
+    render(<UpdateAssetValueModal {...defaultProps} />)
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('offline'))
   })
 
   it('submits full-precision price when price is changed', async () => {
