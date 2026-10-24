@@ -90,13 +90,15 @@ pub fn list_events(
         params.push(Box::new(id));
     }
 
+    // Events are stored either date-only or with a time, which do not order consistently against
+    // a bound of the other shape, so the range is compared by calendar day.
     if let Some(bd) = before_date {
-        where_suffix.push_str(" AND ed.event_date <= ?");
+        where_suffix.push_str(" AND substr(ed.event_date, 1, 10) <= substr(?, 1, 10)");
         params.push(Box::new(bd.to_owned()));
     }
 
     if let Some(fd) = from_date {
-        where_suffix.push_str(" AND ed.event_date >= ?");
+        where_suffix.push_str(" AND substr(ed.event_date, 1, 10) >= substr(?, 1, 10)");
         params.push(Box::new(fd.to_owned()));
     }
 
@@ -221,4 +223,117 @@ pub fn check_split_group_not_system_generated(
         });
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::initialize_in_memory;
+    use crate::features::accounts::repository::{create_account, CreateAccountParams};
+    use crate::features::transactions::repository::{
+        create_balance_update, CreateBalanceUpdateParams,
+    };
+
+    /// Seeds one event per stored date format around 2026-10-23 and returns their dates, oldest first.
+    fn seed_events(conn: &Connection) -> Vec<&'static str> {
+        let account_id = create_account(
+            conn,
+            CreateAccountParams {
+                name: "Test Account".to_owned(),
+                currency_id: 1,
+                account_type: "account".to_owned(),
+                ..Default::default()
+            },
+        )
+        .expect("create account failed");
+        let dates = vec![
+            "2026-10-22T23:59:59",
+            "2026-10-23",
+            "2026-10-23T10:30:00",
+            "2026-10-24",
+        ];
+        for date in &dates {
+            create_balance_update(
+                conn,
+                CreateBalanceUpdateParams {
+                    account_id,
+                    amount_minor: 100,
+                    event_date: (*date).to_owned(),
+                    note: None,
+                },
+            )
+            .unwrap();
+        }
+        dates
+    }
+
+    fn listed_dates(conn: &Connection, query: ListEventsQuery) -> Vec<String> {
+        let mut dates: Vec<String> = list_events(conn, query)
+            .unwrap()
+            .events
+            .into_iter()
+            .map(|e| e.event_date)
+            .collect();
+        dates.sort();
+        dates
+    }
+
+    #[test]
+    fn from_bound_includes_date_only_and_timed_events_on_that_day() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        seed_events(&conn);
+
+        for from_date in ["2026-10-23T00:00:00", "2026-10-23"] {
+            let dates = listed_dates(
+                &conn,
+                ListEventsQuery {
+                    from_date: Some(from_date.to_owned()),
+                    ..Default::default()
+                },
+            );
+            assert_eq!(
+                dates,
+                ["2026-10-23", "2026-10-23T10:30:00", "2026-10-24"],
+                "from_date {from_date}"
+            );
+        }
+    }
+
+    #[test]
+    fn to_bound_includes_date_only_and_timed_events_on_that_day() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        seed_events(&conn);
+
+        for before_date in ["2026-10-23T23:59:59", "2026-10-23"] {
+            let dates = listed_dates(
+                &conn,
+                ListEventsQuery {
+                    before_date: Some(before_date.to_owned()),
+                    ..Default::default()
+                },
+            );
+            assert_eq!(
+                dates,
+                ["2026-10-22T23:59:59", "2026-10-23", "2026-10-23T10:30:00"],
+                "before_date {before_date}"
+            );
+        }
+    }
+
+    #[test]
+    fn single_day_range_returns_both_stored_formats_of_that_day() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        seed_events(&conn);
+
+        let dates = listed_dates(
+            &conn,
+            ListEventsQuery {
+                from_date: Some("2026-10-23T00:00:00".to_owned()),
+                before_date: Some("2026-10-23T23:59:59".to_owned()),
+                ..Default::default()
+            },
+        );
+
+        assert_eq!(dates, ["2026-10-23", "2026-10-23T10:30:00"]);
+    }
 }
