@@ -38,8 +38,10 @@ pub fn initialize_in_memory() -> Result<Connection, AppError> {
 /// Copy the database behind `conn` to `dest`. `VACUUM INTO` writes a consistent snapshot that
 /// includes pages still in the WAL, but does not sync its output, so the copy is written and
 /// synced under a temporary name and only then renamed: `dest` never exists half-written.
+/// `VACUUM INTO` refuses an existing file, so a temporary file left by a crashed copy goes first.
 pub fn copy_db(conn: &Connection, dest: &Path) -> Result<(), AppError> {
     let tmp = side_file(dest, ".tmp");
+    let _ = std::fs::remove_file(&tmp);
     let copied = vacuum_into(conn, &tmp).and_then(|()| Ok(std::fs::rename(&tmp, dest)?));
     if copied.is_err() {
         let _ = std::fs::remove_file(&tmp);
@@ -147,5 +149,19 @@ mod tests {
             count, 34,
             "Running migrations twice must not duplicate rows"
         );
+    }
+
+    #[test]
+    fn copy_db_replaces_a_temporary_file_left_by_a_crashed_copy() {
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("saldo.db");
+        std::fs::write(dir.path().join("saldo.db.tmp"), b"half-written").unwrap();
+        let conn = initialize_in_memory().expect("DB init failed");
+
+        copy_db(&conn, &dest).expect("copy over a stale temporary file failed");
+
+        let copy = Connection::open(&dest).unwrap();
+        integrity_check(&copy).expect("copy failed its integrity check");
+        assert!(!dir.path().join("saldo.db.tmp").exists());
     }
 }
