@@ -1,4 +1,6 @@
 use crate::shared::with_savepoint;
+use chrono::NaiveDate;
+use rusqlite::types::Type;
 use rusqlite::{params, Connection, OptionalExtension};
 
 use super::models::{Currency, FxRateRow};
@@ -16,6 +18,15 @@ pub struct GetFxRateForConversionParams {
     pub from_currency_id: i64,
     pub to_currency_id: i64,
     pub date: String,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct StoredRate {
+    pub mantissa: i64,
+    pub exponent: i64,
+    pub is_direct: bool,
+    pub date: NaiveDate,
+    pub is_manual: bool,
 }
 
 pub struct GetLatestFxRateDateParams {
@@ -143,9 +154,9 @@ pub fn list_fx_rates(
 pub fn get_fx_rate_for_conversion(
     conn: &Connection,
     params: GetFxRateForConversionParams,
-) -> rusqlite::Result<Option<(i64, i64, bool)>> {
+) -> rusqlite::Result<Option<StoredRate>> {
     conn.query_row(
-        "SELECT rate_mantissa, rate_exponent, is_direct
+        "SELECT rate_mantissa, rate_exponent, is_direct, date, is_manual
          FROM fx_rate
          WHERE from_currency_id = ?1
            AND to_currency_id = ?2
@@ -158,11 +169,26 @@ pub fn get_fx_rate_for_conversion(
             params.date.as_str()
         ],
         |row| {
-            Ok((
-                row.get::<_, i64>(0)?,
-                row.get::<_, i64>(1)?,
-                row.get::<_, i64>(2)? != 0,
-            ))
+            let date: String = row.get(3)?;
+            // Custom-unit prices are stored under the asset update's event date, which may
+            // carry a time.
+            let day = date
+                .get(..10)
+                .and_then(|day| NaiveDate::parse_from_str(day, "%Y-%m-%d").ok())
+                .ok_or_else(|| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        3,
+                        Type::Text,
+                        format!("fx_rate date is not a date: {date}").into(),
+                    )
+                })?;
+            Ok(StoredRate {
+                mantissa: row.get(0)?,
+                exponent: row.get(1)?,
+                is_direct: row.get::<_, i64>(2)? != 0,
+                date: day,
+                is_manual: row.get::<_, i64>(4)? != 0,
+            })
         },
     )
     .optional()
@@ -287,6 +313,16 @@ mod tests {
     use super::*;
     use crate::db::initialize_in_memory;
 
+    fn stored(mantissa: i64, date: &str, is_manual: bool) -> Option<StoredRate> {
+        Some(StoredRate {
+            mantissa,
+            exponent: -4,
+            is_direct: false,
+            date: NaiveDate::parse_from_str(date, "%Y-%m-%d").unwrap(),
+            is_manual,
+        })
+    }
+
     #[test]
     fn get_consolidation_currency_returns_eur() {
         let conn = initialize_in_memory().expect("DB init failed");
@@ -405,7 +441,7 @@ mod tests {
             },
         )
         .unwrap();
-        assert_eq!(rate, Some((10842, -4, false)));
+        assert_eq!(rate, stored(10842, "2026-02-01", true));
 
         // Before any rates → None
         let none = get_fx_rate_for_conversion(
@@ -446,7 +482,7 @@ mod tests {
             },
         )
         .unwrap();
-        assert_eq!(rate, Some((10842, -4, false)));
+        assert_eq!(rate, stored(10842, "2026-03-01", false));
     }
 
     #[test]
@@ -478,7 +514,7 @@ mod tests {
             },
         )
         .unwrap();
-        assert_eq!(rate, Some((10900, -4, false)));
+        assert_eq!(rate, stored(10900, "2026-03-01", false));
     }
 
     #[test]
@@ -523,7 +559,7 @@ mod tests {
             },
         )
         .unwrap();
-        assert_eq!(rate, Some((10842, -4, false)));
+        assert_eq!(rate, stored(10842, "2026-03-01", true));
 
         let is_manual: i64 = conn
             .query_row(
@@ -533,6 +569,41 @@ mod tests {
             )
             .unwrap();
         assert_eq!(is_manual, 1);
+    }
+
+    #[test]
+    fn a_rate_stored_under_a_datetime_reports_its_day() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let eur = get_consolidation_currency(&conn).unwrap().id;
+        let usd: i64 = conn
+            .query_row("SELECT id FROM currency WHERE code = 'USD'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        set_fx_rate_manual(
+            &conn,
+            SetFxRateManualParams {
+                from_currency_id: eur,
+                to_currency_id: usd,
+                date: "2026-03-01T10:00:00".to_owned(),
+                rate_mantissa: 10842,
+                rate_exponent: -4,
+                is_direct: false,
+            },
+        )
+        .unwrap();
+
+        let rate = get_fx_rate_for_conversion(
+            &conn,
+            GetFxRateForConversionParams {
+                from_currency_id: eur,
+                to_currency_id: usd,
+                date: "2026-03-02".to_owned(),
+            },
+        )
+        .unwrap();
+
+        assert_eq!(rate, stored(10842, "2026-03-01", true));
     }
 
     fn mk_account(conn: &Connection, currency_id: i64, account_type: &str) -> i64 {

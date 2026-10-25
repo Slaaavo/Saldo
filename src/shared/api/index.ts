@@ -1,7 +1,8 @@
 import { invoke } from '@tauri-apps/api/core'
 import type { ProcessReceiptResult } from '../../features/ekasa-import/types'
 import type {
-  SnapshotRow,
+  AsOf,
+  Snapshot,
   ListEventsResult,
   Currency,
   FxRateRow,
@@ -29,8 +30,8 @@ export const createBalanceUpdate = (accountId: number, amountMinor: number, even
   })
 }
 
-export const getAccountsSnapshot = (dateIso: string, personId?: number): Promise<SnapshotRow[]> => {
-  return invoke('get_accounts_snapshot', { dateIso, personId: personId ?? null })
+export const getAccountsSnapshot = (asOf: AsOf, personId?: number): Promise<Snapshot> => {
+  return invoke('get_accounts_snapshot', { input: { asOf, personId: personId ?? null } })
 }
 
 export interface ListEventsFilter {

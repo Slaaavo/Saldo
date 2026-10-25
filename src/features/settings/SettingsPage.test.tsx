@@ -118,6 +118,7 @@ vi.mock('../../shared/api', () => ({
   setBulkUpdateExclusions: vi.fn(),
 }))
 import { getAccountsSnapshot, getBulkUpdateExclusions } from '../../shared/api'
+import { makeSnapshot } from '../../shared/testing/snapshotFixtures'
 
 const makeWrapper = () => {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: 0 } } })
@@ -136,7 +137,7 @@ const makeWrapper = () => {
 describe('SettingsPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    ;(getAccountsSnapshot as Mock).mockResolvedValue([])
+    ;(getAccountsSnapshot as Mock).mockResolvedValue(makeSnapshot())
     ;(getBulkUpdateExclusions as Mock).mockResolvedValue([])
     hookReturn = {
       currencies: [EUR, USD],

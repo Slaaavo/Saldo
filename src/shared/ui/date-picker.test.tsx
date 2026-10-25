@@ -30,6 +30,27 @@ describe('DatePicker display', () => {
   })
 })
 
+describe('DatePicker Today button', () => {
+  it('offers Today by default', async () => {
+    const user = userEvent.setup()
+    render(<DatePicker value="2026-03-05" onChange={vi.fn()} />)
+
+    await openPicker(user)
+
+    expect(screen.getByRole('button', { name: 'datePicker.today' })).toBeInTheDocument()
+  })
+
+  it('leaves Today out when showToday is false', async () => {
+    const user = userEvent.setup()
+    render(<DatePicker value="2026-03-05" onChange={vi.fn()} showToday={false} />)
+
+    await openPicker(user)
+
+    expect(screen.getByRole('grid')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'datePicker.today' })).not.toBeInTheDocument()
+  })
+})
+
 describe('DatePicker with time', () => {
   it('shows the time carried by the value', async () => {
     const user = userEvent.setup()

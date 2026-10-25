@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { EventWithData } from '../types'
 import { useDashboardEventsQuery } from './useDashboardEventsQuery'
 import { listEvents } from '../api'
+import { LIVE } from '../utils/snapshot'
 
 vi.mock('../api', () => ({
   listEvents: vi.fn(),
@@ -30,6 +31,24 @@ describe('useDashboardEventsQuery', () => {
     selectedPersonId = null
   })
 
+  it('sends no upper date when live, so entries dated after today are listed', async () => {
+    ;(listEvents as Mock).mockResolvedValue(result(1))
+
+    const { result: hook } = renderHook(() => useDashboardEventsQuery(LIVE), { wrapper: makeWrapper() })
+    await waitFor(() => expect(hook.current.data).toBeDefined())
+
+    expect(listEvents).toHaveBeenCalledWith({ beforeDate: undefined, limit: 20, personId: undefined })
+  })
+
+  it('lists up to the end of the picked day in the time machine', async () => {
+    ;(listEvents as Mock).mockResolvedValue(result(1))
+
+    const { result: hook } = renderHook(() => useDashboardEventsQuery({ kind: 'at', until: '2026-10-20' }), { wrapper: makeWrapper() })
+    await waitFor(() => expect(hook.current.data).toBeDefined())
+
+    expect(listEvents).toHaveBeenCalledWith({ beforeDate: '2026-10-20T23:59:59', limit: 20, personId: undefined })
+  })
+
   it('keeps the previous events while the next person or date loads', async () => {
     const first = result(1)
     let resolveNext: (value: EventsResult) => void = () => {}
@@ -39,7 +58,7 @@ describe('useDashboardEventsQuery', () => {
       }),
     )
 
-    const { result: hook, rerender } = renderHook(() => useDashboardEventsQuery('2026-01-15'), { wrapper: makeWrapper() })
+    const { result: hook, rerender } = renderHook(() => useDashboardEventsQuery(LIVE), { wrapper: makeWrapper() })
     await waitFor(() => expect(hook.current.data).toEqual(first))
 
     selectedPersonId = 2

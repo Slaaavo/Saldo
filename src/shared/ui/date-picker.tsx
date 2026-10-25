@@ -19,6 +19,7 @@ interface DatePickerProps {
   clearable?: boolean
   withTime?: boolean
   defaultTime?: string
+  showToday?: boolean
 }
 
 const parseDateOnly = (value: string): Date => {
@@ -62,6 +63,7 @@ export const DatePicker = ({
   clearable = false,
   withTime = false,
   defaultTime = DEFAULT_PICKER_TIME,
+  showToday = true,
 }: DatePickerProps) => {
   const { t, i18n } = useTranslation()
   const [open, setOpen] = useState(false)
@@ -175,11 +177,13 @@ export const DatePicker = ({
             </div>
           </div>
         )}
-        <div className="border-t border-border px-3 py-2">
-          <Button variant="ghost" size="sm" className="w-full text-sm" onClick={handleTodayClick}>
-            {t('datePicker.today')}
-          </Button>
-        </div>
+        {showToday && (
+          <div className="border-t border-border px-3 py-2">
+            <Button variant="ghost" size="sm" className="w-full text-sm" onClick={handleTodayClick}>
+              {t('datePicker.today')}
+            </Button>
+          </div>
+        )}
       </PopoverContent>
     </Popover>
   )

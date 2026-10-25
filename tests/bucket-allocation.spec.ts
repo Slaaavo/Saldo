@@ -308,14 +308,12 @@ test.describe('Bucket–Account Linking (Capital Allocation)', () => {
 
   // ── Test 7: Allocations respect the snapshot date ─────────────────────────
 
-  test('allocations with a future effective date are hidden when the snapshot date is earlier', async ({
+  test('allocations with a future effective date count live and are hidden in the time machine at today', async ({
     page,
   }) => {
     await createAccount(page, 'Savings T7', '10000');
     await createBucket(page, 'Emergency Fund T7');
 
-    // Open the bucket modal and set the allocation effective date to tomorrow
-    // before linking, so the allocation does not appear at today's snapshot date.
     await openUpdateBalanceModal(page, 'Emergency Fund T7');
     await expect(page.getByText('Linked Accounts')).toBeVisible();
 
@@ -338,14 +336,13 @@ test.describe('Bucket–Account Linking (Capital Allocation)', () => {
     await page.getByRole('button', { name: 'Create' }).last().click();
     await expect(page.getByRole('dialog')).not.toBeVisible();
 
-    // With the snapshot date at TODAY, the allocation (effective tomorrow) must NOT appear
+    await expect(getCard(page, 'Emergency Fund T7')).toContainText('5 000');
+
+    await page.locator('#date-picker').click();
+    await clickCalendarDay(page, String(today.getDate()), 0);
     await expect(getCard(page, 'Emergency Fund T7')).not.toContainText('5 000');
 
-    // Move the header snapshot date forward to TOMORROW
-    await page.locator('#date-picker').click();
-    await clickCalendarDay(page, tomorrowDay, tomorrowIsNextMonth ? 1 : 0);
-
-    // Now the allocation is within the snapshot window — it must appear on the bucket card
+    await page.getByRole('button', { name: 'Back to live' }).click();
     await expect(getCard(page, 'Emergency Fund T7')).toContainText('5 000');
   });
 });

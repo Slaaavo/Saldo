@@ -12,7 +12,7 @@ import { useSnapshotQuery } from '../../shared/hooks/useSnapshotQuery'
 import { useConsolidationCurrencyQuery } from '../../shared/hooks/useConsolidationCurrencyQuery'
 import { useEditEventHandler } from '../../shared/hooks/useEditEventHandler'
 import { useModal } from '../../app/useModal'
-import { todayIso } from '../../shared/utils/format'
+import { LIVE } from '../../shared/utils/snapshot'
 import { useSelectedPerson } from '../../app/useSelectedPerson'
 
 const LedgerPage = () => {
@@ -20,8 +20,8 @@ const LedgerPage = () => {
   const { setModalState } = useModal()
   const { selectedPersonId } = useSelectedPerson()
   const handleEditEvent = useEditEventHandler()
-  const snapshotQuery = useSnapshotQuery(todayIso())
-  const snapshot = snapshotQuery.data ?? []
+  const snapshotQuery = useSnapshotQuery(LIVE)
+  const snapshot = snapshotQuery.data?.rows ?? []
   const consolidationCurrencyQuery = useConsolidationCurrencyQuery()
   const consolidationCurrency = consolidationCurrencyQuery.data ?? null
 

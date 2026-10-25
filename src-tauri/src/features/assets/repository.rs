@@ -381,7 +381,7 @@ mod tests {
     use crate::db::initialize_in_memory;
     use crate::features::accounts::repository::{create_account, CreateAccountParams};
     use crate::features::transactions::repository::{
-        create_balance_update, get_accounts_snapshot, CreateBalanceUpdateParams, GetSnapshotParams,
+        create_balance_update, rows_at, CreateBalanceUpdateParams,
     };
 
     fn mk_account(conn: &Connection) -> i64 {
@@ -555,14 +555,7 @@ mod tests {
         .unwrap();
 
         // Before linking: flag is false.
-        let snap_before = get_accounts_snapshot(
-            &conn,
-            GetSnapshotParams {
-                selected_datetime: "2099-12-31T23:59:59".to_owned(),
-                ..Default::default()
-            },
-        )
-        .unwrap();
+        let snap_before = rows_at(&conn, "2099-12-31T23:59:59");
         let acc_before = snap_before
             .iter()
             .find(|r| r.account_id == account_id)
@@ -571,14 +564,7 @@ mod tests {
 
         // After linking: flag is true and linked_asset_ids contains the asset.
         set_account_asset_links(&conn, account_id, &[asset_id]).unwrap();
-        let snap_after = get_accounts_snapshot(
-            &conn,
-            GetSnapshotParams {
-                selected_datetime: "2099-12-31T23:59:59".to_owned(),
-                ..Default::default()
-            },
-        )
-        .unwrap();
+        let snap_after = rows_at(&conn, "2099-12-31T23:59:59");
         let acc_after = snap_after
             .iter()
             .find(|r| r.account_id == account_id)
@@ -652,18 +638,11 @@ mod tests {
         )
         .unwrap();
 
-        let snap = get_accounts_snapshot(
-            &conn,
-            GetSnapshotParams {
-                selected_datetime: "2024-12-31T23:59:59".to_owned(),
-                ..Default::default()
-            },
-        )
-        .unwrap();
+        let snap = rows_at(&conn, "2024-12-31T23:59:59");
         let bucket = snap.iter().find(|r| r.account_id == bucket_id).unwrap();
-        // Bucket's linked_balance_minor includes the account's balance.
-        assert_eq!(bucket.linked_balance_minor, 20_000);
         assert_eq!(bucket.bucket_links.len(), 1);
+        assert_eq!(bucket.bucket_links[0].balance_minor, 20_000);
+        assert_eq!(bucket.counted_minor, 20_000);
     }
 
     #[test]

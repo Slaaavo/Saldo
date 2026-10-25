@@ -165,27 +165,121 @@ export interface PartnerAccount {
   createdAt: string
 }
 
+export type AccountKind = 'account' | 'bucket' | 'asset'
+
+/** Live shows everything Saldo knows. A moment shows the books as they stood then. `until` is YYYY-MM-DD (end of day) or YYYY-MM-DDTHH:MM:SS. */
+export type AsOf = { kind: 'live' } | { kind: 'at'; until: string }
+
+export interface RateUsed {
+  mantissa: number
+  exponent: number
+  /** False: 1 consolidation unit = rate held units. True (custom unit): 1 held unit = rate consolidation units. */
+  isDirect: boolean
+  date: string
+  isManual: boolean
+  ageDays: number
+  stale: boolean
+}
+
+/** An amount's value in the consolidation currency. Without a stored rate there is no value. */
+export type Valuation = { kind: 'sameCurrency'; valueMinor: number } | { kind: 'converted'; valueMinor: number; rate: RateUsed } | { kind: 'noRate' }
+
+export interface ValuedBucketLink extends BucketLink {
+  balanceMinor: number
+  valuation: Valuation
+}
+
+export interface TaggedCashflows {
+  sourceAccountId: number
+  sourceAccountName: string
+  currencyCode: string
+  currencyMinorUnits: number
+  isCustom: boolean
+  amountMinor: number
+  valuation: Valuation
+}
+
 export interface SnapshotRow {
   accountId: number
   accountName: string
-  accountType: string
+  accountType: AccountKind
   iban: string | null
   balanceMinor: number
   currencyCode: string
   currencyMinorUnits: number
   isCustom: boolean
-  convertedBalanceMinor: number
-  fxRateMissing: boolean
+  valuation: Valuation
   isLinkedToAsset: boolean
   linkedAssetIds: number[]
   isBucketLinked: boolean
-  bucketLinks: BucketLink[]
-  linkedBalanceMinor: number
-  cashflowTaggedMinor: number
+  bucketLinks: ValuedBucketLink[]
+  taggedCashflows: TaggedCashflows[]
+  /** The row's value in the consolidation currency, summed over its valued parts (a bucket's own balance, links and tagged cashflows). */
+  countedMinor: number
+  /** Set only on an asset whose parts and linked accounts all have a rate. */
+  equityMinor: number | null
   personId: number | null
   purchasePriceMinor: number | null
   purchaseDate: string | null
   depreciationPeriodMonths: number | null
+}
+
+export interface Money {
+  amountMinor: number
+  currencyCode: string
+  minorUnits: number
+}
+
+export type LinePart =
+  | { kind: 'balance' }
+  | { kind: 'linkedAccount'; sourceAccountId: number; sourceAccountName: string }
+  | { kind: 'taggedCashflows'; sourceAccountId: number; sourceAccountName: string }
+  | { kind: 'bucketTotal' }
+
+export interface LineSubject {
+  accountId: number
+  accountName: string
+  accountType: AccountKind
+  part: LinePart
+}
+
+export interface CountedLine extends LineSubject {
+  native: Money
+  /** Null for an amount already in the consolidation currency. */
+  rate: RateUsed | null
+  /** This line's contribution to the metric's total, sign included. */
+  signedMinor: number
+}
+
+export type NotCountedReason = 'noRate' | 'linkedToAsset' | 'earmark' | 'notLiquid'
+
+export interface SkippedLine extends LineSubject {
+  amount: Money
+  reason: NotCountedReason
+}
+
+export type MetricKind = 'netWorth' | 'liquid' | 'totalBalance' | 'leftToSpend'
+
+export interface Metric {
+  kind: MetricKind
+  totalMinor: number
+  counted: CountedLine[]
+  skipped: SkippedLine[]
+}
+
+export type RateProblem = { kind: 'noRate' } | { kind: 'stale'; rate: RateUsed; limitDays: number }
+
+export interface RateWarning {
+  accountId: number
+  accountName: string
+  native: Money
+  problem: RateProblem
+}
+
+export interface Snapshot {
+  rows: SnapshotRow[]
+  metrics: Metric[]
+  rateWarnings: RateWarning[]
 }
 
 export interface FxRateRow {

@@ -60,14 +60,9 @@ const StandaloneEventCard = ({ ev, bucketSnap, consolidationCurrency, onEditEven
           <div className="flex flex-col items-end gap-0.5">
             {bucketSnap ? (
               <BucketAmountWithTooltip
-                totalMinor={bucketSnap.convertedBalanceMinor}
-                manualBalanceMinor={bucketSnap.balanceMinor}
-                bucketLinks={bucketSnap.bucketLinks}
-                currencyCode={consolidationCurrency?.code ?? bucketSnap.currencyCode}
-                minorUnits={consolidationCurrency?.minorUnits ?? bucketSnap.currencyMinorUnits}
-                manualCurrencyCode={bucketSnap.currencyCode}
-                manualMinorUnits={bucketSnap.currencyMinorUnits}
-                className={cn('text-sm font-bold tabular-nums', bucketSnap.convertedBalanceMinor < 0 && 'text-destructive')}
+                row={bucketSnap}
+                currency={consolidationCurrency}
+                className={cn('text-sm font-bold tabular-nums', bucketSnap.countedMinor < 0 && 'text-destructive')}
               />
             ) : (
               <NumberValue

@@ -4,7 +4,8 @@ import { renderHook, waitFor, act } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { useLedgerData } from './useLedgerData'
 import { SelectedPersonProvider } from '../../app/SelectedPersonContext'
-import type { EventWithData, SnapshotRow } from '../../shared/types'
+import type { EventWithData } from '../../shared/types'
+import { makeRow } from '../../shared/testing/snapshotFixtures'
 
 // ── Mock the API layer ──────────────────────────────────────────────────────
 vi.mock('../../shared/api', () => ({
@@ -36,32 +37,6 @@ const createWrapper = () => {
   })
   return ({ children }: { children: React.ReactNode }) =>
     React.createElement(QueryClientProvider, { client: queryClient }, React.createElement(SelectedPersonProvider, null, children))
-}
-
-const makeSnapshot = (overrides?: Partial<SnapshotRow>): SnapshotRow => {
-  return {
-    accountId: 1,
-    accountName: 'Checking',
-    accountType: 'account',
-    iban: null,
-    balanceMinor: 100000,
-    currencyCode: 'EUR',
-    currencyMinorUnits: 2,
-    isCustom: false,
-    convertedBalanceMinor: 100000,
-    fxRateMissing: false,
-    isBucketLinked: false,
-    bucketLinks: [],
-    linkedBalanceMinor: 0,
-    cashflowTaggedMinor: 0,
-    isLinkedToAsset: false,
-    linkedAssetIds: [],
-    personId: null,
-    purchasePriceMinor: null,
-    purchaseDate: null,
-    depreciationPeriodMonths: null,
-    ...overrides,
-  }
 }
 
 const makeEvent = (overrides?: Partial<EventWithData>): EventWithData => {
@@ -229,7 +204,7 @@ describe('useLedgerData', () => {
 
   it('routes bucket IDs to both accountIds and bucketIds', async () => {
     const bucketId = 42
-    const snapshot = [makeSnapshot({ accountId: bucketId, accountType: 'bucket' })]
+    const snapshot = [makeRow({ accountId: bucketId, accountType: 'bucket' })]
     const { result } = renderHook(() => useLedgerData({ snapshot }), { wrapper: createWrapper() })
 
     await waitFor(() => expect(result.current.events).toHaveLength(1))

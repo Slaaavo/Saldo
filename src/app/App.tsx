@@ -10,11 +10,10 @@ import { useDbLocation, useDbFallbackWarning } from '../features/settings/useDbL
 import { useDemoMode } from '../features/settings/useDemoMode'
 import DemoModeBanner from '../features/settings/DemoModeBanner'
 import { Toaster } from 'sonner'
-import { todayIso } from '../shared/utils/format'
 import { ModalProvider } from './ModalContext'
 import { useModal } from './useModal'
 import { DemoProvider } from './DemoContext'
-import { SelectedDateProvider } from './SelectedDateContext'
+import { TimeMachineProvider } from './TimeMachineContext'
 import { SelectedPersonProvider } from './SelectedPersonContext'
 import { PageHeaderProvider } from './PageHeaderContext'
 import { usePageHeader } from './usePageHeader'
@@ -53,7 +52,7 @@ const AppShell = () => {
 
   return (
     <SelectedPersonProvider>
-      <SelectedDateProvider>
+      <TimeMachineProvider>
         <DemoProvider isDemoMode={demo.isDemoMode} onEnterDemoMode={demo.handleEnter} onExitDemoMode={demo.handleExit}>
           <>
             <Toaster theme={theme} richColors />
@@ -71,12 +70,12 @@ const AppShell = () => {
                     </div>
                   </div>
                 </div>
-                <AppModals selectedDate={todayIso()} dbLocation={dbLocation} />
+                <AppModals dbLocation={dbLocation} />
               </div>
             </div>
           </>
         </DemoProvider>
-      </SelectedDateProvider>
+      </TimeMachineProvider>
     </SelectedPersonProvider>
   )
 }

@@ -8,8 +8,22 @@ use rusqlite::Connection;
 use serde::Deserialize;
 use tauri::State;
 
-use super::models::{CreateSplitGroupInput, EventWithData, ListEventsResult, SnapshotRow};
-use super::repository::{self, GetSnapshotParams};
+use super::models::{CreateSplitGroupInput, EventWithData, ListEventsResult, Snapshot};
+use super::repository::{self, GetSnapshotParams, Moment};
+
+#[derive(Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum AsOfInput {
+    Live,
+    At { until: String },
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GetSnapshotInput {
+    pub as_of: AsOfInput,
+    pub person_id: Option<i64>,
+}
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -132,20 +146,18 @@ pub fn create_balance_update(
 #[tauri::command]
 pub fn get_accounts_snapshot(
     state: State<'_, AppState>,
-    date_iso: String,
-    person_id: Option<i64>,
-) -> Result<Vec<SnapshotRow>, AppError> {
-    let selected_datetime = if date_iso.len() == 10 {
-        format!("{}T23:59:59", date_iso)
-    } else {
-        date_iso
+    input: GetSnapshotInput,
+) -> Result<Snapshot, AppError> {
+    let moment = match input.as_of {
+        AsOfInput::Live => Moment::live(chrono::Local::now().date_naive()),
+        AsOfInput::At { until } => Moment::at(&until)?,
     };
     let conn = state.conn()?;
     let snapshot = repository::get_accounts_snapshot(
         &conn,
         GetSnapshotParams {
-            selected_datetime,
-            person_id,
+            moment,
+            person_id: input.person_id,
         },
     )?;
     Ok(snapshot)
@@ -1176,6 +1188,20 @@ mod tests {
     use crate::features::persons::repository::{create_person, CreatePersonParams};
     use crate::features::transactions::models::SplitGroupEntry;
     use rusqlite::{params, Connection};
+
+    #[test]
+    fn get_snapshot_input_parses_live_and_a_picked_moment() {
+        let live: GetSnapshotInput =
+            serde_json::from_str(r#"{"asOf":{"kind":"live"},"personId":null}"#).unwrap();
+        assert!(matches!(live.as_of, AsOfInput::Live));
+        assert_eq!(live.person_id, None);
+
+        let at: GetSnapshotInput =
+            serde_json::from_str(r#"{"asOf":{"kind":"at","until":"2026-10-20"},"personId":3}"#)
+                .unwrap();
+        assert!(matches!(at.as_of, AsOfInput::At { until } if until == "2026-10-20"));
+        assert_eq!(at.person_id, Some(3));
+    }
 
     fn mk_account(conn: &Connection) -> i64 {
         create_account(

@@ -50,12 +50,13 @@ pub fn seed_demo_data(
     let m1_date = m1_naive.format("%Y-%m-%d").to_string();
     let m2_date = m2_naive.format("%Y-%m-%d").to_string();
     let m3_date = m3_naive.format("%Y-%m-%d").to_string();
+    let today = Local::now().date_naive().format("%Y-%m-%d").to_string();
 
     conn.execute_batch("BEGIN")?;
 
     match seed_impl(
         conn, eur_id, btc_id, &m1_event, &m2_event, &m3_event, &m1_date, &m2_date, &m3_date,
-        oxr_app_id, theme,
+        &today, oxr_app_id, theme,
     ) {
         Ok(()) => conn.execute_batch("COMMIT").map_err(AppError::from),
         Err(e) => {
@@ -76,6 +77,7 @@ fn seed_impl(
     m1_date: &str,
     m2_date: &str,
     m3_date: &str,
+    today: &str,
     oxr_app_id: Option<String>,
     theme: Option<String>,
 ) -> Result<(), AppError> {
@@ -219,7 +221,8 @@ fn seed_impl(
         params![ret_m3_id, btc_wallet_id],
     )?;
 
-    // H. Insert 3 FX rates (EUR → BTC, is_manual = 1).
+    // H. Insert 4 FX rates (EUR → BTC, is_manual = 1): one per month, and the latest month's
+    // again dated today so live demo mode shows no old-rate warning.
     // The rate represents whole BTC per 1 whole EUR: stored as mantissa × 10^exponent.
     // Approximate BTC prices: M1 ≈ €82,450, M2 ≈ €88,200, M3 ≈ €91,750 per BTC.
     // Correct representation: 1/82450 ≈ 121309×10⁻¹⁰; etc.
@@ -254,6 +257,16 @@ fn seed_impl(
            rate_exponent = excluded.rate_exponent,
            is_manual     = excluded.is_manual",
         params![m3_date, eur_id, btc_id],
+    )?;
+    conn.execute(
+        "INSERT INTO fx_rate
+           (date, from_currency_id, to_currency_id, rate_mantissa, rate_exponent, is_manual)
+         VALUES (?1, ?2, ?3, 108981, -10, 1)
+         ON CONFLICT (date, from_currency_id, to_currency_id) DO UPDATE SET
+           rate_mantissa = excluded.rate_mantissa,
+           rate_exponent = excluded.rate_exponent,
+           is_manual     = excluded.is_manual",
+        params![today, eur_id, btc_id],
     )?;
 
     Ok(())
@@ -335,11 +348,11 @@ mod tests {
             .unwrap();
         assert_eq!(bucket_link_count, 3);
 
-        // 3 FX rates (EUR → BTC, one per month)
+        // 4 FX rates (EUR → BTC, one per month and one today)
         let rate_count: i64 = conn
             .query_row("SELECT COUNT(*) FROM fx_rate", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(rate_count, 3);
+        assert_eq!(rate_count, 4);
 
         // 1 account-asset link (Mortgage → House)
         let link_count: i64 = conn
@@ -405,6 +418,33 @@ mod tests {
             )
             .unwrap();
         assert_eq!(demo_account_count, 8);
+    }
+
+    #[test]
+    fn live_demo_snapshot_has_no_rate_warnings() {
+        use crate::features::transactions::repository::{
+            get_accounts_snapshot, GetSnapshotParams, Moment,
+        };
+
+        let conn = initialize_in_memory().expect("DB init failed");
+        seed_demo_data(&conn, None, None).expect("seed failed");
+
+        let snapshot = get_accounts_snapshot(
+            &conn,
+            GetSnapshotParams {
+                moment: Moment::live(Local::now().date_naive()),
+                person_id: None,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(snapshot.rate_warnings, []);
+        let btc_wallet = snapshot
+            .rows
+            .iter()
+            .find(|row| row.account_name == "BTC Wallet")
+            .unwrap();
+        assert!(btc_wallet.valuation.value_minor().is_some());
     }
 
     #[test]

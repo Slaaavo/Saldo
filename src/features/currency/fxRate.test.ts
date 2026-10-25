@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { formatRate, parseRateInput, buildRatePivot } from './fxRate'
+import { parseRateInput, buildRatePivot } from './fxRate'
+import { formatRate } from '../../shared/utils/fxRate'
 import type { FxRateRow, Currency } from '../../shared/types'
 
 const makeRow = (mantissa: number, exponent: number, overrides?: Partial<FxRateRow>): FxRateRow => ({
@@ -21,32 +22,6 @@ const makeCurrency = (id: number, code: string): Currency => ({
   name: code,
   minorUnits: 2,
   isCustom: false,
-})
-
-describe('formatRate', () => {
-  it('formats integer rate (exponent 0)', () => {
-    expect(formatRate(makeRow(2, 0))).toBe('2')
-  })
-
-  it('formats rate with negative exponent', () => {
-    expect(formatRate(makeRow(10842, -4))).toBe('1.0842')
-  })
-
-  it('formats rate with positive exponent', () => {
-    expect(formatRate(makeRow(15, 2))).toBe('1500')
-  })
-
-  it('formats rate of 1', () => {
-    expect(formatRate(makeRow(1, 0))).toBe('1')
-  })
-
-  it('formats small fractional rate', () => {
-    expect(formatRate(makeRow(5, -3))).toBe('0.005')
-  })
-
-  it('formats large mantissa with large negative exponent', () => {
-    expect(formatRate(makeRow(123456789, -8))).toBe('1.23456789')
-  })
 })
 
 describe('parseRateInput', () => {
@@ -106,8 +81,7 @@ describe('parseRateInput', () => {
   it('roundtrips with formatRate', () => {
     const input = '1.0842'
     const parsed = parseRateInput(input)!
-    const row = makeRow(parsed.mantissa, parsed.exponent)
-    expect(formatRate(row)).toBe(input)
+    expect(formatRate(parsed.mantissa, parsed.exponent)).toBe(input)
   })
 })
 

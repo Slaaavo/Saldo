@@ -9,8 +9,7 @@ import { useModal } from './useModal'
 import { useSnapshotQuery } from '../shared/hooks/useSnapshotQuery'
 import { useConsolidationCurrencyQuery } from '../shared/hooks/useConsolidationCurrencyQuery'
 import { useBulkUpdateExclusionsQuery } from '../shared/hooks/useBulkUpdateExclusionsQuery'
-import { computeDashboardMetrics } from '../features/dashboard/dashboardMetrics'
-import { todayIso } from '../shared/utils/format'
+import { LIVE, groupRowsByKind } from '../shared/utils/snapshot'
 import CreateBalanceUpdateModal from '../features/transactions/CreateBalanceUpdateModal'
 import EditBalanceUpdateModal from '../features/transactions/EditBalanceUpdateModal'
 import CreateAccountModal from '../features/accounts/CreateAccountModal'
@@ -33,7 +32,6 @@ import EditTaxableEventModal from '../features/transactions/EditTaxableEventModa
 import EditTaxableSplitGroupModal from '../features/transactions/EditTaxableSplitGroupModal'
 
 interface AppModalsProps {
-  selectedDate: string
   dbLocation: {
     actionLoading: boolean
     handleConfirmSwitch: (folder: string) => Promise<void>
@@ -42,15 +40,15 @@ interface AppModalsProps {
   }
 }
 
-const AppModals = ({ selectedDate, dbLocation }: AppModalsProps) => {
+const AppModals = ({ dbLocation }: AppModalsProps) => {
   const { t } = useTranslation()
   const { modalState, closeModal, setModalState } = useModal()
   const queryClient = useQueryClient()
   const [fetchLoading, setFetchLoading] = useState(false)
 
-  const snapshotQuery = useSnapshotQuery(todayIso())
-  const snapshot = snapshotQuery.data ?? []
-  const { accounts, buckets, assets } = computeDashboardMetrics(snapshot)
+  const snapshotQuery = useSnapshotQuery(LIVE)
+  const snapshot = snapshotQuery.data?.rows ?? []
+  const { accounts, buckets, assets } = groupRowsByKind(snapshot)
   const consolidationCurrencyQuery = useConsolidationCurrencyQuery()
   const consolidationCurrency = consolidationCurrencyQuery.data ?? null
   const exclusionsQuery = useBulkUpdateExclusionsQuery()
@@ -163,7 +161,7 @@ const AppModals = ({ selectedDate, dbLocation }: AppModalsProps) => {
       return <ConfirmDialog message={t('modals.confirm.deleteTransferEvent')} onConfirm={() => handleDeleteEvent(modalState.eventId)} onCancel={closeModal} />
 
     case 'bulkUpdateBalance':
-      return <BulkUpdateBalanceModal accounts={snapshot} selectedDate={selectedDate} exclusions={exclusions} onSubmit={handleBulkUpdateSubmit} onClose={closeModal} />
+      return <BulkUpdateBalanceModal exclusions={exclusions} onSubmit={handleBulkUpdateSubmit} onClose={closeModal} />
 
     case 'fetchFxRatePrompt':
       return (

@@ -1,33 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { normalizeIban, buildIbanLookup, matchIban } from './ibanMatcher'
-import type { SnapshotRow } from '../../../shared/types/index'
 import type { PartnerAccount } from '../../../shared/types/index'
-
-const makeSnapshotRow = (overrides?: Partial<SnapshotRow>): SnapshotRow => {
-  return {
-    accountId: 1,
-    accountName: 'Checking',
-    accountType: 'account',
-    iban: null,
-    balanceMinor: 100000,
-    currencyCode: 'EUR',
-    currencyMinorUnits: 2,
-    isCustom: false,
-    convertedBalanceMinor: 100000,
-    fxRateMissing: false,
-    isBucketLinked: false,
-    bucketLinks: [],
-    linkedBalanceMinor: 0,
-    cashflowTaggedMinor: 0,
-    isLinkedToAsset: false,
-    linkedAssetIds: [],
-    personId: null,
-    purchasePriceMinor: null,
-    purchaseDate: null,
-    depreciationPeriodMonths: null,
-    ...overrides,
-  }
-}
+import { makeRow } from '../../../shared/testing/snapshotFixtures'
 
 const makePartner = (overrides?: Partial<PartnerAccount>): PartnerAccount => {
   return {
@@ -56,7 +30,7 @@ describe('normalizeIban', () => {
 
 describe('buildIbanLookup', () => {
   it('includes snapshot rows with accountType === account and non-null IBAN', () => {
-    const snapshot = [makeSnapshotRow({ accountId: 1, iban: 'SK12 3456 7890' })]
+    const snapshot = [makeRow({ accountId: 1, iban: 'SK12 3456 7890' })]
     const lookup = buildIbanLookup(snapshot, [])
 
     expect(lookup.has('SK1234567890')).toBe(true)
@@ -66,13 +40,13 @@ describe('buildIbanLookup', () => {
   })
 
   it('excludes snapshot rows with null IBAN', () => {
-    const snapshot = [makeSnapshotRow({ accountId: 1, iban: null })]
+    const snapshot = [makeRow({ accountId: 1, iban: null })]
     const lookup = buildIbanLookup(snapshot, [])
     expect(lookup.size).toBe(0)
   })
 
   it('excludes snapshot rows with accountType !== account', () => {
-    const snapshot = [makeSnapshotRow({ accountId: 1, accountType: 'bucket', iban: 'SK12 3456 7890' })]
+    const snapshot = [makeRow({ accountId: 1, accountType: 'bucket', iban: 'SK12 3456 7890' })]
     const lookup = buildIbanLookup(snapshot, [])
     expect(lookup.size).toBe(0)
   })
@@ -94,7 +68,7 @@ describe('buildIbanLookup', () => {
   })
 
   it('combines snapshot and partner IBANs in the same lookup', () => {
-    const snapshot = [makeSnapshotRow({ accountId: 1, iban: 'SK1234567890' })]
+    const snapshot = [makeRow({ accountId: 1, iban: 'SK1234567890' })]
     const partners = [makePartner({ id: 10, iban: 'DE89370400440000' })]
     const lookup = buildIbanLookup(snapshot, partners)
 
@@ -106,7 +80,7 @@ describe('buildIbanLookup', () => {
 
 describe('matchIban', () => {
   it('returns ownAccount for a known account-type IBAN', () => {
-    const snapshot = [makeSnapshotRow({ accountId: 1, accountName: 'Checking', iban: 'SK1234567890' })]
+    const snapshot = [makeRow({ accountId: 1, accountName: 'Checking', iban: 'SK1234567890' })]
     const lookup = buildIbanLookup(snapshot, [])
     const result = matchIban('SK1234567890', lookup)
 
@@ -146,7 +120,7 @@ describe('matchIban – self-IBAN scenarios', () => {
     // When the CSV partner column contains the importing account's own IBAN, matchIban
     // will return ownAccount — the wizard-level guard in useImportWizard.goToReview is
     // responsible for suppressing this result. This test documents that raw behaviour.
-    const snapshot = [makeSnapshotRow({ accountId: 1, accountName: 'Checking', iban: 'SK1234567890' })]
+    const snapshot = [makeRow({ accountId: 1, accountName: 'Checking', iban: 'SK1234567890' })]
     const lookup = buildIbanLookup(snapshot, [])
     const result = matchIban('SK1234567890', lookup)
 
@@ -161,10 +135,7 @@ describe('matchIban – self-IBAN scenarios', () => {
     // must still resolve to ownAccount with accountId 2. The wizard guard in Step 1
     // fires only when accountId === selectedAccountId (i.e. 1), so account 2 must pass
     // through unaffected.
-    const snapshot = [
-      makeSnapshotRow({ accountId: 1, accountName: 'Checking', iban: 'SK1234567890' }),
-      makeSnapshotRow({ accountId: 2, accountName: 'Savings', iban: 'SK9876543210' }),
-    ]
+    const snapshot = [makeRow({ accountId: 1, accountName: 'Checking', iban: 'SK1234567890' }), makeRow({ accountId: 2, accountName: 'Savings', iban: 'SK9876543210' })]
     const lookup = buildIbanLookup(snapshot, [])
     const result = matchIban('SK9876543210', lookup)
 

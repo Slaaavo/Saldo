@@ -1,16 +1,16 @@
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { getAccountsSnapshot } from '../api'
-import { toEndOfDay } from '../utils/format'
+import type { AsOf } from '../types'
 import { useSelectedPerson } from '../../app/useSelectedPerson'
 
-export const useSnapshotQuery = (selectedDate: string) => {
+const LIVE_RATE_AGE_REFRESH_MS = 60 * 60 * 1000
+
+export const useSnapshotQuery = (asOf: AsOf) => {
   const { selectedPersonId } = useSelectedPerson()
   return useQuery({
-    queryKey: ['snapshot', selectedDate, selectedPersonId],
-    queryFn: async () => {
-      const result = await getAccountsSnapshot(toEndOfDay(selectedDate), selectedPersonId ?? undefined)
-      return result
-    },
+    queryKey: ['snapshot', asOf, selectedPersonId],
+    queryFn: () => getAccountsSnapshot(asOf, selectedPersonId ?? undefined),
     placeholderData: keepPreviousData,
+    refetchInterval: asOf.kind === 'live' ? LIVE_RATE_AGE_REFRESH_MS : false,
   })
 }

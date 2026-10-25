@@ -19,14 +19,14 @@ import { setBulkUpdateExclusions } from '../../shared/api'
 import { extractErrorMessage } from '../../shared/utils/errors'
 import { useSnapshotQuery } from '../../shared/hooks/useSnapshotQuery'
 import { useBulkUpdateExclusionsQuery } from '../../shared/hooks/useBulkUpdateExclusionsQuery'
-import { todayIso } from '../../shared/utils/format'
+import { LIVE } from '../../shared/utils/snapshot'
 
 const SettingsPage = () => {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [visibilityModalOpen, setVisibilityModalOpen] = useState(false)
-  const snapshotQuery = useSnapshotQuery(todayIso())
-  const snapshot = snapshotQuery.data ?? []
+  const snapshotQuery = useSnapshotQuery(LIVE)
+  const snapshot = snapshotQuery.data?.rows ?? []
   const exclusionsQuery = useBulkUpdateExclusionsQuery()
   const exclusions = exclusionsQuery.data ?? []
   const { currencies, selectedCurrency, apiKey, setApiKey, apiKeySaved, currencySaved, handleCurrencySelect, handleSaveApiKey } = useSettings()

@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest'
 import { renderHook } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { Currency, SnapshotRow } from '../shared/types'
+import { makeRow, makeSnapshot } from '../shared/testing/snapshotFixtures'
 import { useModalActions } from './useModalActions'
 import { createBalanceUpdate, updateEvent, createBucketBalanceUpdate, listFxRates, updateAccount, setAccountAssetLinks } from '../shared/api'
 
@@ -35,12 +36,9 @@ vi.mock('react-i18next', () => {
 
 const EUR: Currency = { id: 1, code: 'EUR', name: 'Euro', minorUnits: 2, isCustom: false }
 
-const makeRow = (overrides: Partial<SnapshotRow>): SnapshotRow =>
-  ({ accountId: 1, accountName: 'Checking', accountType: 'account', currencyCode: 'EUR', ...overrides }) as SnapshotRow
-
 let snapshotRows: SnapshotRow[] = []
 vi.mock('../shared/hooks/useSnapshotQuery', () => ({
-  useSnapshotQuery: () => ({ data: snapshotRows }),
+  useSnapshotQuery: () => ({ data: makeSnapshot({ rows: snapshotRows }) }),
 }))
 vi.mock('../shared/hooks/useConsolidationCurrencyQuery', () => ({
   useConsolidationCurrencyQuery: () => ({ data: EUR }),

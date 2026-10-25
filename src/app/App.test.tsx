@@ -13,6 +13,7 @@ import LedgerPage from '../features/ledger/LedgerPage'
 import PartnersPage from '../features/partners/PartnersPage'
 import ImportProfilesPage from '../features/csv-profiles/ImportProfilesPage'
 import type { SnapshotRow, EventWithData, Currency, ModalState, DbLocationInfo } from '../shared/types'
+import { makeRow, makeSnapshot } from '../shared/testing/snapshotFixtures'
 
 // ── Mock i18n — pass-through that returns the key (with interpolations) ─────
 vi.mock('react-i18next', () => ({
@@ -399,50 +400,22 @@ vi.mock('../features/transactions/EditTransferModal', () => ({
   default: () => <div data-testid="edit-transfer-modal" />,
 }))
 
-const makeSnapshot = (overrides?: Partial<SnapshotRow>): SnapshotRow => {
-  return {
-    accountId: 1,
-    accountName: 'Checking',
-    accountType: 'account',
-    balanceMinor: 100000,
-    currencyCode: 'EUR',
-    currencyMinorUnits: 2,
-    isCustom: false,
-    convertedBalanceMinor: 100000,
-    fxRateMissing: false,
-    isLinkedToAsset: false,
-    linkedAssetIds: [],
-    iban: null,
-    isBucketLinked: false,
-    bucketLinks: [],
-    linkedBalanceMinor: 0,
-    cashflowTaggedMinor: 0,
-    personId: null,
-    purchasePriceMinor: null,
-    purchaseDate: null,
-    depreciationPeriodMonths: null,
-    ...overrides,
-  }
-}
-
 const makeBucket = (overrides?: Partial<SnapshotRow>): SnapshotRow => {
-  return makeSnapshot({
+  return makeRow({
     accountId: 10,
     accountName: 'Vacation',
     accountType: 'bucket',
     balanceMinor: 50000,
-    convertedBalanceMinor: 50000,
     ...overrides,
   })
 }
 
 const makeAsset = (overrides?: Partial<SnapshotRow>): SnapshotRow => {
-  return makeSnapshot({
+  return makeRow({
     accountId: 20,
     accountName: 'House',
     accountType: 'asset',
     balanceMinor: 30000000,
-    convertedBalanceMinor: 30000000,
     ...overrides,
   })
 }
@@ -508,7 +481,7 @@ const setupDefaultMocks = (overrides?: { snapshot?: SnapshotRow[] }) => {
   mockResetDbLocation.mockResolvedValue(undefined)
   mockCheckDefaultDb.mockResolvedValue(false)
   mockGetBulkUpdateExclusions.mockResolvedValue([])
-  mockGetAccountsSnapshot.mockResolvedValue(overrides?.snapshot ?? [makeSnapshot()])
+  mockGetAccountsSnapshot.mockResolvedValue(makeSnapshot({ rows: overrides?.snapshot ?? [makeRow()] }))
   mockGetConsolidationCurrency.mockResolvedValue(EUR)
   mockListEvents.mockResolvedValue({ events: [], totalCount: 0 })
 }
@@ -959,7 +932,7 @@ describe('App', () => {
     })
 
     it('renders ReorderModal for reorderAccounts', async () => {
-      setupDefaultMocks({ snapshot: [makeSnapshot()] })
+      setupDefaultMocks({ snapshot: [makeRow()] })
       modalStateValue = { type: 'reorderAccounts' }
       renderApp()
       await waitFor(() => {
@@ -1057,7 +1030,7 @@ describe('App', () => {
     })
 
     it('shows asset deletion warning for linked assets', async () => {
-      const acctLinkedToAsset = makeSnapshot({
+      const acctLinkedToAsset = makeRow({
         accountId: 1,
         accountName: 'Investment Account',
         linkedAssetIds: [20],

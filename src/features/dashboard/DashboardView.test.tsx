@@ -1,10 +1,12 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest'
-import { render, screen, waitFor, act } from '@testing-library/react'
+import { render, screen, waitFor, act, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import DashboardView from './DashboardView'
 import { SelectedPersonProvider } from '../../app/SelectedPersonContext'
-import type { SnapshotRow, EventWithData, Currency } from '../../shared/types'
+import type { AsOf, EventWithData, Currency, Metric, RateWarning, SnapshotRow } from '../../shared/types'
+import { LIVE } from '../../shared/utils/snapshot'
+import { makeCountedLine, makeMetric, makeMoney, makeRateWarning, makeRow, makeSnapshot } from '../../shared/testing/snapshotFixtures'
 
 // ── Mock TanStack Router ──────────────────────────────────────────────────────
 const mockNavigate = vi.fn()
@@ -35,26 +37,13 @@ vi.mock('../../app/useDemo', () => ({
   useDemo: () => ({ isDemoMode: demoModeState.isDemoMode, onEnterDemoMode: mockOnEnterDemoMode, onExitDemoMode: vi.fn() }),
 }))
 
-vi.mock('../../app/useSelectedDate', () => ({
-  useSelectedDate: () => ({ selectedDate: '2026-01-15', setSelectedDate: vi.fn() }),
+const timeMachine: { asOf: AsOf; travelTo: Mock; backToLive: Mock } = { asOf: LIVE, travelTo: vi.fn(), backToLive: vi.fn() }
+vi.mock('../../app/useTimeMachine', () => ({
+  useTimeMachine: () => timeMachine,
 }))
 
-// ── Mock i18n — pass-through that returns the key (with interpolations) ─────
-vi.mock('react-i18next', () => ({
-  useTranslation: () => ({
-    t: (key: string, opts?: Record<string, unknown>) => {
-      if (opts) {
-        let result = key
-        for (const [k, v] of Object.entries(opts)) {
-          result = result.replace(`{{${k}}}`, String(v))
-        }
-        return result
-      }
-      return key
-    },
-    i18n: { language: 'en' },
-  }),
-}))
+// ── Mock i18n — pass-through that returns the key, with interpolation values appended ─────
+vi.mock('react-i18next', async () => (await import('../../shared/testing/i18nMock')).i18nMock)
 
 // ── Mock child components to isolate DashboardView logic ────────────────────
 vi.mock('../../shared/ui/NumberValue', () => ({
@@ -99,50 +88,22 @@ vi.mock('./Ledger', () => ({
 // ── Helpers ─────────────────────────────────────────────────────────────────
 const EUR: Currency = { id: 1, code: 'EUR', name: 'Euro', minorUnits: 2, isCustom: false }
 
-const makeSnapshot = (overrides?: Partial<SnapshotRow>): SnapshotRow => {
-  return {
-    accountId: 1,
-    accountName: 'Checking',
-    accountType: 'account',
-    balanceMinor: 100000,
-    currencyCode: 'EUR',
-    currencyMinorUnits: 2,
-    isCustom: false,
-    convertedBalanceMinor: 100000,
-    fxRateMissing: false,
-    isLinkedToAsset: false,
-    linkedAssetIds: [],
-    iban: null,
-    isBucketLinked: false,
-    bucketLinks: [],
-    linkedBalanceMinor: 0,
-    cashflowTaggedMinor: 0,
-    personId: null,
-    purchasePriceMinor: null,
-    purchaseDate: null,
-    depreciationPeriodMonths: null,
-    ...overrides,
-  }
-}
-
 const makeBucket = (overrides?: Partial<SnapshotRow>): SnapshotRow => {
-  return makeSnapshot({
+  return makeRow({
     accountId: 10,
     accountName: 'Vacation',
     accountType: 'bucket',
     balanceMinor: 50000,
-    convertedBalanceMinor: 50000,
     ...overrides,
   })
 }
 
 const makeAsset = (overrides?: Partial<SnapshotRow>): SnapshotRow => {
-  return makeSnapshot({
+  return makeRow({
     accountId: 20,
     accountName: 'House',
     accountType: 'asset',
     balanceMinor: 30000000,
-    convertedBalanceMinor: 30000000,
     ...overrides,
   })
 }
@@ -189,8 +150,14 @@ const makeEvent = (overrides?: Partial<EventWithData>): EventWithData => {
   }
 }
 
-const setupApiMocks = (options?: { snapshot?: SnapshotRow[]; events?: EventWithData[] }) => {
-  ;(getAccountsSnapshot as Mock).mockResolvedValue(options?.snapshot ?? [makeSnapshot()])
+const setupApiMocks = (options?: { snapshot?: SnapshotRow[]; metrics?: Metric[]; rateWarnings?: RateWarning[]; events?: EventWithData[] }) => {
+  ;(getAccountsSnapshot as Mock).mockResolvedValue(
+    makeSnapshot({
+      rows: options?.snapshot ?? [makeRow()],
+      metrics: options?.metrics ?? [makeMetric('totalBalance')],
+      rateWarnings: options?.rateWarnings ?? [],
+    }),
+  )
   ;(listEvents as Mock).mockResolvedValue({ events: options?.events ?? [makeEvent()], totalCount: options?.events?.length ?? 1 })
   ;(getConsolidationCurrency as Mock).mockResolvedValue(EUR)
   ;(listPersons as Mock).mockResolvedValue([])
@@ -212,87 +179,138 @@ describe('DashboardView', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     demoModeState.isDemoMode = false
+    timeMachine.asOf = LIVE
     setupApiMocks()
   })
 
   // ── Metric rendering ──
 
   describe('metrics', () => {
-    it('shows totalBalance metric when there are no assets', async () => {
-      setupApiMocks({ snapshot: [makeSnapshot()] })
+    const metricCards = () => screen.getAllByRole('button').filter((b) => b.getAttribute('aria-haspopup') === 'dialog')
+
+    it('renders the metrics in the order Rust returns them, labeled by kind', async () => {
+      setupApiMocks({
+        snapshot: [makeRow(), makeBucket(), makeAsset()],
+        metrics: [makeMetric('netWorth'), makeMetric('liquid'), makeMetric('leftToSpend')],
+      })
+      renderDashboard()
+      await waitFor(() => expect(metricCards()).toHaveLength(3))
+      expect(metricCards().map((card) => within(card).getByText(/^metrics\./).textContent)).toEqual(['metrics.netWorth', 'metrics.liquid', 'metrics.leftToSpend'])
+    })
+
+    it('shows only the metrics Rust returns', async () => {
+      setupApiMocks({ metrics: [makeMetric('totalBalance')] })
       renderDashboard()
       await waitFor(() => {
         expect(screen.getByText('metrics.totalBalance')).toBeInTheDocument()
       })
       expect(screen.queryByText('metrics.netWorth')).not.toBeInTheDocument()
-      expect(screen.queryByText('metrics.liquid')).not.toBeInTheDocument()
-    })
-
-    it('shows netWorth and liquid metrics when there are assets', async () => {
-      setupApiMocks({ snapshot: [makeSnapshot(), makeAsset()] })
-      renderDashboard()
-      await waitFor(() => {
-        expect(screen.getByText('metrics.netWorth')).toBeInTheDocument()
-        expect(screen.getByText('metrics.liquid')).toBeInTheDocument()
-      })
-      expect(screen.queryByText('metrics.totalBalance')).not.toBeInTheDocument()
-    })
-
-    it('shows leftToSpend metric when buckets exist', async () => {
-      setupApiMocks({ snapshot: [makeSnapshot(), makeBucket()] })
-      renderDashboard()
-      await waitFor(() => {
-        expect(screen.getByText('metrics.leftToSpend')).toBeInTheDocument()
-      })
-    })
-
-    it('hides leftToSpend metric when no buckets exist', async () => {
-      setupApiMocks({ snapshot: [makeSnapshot()] })
-      renderDashboard()
-      await waitFor(() => {
-        expect(screen.getByText('metrics.totalBalance')).toBeInTheDocument()
-      })
       expect(screen.queryByText('metrics.leftToSpend')).not.toBeInTheDocument()
     })
 
-    it('shows all three metrics when assets and buckets exist', async () => {
-      setupApiMocks({ snapshot: [makeSnapshot(), makeBucket(), makeAsset()] })
-      renderDashboard()
-      await waitFor(() => {
-        expect(screen.getByText('metrics.netWorth')).toBeInTheDocument()
-        expect(screen.getByText('metrics.liquid')).toBeInTheDocument()
-        expect(screen.getByText('metrics.leftToSpend')).toBeInTheDocument()
+    it('shows the total Rust returned even when it differs from the sum of the rows', async () => {
+      setupApiMocks({
+        snapshot: [makeRow({ accountId: 1, balanceMinor: 100000 }), makeRow({ accountId: 2, accountName: 'Savings', balanceMinor: 250000 })],
+        metrics: [makeMetric('totalBalance', { totalMinor: 777 })],
       })
-    })
-
-    it('renders metric values via NumberValue', async () => {
-      setupApiMocks({ snapshot: [makeSnapshot({ convertedBalanceMinor: 123456, isLinkedToAsset: false })] })
       renderDashboard()
-      await waitFor(() => {
-        const values = screen.getAllByTestId('number-value')
-        expect(values.some((el) => el.textContent === '123456')).toBe(true)
-      })
+      await waitFor(() => expect(metricCards()).toHaveLength(1))
+      expect(within(metricCards()[0]).getByTestId('number-value')).toHaveTextContent('777')
     })
   })
 
-  // ── FX rate missing warning ──
+  // ── Metric breakdown ──
 
-  describe('FX rate missing warning', () => {
-    it('shows warning when missingFxCurrencies is non-empty', async () => {
-      setupApiMocks({ snapshot: [makeSnapshot({ fxRateMissing: true, currencyCode: 'USD' })] })
+  describe('metric breakdown', () => {
+    const netWorth = makeMetric('netWorth', { counted: [makeCountedLine({ accountName: 'Checking' })] })
+    const liquid = makeMetric('liquid', { counted: [makeCountedLine({ accountId: 3, accountName: 'Savings', signedMinor: 250000 })] })
+
+    it('opens the breakdown of the metric that was clicked', async () => {
+      const user = userEvent.setup()
+      setupApiMocks({ metrics: [netWorth, liquid] })
       renderDashboard()
-      await waitFor(() => {
-        expect(screen.getByText('metrics.fxRateMissing', { exact: false })).toBeInTheDocument()
-      })
+      await user.click(await screen.findByRole('button', { name: /metrics\.liquid/ }))
+
+      const dialog = await screen.findByRole('dialog')
+      expect(within(dialog).getByText('metrics.liquid')).toBeInTheDocument()
+      expect(within(dialog).getByText('Savings')).toBeInTheDocument()
+      expect(within(dialog).queryByText('Checking')).not.toBeInTheDocument()
     })
 
-    it('hides warning when missingFxCurrencies is empty', async () => {
-      setupApiMocks({ snapshot: [makeSnapshot({ fxRateMissing: false })] })
+    it('opens from the keyboard and closes with Escape', async () => {
+      const user = userEvent.setup()
+      setupApiMocks({ metrics: [netWorth] })
       renderDashboard()
-      await waitFor(() => {
-        expect(screen.getByText('metrics.totalBalance')).toBeInTheDocument()
+      const card = await screen.findByRole('button', { name: /metrics\.netWorth/ })
+      card.focus()
+      await user.keyboard('{Enter}')
+      expect(await screen.findByRole('dialog')).toBeInTheDocument()
+
+      await user.keyboard('{Escape}')
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    })
+
+    it('does not open a breakdown until a metric is clicked', async () => {
+      setupApiMocks({ metrics: [netWorth] })
+      renderDashboard()
+      await screen.findByRole('button', { name: /metrics\.netWorth/ })
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    })
+  })
+
+  // ── Time machine ──
+
+  describe('time machine', () => {
+    it('asks for the live snapshot and shows no banner by default', async () => {
+      renderDashboard()
+      await waitFor(() => expect(screen.getByText('metrics.totalBalance')).toBeInTheDocument())
+      expect(getAccountsSnapshot).toHaveBeenCalledWith({ kind: 'live' }, undefined)
+      expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    })
+
+    it('shows the picked date in a banner and asks for the snapshot at that day', async () => {
+      timeMachine.asOf = { kind: 'at', until: '2026-10-20' }
+      renderDashboard()
+      const banner = await screen.findByRole('status')
+      expect(banner).toHaveTextContent('timeMachine.viewing (date=20 October 2026)')
+      expect(getAccountsSnapshot).toHaveBeenCalledWith({ kind: 'at', until: '2026-10-20' }, undefined)
+    })
+
+    it('goes back to live from the banner', async () => {
+      const user = userEvent.setup()
+      timeMachine.asOf = { kind: 'at', until: '2026-10-20' }
+      renderDashboard()
+      await user.click(await screen.findByRole('button', { name: 'timeMachine.backToLive' }))
+      expect(timeMachine.backToLive).toHaveBeenCalledOnce()
+    })
+  })
+
+  // ── Rate warnings ──
+
+  describe('rate warnings', () => {
+    it('lists one warning per entry with the account name and amount', async () => {
+      setupApiMocks({
+        rateWarnings: [
+          makeRateWarning({ accountId: 2, accountName: 'Dollar account', native: makeMoney(5000, 'USD') }),
+          makeRateWarning({
+            accountId: 3,
+            accountName: 'Pound account',
+            native: makeMoney(7000, 'GBP'),
+            problem: { kind: 'stale', limitDays: 7, rate: { mantissa: 8, exponent: -1, isDirect: false, date: '2026-10-12', isManual: false, ageDays: 13, stale: true } },
+          }),
+        ],
       })
-      expect(screen.queryByText('metrics.fxRateMissing')).not.toBeInTheDocument()
+      renderDashboard()
+      const items = await screen.findAllByRole('listitem')
+      expect(items).toHaveLength(2)
+      expect(items[0]).toHaveTextContent('Dollar account (5000) rateWarnings.noRate (currency=USD)')
+      expect(items[1]).toHaveTextContent('Pound account (7000) rateWarnings.stale (currency=GBP, date=12 October 2026, count=13)')
+    })
+
+    it('shows no warnings when Rust sends none', async () => {
+      renderDashboard()
+      await waitFor(() => expect(screen.getByText('metrics.totalBalance')).toBeInTheDocument())
+      expect(screen.queryByRole('listitem')).not.toBeInTheDocument()
     })
   })
 
@@ -367,7 +385,7 @@ describe('DashboardView', () => {
 
   describe('account cards section', () => {
     it('renders AccountCards for accounts when accounts exist', async () => {
-      setupApiMocks({ snapshot: [makeSnapshot()] })
+      setupApiMocks({ snapshot: [makeRow()] })
       renderDashboard()
       await waitFor(() => {
         expect(screen.getByTestId('account-cards-accounts.sectionTitle')).toBeInTheDocument()
@@ -375,7 +393,7 @@ describe('DashboardView', () => {
     })
 
     it('renders AccountCards for buckets when accounts exist', async () => {
-      setupApiMocks({ snapshot: [makeSnapshot(), makeBucket()] })
+      setupApiMocks({ snapshot: [makeRow(), makeBucket()] })
       renderDashboard()
       await waitFor(() => {
         expect(screen.getByTestId('account-cards-buckets.sectionTitle')).toBeInTheDocument()
@@ -383,7 +401,7 @@ describe('DashboardView', () => {
     })
 
     it('renders AccountCards for assets when accounts exist', async () => {
-      setupApiMocks({ snapshot: [makeSnapshot(), makeAsset()] })
+      setupApiMocks({ snapshot: [makeRow(), makeAsset()] })
       renderDashboard()
       await waitFor(() => {
         expect(screen.getByTestId('account-cards-assets.sectionTitle')).toBeInTheDocument()
@@ -408,7 +426,7 @@ describe('DashboardView', () => {
   describe('section add/create buttons', () => {
     it('opens createAccount modal for accounts section', async () => {
       const user = userEvent.setup()
-      setupApiMocks({ snapshot: [makeSnapshot()] })
+      setupApiMocks({ snapshot: [makeRow()] })
       renderDashboard()
       await waitFor(() => screen.getByTestId('add-btn-accounts.sectionTitle'))
       await user.click(screen.getByTestId('add-btn-accounts.sectionTitle'))
@@ -420,7 +438,7 @@ describe('DashboardView', () => {
 
     it('opens createAccount modal for buckets section', async () => {
       const user = userEvent.setup()
-      setupApiMocks({ snapshot: [makeSnapshot(), makeBucket()] })
+      setupApiMocks({ snapshot: [makeRow(), makeBucket()] })
       renderDashboard()
       await waitFor(() => screen.getByTestId('add-btn-buckets.sectionTitle'))
       await user.click(screen.getByTestId('add-btn-buckets.sectionTitle'))
@@ -432,7 +450,7 @@ describe('DashboardView', () => {
 
     it('opens createAsset modal for assets section', async () => {
       const user = userEvent.setup()
-      setupApiMocks({ snapshot: [makeSnapshot(), makeAsset()] })
+      setupApiMocks({ snapshot: [makeRow(), makeAsset()] })
       renderDashboard()
       await waitFor(() => screen.getByTestId('add-btn-assets.sectionTitle'))
       await user.click(screen.getByTestId('add-btn-assets.sectionTitle'))
@@ -445,7 +463,7 @@ describe('DashboardView', () => {
   describe('reorder buttons', () => {
     it('opens reorderAccounts modal', async () => {
       const user = userEvent.setup()
-      setupApiMocks({ snapshot: [makeSnapshot()] })
+      setupApiMocks({ snapshot: [makeRow()] })
       renderDashboard()
       await waitFor(() => screen.getByTestId('reorder-btn-accounts.sectionTitle'))
       await user.click(screen.getByTestId('reorder-btn-accounts.sectionTitle'))
@@ -454,7 +472,7 @@ describe('DashboardView', () => {
 
     it('opens reorderBuckets modal', async () => {
       const user = userEvent.setup()
-      setupApiMocks({ snapshot: [makeSnapshot(), makeBucket()] })
+      setupApiMocks({ snapshot: [makeRow(), makeBucket()] })
       renderDashboard()
       await waitFor(() => screen.getByTestId('reorder-btn-buckets.sectionTitle'))
       await user.click(screen.getByTestId('reorder-btn-buckets.sectionTitle'))
@@ -463,7 +481,7 @@ describe('DashboardView', () => {
 
     it('opens reorderAssets modal', async () => {
       const user = userEvent.setup()
-      setupApiMocks({ snapshot: [makeSnapshot(), makeAsset()] })
+      setupApiMocks({ snapshot: [makeRow(), makeAsset()] })
       renderDashboard()
       await waitFor(() => screen.getByTestId('reorder-btn-assets.sectionTitle'))
       await user.click(screen.getByTestId('reorder-btn-assets.sectionTitle'))
@@ -475,7 +493,7 @@ describe('DashboardView', () => {
 
   describe('ledger', () => {
     it('renders Ledger when accounts exist', async () => {
-      setupApiMocks({ snapshot: [makeSnapshot()] })
+      setupApiMocks({ snapshot: [makeRow()] })
       renderDashboard()
       await waitFor(() => {
         expect(screen.getByTestId('ledger')).toBeInTheDocument()
@@ -484,7 +502,7 @@ describe('DashboardView', () => {
 
     it('opens addEvents modal from Ledger', async () => {
       const user = userEvent.setup()
-      setupApiMocks({ snapshot: [makeSnapshot()] })
+      setupApiMocks({ snapshot: [makeRow()] })
       renderDashboard()
       await waitFor(() => screen.getByTestId('add-events-btn'))
       await user.click(screen.getByTestId('add-events-btn'))
@@ -494,7 +512,7 @@ describe('DashboardView', () => {
     it('opens the taxable event editor for a prepaid expense', async () => {
       const user = userEvent.setup()
       const prepaid = makeEvent({ id: 7, eventType: 'prepaid_expense' })
-      setupApiMocks({ snapshot: [makeSnapshot()], events: [prepaid] })
+      setupApiMocks({ snapshot: [makeRow()], events: [prepaid] })
       renderDashboard()
       await waitFor(() => expect(screen.getByTestId('edit-first-event-btn')).toBeEnabled())
       await user.click(screen.getByTestId('edit-first-event-btn'))
@@ -503,7 +521,7 @@ describe('DashboardView', () => {
 
     it('navigates to ledger when View all is clicked', async () => {
       const user = userEvent.setup()
-      setupApiMocks({ snapshot: [makeSnapshot()] })
+      setupApiMocks({ snapshot: [makeRow()] })
       renderDashboard()
       await waitFor(() => screen.getByTestId('view-all-btn'))
       await user.click(screen.getByTestId('view-all-btn'))
@@ -515,24 +533,17 @@ describe('DashboardView', () => {
 
   describe('MetricCard styling', () => {
     it('applies destructive class for negative values', async () => {
-      setupApiMocks({ snapshot: [makeSnapshot({ convertedBalanceMinor: -5000, isLinkedToAsset: false })] })
+      setupApiMocks({ metrics: [makeMetric('totalBalance', { totalMinor: -5000 })] })
       renderDashboard()
-      await waitFor(() => {
-        const metricEl = screen.getByText('metrics.totalBalance').closest('div')
-        const valueEl = metricEl?.querySelector('.text-destructive')
-        expect(valueEl).toBeInTheDocument()
-      })
+      const card = await screen.findByRole('button', { name: /metrics\.totalBalance/ })
+      expect(card.querySelector('.text-destructive')).toBeInTheDocument()
     })
 
     it('does not apply destructive class for positive values', async () => {
-      setupApiMocks({ snapshot: [makeSnapshot({ convertedBalanceMinor: 5000, isLinkedToAsset: false })] })
+      setupApiMocks({ metrics: [makeMetric('totalBalance', { totalMinor: 5000 })] })
       renderDashboard()
-      await waitFor(() => {
-        expect(screen.getByText('metrics.totalBalance')).toBeInTheDocument()
-      })
-      const metricEl = screen.getByText('metrics.totalBalance').closest('div')
-      const valueEl = metricEl?.querySelector('.text-destructive')
-      expect(valueEl).not.toBeInTheDocument()
+      const card = await screen.findByRole('button', { name: /metrics\.totalBalance/ })
+      expect(card.querySelector('.text-destructive')).not.toBeInTheDocument()
     })
   })
 })

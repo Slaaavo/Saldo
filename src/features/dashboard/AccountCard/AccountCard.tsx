@@ -37,7 +37,7 @@ const AccountCard = ({
 }: AccountCardProps) => {
   const { t } = useTranslation()
 
-  const { hasEquityTooltip, equityLinkedRows, equityMinor } = useAccountCardEquity(row, allAccounts, consolidationCurrency)
+  const equity = useAccountCardEquity(row, allAccounts)
 
   return (
     <Card className={cn('relative w-[250px] min-w-[250px] shrink-0')}>
@@ -60,8 +60,10 @@ const AccountCard = ({
         </div>
         {personName && <span className="text-xs text-muted-foreground">{personName}</span>}
         {row.accountType === 'account' && <IbanDisplay iban={row.iban} />}
-        <BalanceDisplay row={row} consolidationCurrency={consolidationCurrency} allAccounts={allAccounts} />
-        {hasEquityTooltip && <EquityTooltip row={row} equityMinor={equityMinor} equityLinkedRows={equityLinkedRows} consolidationCurrency={consolidationCurrency!} />}
+        <BalanceDisplay row={row} consolidationCurrency={consolidationCurrency} />
+        {equity && consolidationCurrency && (
+          <EquityTooltip row={row} equityMinor={equity.equityMinor} equityLinkedRows={equity.equityLinkedRows} consolidationCurrency={consolidationCurrency} />
+        )}
         <button
           onClick={() => onUpdateBalance(row.accountId)}
           className="mt-2 text-xs font-bold uppercase tracking-wider text-muted-foreground hover:text-primary transition-colors flex items-center gap-1"

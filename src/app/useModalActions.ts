@@ -21,7 +21,7 @@ import {
 import { extractErrorMessage } from '../shared/utils/errors'
 import { useSnapshotQuery } from '../shared/hooks/useSnapshotQuery'
 import { useConsolidationCurrencyQuery } from '../shared/hooks/useConsolidationCurrencyQuery'
-import { todayIso } from '../shared/utils/format'
+import { LIVE } from '../shared/utils/snapshot'
 
 interface UseModalActionsOptions {
   closeModal: () => void
@@ -31,8 +31,8 @@ interface UseModalActionsOptions {
 export const useModalActions = ({ closeModal, onFxRatePrompt }: UseModalActionsOptions) => {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
-  const snapshotQuery = useSnapshotQuery(todayIso())
-  const snapshot = snapshotQuery.data ?? []
+  const snapshotQuery = useSnapshotQuery(LIVE)
+  const snapshot = snapshotQuery.data?.rows ?? []
   const consolidationCurrencyQuery = useConsolidationCurrencyQuery()
   const consolidationCurrency = consolidationCurrencyQuery.data ?? null
 

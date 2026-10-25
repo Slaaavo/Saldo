@@ -34,14 +34,50 @@ header:
   settings: Settings
   fxRates: FX Rates
 
+# ──── Time machine ────
+timeMachine:
+  live: Live
+  viewing: "Time machine: balances as of {{date}}. Entries and rates dated later are left out."
+  backToLive: Back to live
+
 # ──── Hero metrics ────
 metrics:
   totalBalance: Total Balance
   leftToSpend: Left to Spend
   netWorth: Net Worth
   liquid: Liquid
-  fxRateMissing: "Missing FX rate for {{currencies}}. Using 1:1 rate."
   leftToSpendTooltip: "Assets are excluded from this calculation."
+  openBreakdown: "Show what makes up this number"
+  breakdown:
+    description: "Add up the counted lines to get the total."
+    counted: Counted
+    notCounted: Not counted
+    total: Total
+    nothingCounted: "Nothing is counted yet."
+    noConversion: No conversion
+    manual: manual
+    rateAge_one: "{{count}} day old"
+    rateAge_other: "{{count}} days old"
+    columns:
+      account: Account
+      amount: Amount
+      rate: Rate
+      value: "Value in {{currency}}"
+    part:
+      linkedAccount: "via {{account}}"
+      taggedCashflows: "tagged from {{account}}"
+      bucketTotal: Bucket total
+    reason:
+      noRate: "No {{currency}} rate, so it cannot be converted."
+      linkedToAsset: "Linked to an asset, so it counts in Net Worth only."
+      earmark: "A bucket sets aside money that is already in your accounts, so it is not added."
+      notLiquid: "Assets are not liquid, so they are not counted here."
+
+# ──── Rate warnings ────
+rateWarnings:
+  noRate: "has no {{currency}} rate, so it is not counted in the totals."
+  stale_one: "uses a {{currency}} rate from {{date}}, {{count}} day old."
+  stale_other: "uses a {{currency}} rate from {{date}}, {{count}} days old."
 
 # ──── Account cards ────
 accounts:
@@ -54,7 +90,9 @@ accounts:
   updateBalance: Update Balance
   scrollLeft: Scroll left
   scrollRight: Scroll right
-  fxRateMissingTooltip: "Missing FX rate — using 1:1"
+  noRateTooltip: "No rate, not counted in totals"
+  staleRateTooltip_one: "Rate from {{date}}, {{count}} day old"
+  staleRateTooltip_other: "Rate from {{date}}, {{count}} days old"
   overAllocated: "Over-allocated"
   overAllocationTooltip: "Allocated {{allocated}} of {{balance}} {{currency}} (over by {{over}}). Buckets: {{buckets}}"
   manageLinkedAssets: "Manage Linked Assets"
@@ -69,6 +107,7 @@ buckets:
   balanceBreakdown: "Balance breakdown"
   additionalBalance: "Additional balance"
   cashflowTaggedBalance: "Tagged cashflows"
+  notCounted: "Not counted"
 
 # ──── Asset cards ────
 assets:

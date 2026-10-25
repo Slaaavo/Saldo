@@ -32,7 +32,9 @@ pub use queries::{
     list_events, ListEventsQuery,
 };
 
-pub use snapshot::{get_accounts_snapshot, GetSnapshotParams};
+#[cfg(test)]
+pub(crate) use snapshot::rows_at;
+pub use snapshot::{get_accounts_snapshot, GetSnapshotParams, Moment};
 
 pub use taxable_events::{
     create_taxable_event, create_taxable_split_group_with_legs, delete_split_group,
@@ -167,6 +169,7 @@ mod tests {
     use crate::db::initialize_in_memory;
     use crate::features::accounts::repository::{create_account, CreateAccountParams};
     use crate::features::currency::repository::{set_fx_rate_manual, SetFxRateManualParams};
+    use crate::features::transactions::models::{AccountKind, Valuation};
     use rusqlite::{params, Connection};
 
     fn mk_account(conn: &Connection) -> i64 {
@@ -186,14 +189,7 @@ mod tests {
     fn snapshot_with_no_events_returns_zero() {
         let conn = initialize_in_memory().expect("DB init failed");
         let account_id = mk_account(&conn);
-        let snapshot = get_accounts_snapshot(
-            &conn,
-            GetSnapshotParams {
-                selected_datetime: "2099-12-31T23:59:59".to_owned(),
-                ..Default::default()
-            },
-        )
-        .unwrap();
+        let snapshot = rows_at(&conn, "2099-12-31T23:59:59");
         assert_eq!(snapshot.len(), 1);
         assert_eq!(snapshot[0].account_id, account_id);
         assert_eq!(snapshot[0].balance_minor, 0);
@@ -213,14 +209,7 @@ mod tests {
             },
         )
         .unwrap();
-        let snapshot = get_accounts_snapshot(
-            &conn,
-            GetSnapshotParams {
-                selected_datetime: "2026-03-01T23:59:59".to_owned(),
-                ..Default::default()
-            },
-        )
-        .unwrap();
+        let snapshot = rows_at(&conn, "2026-03-01T23:59:59");
         assert_eq!(snapshot[0].balance_minor, 5000);
     }
 
@@ -238,14 +227,7 @@ mod tests {
             },
         )
         .unwrap();
-        let snapshot = get_accounts_snapshot(
-            &conn,
-            GetSnapshotParams {
-                selected_datetime: "2026-03-01T23:59:59".to_owned(),
-                ..Default::default()
-            },
-        )
-        .unwrap();
+        let snapshot = rows_at(&conn, "2026-03-01T23:59:59");
         assert_eq!(snapshot[0].balance_minor, 0);
     }
 
@@ -273,14 +255,7 @@ mod tests {
             },
         )
         .unwrap();
-        let snapshot = get_accounts_snapshot(
-            &conn,
-            GetSnapshotParams {
-                selected_datetime: "2026-03-01T23:59:59".to_owned(),
-                ..Default::default()
-            },
-        )
-        .unwrap();
+        let snapshot = rows_at(&conn, "2026-03-01T23:59:59");
         assert_eq!(snapshot[0].balance_minor, 7000);
     }
 
@@ -299,14 +274,7 @@ mod tests {
         )
         .unwrap();
         delete_event(&conn, event_id).unwrap();
-        let snapshot = get_accounts_snapshot(
-            &conn,
-            GetSnapshotParams {
-                selected_datetime: "2026-03-01T23:59:59".to_owned(),
-                ..Default::default()
-            },
-        )
-        .unwrap();
+        let snapshot = rows_at(&conn, "2026-03-01T23:59:59");
         assert_eq!(snapshot[0].balance_minor, 0);
     }
 
@@ -334,14 +302,7 @@ mod tests {
             },
         )
         .unwrap();
-        let snapshot = get_accounts_snapshot(
-            &conn,
-            GetSnapshotParams {
-                selected_datetime: "2026-03-01T23:59:59".to_owned(),
-                ..Default::default()
-            },
-        )
-        .unwrap();
+        let snapshot = rows_at(&conn, "2026-03-01T23:59:59");
         assert_eq!(snapshot[0].balance_minor, 9999);
     }
 
@@ -528,16 +489,9 @@ mod tests {
             },
         )
         .unwrap();
-        let snapshot = get_accounts_snapshot(
-            &conn,
-            GetSnapshotParams {
-                selected_datetime: "2099-12-31T23:59:59".to_owned(),
-                ..Default::default()
-            },
-        )
-        .unwrap();
+        let snapshot = rows_at(&conn, "2099-12-31T23:59:59");
         let bucket = snapshot.iter().find(|r| r.account_id == bucket_id).unwrap();
-        assert_eq!(bucket.account_type, "bucket");
+        assert_eq!(bucket.account_type, AccountKind::Bucket);
         assert_eq!(bucket.balance_minor, 20000);
     }
 
@@ -545,16 +499,9 @@ mod tests {
     fn snapshot_returns_account_type() {
         let conn = initialize_in_memory().expect("DB init failed");
         mk_account(&conn);
-        let snapshot = get_accounts_snapshot(
-            &conn,
-            GetSnapshotParams {
-                selected_datetime: "2099-12-31T23:59:59".to_owned(),
-                ..Default::default()
-            },
-        )
-        .unwrap();
+        let snapshot = rows_at(&conn, "2099-12-31T23:59:59");
         assert_eq!(snapshot.len(), 1);
-        assert_eq!(snapshot[0].account_type, "account");
+        assert_eq!(snapshot[0].account_type, AccountKind::Account);
     }
 
     #[test]
@@ -580,14 +527,7 @@ mod tests {
             },
         )
         .unwrap();
-        let snapshot = get_accounts_snapshot(
-            &conn,
-            GetSnapshotParams {
-                selected_datetime: "2026-03-01T23:59:59".to_owned(),
-                ..Default::default()
-            },
-        )
-        .unwrap();
+        let snapshot = rows_at(&conn, "2026-03-01T23:59:59");
         let bucket = snapshot.iter().find(|r| r.account_id == bucket_id).unwrap();
         assert_eq!(bucket.balance_minor, 15000);
     }
@@ -671,18 +611,11 @@ mod tests {
             },
         )
         .unwrap();
-        let snapshot = get_accounts_snapshot(
-            &conn,
-            GetSnapshotParams {
-                selected_datetime: "2099-12-31T23:59:59".to_owned(),
-                ..Default::default()
-            },
-        )
-        .unwrap();
+        let snapshot = rows_at(&conn, "2099-12-31T23:59:59");
         // accounts come first (alphabetically 'account' < 'bucket'), then buckets
-        let types: Vec<&str> = snapshot.iter().map(|r| r.account_type.as_str()).collect();
-        let first_bucket_idx = types.iter().position(|t| *t == "bucket");
-        let last_account_idx = types.iter().rposition(|t| *t == "account");
+        let types: Vec<AccountKind> = snapshot.iter().map(|r| r.account_type).collect();
+        let first_bucket_idx = types.iter().position(|t| *t == AccountKind::Bucket);
+        let last_account_idx = types.iter().rposition(|t| *t == AccountKind::Account);
         if let (Some(fb), Some(la)) = (first_bucket_idx, last_account_idx) {
             assert!(la < fb, "All accounts should come before all buckets");
         }
@@ -692,66 +625,13 @@ mod tests {
     fn snapshot_includes_currency_fields() {
         let conn = initialize_in_memory().expect("DB init failed");
         mk_account(&conn);
-        let snapshot = get_accounts_snapshot(
-            &conn,
-            GetSnapshotParams {
-                selected_datetime: "2099-12-31T23:59:59".to_owned(),
-                ..Default::default()
-            },
-        )
-        .unwrap();
+        let snapshot = rows_at(&conn, "2099-12-31T23:59:59");
         assert_eq!(snapshot[0].currency_code, "EUR");
         assert_eq!(snapshot[0].currency_minor_units, 2);
-        // EUR is the consolidation currency so converted == balance and no rate missing
         assert_eq!(
-            snapshot[0].converted_balance_minor,
-            snapshot[0].balance_minor
+            snapshot[0].valuation,
+            Valuation::SameCurrency { value_minor: 0 }
         );
-        assert!(!snapshot[0].fx_rate_missing);
-    }
-
-    #[test]
-    fn snapshot_foreign_currency_no_rate_uses_1_to_1_fallback() {
-        let conn = initialize_in_memory().expect("DB init failed");
-        // USD is seeded in migration 004
-        let usd = conn
-            .query_row("SELECT id FROM currency WHERE code = 'USD'", [], |r| {
-                r.get::<_, i64>(0)
-            })
-            .unwrap();
-        let acc = create_account(
-            &conn,
-            CreateAccountParams {
-                name: "USD Account".to_owned(),
-                currency_id: usd,
-                account_type: "account".to_owned(),
-                ..Default::default()
-            },
-        )
-        .unwrap();
-        create_balance_update(
-            &conn,
-            CreateBalanceUpdateParams {
-                account_id: acc,
-                amount_minor: 108420,
-                event_date: "2026-03-01".to_owned(),
-                note: None,
-            },
-        )
-        .unwrap();
-        let snapshot = get_accounts_snapshot(
-            &conn,
-            GetSnapshotParams {
-                selected_datetime: "2026-03-01T23:59:59".to_owned(),
-                ..Default::default()
-            },
-        )
-        .unwrap();
-        let row = snapshot.iter().find(|r| r.account_id == acc).unwrap();
-        assert_eq!(row.balance_minor, 108420);
-        // No FX rate → 1:1 fallback → converted = same value (minor_units both 2)
-        assert_eq!(row.converted_balance_minor, 108420);
-        assert!(row.fx_rate_missing);
     }
 
     #[test]
@@ -800,18 +680,10 @@ mod tests {
             },
         )
         .unwrap();
-        let snapshot = get_accounts_snapshot(
-            &conn,
-            GetSnapshotParams {
-                selected_datetime: "2026-03-01T23:59:59".to_owned(),
-                ..Default::default()
-            },
-        )
-        .unwrap();
+        let snapshot = rows_at(&conn, "2026-03-01T23:59:59");
         let row = snapshot.iter().find(|r| r.account_id == acc).unwrap();
         assert_eq!(row.balance_minor, 108420);
-        assert_eq!(row.converted_balance_minor, 100000); // 1084.20 USD → 1000.00 EUR
-        assert!(!row.fx_rate_missing);
+        assert_eq!(row.valuation.value_minor(), Some(100000));
     }
 
     #[test]
@@ -936,14 +808,7 @@ mod tests {
             },
         )
         .unwrap();
-        let snapshot = get_accounts_snapshot(
-            &conn,
-            GetSnapshotParams {
-                selected_datetime: "2026-03-31T23:59:59".to_owned(),
-                ..Default::default()
-            },
-        )
-        .unwrap();
+        let snapshot = rows_at(&conn, "2026-03-31T23:59:59");
         assert_eq!(snapshot[0].balance_minor, 5200);
     }
 
@@ -977,14 +842,7 @@ mod tests {
             },
         )
         .unwrap();
-        let snapshot = get_accounts_snapshot(
-            &conn,
-            GetSnapshotParams {
-                selected_datetime: "2026-12-31T23:59:59".to_owned(),
-                ..Default::default()
-            },
-        )
-        .unwrap();
+        let snapshot = rows_at(&conn, "2026-12-31T23:59:59");
         // The cashflow at 2026-01-01 is before the anchor; only the anchor balance counts.
         assert_eq!(snapshot[0].balance_minor, 5000);
     }
@@ -1025,14 +883,7 @@ mod tests {
             },
         )
         .unwrap();
-        let snapshot = get_accounts_snapshot(
-            &conn,
-            GetSnapshotParams {
-                selected_datetime: "2026-12-31T23:59:59".to_owned(),
-                ..Default::default()
-            },
-        )
-        .unwrap();
+        let snapshot = rows_at(&conn, "2026-12-31T23:59:59");
         assert_eq!(snapshot[0].balance_minor, 1500);
     }
 
@@ -1085,14 +936,7 @@ mod tests {
         assert_eq!(source_linked, Some(counterpart_id));
         assert_eq!(counterpart_linked, Some(source_id));
 
-        let snapshot1 = get_accounts_snapshot(
-            &conn,
-            GetSnapshotParams {
-                selected_datetime: "2026-12-31T23:59:59".to_owned(),
-                ..Default::default()
-            },
-        )
-        .unwrap();
+        let snapshot1 = rows_at(&conn, "2026-12-31T23:59:59");
         let row1 = snapshot1.iter().find(|r| r.account_id == acc1).unwrap();
         let row2 = snapshot1.iter().find(|r| r.account_id == acc2).unwrap();
         assert_eq!(row1.balance_minor, -10000);
@@ -1203,14 +1047,7 @@ mod tests {
             },
         )
         .unwrap();
-        let snapshot = get_accounts_snapshot(
-            &conn,
-            GetSnapshotParams {
-                selected_datetime: "2026-12-31T23:59:59".to_owned(),
-                ..Default::default()
-            },
-        )
-        .unwrap();
+        let snapshot = rows_at(&conn, "2026-12-31T23:59:59");
         let row_a = snapshot.iter().find(|r| r.account_id == acc_a).unwrap();
         let row_b = snapshot.iter().find(|r| r.account_id == acc_b).unwrap();
         assert_eq!(row_a.balance_minor, 7000);
@@ -1268,14 +1105,7 @@ mod tests {
         )
         .unwrap();
         delete_event(&conn, source_id).unwrap();
-        let snapshot = get_accounts_snapshot(
-            &conn,
-            GetSnapshotParams {
-                selected_datetime: "2026-12-31T23:59:59".to_owned(),
-                ..Default::default()
-            },
-        )
-        .unwrap();
+        let snapshot = rows_at(&conn, "2026-12-31T23:59:59");
         let row_a = snapshot.iter().find(|r| r.account_id == acc_a).unwrap();
         let row_b = snapshot.iter().find(|r| r.account_id == acc_b).unwrap();
         assert_eq!(row_a.balance_minor, 10000);
@@ -1313,14 +1143,7 @@ mod tests {
         )
         .unwrap();
         delete_event(&conn, cashflow_id).unwrap();
-        let snapshot = get_accounts_snapshot(
-            &conn,
-            GetSnapshotParams {
-                selected_datetime: "2026-03-31T23:59:59".to_owned(),
-                ..Default::default()
-            },
-        )
-        .unwrap();
+        let snapshot = rows_at(&conn, "2026-03-31T23:59:59");
         assert_eq!(snapshot[0].balance_minor, 10000);
     }
 
@@ -1675,19 +1498,17 @@ mod tests {
         )
         .unwrap();
 
-        let snapshot = get_accounts_snapshot(
-            &conn,
-            GetSnapshotParams {
-                selected_datetime: "2026-12-31T23:59:59".to_owned(),
-                ..Default::default()
-            },
-        )
-        .unwrap();
+        let snapshot = rows_at(&conn, "2026-12-31T23:59:59");
         let bucket_row = snapshot.iter().find(|r| r.account_id == bucket_id).unwrap();
 
-        // EUR is the consolidation currency → direct 1:1 conversion
-        assert_eq!(bucket_row.cashflow_tagged_minor, 3000);
-        assert_eq!(bucket_row.converted_balance_minor, 3000);
+        let tagged = &bucket_row.tagged_cashflows;
+        assert_eq!(tagged.len(), 1);
+        assert_eq!(tagged[0].source_account_id, source_id);
+        assert_eq!(
+            tagged[0].valuation,
+            Valuation::SameCurrency { value_minor: 3000 }
+        );
+        assert_eq!(bucket_row.counted_minor, 3000);
     }
 
     #[test]
@@ -1725,18 +1546,11 @@ mod tests {
         .unwrap();
 
         // Snapshot is for a date BEFORE the cashflow
-        let snapshot = get_accounts_snapshot(
-            &conn,
-            GetSnapshotParams {
-                selected_datetime: "2026-06-30T23:59:59".to_owned(),
-                ..Default::default()
-            },
-        )
-        .unwrap();
+        let snapshot = rows_at(&conn, "2026-06-30T23:59:59");
         let bucket_row = snapshot.iter().find(|r| r.account_id == bucket_id).unwrap();
 
-        assert_eq!(bucket_row.cashflow_tagged_minor, 0);
-        assert_eq!(bucket_row.converted_balance_minor, 0);
+        assert!(bucket_row.tagged_cashflows.is_empty());
+        assert_eq!(bucket_row.counted_minor, 0);
     }
 
     #[test]
@@ -1800,21 +1614,13 @@ mod tests {
         )
         .unwrap();
 
-        let snapshot = get_accounts_snapshot(
-            &conn,
-            GetSnapshotParams {
-                selected_datetime: "2026-12-31T23:59:59".to_owned(),
-                ..Default::default()
-            },
-        )
-        .unwrap();
+        let snapshot = rows_at(&conn, "2026-12-31T23:59:59");
         let bucket_row = snapshot.iter().find(|r| r.account_id == bucket_id).unwrap();
 
         // The cashflow predates BU2, so it must not be counted again.
-        // Expected: balance = 100 (BU2 value only), cashflow_tagged = 0.
         assert_eq!(bucket_row.balance_minor, 100);
-        assert_eq!(bucket_row.cashflow_tagged_minor, 0);
-        assert_eq!(bucket_row.converted_balance_minor, 100);
+        assert!(bucket_row.tagged_cashflows.is_empty());
+        assert_eq!(bucket_row.counted_minor, 100);
     }
 
     #[test]
@@ -1936,11 +1742,12 @@ mod tests {
         let snapshot = get_accounts_snapshot(
             &conn,
             GetSnapshotParams {
-                selected_datetime: "2099-12-31T23:59:59".to_owned(),
+                moment: Moment::at("2099-12-31T23:59:59").unwrap(),
                 person_id: Some(default_person_id),
             },
         )
-        .unwrap();
+        .unwrap()
+        .rows;
 
         let ids: Vec<i64> = snapshot.iter().map(|r| r.account_id).collect();
         assert!(ids.contains(&acc1), "acc1 should be in snapshot");
@@ -1991,14 +1798,7 @@ mod tests {
         )
         .expect("create acc2 failed");
 
-        let snapshot = get_accounts_snapshot(
-            &conn,
-            GetSnapshotParams {
-                selected_datetime: "2099-12-31T23:59:59".to_owned(),
-                person_id: None,
-            },
-        )
-        .unwrap();
+        let snapshot = rows_at(&conn, "2099-12-31T23:59:59");
 
         assert_eq!(
             snapshot.len(),
@@ -2133,14 +1933,7 @@ mod tests {
         )
         .unwrap();
 
-        let snapshot = get_accounts_snapshot(
-            &conn,
-            GetSnapshotParams {
-                selected_datetime: "2099-12-31T23:59:59".to_owned(),
-                ..Default::default()
-            },
-        )
-        .unwrap();
+        let snapshot = rows_at(&conn, "2099-12-31T23:59:59");
         let row = snapshot
             .iter()
             .find(|r| r.account_id == account_id)
@@ -2507,19 +2300,13 @@ mod tests {
         let snapshot = get_accounts_snapshot(
             &conn,
             GetSnapshotParams {
-                selected_datetime: "2099-12-31T23:59:59".to_owned(),
+                moment: Moment::at("2099-12-31T23:59:59").unwrap(),
                 person_id: Some(person_id),
             },
         )
         .expect("get_accounts_snapshot failed");
 
-        for row in &snapshot {
-            assert!(
-                row.account_type != "default_revenue" && row.account_type != "default_expense",
-                "snapshot should not include default_revenue or default_expense accounts, found: {}",
-                row.account_type
-            );
-        }
+        assert_eq!(snapshot.rows.len(), 0);
     }
 
     #[test]

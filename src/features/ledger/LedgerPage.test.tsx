@@ -87,6 +87,7 @@ vi.mock('../../shared/ui/date-picker', () => ({
 }))
 
 import { listEvents, getAccountsSnapshot, getConsolidationCurrency, getUnmatchedCashflowCount } from '../../shared/api'
+import { makeSnapshot } from '../../shared/testing/snapshotFixtures'
 
 const renderLedgerPage = () => {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: 0 } } })
@@ -104,7 +105,7 @@ describe('LedgerPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     ;(listEvents as Mock).mockResolvedValue({ events: [], totalCount: 0 })
-    ;(getAccountsSnapshot as Mock).mockResolvedValue([])
+    ;(getAccountsSnapshot as Mock).mockResolvedValue(makeSnapshot())
     ;(getConsolidationCurrency as Mock).mockResolvedValue({ id: 1, code: 'EUR', name: 'Euro', minorUnits: 2, isCustom: false })
     ;(getUnmatchedCashflowCount as Mock).mockResolvedValue(0)
   })

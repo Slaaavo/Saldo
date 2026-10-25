@@ -33,14 +33,52 @@ header:
   settings: Nastavenia
   fxRates: Kurzy mien
 
+# ──── Časostroj ────
+timeMachine:
+  live: Aktuálne
+  viewing: "Časostroj: zostatky ku dňu {{date}}. Neskôr datované záznamy a kurzy sa nezohľadňujú."
+  backToLive: Späť na aktuálne
+
 # ──── Metriky ────
 metrics:
   totalBalance: Celkový zostatok
   leftToSpend: Zostáva na míňanie
   netWorth: Čisté imanie
   liquid: Likvidné
-  fxRateMissing: "Chýba kurz pre {{currencies}}. Používa sa kurz 1:1."
   leftToSpendTooltip: "Aktíva sú z tohto výpočtu vylúčené."
+  openBreakdown: "Zobraziť, z čoho sa toto číslo skladá"
+  breakdown:
+    description: "Sčítaním započítaných riadkov získate súčet."
+    counted: Započítané
+    notCounted: Nezapočítané
+    total: Spolu
+    nothingCounted: "Zatiaľ sa nezapočítava nič."
+    noConversion: Bez prepočtu
+    manual: ručne
+    rateAge_one: "starý {{count}} deň"
+    rateAge_few: "starý {{count}} dni"
+    rateAge_other: "starý {{count}} dní"
+    columns:
+      account: Účet
+      amount: Suma
+      rate: Kurz
+      value: "Hodnota v {{currency}}"
+    part:
+      linkedAccount: "cez {{account}}"
+      taggedCashflows: "označené z {{account}}"
+      bucketTotal: Súčet obálky
+    reason:
+      noRate: "Chýba kurz pre {{currency}}, preto sa nedá prepočítať."
+      linkedToAsset: "Je prepojený s aktívom, preto sa počíta iba do čistého imania."
+      earmark: "Obálka len vyčleňuje peniaze, ktoré už sú na vašich účtoch, preto sa nepripočítava."
+      notLiquid: "Aktíva nie sú likvidné, preto sa tu nezapočítavajú."
+
+# ──── Upozornenia na kurzy ────
+rateWarnings:
+  noRate: "nemá kurz pre {{currency}}, preto sa nezapočítava do súčtov."
+  stale_one: "používa kurz {{currency}} z {{date}}, starý {{count}} deň."
+  stale_few: "používa kurz {{currency}} z {{date}}, starý {{count}} dni."
+  stale_other: "používa kurz {{currency}} z {{date}}, starý {{count}} dní."
 
 # ──── Účty ────
 accounts:
@@ -53,7 +91,10 @@ accounts:
   updateBalance: Aktualizovať zostatok
   scrollLeft: Posunúť doľava
   scrollRight: Posunúť doprava
-  fxRateMissingTooltip: "Chýba kurz — používa sa 1:1"
+  noRateTooltip: "Bez kurzu, nezapočítava sa do súčtov"
+  staleRateTooltip_one: "Kurz z {{date}}, starý {{count}} deň"
+  staleRateTooltip_few: "Kurz z {{date}}, starý {{count}} dni"
+  staleRateTooltip_other: "Kurz z {{date}}, starý {{count}} dní"
   overAllocated: "Prekročená alokácia"
   overAllocationTooltip: "Alokované {{allocated}} z {{balance}} {{currency}} (prekročenie o {{over}}). Obálky: {{buckets}}"
   manageLinkedAssets: "Spravovať prepojené aktíva"
@@ -67,6 +108,7 @@ buckets:
   balanceBreakdown: "Rozdelenie zostatku"
   additionalBalance: "Dodatočný zostatok"
   cashflowTaggedBalance: "Označené cashflow"
+  notCounted: "Nezapočítané"
 
 
 # ──── Aktíva ────

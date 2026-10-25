@@ -1,9 +1,11 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest'
 import { renderHook, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import type { SnapshotRow } from '../types'
+import type { Snapshot } from '../types'
 import { useSnapshotQuery } from './useSnapshotQuery'
 import { getAccountsSnapshot } from '../api'
+import { LIVE } from '../utils/snapshot'
+import { makeRow, makeSnapshot } from '../testing/snapshotFixtures'
 
 vi.mock('../api', () => ({
   getAccountsSnapshot: vi.fn(),
@@ -14,7 +16,7 @@ vi.mock('../../app/useSelectedPerson', () => ({
   useSelectedPerson: () => ({ selectedPersonId, setSelectedPersonId: vi.fn() }),
 }))
 
-const row = (accountId: number) => ({ accountId, accountName: `Account ${accountId}` }) as SnapshotRow
+const snapshotOf = (accountId: number) => makeSnapshot({ rows: [makeRow({ accountId, accountName: `Account ${accountId}` })] })
 
 const makeWrapper = () => {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: 0 } } })
@@ -28,16 +30,35 @@ describe('useSnapshotQuery', () => {
     selectedPersonId = null
   })
 
-  it('keeps the previous snapshot while the next person or date loads', async () => {
-    const first = [row(1)]
-    let resolveNext: (rows: SnapshotRow[]) => void = () => {}
+  it('asks for the live snapshot without a date', async () => {
+    ;(getAccountsSnapshot as Mock).mockResolvedValue(snapshotOf(1))
+
+    const { result } = renderHook(() => useSnapshotQuery(LIVE), { wrapper: makeWrapper() })
+    await waitFor(() => expect(result.current.data).toEqual(snapshotOf(1)))
+
+    expect(getAccountsSnapshot).toHaveBeenCalledWith({ kind: 'live' }, undefined)
+  })
+
+  it('asks for the snapshot at a moment, for the selected person', async () => {
+    selectedPersonId = 3
+    ;(getAccountsSnapshot as Mock).mockResolvedValue(snapshotOf(1))
+
+    const { result } = renderHook(() => useSnapshotQuery({ kind: 'at', until: '2026-10-20' }), { wrapper: makeWrapper() })
+    await waitFor(() => expect(result.current.data).toBeDefined())
+
+    expect(getAccountsSnapshot).toHaveBeenCalledWith({ kind: 'at', until: '2026-10-20' }, 3)
+  })
+
+  it('keeps the previous snapshot while the next person or moment loads', async () => {
+    const first = snapshotOf(1)
+    let resolveNext: (snapshot: Snapshot) => void = () => {}
     ;(getAccountsSnapshot as Mock).mockResolvedValueOnce(first).mockReturnValueOnce(
-      new Promise<SnapshotRow[]>((resolve) => {
+      new Promise<Snapshot>((resolve) => {
         resolveNext = resolve
       }),
     )
 
-    const { result, rerender } = renderHook(() => useSnapshotQuery('2026-01-15'), { wrapper: makeWrapper() })
+    const { result, rerender } = renderHook(() => useSnapshotQuery(LIVE), { wrapper: makeWrapper() })
     await waitFor(() => expect(result.current.data).toEqual(first))
 
     selectedPersonId = 2
@@ -48,7 +69,7 @@ describe('useSnapshotQuery', () => {
     expect(result.current.isPlaceholderData).toBe(true)
     expect(result.current.data).toEqual(first)
 
-    const next = [row(2)]
+    const next = snapshotOf(2)
     resolveNext(next)
     await waitFor(() => expect(result.current.data).toEqual(next))
     expect(result.current.isPlaceholderData).toBe(false)

@@ -1,8 +1,6 @@
 import Decimal from 'decimal.js'
 import type { FxRateRow, Currency } from '../../shared/types'
 
-export const formatRate = (r: FxRateRow): string => new Decimal(`${r.rateMantissa}e${r.rateExponent}`).toString()
-
 export const parseRateInput = (input: string): { mantissa: number; exponent: number } | null => {
   try {
     const d = new Decimal(input)

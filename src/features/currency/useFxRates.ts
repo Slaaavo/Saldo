@@ -4,7 +4,8 @@ import { useTranslation } from 'react-i18next'
 import type { FxRateRow, Currency } from '../../shared/types'
 import { listFxRates, fetchFxRates, listCurrencies, getConsolidationCurrency, setFxRateManual, getMissingRateDates } from '../../shared/api'
 import { extractErrorMessage } from '../../shared/utils/errors'
-import { formatRate, parseRateInput, buildRatePivot } from './fxRate'
+import { parseRateInput, buildRatePivot } from './fxRate'
+import { formatRate } from '../../shared/utils/fxRate'
 import { todayIso } from '../../shared/utils/format'
 
 export const useFxRates = () => {
@@ -90,7 +91,7 @@ export const useFxRates = () => {
 
   const handleCellClick = (date: string, code: string, row: FxRateRow | undefined) => {
     setEditingCell({ date, code })
-    setEditValue(row ? formatRate(row) : '')
+    setEditValue(row ? formatRate(row.rateMantissa, row.rateExponent) : '')
   }
 
   const handleCellSave = async (date: string, code: string, value: string) => {

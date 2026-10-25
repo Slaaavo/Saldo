@@ -26,12 +26,12 @@ export const EquityTooltip = ({ row, equityMinor, equityLinkedRows, consolidatio
           <div className="text-xs space-y-1 min-w-[160px]">
             <div className="flex justify-between gap-4">
               <span>{row.accountName}</span>
-              <NumberValue value={row.convertedBalanceMinor} currencyCode={consolidationCurrency.code} minorUnits={consolidationCurrency.minorUnits} />
+              <NumberValue value={row.countedMinor} currencyCode={consolidationCurrency.code} minorUnits={consolidationCurrency.minorUnits} />
             </div>
             {equityLinkedRows.map((a) => (
               <div key={a.accountId} className="flex justify-between gap-4">
                 <span className="text-muted-foreground">{a.accountName}</span>
-                <NumberValue value={a.convertedBalanceMinor} currencyCode={consolidationCurrency.code} minorUnits={consolidationCurrency.minorUnits} />
+                <NumberValue value={a.countedMinor} currencyCode={consolidationCurrency.code} minorUnits={consolidationCurrency.minorUnits} />
               </div>
             ))}
             <div className="flex justify-between gap-4 border-t border-border pt-1 font-medium">

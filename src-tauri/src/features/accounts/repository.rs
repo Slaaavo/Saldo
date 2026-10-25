@@ -393,9 +393,8 @@ mod tests {
     };
     use crate::features::transactions::repository::{
         create_balance_update, create_cashflow, create_taxable_event, create_transfer,
-        get_accounts_snapshot, get_event_by_id, list_events, update_event, CashflowEntry,
-        CreateBalanceUpdateParams, CreateTaxableEventParams, GetSnapshotParams, ListEventsQuery,
-        UpdateEventParams,
+        get_event_by_id, list_events, rows_at, update_event, CashflowEntry,
+        CreateBalanceUpdateParams, CreateTaxableEventParams, ListEventsQuery, UpdateEventParams,
     };
 
     fn mk_account(conn: &Connection) -> i64 {
@@ -426,14 +425,7 @@ mod tests {
         )
         .unwrap();
         delete_account(&conn, account_id).unwrap();
-        let snapshot = get_accounts_snapshot(
-            &conn,
-            GetSnapshotParams {
-                selected_datetime: "2099-12-31T23:59:59".to_owned(),
-                ..Default::default()
-            },
-        )
-        .unwrap();
+        let snapshot = rows_at(&conn, "2099-12-31T23:59:59");
         assert!(snapshot.iter().all(|r| r.account_id != account_id));
         let result = list_events(
             &conn,
@@ -461,18 +453,11 @@ mod tests {
     }
 
     fn balance_at(conn: &Connection, account_id: i64, datetime: &str) -> i64 {
-        get_accounts_snapshot(
-            conn,
-            GetSnapshotParams {
-                selected_datetime: datetime.to_owned(),
-                ..Default::default()
-            },
-        )
-        .unwrap()
-        .into_iter()
-        .find(|r| r.account_id == account_id)
-        .expect("account missing from snapshot")
-        .balance_minor
+        rows_at(conn, datetime)
+            .into_iter()
+            .find(|r| r.account_id == account_id)
+            .expect("account missing from snapshot")
+            .balance_minor
     }
 
     #[test]
@@ -808,14 +793,7 @@ mod tests {
         delete_account(&conn, account_id).unwrap();
 
         // Account must be gone from snapshot
-        let snapshot = get_accounts_snapshot(
-            &conn,
-            GetSnapshotParams {
-                selected_datetime: "2099-12-31T23:59:59".to_owned(),
-                ..Default::default()
-            },
-        )
-        .unwrap();
+        let snapshot = rows_at(&conn, "2099-12-31T23:59:59");
         assert!(snapshot.iter().all(|r| r.account_id != account_id));
 
         // Events must be gone
@@ -864,14 +842,7 @@ mod tests {
             },
         )
         .unwrap();
-        let snapshot = get_accounts_snapshot(
-            &conn,
-            GetSnapshotParams {
-                selected_datetime: "2099-12-31T23:59:59".to_owned(),
-                ..Default::default()
-            },
-        )
-        .unwrap();
+        let snapshot = rows_at(&conn, "2099-12-31T23:59:59");
         let row = snapshot
             .iter()
             .find(|r| r.account_id == account_id)
@@ -1078,14 +1049,7 @@ mod tests {
         assert_eq!(count, 0, "all link rows should have been deleted");
 
         // The account itself must be gone.
-        let snap = get_accounts_snapshot(
-            &conn,
-            GetSnapshotParams {
-                selected_datetime: "2099-12-31T23:59:59".to_owned(),
-                ..Default::default()
-            },
-        )
-        .unwrap();
+        let snap = rows_at(&conn, "2099-12-31T23:59:59");
         assert!(snap.iter().all(|r| r.account_id != source_id));
     }
 
@@ -1217,14 +1181,7 @@ mod tests {
             },
         )
         .unwrap();
-        let snapshot = get_accounts_snapshot(
-            &conn,
-            GetSnapshotParams {
-                selected_datetime: "2099-12-31T23:59:59".to_owned(),
-                ..Default::default()
-            },
-        )
-        .unwrap();
+        let snapshot = rows_at(&conn, "2099-12-31T23:59:59");
         let beta_pos = snapshot
             .iter()
             .position(|r| r.account_id == beta_id)

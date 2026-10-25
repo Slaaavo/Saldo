@@ -1,4 +1,5 @@
 pub mod commands;
+mod metrics;
 pub mod models;
 pub mod repository;
 

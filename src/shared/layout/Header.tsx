@@ -1,8 +1,9 @@
 import { useTranslation } from 'react-i18next'
 import { useRouterState } from '@tanstack/react-router'
+import { cn } from '@/shared/lib/utils'
 import { DatePicker } from '../ui/date-picker'
 import { Label } from '../ui/label'
-import { useSelectedDate } from '../../app/useSelectedDate'
+import { useTimeMachine } from '../../app/useTimeMachine'
 import PersonSelector from '../../features/dashboard/PersonSelector'
 
 interface Props {
@@ -11,7 +12,7 @@ interface Props {
 
 const Header = ({ pageTitle }: Props) => {
   const { t } = useTranslation()
-  const { selectedDate, setSelectedDate } = useSelectedDate()
+  const { asOf, travelTo, backToLive } = useTimeMachine()
   const routerState = useRouterState()
   const pathname = routerState.location.pathname
   const showDatePicker = pathname === '/dashboard'
@@ -29,7 +30,15 @@ const Header = ({ pageTitle }: Props) => {
             <Label htmlFor="date-picker" className="text-sm font-medium text-muted-foreground">
               {t('header.date')}
             </Label>
-            <DatePicker id="date-picker" value={selectedDate} onChange={setSelectedDate} className="w-48" />
+            <DatePicker
+              id="date-picker"
+              value={asOf.kind === 'at' ? asOf.until : undefined}
+              onChange={(date) => (date ? travelTo(date) : backToLive())}
+              placeholder={t('timeMachine.live')}
+              clearable
+              showToday={false}
+              className={cn('w-48', asOf.kind === 'at' && 'border-amber-500 text-amber-800 dark:border-amber-500/70 dark:text-amber-300')}
+            />
           </>
         )}
       </div>

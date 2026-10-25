@@ -1,7 +1,7 @@
 import { useRef } from 'react'
 import type { FxRateRow } from '../../shared/types'
 import { cn } from '@/shared/lib/utils'
-import { formatRate } from './fxRate'
+import { formatRate } from '../../shared/utils/fxRate'
 
 interface EditableRateCellProps {
   date: string
@@ -65,7 +65,7 @@ export const EditableRateCell = ({ date, code, row, isEditing, editValue, onCell
         <RateInput editValue={editValue} onEditValueChange={onEditValueChange} onSave={(value) => onSave(date, code, value)} onCancel={onCancel} />
       ) : (
         <>
-          {row ? formatRate(row) : '—'}
+          {row ? formatRate(row.rateMantissa, row.rateExponent) : '—'}
           {row?.isManual && <span className="ml-1 text-amber-600 text-xs">({manualLabel})</span>}
         </>
       )}

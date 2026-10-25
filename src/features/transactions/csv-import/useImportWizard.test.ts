@@ -3,6 +3,7 @@ import { renderHook, act, waitFor } from '@testing-library/react'
 import type { Currency, EventWithData, ImportProfileRow, SnapshotRow } from '../../../shared/types'
 import { toast } from 'sonner'
 import { useImportWizard } from './useImportWizard'
+import { makeRow } from '../../../shared/testing/snapshotFixtures'
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -52,29 +53,7 @@ import {
 const EUR: Currency = { id: 1, code: 'EUR', name: 'Euro', minorUnits: 2, isCustom: false }
 const JPY: Currency = { id: 3, code: 'JPY', name: 'Japanese Yen', minorUnits: 0, isCustom: false }
 
-const makeAccount = (overrides: Partial<SnapshotRow>): SnapshotRow => ({
-  accountId: 1,
-  accountName: 'Checking',
-  accountType: 'account',
-  iban: null,
-  balanceMinor: 0,
-  currencyCode: 'EUR',
-  currencyMinorUnits: 2,
-  isCustom: false,
-  convertedBalanceMinor: 0,
-  fxRateMissing: false,
-  isLinkedToAsset: false,
-  linkedAssetIds: [],
-  isBucketLinked: false,
-  bucketLinks: [],
-  linkedBalanceMinor: 0,
-  cashflowTaggedMinor: 0,
-  personId: null,
-  purchasePriceMinor: null,
-  purchaseDate: null,
-  depreciationPeriodMonths: null,
-  ...overrides,
-})
+const makeAccount = (overrides: Partial<SnapshotRow>): SnapshotRow => makeRow({ balanceMinor: 0, ...overrides })
 
 const makeEvent = (overrides: Partial<EventWithData>): EventWithData => ({
   id: 100,

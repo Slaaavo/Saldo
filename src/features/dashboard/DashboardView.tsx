@@ -1,32 +1,25 @@
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import type { EventWithData, Currency } from '../../shared/types'
+import type { EventWithData, MetricKind } from '../../shared/types'
 import { listPersons } from '../../shared/api'
 import { cn } from '@/shared/lib/utils'
-import NumberValue from '../../shared/ui/NumberValue'
 import AccountCards from './AccountCards'
 import Ledger from './Ledger'
+import MetricCard from './MetricCard'
+import MetricBreakdownDialog from './MetricBreakdownDialog'
+import RateWarnings from './RateWarnings'
+import TimeMachineBanner from './TimeMachineBanner'
 import { Button } from '../../shared/ui/button'
 import { useDemo } from '../../app/useDemo'
 import { useModal } from '../../app/useModal'
-import { useSelectedDate } from '../../app/useSelectedDate'
+import { useTimeMachine } from '../../app/useTimeMachine'
 import { useSnapshotQuery } from '../../shared/hooks/useSnapshotQuery'
 import { useDashboardEventsQuery } from '../../shared/hooks/useDashboardEventsQuery'
 import { useConsolidationCurrencyQuery } from '../../shared/hooks/useConsolidationCurrencyQuery'
 import { useEditEventHandler } from '../../shared/hooks/useEditEventHandler'
-import { computeDashboardMetrics } from './dashboardMetrics'
+import { EMPTY_SNAPSHOT, groupRowsByKind } from '../../shared/utils/snapshot'
 import { useNavigate } from '@tanstack/react-router'
-
-const MetricCard = ({ label, value, currency }: { label: string; value: number; currency: Currency | null }) => {
-  return (
-    <div className="flex flex-col items-center">
-      <p className="text-sm font-medium uppercase tracking-widest text-muted-foreground mb-1">{label}</p>
-      <p className={cn('text-4xl font-extrabold', value < 0 && 'text-destructive')}>
-        <NumberValue value={value} currencyCode={currency?.code} minorUnits={currency?.minorUnits ?? 2} />
-      </p>
-    </div>
-  )
-}
 
 const sectionClass = 'px-4 md:px-10 py-8'
 
@@ -40,37 +33,28 @@ const DashboardView = () => {
   const { t } = useTranslation()
   const { isDemoMode, onEnterDemoMode } = useDemo()
   const { setModalState } = useModal()
-  const { selectedDate } = useSelectedDate()
+  const { asOf, backToLive } = useTimeMachine()
   const navigate = useNavigate()
   const handleEditEvent = useEditEventHandler()
+  const [openMetric, setOpenMetric] = useState<MetricKind | null>(null)
 
-  const snapshotQuery = useSnapshotQuery(selectedDate)
-  const eventsQuery = useDashboardEventsQuery(selectedDate)
+  const snapshotQuery = useSnapshotQuery(asOf)
+  const eventsQuery = useDashboardEventsQuery(asOf)
   const consolidationCurrencyQuery = useConsolidationCurrencyQuery()
   const personsQuery = useQuery({ queryKey: ['persons'], queryFn: listPersons })
 
-  const snapshot = snapshotQuery.data ?? []
-  const { accounts, buckets, assets, hasAssets, liquidMinor, leftToSpendMinor, netWorthMinor } = computeDashboardMetrics(snapshot)
+  const { rows: snapshot, metrics, rateWarnings } = snapshotQuery.data ?? EMPTY_SNAPSHOT
+  const { accounts, buckets, assets } = groupRowsByKind(snapshot)
   const events = eventsQuery.data?.events ?? []
   const totalEvents = eventsQuery.data?.totalCount ?? 0
   const consolidationCurrency = consolidationCurrencyQuery.data ?? null
   const persons = personsQuery.data ?? []
-  const missingFxCurrencies = [...new Set(snapshot.filter((r) => r.fxRateMissing).map((r) => r.currencyCode))]
+  const breakdown = metrics.find((m) => m.kind === openMetric)
 
   // Everything below, including the empty state, depends on the snapshot, so wait for it rather than for all three queries.
   if (snapshotQuery.isPending) {
     return null
   }
-
-  const metrics = [
-    ...(hasAssets
-      ? [
-          { key: 'netWorth', label: t('metrics.netWorth'), value: netWorthMinor },
-          { key: 'liquid', label: t('metrics.liquid'), value: liquidMinor },
-        ]
-      : [{ key: 'totalBalance', label: t('metrics.totalBalance'), value: liquidMinor }]),
-    ...(buckets.length > 0 ? [{ key: 'leftToSpend', label: t('metrics.leftToSpend'), value: leftToSpendMinor }] : []),
-  ]
 
   const handleRename = (accountId: number, currentName: string) => {
     const row = snapshot.find((r) => r.accountId === accountId)
@@ -118,19 +102,18 @@ const DashboardView = () => {
 
   return (
     <>
-      {/* FX rate missing warning */}
-      {missingFxCurrencies.length > 0 && (
-        <div className="mx-4 md:mx-10 mb-4 rounded-md border border-yellow-400 bg-yellow-50 px-4 py-2 text-sm text-yellow-800 dark:border-yellow-500/40 dark:bg-yellow-900/20 dark:text-yellow-300">
-          {t('metrics.fxRateMissing', { currencies: missingFxCurrencies.join(', ') })}
-        </div>
-      )}
+      {asOf.kind === 'at' && <TimeMachineBanner until={asOf.until} onBackToLive={backToLive} />}
+
+      {rateWarnings.length > 0 && <RateWarnings warnings={rateWarnings} />}
 
       {/* Hero metrics */}
       <div className={cn('px-4 md:px-10 py-10', metricsGridClass(metrics.length))}>
-        {metrics.map(({ key, label, value }) => (
-          <MetricCard key={key} label={label} value={value} currency={consolidationCurrency} />
+        {metrics.map((metric) => (
+          <MetricCard key={metric.kind} metric={metric} currency={consolidationCurrency} onOpen={() => setOpenMetric(metric.kind)} />
         ))}
       </div>
+
+      {breakdown && consolidationCurrency && <MetricBreakdownDialog metric={breakdown} currency={consolidationCurrency} onClose={() => setOpenMetric(null)} />}
 
       <hr className="border-border" />
 
@@ -182,7 +165,6 @@ const DashboardView = () => {
               onDeleteAccount={handleDelete('bucket')}
               onCreateAccount={() => setModalState({ type: 'createAccount', accountType: 'bucket' })}
               onReorder={() => setModalState({ type: 'reorderBuckets' })}
-              allAccounts={accounts}
               persons={persons}
             />
           </div>
