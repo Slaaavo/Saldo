@@ -227,11 +227,59 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_offline_qr_integer_total() {
+    fn test_parse_offline_qr_spec_example() {
+        let qr =
+            "C44B3977-0E415CC6-EE663AA1-776C973A-A143B660:99920045678900001:180213093414:23:237.23";
+        let data = parse_offline_qr(qr).unwrap();
+        assert_eq!(data.event_date, "2018-02-13");
+        assert_eq!(data.total_amount_minor, 23723);
+    }
+
+    #[test]
+    fn test_parse_offline_qr_total_without_decimal_point_returns_none() {
+        // "1250" is not an Amount: the spec requires a decimal part, so it must not
+        // be guessed as 1250 minor units (or 1250.00).
         let qr = "ABCD1234:XYZ9876:260412153045:001:1250";
-        let result = parse_offline_qr(qr);
-        assert!(result.is_some());
-        assert_eq!(result.unwrap().total_amount_minor, 1250);
+        assert!(parse_offline_qr(qr).is_none());
+    }
+
+    #[test]
+    fn test_parse_offline_qr_total_must_have_exactly_two_decimals() {
+        for total in ["12.5", "12.500", "12.", ".50"] {
+            let qr = format!("ABCD1234:XYZ9876:260412153045:001:{total}");
+            assert!(parse_offline_qr(&qr).is_none(), "{total:?}");
+        }
+    }
+
+    #[test]
+    fn test_parse_offline_qr_total_rejects_non_amount_text() {
+        for total in ["+12.50", "1e2.00", "12,50", "1 2.50", "--1.00", "-.50", ""] {
+            let qr = format!("ABCD1234:XYZ9876:260412153045:001:{total}");
+            assert!(parse_offline_qr(&qr).is_none(), "{total:?}");
+        }
+    }
+
+    #[test]
+    fn test_parse_offline_qr_total_range_and_sign() {
+        let total = |t: &str| {
+            parse_offline_qr(&format!("ABCD1234:XYZ9876:260412153045:001:{t}"))
+                .map(|d| d.total_amount_minor)
+        };
+        assert_eq!(total("0.00"), Some(0));
+        assert_eq!(total("0.29"), Some(29));
+        assert_eq!(total("19.99"), Some(1999));
+        assert_eq!(total("-12.50"), Some(-1250));
+        assert_eq!(total("10000000.00"), Some(1_000_000_000));
+        assert_eq!(total("-10000000.00"), Some(-1_000_000_000));
+        assert_eq!(total("10000000.01"), None);
+        assert_eq!(total("-10000000.01"), None);
+    }
+
+    #[test]
+    fn test_parse_offline_qr_total_longer_than_12_chars_returns_none() {
+        // 13 characters, although the value itself is in range
+        let qr = "ABCD1234:XYZ9876:260412153045:001:0000000012.50";
+        assert!(parse_offline_qr(qr).is_none());
     }
 
     #[test]
@@ -260,22 +308,58 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_offline_qr_fallback_to_ddmmyy_on_invalid_yymmdd_day() {
-        // "260432121200": YYMMDD → DD=32 (invalid) → fallback to DDMMYY
-        // DDMMYY: DD=26, MM=04, YY=32 → "2032-04-26"
+    fn test_parse_offline_qr_does_not_fall_back_to_ddmmyy() {
+        // "260432121200" is not YYMMDD (day 32). Reading it as DDMMYY would give
+        // 2032-04-26, which is a guess the spec does not allow.
         let qr = "ABCD1234:XYZ9876:260432121200:001:25.00";
-        let result = parse_offline_qr(qr);
-        assert!(result.is_some());
-        let data = result.unwrap();
-        assert_eq!(data.event_date, "2032-04-26");
-        assert_eq!(data.total_amount_minor, 2500);
+        assert!(parse_offline_qr(qr).is_none());
     }
 
     #[test]
-    fn test_parse_offline_qr_both_formats_invalid_returns_none() {
-        // Month field (chars 2..4) = "99" → invalid for both YYMMDD and DDMMYY
+    fn test_parse_offline_qr_invalid_month_returns_none() {
         let qr = "ABCD1234:XYZ9876:269912121200:001:10.00";
         assert!(parse_offline_qr(qr).is_none());
+    }
+
+    #[test]
+    fn test_parse_offline_qr_impossible_calendar_dates_return_none() {
+        for dt in [
+            "260230120000", // Feb 30
+            "250229120000", // Feb 29 in a non-leap year
+            "260431120000", // Apr 31
+            "260400120000", // day 0
+            "260013120000", // month 0
+            "261301120000", // month 13
+        ] {
+            let qr = format!("ABCD1234:XYZ9876:{dt}:001:10.00");
+            assert!(parse_offline_qr(&qr).is_none(), "{dt:?}");
+        }
+    }
+
+    #[test]
+    fn test_parse_offline_qr_leap_day_is_valid() {
+        let qr = "ABCD1234:XYZ9876:240229120000:001:10.00";
+        assert_eq!(parse_offline_qr(qr).unwrap().event_date, "2024-02-29");
+    }
+
+    #[test]
+    fn test_parse_offline_qr_impossible_time_returns_none() {
+        for dt in [
+            "260412250000", // hour 25
+            "260412240000", // hour 24
+            "260412126000", // minute 60
+            "260412120060", // second 60
+            "260412996099",
+        ] {
+            let qr = format!("ABCD1234:XYZ9876:{dt}:001:10.00");
+            assert!(parse_offline_qr(&qr).is_none(), "{dt:?}");
+        }
+    }
+
+    #[test]
+    fn test_parse_offline_qr_end_of_day_time_is_valid() {
+        let qr = "ABCD1234:XYZ9876:261231235959:001:10.00";
+        assert_eq!(parse_offline_qr(qr).unwrap().event_date, "2026-12-31");
     }
 
     #[test]
