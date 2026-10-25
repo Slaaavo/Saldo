@@ -51,16 +51,16 @@ fn decode_qr_from_dynamic_image(img: DynamicImage) -> Result<String, AppError> {
     // produces a clean black/white image that decodes reliably.
     let gray = cropped.to_luma8();
     let binarized = otsu_binarize(&gray);
-    try_decode_qr_gray(&binarized)
+    try_decode_qr_gray(binarized)
 }
 
 fn try_decode_qr(img: &DynamicImage) -> Result<String, AppError> {
     let gray = img.to_luma8();
-    try_decode_qr_gray(&gray)
+    try_decode_qr_gray(gray)
 }
 
-fn try_decode_qr_gray(gray: &GrayImage) -> Result<String, AppError> {
-    let mut prepared = rqrr::PreparedImage::prepare(gray.clone());
+fn try_decode_qr_gray(gray: GrayImage) -> Result<String, AppError> {
+    let mut prepared = rqrr::PreparedImage::prepare(gray);
     let grids = prepared.detect_grids();
 
     for grid in grids {
