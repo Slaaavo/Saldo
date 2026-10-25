@@ -212,12 +212,14 @@ export const useEkasaImportWizard = () => {
         personId,
         defaultDeductiblePctBps: pctToBps(state.defaultDeductiblePct) ?? 0,
         defaultVatReclaimablePctBps: pctToBps(state.defaultVatReclaimablePct) ?? 0,
-        rules: state.rules.map((r, i) => ({
-          sortOrder: i,
-          namePattern: r.namePattern,
-          deductiblePctBps: pctToBps(r.deductiblePct) ?? 0,
-          vatReclaimablePctBps: pctToBps(r.vatReclaimablePct) ?? 0,
-        })),
+        rules: state.rules
+          .filter((r) => r.namePattern.trim() !== '')
+          .map((r, i) => ({
+            sortOrder: i,
+            namePattern: r.namePattern,
+            deductiblePctBps: pctToBps(r.deductiblePct) ?? 0,
+            vatReclaimablePctBps: pctToBps(r.vatReclaimablePct) ?? 0,
+          })),
       })
     },
     [state.defaultDeductiblePct, state.defaultVatReclaimablePct, state.rules],

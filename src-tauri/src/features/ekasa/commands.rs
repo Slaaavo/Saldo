@@ -25,11 +25,44 @@ pub fn get_ekasa_profile(
     repository::get_ekasa_profile_for_person(&conn, person_id)
 }
 
+fn validate_bps(name: &str, value: i64) -> Result<(), AppError> {
+    if !(0..=10000).contains(&value) {
+        return Err(AppError {
+            code: "VALIDATION".into(),
+            message: format!("{} must be in range [0, 10000] bps", name),
+        });
+    }
+    Ok(())
+}
+
+fn validate_upsert_profile_input(input: &UpsertEkasaProfileInput) -> Result<(), AppError> {
+    validate_bps(
+        "default_deductible_pct_bps",
+        input.default_deductible_pct_bps,
+    )?;
+    validate_bps(
+        "default_vat_reclaimable_pct_bps",
+        input.default_vat_reclaimable_pct_bps,
+    )?;
+    for (index, rule) in input.rules.iter().enumerate() {
+        if rule.name_pattern.trim().is_empty() {
+            return Err(AppError {
+                code: "VALIDATION".into(),
+                message: format!("Rule {}: name pattern must not be blank.", index + 1),
+            });
+        }
+        validate_bps("deductible_pct_bps", rule.deductible_pct_bps)?;
+        validate_bps("vat_reclaimable_pct_bps", rule.vat_reclaimable_pct_bps)?;
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub fn upsert_ekasa_profile(
     state: State<'_, AppState>,
     input: UpsertEkasaProfileInput,
 ) -> Result<EkasaImportProfileRow, AppError> {
+    validate_upsert_profile_input(&input)?;
     let conn = state.conn()?;
     repository::upsert_ekasa_profile(
         &conn,
@@ -99,5 +132,70 @@ pub async fn process_receipt_file(file_path: String) -> Result<ProcessReceiptRes
                       Choose a file that shows the QR code printed on the receipt."
                 .into(),
         }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn rule(name_pattern: &str, deductible: i64, vat_reclaimable: i64) -> EkasaRuleInput {
+        EkasaRuleInput {
+            sort_order: 0,
+            name_pattern: name_pattern.to_string(),
+            deductible_pct_bps: deductible,
+            vat_reclaimable_pct_bps: vat_reclaimable,
+        }
+    }
+
+    fn input(
+        default_deductible: i64,
+        default_vat_reclaimable: i64,
+        rules: Vec<EkasaRuleInput>,
+    ) -> UpsertEkasaProfileInput {
+        UpsertEkasaProfileInput {
+            person_id: 1,
+            default_deductible_pct_bps: default_deductible,
+            default_vat_reclaimable_pct_bps: default_vat_reclaimable,
+            rules,
+        }
+    }
+
+    fn assert_validation_error(input: UpsertEkasaProfileInput) {
+        let err = validate_upsert_profile_input(&input).unwrap_err();
+        assert_eq!(err.code, "VALIDATION");
+    }
+
+    #[test]
+    fn upsert_accepts_bounds_of_the_bps_range() {
+        let ok = input(0, 10000, vec![rule("coffee", 10000, 0)]);
+        assert!(validate_upsert_profile_input(&ok).is_ok());
+    }
+
+    #[test]
+    fn upsert_rejects_default_bps_out_of_range() {
+        assert_validation_error(input(-1, 10000, vec![]));
+        assert_validation_error(input(10001, 10000, vec![]));
+        assert_validation_error(input(10000, -1, vec![]));
+        assert_validation_error(input(10000, 10001, vec![]));
+    }
+
+    #[test]
+    fn upsert_rejects_rule_bps_out_of_range() {
+        assert_validation_error(input(10000, 10000, vec![rule("a", -1, 0)]));
+        assert_validation_error(input(10000, 10000, vec![rule("a", 10001, 0)]));
+        assert_validation_error(input(10000, 10000, vec![rule("a", 0, -1)]));
+        assert_validation_error(input(10000, 10000, vec![rule("a", 0, 10001)]));
+    }
+
+    #[test]
+    fn upsert_rejects_blank_and_whitespace_patterns() {
+        for pattern in ["", " ", "\t\n"] {
+            assert_validation_error(input(
+                10000,
+                10000,
+                vec![rule("coffee", 0, 0), rule(pattern, 0, 0)],
+            ));
+        }
     }
 }

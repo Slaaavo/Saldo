@@ -11,7 +11,7 @@ vi.mock('../../shared/api', () => ({
 
 vi.mock('sonner', () => ({ toast: { error: vi.fn() } }))
 
-import { processReceiptFile } from '../../shared/api'
+import { processReceiptFile, upsertEkasaProfile } from '../../shared/api'
 
 const OFFLINE_RESULT: ProcessReceiptResult = {
   receiptData: null,
@@ -150,5 +150,25 @@ describe('useEkasaImportWizard', () => {
 
     expect(result.current.state.step).toBe('upload')
     expect(result.current.state.processedLegs).toEqual([])
+  })
+
+  it('does not save rules with a blank name pattern', async () => {
+    ;(upsertEkasaProfile as Mock).mockResolvedValue({})
+    const { result } = renderHook(() => useEkasaImportWizard())
+
+    act(() =>
+      result.current.setRules([
+        { id: 'a', namePattern: '', deductiblePct: '100', vatReclaimablePct: '100' },
+        { id: 'b', namePattern: 'coffee', deductiblePct: '50', vatReclaimablePct: '0' },
+        { id: 'c', namePattern: '  ', deductiblePct: '100', vatReclaimablePct: '100' },
+      ]),
+    )
+    await act(() => result.current.saveProfile(1))
+
+    expect(upsertEkasaProfile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        rules: [{ sortOrder: 0, namePattern: 'coffee', deductiblePctBps: 5000, vatReclaimablePctBps: 0 }],
+      }),
+    )
   })
 })
