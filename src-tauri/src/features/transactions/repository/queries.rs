@@ -230,8 +230,11 @@ mod tests {
     use super::*;
     use crate::db::initialize_in_memory;
     use crate::features::accounts::repository::{create_account, CreateAccountParams};
+    use crate::features::persons::repository::{create_person, CreatePersonParams};
+    use crate::features::transactions::models::SplitGroupEntry;
     use crate::features::transactions::repository::{
-        create_balance_update, CreateBalanceUpdateParams,
+        create_balance_update, create_split_group_with_legs, CreateBalanceUpdateParams,
+        CreateSplitGroupWithLegsParams,
     };
 
     /// Seeds one event per stored date format around 2026-10-23 and returns their dates, oldest first.
@@ -335,5 +338,163 @@ mod tests {
         );
 
         assert_eq!(dates, ["2026-10-23", "2026-10-23T10:30:00"]);
+    }
+
+    fn mk_account(conn: &Connection, name: &str, person_id: Option<i64>) -> i64 {
+        create_account(
+            conn,
+            CreateAccountParams {
+                name: name.to_owned(),
+                currency_id: 1,
+                account_type: "account".to_owned(),
+                person_id,
+                ..Default::default()
+            },
+        )
+        .expect("create account failed")
+    }
+
+    fn balance_update_on(conn: &Connection, account_id: i64, date: &str) {
+        create_balance_update(
+            conn,
+            CreateBalanceUpdateParams {
+                account_id,
+                amount_minor: 100,
+                event_date: date.to_owned(),
+                note: None,
+            },
+        )
+        .unwrap();
+    }
+
+    fn three_leg_split_group(conn: &Connection, account_id: i64, date: &str) -> i64 {
+        let leg = |amount_minor: i64| SplitGroupEntry {
+            amount_minor,
+            event_date: date.to_owned(),
+            note: None,
+            counterpart_account_id: None,
+            bucket_id: None,
+            original_currency_id: None,
+            original_amount_minor: None,
+            fx_rate_mantissa: None,
+            fx_rate_exponent: None,
+        };
+        create_split_group_with_legs(
+            conn,
+            CreateSplitGroupWithLegsParams {
+                account_id,
+                group_note: None,
+                legs: vec![leg(-100), leg(-200), leg(-300)],
+            },
+        )
+        .expect("create split group failed")
+    }
+
+    fn april(day: u32) -> String {
+        format!("2026-04-{day:02}")
+    }
+
+    #[test]
+    fn limit_counts_a_split_group_as_one_card_and_returns_all_its_legs() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let account_id = mk_account(&conn, "Test Account", None);
+        for day in 1..=5 {
+            balance_update_on(&conn, account_id, &format!("2026-01-{day:02}"));
+        }
+        let group_id = three_leg_split_group(&conn, account_id, "2026-03-01");
+        for day in 1..=19 {
+            balance_update_on(&conn, account_id, &april(day));
+        }
+
+        let result = list_events(
+            &conn,
+            ListEventsQuery {
+                limit: Some(20),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        let group_legs = result
+            .events
+            .iter()
+            .filter(|e| e.split_group_id == Some(group_id))
+            .count();
+        assert_eq!(group_legs, 3);
+        assert_eq!(result.events.len(), 19 + 3);
+        assert!(result
+            .events
+            .iter()
+            .all(|e| e.event_date.as_str() >= "2026-03-01"));
+        assert_eq!(result.total_count, 5 + 3 + 19);
+    }
+
+    #[test]
+    fn a_split_group_past_the_limit_is_left_out_whole() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let account_id = mk_account(&conn, "Test Account", None);
+        three_leg_split_group(&conn, account_id, "2026-03-01");
+        for day in 1..=19 {
+            balance_update_on(&conn, account_id, &april(day));
+        }
+
+        let result = list_events(
+            &conn,
+            ListEventsQuery {
+                limit: Some(19),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        assert_eq!(result.events.len(), 19);
+        assert!(result.events.iter().all(|e| e.split_group_id.is_none()));
+        assert_eq!(result.total_count, 19 + 3);
+    }
+
+    #[test]
+    fn limit_applies_to_the_selected_persons_events_only() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let other_person = create_person(
+            &conn,
+            CreatePersonParams {
+                name: "Other".to_owned(),
+                person_type: "physical".to_owned(),
+                vat_payer: false,
+            },
+        )
+        .unwrap();
+        let mine = mk_account(&conn, "Mine", Some(1));
+        let theirs = mk_account(&conn, "Theirs", Some(other_person));
+        balance_update_on(&conn, mine, "2026-02-01");
+        let group_id = three_leg_split_group(&conn, mine, "2026-03-01");
+        for day in 1..=5 {
+            balance_update_on(&conn, theirs, &april(day));
+        }
+
+        let result = list_events(
+            &conn,
+            ListEventsQuery {
+                limit: Some(2),
+                person_id: Some(1),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        assert!(result.events.iter().all(|e| e.account_id == mine));
+        let dates: Vec<&str> = result
+            .events
+            .iter()
+            .map(|e| e.event_date.as_str())
+            .collect();
+        assert_eq!(dates.iter().filter(|d| **d == "2026-03-01").count(), 3);
+        assert_eq!(dates.iter().filter(|d| **d == "2026-02-01").count(), 1);
+        assert!(result
+            .events
+            .iter()
+            .filter(|e| e.event_date == "2026-03-01")
+            .all(|e| e.split_group_id == Some(group_id)));
+        assert_eq!(result.total_count, 1 + 3);
     }
 }
