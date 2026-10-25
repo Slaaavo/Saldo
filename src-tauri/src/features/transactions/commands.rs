@@ -265,6 +265,23 @@ pub fn bulk_create_balance_updates(
     Ok(ids)
 }
 
+/// Type of the counterpart account, `None` when the entry has no counterpart, and a VALIDATION
+/// error when it names an account that does not exist.
+fn counterpart_account_type(
+    conn: &rusqlite::Connection,
+    counterpart_account_id: Option<i64>,
+) -> Result<Option<String>, AppError> {
+    let Some(id) = counterpart_account_id else {
+        return Ok(None);
+    };
+    crate::features::accounts::repository::get_account_type(conn, id)?
+        .map(Some)
+        .ok_or_else(|| AppError {
+            code: "VALIDATION".into(),
+            message: "Counterpart account not found".into(),
+        })
+}
+
 #[tauri::command]
 pub fn create_cashflow(
     state: State<'_, AppState>,
@@ -295,10 +312,7 @@ fn create_cashflow_with_conn(
             message: "Cannot transfer to the same account".into(),
         });
     }
-    let counterpart_type = match input.counterpart_account_id {
-        Some(cp_id) => crate::features::accounts::repository::get_account_type(conn, cp_id)?,
-        None => None,
-    };
+    let counterpart_type = counterpart_account_type(conn, input.counterpart_account_id)?;
     let entry = repository::CashflowEntry {
         account_id: input.account_id,
         amount_minor: input.amount_minor,
@@ -359,6 +373,7 @@ fn bulk_create_cashflows_with_conn(
                 message: "Cannot transfer to the same account".into(),
             });
         }
+        counterpart_account_type(conn, entry.counterpart_account_id)?;
     }
     let entries: Vec<repository::CashflowEntry> = input
         .entries
@@ -427,6 +442,7 @@ fn create_split_group_with_conn(
                 message: "Cannot transfer to the same account".into(),
             });
         }
+        counterpart_account_type(conn, leg.counterpart_account_id)?;
     }
     let split_group_id = repository::create_split_group_with_legs(
         conn,

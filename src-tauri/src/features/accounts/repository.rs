@@ -243,6 +243,8 @@ pub fn delete_account(conn: &Connection, account_id: i64) -> Result<(), AppError
         )
         .map_err(AppError::from)?;
 
+        clear_event_references_to_account(conn, account_id)?;
+
         conn.execute(
             "DELETE FROM taxable_cashflow_link
              WHERE cashflow_event_id IN (SELECT id FROM event WHERE account_id = ?1)
@@ -304,6 +306,24 @@ pub fn delete_account(conn: &Connection, account_id: i64) -> Result<(), AppError
 
         Ok(())
     })
+}
+
+/// Detaches a removed account from the entries that name it as counterpart or bucket. Entries
+/// keep their amounts and dates. Every `event_data` version is cleared, not only the latest, so
+/// no row is left naming an account that no longer exists.
+pub(crate) fn clear_event_references_to_account(
+    conn: &Connection,
+    account_id: i64,
+) -> rusqlite::Result<()> {
+    conn.execute(
+        "UPDATE event_data SET counterpart_account_id = NULL WHERE counterpart_account_id = ?1",
+        params![account_id],
+    )?;
+    conn.execute(
+        "UPDATE event_data SET bucket_id = NULL WHERE bucket_id = ?1",
+        params![account_id],
+    )?;
+    Ok(())
 }
 
 /// Return the account_type of the account with the given `id`, or `None` if not found.

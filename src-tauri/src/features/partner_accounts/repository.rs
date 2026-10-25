@@ -1,4 +1,5 @@
 use crate::error::AppError;
+use crate::features::accounts::repository::clear_event_references_to_account;
 use crate::features::partner_accounts::models::PartnerAccountRow;
 use crate::shared::{is_duplicate_iban_error, validate_iban, with_savepoint_app};
 use rusqlite::{params, Connection};
@@ -106,6 +107,7 @@ pub fn delete_partner_account(conn: &Connection, account_id: i64) -> Result<(), 
                 message: "Partner account not found.".into(),
             });
         }
+        clear_event_references_to_account(conn, account_id)?;
         Ok(())
     })
 }
