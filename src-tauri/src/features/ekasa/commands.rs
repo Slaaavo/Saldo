@@ -89,9 +89,16 @@ pub fn list_ekasa_profiles(
     repository::list_ekasa_profiles(&conn)
 }
 
+/// Takes the DB lock only for the lookup, so callers can `.await` right after.
+fn is_already_imported(state: &AppState, ekasa_receipt_ref: &str) -> Result<bool, AppError> {
+    let conn = state.conn()?;
+    repository::is_receipt_imported(&conn, ekasa_receipt_ref)
+}
+
 #[tauri::command]
 pub async fn process_receipt_file(
     app: tauri::AppHandle,
+    state: State<'_, AppState>,
     file_path: String,
 ) -> Result<ProcessReceiptResult, AppError> {
     // A resolution failure only drops this directory from the PDFium search.
@@ -120,19 +127,29 @@ pub async fn process_receipt_file(
                 }
                 None => (None, vec![]),
             };
+            let ekasa_receipt_ref = preprocessing::online_receipt_reference(&receipt_id);
+            let already_imported = is_already_imported(&state, &ekasa_receipt_ref)?;
             Ok(ProcessReceiptResult {
                 receipt_data,
                 processed_items,
                 qr_content: qr_string,
                 offline_fallback: None,
+                ekasa_receipt_ref,
+                already_imported,
             })
         }
-        QrContent::Offline(offline) => Ok(ProcessReceiptResult {
-            receipt_data: None,
-            processed_items: vec![],
-            qr_content: qr_string,
-            offline_fallback: Some(offline),
-        }),
+        QrContent::Offline(offline) => {
+            let ekasa_receipt_ref = preprocessing::offline_receipt_reference(&qr_string);
+            let already_imported = is_already_imported(&state, &ekasa_receipt_ref)?;
+            Ok(ProcessReceiptResult {
+                receipt_data: None,
+                processed_items: vec![],
+                qr_content: qr_string,
+                offline_fallback: Some(offline),
+                ekasa_receipt_ref,
+                already_imported,
+            })
+        }
         QrContent::NotEkasa => Err(AppError {
             code: "QR_NOT_EKASA".into(),
             message: "The QR code in this file is not an eKasa receipt code. \

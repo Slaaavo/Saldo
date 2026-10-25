@@ -118,4 +118,8 @@ pub struct ProcessReceiptResult {
     pub processed_items: Vec<ProcessedItem>,
     pub qr_content: String,
     pub offline_fallback: Option<OfflineReceiptData>,
+    /// Identifies the receipt; the create commands store it with the imported entries.
+    pub ekasa_receipt_ref: String,
+    /// Whether a live entry already carries `ekasa_receipt_ref`.
+    pub already_imported: bool,
 }
