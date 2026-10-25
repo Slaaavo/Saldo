@@ -497,11 +497,18 @@ export const createTaxableEvent = (payload: {
   expenseDeductiblePctBps: number | null
   prepaidUntil: string | null
   reclaimedVat: boolean | null
+  ekasaReceiptRef?: string | null
 }): Promise<number> => {
   return invoke('create_taxable_event', { input: payload })
 }
 
-export const createTaxableSplitGroup = (payload: { personId: number; eventType: string; groupNote: string | null; legs: TaxableEventLegInput[] }): Promise<number> => {
+export const createTaxableSplitGroup = (payload: {
+  personId: number
+  eventType: string
+  groupNote: string | null
+  legs: TaxableEventLegInput[]
+  ekasaReceiptRef?: string | null
+}): Promise<number> => {
   return invoke('create_taxable_split_group', { input: payload })
 }
 

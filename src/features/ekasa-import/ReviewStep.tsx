@@ -20,11 +20,13 @@ interface ReviewStepProps {
   processedLegs: SplitLegDraft[]
   vendorName: string
   receiptDate: string
+  ekasaReceiptRef: string | null
+  alreadyImported: boolean
   onImportSuccess: () => void
   onBack: () => void
 }
 
-const ReviewStep = ({ processedLegs, vendorName, receiptDate, onImportSuccess, onBack }: ReviewStepProps) => {
+const ReviewStep = ({ processedLegs, vendorName, receiptDate, ekasaReceiptRef, alreadyImported, onImportSuccess, onBack }: ReviewStepProps) => {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const { personId, persons } = useResolvedPersonId()
@@ -122,6 +124,7 @@ const ReviewStep = ({ processedLegs, vendorName, receiptDate, onImportSuccess, o
             prepaidUntil: null,
             reclaimedVat: leg.reclaimedVat,
           })),
+          ekasaReceiptRef,
         })
         await linkSelectedCashflows((cashflowIds) => linkCashflowsToSplitGroup(splitGroupId, cashflowIds))
       } else {
@@ -142,6 +145,7 @@ const ReviewStep = ({ processedLegs, vendorName, receiptDate, onImportSuccess, o
           expenseDeductiblePctBps: pctToBps(expenseDeductiblePct),
           prepaidUntil: null,
           reclaimedVat,
+          ekasaReceiptRef,
         })
         await linkSelectedCashflows((cashflowIds) => linkCashflowsToTaxable(newEventId, cashflowIds))
       }
@@ -173,6 +177,12 @@ const ReviewStep = ({ processedLegs, vendorName, receiptDate, onImportSuccess, o
   return (
     <form onSubmit={handleSubmit} className="flex flex-col flex-1 overflow-hidden min-h-0 gap-4">
       <DialogBody className="flex flex-col gap-4">
+        {alreadyImported && (
+          <div className="rounded-md border border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950 p-3 text-sm text-amber-800 dark:text-amber-200">
+            {t('ekasaImport.reviewStep.alreadyImported')}
+          </div>
+        )}
+
         {processedLegs.length === 1 ? (
           <>
             {/* Date */}

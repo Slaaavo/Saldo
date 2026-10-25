@@ -21,6 +21,8 @@ const INITIAL_STATE: EkasaWizardState = {
   vendorName: '',
   receiptDate: '',
   offlineFallback: null,
+  ekasaReceiptRef: null,
+  alreadyImported: false,
 }
 
 // Parses the eKasa issueDate format "DD.MM.YYYY HH:mm:ss" to an ISO date "YYYY-MM-DD".
@@ -67,7 +69,7 @@ interface ProfileSnapshot {
 }
 
 // Offline receipts carry no item detail, so the review step gets a single leg for the total.
-const reviewOfflineReceipt = (prev: EkasaWizardState, offline: OfflineReceiptData): EkasaWizardState => {
+const reviewOfflineReceipt = (prev: EkasaWizardState, result: ProcessReceiptResult, offline: OfflineReceiptData): EkasaWizardState => {
   const leg: SplitLegDraft = {
     ...makeEmptyLeg(offline.eventDate),
     amount: fromMinorUnits(offline.totalAmountMinor, 2),
@@ -82,6 +84,8 @@ const reviewOfflineReceipt = (prev: EkasaWizardState, offline: OfflineReceiptDat
     receiptDate: offline.eventDate,
     vendorName: '',
     offlineFallback: offline,
+    ekasaReceiptRef: result.ekasaReceiptRef,
+    alreadyImported: result.alreadyImported,
     isProcessing: false,
     step: 'review',
   }
@@ -139,7 +143,7 @@ export const useEkasaImportWizard = () => {
 
     if (result.offlineFallback && result.processedItems.length === 0) {
       const offline = result.offlineFallback
-      setState((prev) => reviewOfflineReceipt(prev, offline))
+      setState((prev) => reviewOfflineReceipt(prev, result, offline))
       return
     }
 
@@ -155,6 +159,8 @@ export const useEkasaImportWizard = () => {
         receiptDate: date,
         vendorName,
         offlineFallback: result.offlineFallback,
+        ekasaReceiptRef: result.ekasaReceiptRef,
+        alreadyImported: result.alreadyImported,
         isProcessing: false,
         step: 'review',
       }

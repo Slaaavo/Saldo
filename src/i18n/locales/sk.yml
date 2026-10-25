@@ -706,6 +706,7 @@ ekasaImport:
     error: "Import eKasa dokladu — Chyba"
   reviewStep:
     noItems: "Žiadne položky na import"
+    alreadyImported: "Tento doklad už bol importovaný. Ak ho uložíte znova, vznikne duplicitný záznam."
     back: "Späť"
     save: "Uložiť"
   errorStep:

@@ -728,6 +728,7 @@ ekasaImport:
     error: "eKasa Receipt Import — Error"
   reviewStep:
     noItems: "No items to import"
+    alreadyImported: "This receipt was already imported. Saving it again will create a duplicate."
     back: "Back"
     save: "Save"
   errorStep:
