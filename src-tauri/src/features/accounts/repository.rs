@@ -154,7 +154,7 @@ fn renumber_account_type(conn: &Connection, account_type: &str) -> rusqlite::Res
 }
 
 pub fn update_account(conn: &Connection, params: UpdateAccountParams) -> Result<(), AppError> {
-    if params.iban.is_some() {
+    if params.iban.as_deref().is_some_and(|v| !v.is_empty()) {
         let account_type = get_account_type(conn, params.account_id)
             .map_err(AppError::from)?
             .unwrap_or_default();
