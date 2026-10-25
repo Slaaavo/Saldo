@@ -1518,4 +1518,15 @@ mod tests {
 
         assert!(update_account(&conn, update_params(9999, None)).is_err());
     }
+
+    #[test]
+    fn update_account_reports_a_missing_account_as_not_found() {
+        let conn = initialize_in_memory().expect("DB init failed");
+
+        for iban in [Some(IBAN), Some(""), None] {
+            let err = update_account(&conn, update_params(9999, iban)).unwrap_err();
+
+            assert_eq!(err.code, "NOT_FOUND", "iban {iban:?}");
+        }
+    }
 }
