@@ -31,7 +31,7 @@ Preconditions:
 
 ## Gotchas
 
-- Last driven on 2026-10-25, on the dev DB, in run `20261025-081534-worktree-open-review-fixes`: `ekasa-offline`, `ekasa-duplicate` and `ekasa-reject` (Feb 30 and a URL), with the UI in Slovak. `ekasa-online` (needs a real receipt id and the network) and `ekasa-pdf` were not driven.
+- Last driven on 2026-10-25, on the dev DB, in run `20261025-081534-worktree-open-review-fixes`: `ekasa-offline`, `ekasa-duplicate` and `ekasa-reject` (Feb 30 and a URL), with the UI in Slovak, and `ekasa-pdf` with PDFium staged only in the bundle's Resources folder. `ekasa-online` (needs a real receipt id and the network) was not driven.
 - PDFium binds once per app process. To prove the installed-app lookup in the dev bundle, put `libpdfium.dylib` in `.verify-saldo/Saldo Dev.app/Contents/Resources/`, move `src-tauri/libpdfium.dylib` aside before the first PDF import of the run, import a PDF, and restore the file afterwards. Without the library anywhere, the error names every directory it tried.
 - Backend error messages are English even when the UI is Slovak; the wizard shows them as-is.
 - A taxable expense from eKasa stores a date-only `event_date` (`2018-02-13`).
