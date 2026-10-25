@@ -977,6 +977,7 @@ mod tests {
                         reclaimed_vat: None,
                     },
                 ],
+                ..Default::default()
             },
         )
         .expect("create split group failed")

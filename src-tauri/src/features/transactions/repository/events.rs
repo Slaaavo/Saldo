@@ -308,6 +308,7 @@ mod tests {
                 expense_deductible_pct_bps: Some(8000),
                 prepaid_until: Some("2027-01-14".to_owned()),
                 reclaimed_vat: Some(true),
+                ..Default::default()
             },
         )
         .unwrap();

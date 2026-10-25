@@ -2076,6 +2076,7 @@ mod tests {
                         reclaimed_vat: None,
                     },
                 ],
+                ..Default::default()
             },
         )
         .expect("create_taxable_split_group_with_legs failed");
@@ -2244,6 +2245,7 @@ mod tests {
                         reclaimed_vat: None,
                     },
                 ],
+                ..Default::default()
             },
         )
         .unwrap();
@@ -2377,6 +2379,7 @@ mod tests {
                         reclaimed_vat: None,
                     },
                 ],
+                ..Default::default()
             },
         )
         .unwrap();
@@ -2456,6 +2459,7 @@ mod tests {
                         reclaimed_vat: None,
                     },
                 ],
+                ..Default::default()
             },
         )
         .expect("create_taxable_split_group_with_legs failed");
@@ -2671,6 +2675,7 @@ mod tests {
                         reclaimed_vat: None,
                     },
                 ],
+                ..Default::default()
             },
         )
         .unwrap();

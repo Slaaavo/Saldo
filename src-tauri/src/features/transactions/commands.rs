@@ -562,6 +562,7 @@ pub struct CreateTaxableEventInput {
     pub expense_deductible_pct_bps: Option<i64>,
     pub prepaid_until: Option<String>,
     pub reclaimed_vat: Option<bool>,
+    pub ekasa_receipt_ref: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -584,6 +585,7 @@ pub struct CreateTaxableSplitGroupInput {
     pub event_type: String,
     pub group_note: Option<String>,
     pub legs: Vec<SplitTaxableLegInput>,
+    pub ekasa_receipt_ref: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -792,6 +794,7 @@ fn create_taxable_event_inner(
                 expense_deductible_pct_bps: input.expense_deductible_pct_bps,
                 prepaid_until: input.prepaid_until.clone(),
                 reclaimed_vat: resolved_reclaimed_vat,
+                ekasa_receipt_ref: input.ekasa_receipt_ref,
             },
         )?;
         if event_type_is_prepaid {
@@ -878,6 +881,7 @@ fn create_taxable_split_group_inner(
             event_type: input.event_type,
             group_note: input.group_note,
             legs,
+            ekasa_receipt_ref: input.ekasa_receipt_ref,
         },
     )?;
     Ok(id)
@@ -1275,6 +1279,7 @@ mod tests {
             expense_deductible_pct_bps: None,
             prepaid_until: Some("2025-06-30".to_owned()),
             reclaimed_vat: None,
+            ekasa_receipt_ref: None,
         }
     }
 
@@ -1541,6 +1546,7 @@ mod tests {
             event_type: event_type.to_owned(),
             group_note: None,
             legs: vec![split_leg(3000), split_leg(2000)],
+            ekasa_receipt_ref: None,
         }
     }
 
@@ -1653,6 +1659,7 @@ mod tests {
             expense_deductible_pct_bps: None,
             prepaid_until: None,
             reclaimed_vat: Some(false),
+            ekasa_receipt_ref: None,
         }
     }
 
@@ -1764,6 +1771,147 @@ mod tests {
             .find(|id| !existing.contains(id))
             .unwrap();
         assert_eq!(stored_reclaimed_vat(&conn, new_leg), Some(true));
+    }
+
+    const RECEIPT_REF: &str = "online:O-7DBCDA8A56EE426DBCDA8A56EE426D1A";
+
+    fn stored_receipt_ref(conn: &Connection, event_id: i64) -> Option<String> {
+        conn.query_row(
+            "SELECT ekasa_receipt_ref FROM event WHERE id = ?1",
+            params![event_id],
+            |row| row.get(0),
+        )
+        .unwrap()
+    }
+
+    fn imported_expense_input(person_id: i64) -> CreateTaxableEventInput {
+        CreateTaxableEventInput {
+            ekasa_receipt_ref: Some(RECEIPT_REF.to_owned()),
+            ..expense_input(person_id)
+        }
+    }
+
+    fn imported_split_input(person_id: i64) -> CreateTaxableSplitGroupInput {
+        CreateTaxableSplitGroupInput {
+            ekasa_receipt_ref: Some(RECEIPT_REF.to_owned()),
+            ..split_input(person_id, "expense")
+        }
+    }
+
+    #[test]
+    fn created_expense_stores_the_receipt_reference() {
+        let conn = initialize_in_memory().unwrap();
+        let person_id = mk_person(&conn, false);
+
+        let id = create_taxable_event_inner(&conn, imported_expense_input(person_id)).unwrap();
+        let plain = create_taxable_event_inner(&conn, expense_input(person_id)).unwrap();
+
+        assert_eq!(stored_receipt_ref(&conn, id).as_deref(), Some(RECEIPT_REF));
+        assert_eq!(stored_receipt_ref(&conn, plain), None);
+    }
+
+    #[test]
+    fn created_split_group_stores_the_receipt_reference_on_every_leg() {
+        let conn = initialize_in_memory().unwrap();
+        let person_id = mk_person(&conn, false);
+
+        let group_id =
+            create_taxable_split_group_inner(&conn, imported_split_input(person_id)).unwrap();
+
+        let legs = leg_ids(&conn, group_id);
+        assert_eq!(legs.len(), 2);
+        for leg in legs {
+            assert_eq!(stored_receipt_ref(&conn, leg).as_deref(), Some(RECEIPT_REF));
+        }
+    }
+
+    #[test]
+    fn the_same_receipt_can_be_imported_again() {
+        let conn = initialize_in_memory().unwrap();
+        let person_id = mk_person(&conn, false);
+
+        create_taxable_event_inner(&conn, imported_expense_input(person_id)).unwrap();
+        create_taxable_event_inner(&conn, imported_expense_input(person_id)).unwrap();
+        create_taxable_split_group_inner(&conn, imported_split_input(person_id)).unwrap();
+        create_taxable_split_group_inner(&conn, imported_split_input(person_id)).unwrap();
+
+        let stored: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM event WHERE ekasa_receipt_ref = ?1",
+                params![RECEIPT_REF],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(stored, 6);
+    }
+
+    #[test]
+    fn editing_an_imported_expense_keeps_its_receipt_reference() {
+        let conn = initialize_in_memory().unwrap();
+        let person_id = mk_person(&conn, false);
+        let id = create_taxable_event_inner(&conn, imported_expense_input(person_id)).unwrap();
+
+        update_taxable_event_inner(
+            &conn,
+            UpdateTaxableEventInput {
+                event_type: "expense".to_owned(),
+                prepaid_until: None,
+                ..prepaid_update_input(id, 4_000)
+            },
+        )
+        .unwrap();
+
+        assert_eq!(latest_date_and_amount(&conn, id).1, 4_000);
+        assert_eq!(stored_receipt_ref(&conn, id).as_deref(), Some(RECEIPT_REF));
+    }
+
+    #[test]
+    fn editing_an_imported_split_group_keeps_its_receipt_reference() {
+        let conn = initialize_in_memory().unwrap();
+        let person_id = mk_person(&conn, false);
+        let group_id =
+            create_taxable_split_group_inner(&conn, imported_split_input(person_id)).unwrap();
+        let legs = leg_ids(&conn, group_id);
+
+        update_taxable_split_group_inner(
+            &conn,
+            UpdateTaxableSplitGroupInput {
+                updated_legs: vec![UpdatedSplitLegInput {
+                    event_id: legs[0],
+                    amount_minor: 3500,
+                    event_date: "2024-07-01".to_owned(),
+                    note: None,
+                    vat_rate_bps: None,
+                    vat_reclaimable_pct_bps: None,
+                    expense_deductible_pct_bps: None,
+                    prepaid_until: None,
+                    reclaimed_vat: None,
+                }],
+                new_legs: vec![NewSplitLegInput {
+                    amount_minor: 1000,
+                    event_date: "2024-07-01".to_owned(),
+                    note: None,
+                    vat_rate_bps: None,
+                    vat_reclaimable_pct_bps: None,
+                    expense_deductible_pct_bps: None,
+                    prepaid_until: None,
+                    reclaimed_vat: None,
+                }],
+                removed_leg_ids: vec![legs[1]],
+                ..split_update_input(group_id, "expense")
+            },
+        )
+        .unwrap();
+
+        assert_eq!(latest_date_and_amount(&conn, legs[0]).1, 3500);
+        assert_eq!(
+            stored_receipt_ref(&conn, legs[0]).as_deref(),
+            Some(RECEIPT_REF)
+        );
+        assert_eq!(
+            stored_receipt_ref(&conn, legs[1]).as_deref(),
+            Some(RECEIPT_REF)
+        );
     }
 
     #[test]

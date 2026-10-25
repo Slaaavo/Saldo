@@ -18,6 +18,8 @@ pub struct CreateTaxableEventParams {
     pub expense_deductible_pct_bps: Option<i64>,
     pub prepaid_until: Option<String>,
     pub reclaimed_vat: Option<bool>,
+    /// The eKasa receipt this event was imported from; see migration 035.
+    pub ekasa_receipt_ref: Option<String>,
 }
 
 pub struct TaxableEventLeg {
@@ -37,6 +39,8 @@ pub struct CreateTaxableSplitGroupWithLegsParams {
     pub event_type: String,
     pub group_note: Option<String>,
     pub legs: Vec<TaxableEventLeg>,
+    /// Stored on every leg; see migration 035.
+    pub ekasa_receipt_ref: Option<String>,
 }
 
 #[derive(Default)]
@@ -137,8 +141,12 @@ pub fn create_taxable_event(
 ) -> Result<i64, AppError> {
     with_savepoint_app(conn, || {
         conn.execute(
-            "INSERT INTO event (account_id, event_type) VALUES (?1, ?2)",
-            params![params.account_id, params.event_type.as_str()],
+            "INSERT INTO event (account_id, event_type, ekasa_receipt_ref) VALUES (?1, ?2, ?3)",
+            params![
+                params.account_id,
+                params.event_type.as_str(),
+                params.ekasa_receipt_ref
+            ],
         )?;
         let event_id = conn.last_insert_rowid();
 
@@ -174,11 +182,13 @@ pub fn create_taxable_split_group_with_legs(
 
         for leg in &params.legs {
             conn.execute(
-                "INSERT INTO event (account_id, event_type, split_group_id) VALUES (?1, ?2, ?3)",
+                "INSERT INTO event (account_id, event_type, split_group_id, ekasa_receipt_ref)
+                 VALUES (?1, ?2, ?3, ?4)",
                 params![
                     params.account_id,
                     params.event_type.as_str(),
-                    split_group_id
+                    split_group_id,
+                    params.ekasa_receipt_ref
                 ],
             )?;
             let event_id = conn.last_insert_rowid();
