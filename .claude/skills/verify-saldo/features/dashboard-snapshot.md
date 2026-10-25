@@ -44,5 +44,6 @@ Preconditions:
 - While the calendar is open, the AX summary is truncated. Click days by screenshot coordinates.
 - The demo banner shifts the page about 53 px. Take a screenshot after entering demo mode before you click anything.
 - The selected date is end of day (`T23:59:59`), so an update dated that day counts.
+- The Ledger section under the cards shows the 20 newest cards, where a split group counts as one card and always shows all its legs (`Split ×3` with the group total). Run `20261025-081534-worktree-open-review-fixes` checked this with a CSV import of 15 single rows plus one row split into three legs sitting at card 20. Count cards from the DB by `coalesce('g' || split_group_id, 'e' || id)`, ordered by `event_date desc, created_at desc`. A date-only `event_date` (an account's initial balance) sorts below same-day timed rows.
 - The date and the person filter live in app state, not the URL. Leaving the dashboard and coming back keeps them until the app restarts.
 - The demo seed's values depend on today's date, so expected numbers are only fixed per month. Recompute them from `src-tauri/src/demo.rs` when the month changes.

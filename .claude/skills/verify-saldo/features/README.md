@@ -46,3 +46,6 @@ Keep implementation details out of the map. Name only user paths, stable handles
 - [CSV import](./csv-import.md): import cashflows from a bank CSV through the import wizard.
 - [FX rates](./fx-rates.md): list stored rates, edit one by hand, and fetch rates for a date.
 - [Demo mode](./demo-mode.md): enter and leave the seeded demo database without real data, persons, or theme leaking across.
+- [Account reorder](./account-reorder.md): drag accounts into a new order, also under a person filter without moving other persons' accounts.
+- [eKasa receipt import](./ekasa-import.md): import a receipt from its QR code, with the duplicate warning and the error step for non-eKasa codes.
+- [Database location](./db-location.md): move, switch, start fresh or reset the database folder from Settings.

@@ -51,7 +51,7 @@ Exit 0 prints `ready: Saldo Dev pid <pid>` and the evidence folder. Exit 1 means
 How it works: `launch.sh` runs `pnpm tauri dev --config src-tauri/tauri.dev.conf.json --runner scripts/runner.sh`.
 
 - `tauri.dev.conf.json` sets the identifier to `com.teamsumbal.saldo.dev`.
-- The plain debug binary has no bundle id, so computer use can't see its window. `runner.sh` therefore builds what `cargo run` would build, copies the binary into `.verify-saldo/Saldo Dev.app`, and execs it from there with `src-tauri/` as the working directory. eKasa import loads `./libpdfium.dylib` from that directory.
+- The plain debug binary has no bundle id, so computer use can't see its window. `runner.sh` therefore builds what `cargo run` would build, copies the binary into `.verify-saldo/Saldo Dev.app`, and execs it from there with `src-tauri/` as the working directory. eKasa import looks for PDFium in the app's resource folder first (`Saldo Dev.app/Contents/Resources/`, empty here), then falls back to `./libpdfium.dylib` in that working directory.
 - Vite and teardown on quit work as in normal `tauri dev`. Frontend edits hot-reload in the open window. A Rust edit should make `tauri dev` re-run the runner, which rebuilds and restarts the app; this hasn't been exercised yet. After one, run `wait-ready.sh` and take a fresh screenshot.
 
 **Grant computer use once per session.** Call `request_access` with `apps: ["com.teamsumbal.saldo.dev"]`. The user approves the dialog. The app is only listed while it runs, so launch it first.
@@ -86,7 +86,7 @@ These are the rules that worked on 2026-10-18:
 - **Popovers can paint late.** If the AX element count jumps but the screenshot shows nothing new, take another screenshot. While a calendar or a select list is open, the AX walk is truncated, so use screenshot coordinates.
 - **Navigate with the sidebar `AXLink`s** (Dashboard, Ledger, Persons, Tax Models, Partners, Import Profiles, Settings, FX Rates, Units). The page title in the header confirms where you are. The sidebar highlight can stay on an earlier page in a background window. Don't treat it as proof of navigation.
 - **Demo mode moves everything down.** Its amber banner (`DEMO MODE` … `Exit Demo`) shifts the layout about 53 px. Take a fresh screenshot before any coordinate click after entering or leaving demo mode.
-- **Entering or leaving demo mode reloads the window.** The page comes back on the Dashboard, and no success toast shows. Wait for the sidebar links to reappear in the AX summary before the next click.
+- **Entering or leaving demo mode, and every database location change (switch, move, fresh, reset), reloads the window.** The page comes back on the Dashboard, and no success toast shows. Wait for the sidebar links to reappear in the AX summary before the next click.
 - **Scroll** with `app_scroll` at a point inside the page, `dy` 5 to 20.
 - **Quit** with `app_menu` path `["Saldo Dev", "Quit Saldo Dev"]`.
 
