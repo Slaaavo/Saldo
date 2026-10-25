@@ -339,8 +339,9 @@ mod tests {
     };
     use crate::features::transactions::repository::{
         create_balance_update, create_cashflow, create_taxable_event, create_transfer,
-        get_accounts_snapshot, list_events, CashflowEntry, CreateBalanceUpdateParams,
-        CreateTaxableEventParams, GetSnapshotParams, ListEventsQuery,
+        get_accounts_snapshot, get_event_by_id, list_events, update_event, CashflowEntry,
+        CreateBalanceUpdateParams, CreateTaxableEventParams, GetSnapshotParams, ListEventsQuery,
+        UpdateEventParams,
     };
 
     fn mk_account(conn: &Connection) -> i64 {
@@ -469,6 +470,125 @@ mod tests {
             balance_at(&conn, other_id, "2026-12-31T23:59:59"),
             balance_before
         );
+    }
+
+    /// The value of `column` on every `event_data` version of the event, oldest first.
+    fn stored_versions(conn: &Connection, event_id: i64, column: &str) -> Vec<Option<i64>> {
+        let mut stmt = conn
+            .prepare(&format!(
+                "SELECT {column} FROM event_data WHERE event_id = ?1 ORDER BY id"
+            ))
+            .unwrap();
+        stmt.query_map(params![event_id], |row| row.get(0))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap()
+    }
+
+    #[test]
+    fn delete_account_clears_it_as_counterpart_of_the_converted_transfer_leg() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let deleted_id = mk_person_account(&conn, "Checking", "account");
+        let other_id = mk_person_account(&conn, "Savings", "account");
+        let (_, counterpart_id) = create_transfer(
+            &conn,
+            &CashflowEntry {
+                account_id: deleted_id,
+                amount_minor: -3_000,
+                event_date: "2026-02-01T12:00:00".to_owned(),
+                note: None,
+                counterpart_account_id: Some(other_id),
+                bucket_id: None,
+                original_currency_id: None,
+                original_amount_minor: None,
+                fx_rate_mantissa: None,
+                fx_rate_exponent: None,
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            stored_versions(&conn, counterpart_id, "counterpart_account_id"),
+            [Some(deleted_id)]
+        );
+
+        delete_account(&conn, deleted_id).expect("delete_account failed");
+
+        assert_eq!(
+            stored_versions(&conn, counterpart_id, "counterpart_account_id"),
+            [None]
+        );
+        let leg = get_event_by_id(&conn, counterpart_id).unwrap().unwrap();
+        assert_eq!(leg.amount_minor, 3_000);
+        assert_eq!(leg.counterpart_account_name, None);
+    }
+
+    fn tag_cashflow_with_bucket(
+        conn: &Connection,
+        account_id: i64,
+        bucket_id: i64,
+        amount_minor: i64,
+    ) -> i64 {
+        create_cashflow(
+            conn,
+            &CashflowEntry {
+                account_id,
+                amount_minor,
+                event_date: "2026-03-01T10:00:00".to_owned(),
+                note: None,
+                counterpart_account_id: None,
+                bucket_id: Some(bucket_id),
+                original_currency_id: None,
+                original_amount_minor: None,
+                fx_rate_mantissa: None,
+                fx_rate_exponent: None,
+            },
+        )
+        .expect("create cashflow failed")
+    }
+
+    #[test]
+    fn delete_bucket_clears_it_from_every_entry_tagged_with_it() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let account_id = mk_account(&conn);
+        let mk_bucket = |name: &str| {
+            create_account(
+                &conn,
+                CreateAccountParams {
+                    name: name.to_owned(),
+                    currency_id: 1,
+                    account_type: "bucket".to_owned(),
+                    ..Default::default()
+                },
+            )
+            .expect("create bucket failed")
+        };
+        let holiday = mk_bucket("Holiday");
+        let car = mk_bucket("Car");
+        let flights = tag_cashflow_with_bucket(&conn, account_id, holiday, -3_000);
+        update_event(
+            &conn,
+            UpdateEventParams {
+                event_id: flights,
+                amount_minor: -3_500,
+                event_date: "2026-03-02T09:00:00".to_owned(),
+                note: Some("Flights".to_owned()),
+            },
+        )
+        .unwrap();
+        let tyres = tag_cashflow_with_bucket(&conn, account_id, car, -1_000);
+
+        delete_account(&conn, holiday).expect("delete_account failed");
+
+        assert_eq!(stored_versions(&conn, flights, "bucket_id"), [None, None]);
+        let flights = get_event_by_id(&conn, flights).unwrap().unwrap();
+        assert_eq!(flights.amount_minor, -3_500);
+        assert_eq!(flights.event_date, "2026-03-02T09:00:00");
+        assert_eq!(flights.note.as_deref(), Some("Flights"));
+        assert_eq!(flights.bucket_id, None);
+        assert_eq!(flights.bucket_name, None);
+        let tyres = get_event_by_id(&conn, tyres).unwrap().unwrap();
+        assert_eq!(tyres.bucket_id, Some(car));
+        assert_eq!(tyres.bucket_name.as_deref(), Some("Car"));
     }
 
     #[test]

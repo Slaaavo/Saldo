@@ -109,3 +109,102 @@ pub fn delete_partner_account(conn: &Connection, account_id: i64) -> Result<(), 
         Ok(())
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::initialize_in_memory;
+    use crate::features::accounts::repository::{create_account, CreateAccountParams};
+    use crate::features::transactions::repository::{
+        create_cashflow, get_event_by_id, update_event, CashflowEntry, UpdateEventParams,
+    };
+
+    fn mk_account(conn: &Connection) -> i64 {
+        create_account(
+            conn,
+            CreateAccountParams {
+                name: "Checking".to_owned(),
+                currency_id: 1,
+                account_type: "account".to_owned(),
+                ..Default::default()
+            },
+        )
+        .expect("create account failed")
+    }
+
+    fn mk_partner(conn: &Connection, name: &str, iban: &str) -> i64 {
+        create_partner_account(
+            conn,
+            CreatePartnerAccountParams {
+                name: name.to_owned(),
+                iban: iban.to_owned(),
+                currency_id: 1,
+            },
+        )
+        .expect("create partner failed")
+    }
+
+    fn mk_cashflow(conn: &Connection, account_id: i64, partner_id: i64, amount_minor: i64) -> i64 {
+        create_cashflow(
+            conn,
+            &CashflowEntry {
+                account_id,
+                amount_minor,
+                event_date: "2026-03-01T10:00:00".to_owned(),
+                note: None,
+                counterpart_account_id: Some(partner_id),
+                bucket_id: None,
+                original_currency_id: None,
+                original_amount_minor: None,
+                fx_rate_mantissa: None,
+                fx_rate_exponent: None,
+            },
+        )
+        .expect("create cashflow failed")
+    }
+
+    fn stored_counterparts(conn: &Connection, event_id: i64) -> Vec<Option<i64>> {
+        let mut stmt = conn
+            .prepare(
+                "SELECT counterpart_account_id FROM event_data WHERE event_id = ?1 ORDER BY id",
+            )
+            .unwrap();
+        stmt.query_map(params![event_id], |row| row.get(0))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap()
+    }
+
+    #[test]
+    fn delete_partner_account_clears_it_from_every_entry_that_pointed_at_it() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let account = mk_account(&conn);
+        let landlord = mk_partner(&conn, "Landlord", "SK3112000000198742637541");
+        let employer = mk_partner(&conn, "Employer", "DE89370400440532013000");
+        let rent = mk_cashflow(&conn, account, landlord, -50_000);
+        update_event(
+            &conn,
+            UpdateEventParams {
+                event_id: rent,
+                amount_minor: -55_000,
+                event_date: "2026-03-02T10:00:00".to_owned(),
+                note: Some("March rent".to_owned()),
+            },
+        )
+        .unwrap();
+        let salary = mk_cashflow(&conn, account, employer, 200_000);
+
+        delete_partner_account(&conn, landlord).expect("delete failed");
+
+        assert_eq!(stored_counterparts(&conn, rent), [None, None]);
+        let rent = get_event_by_id(&conn, rent).unwrap().unwrap();
+        assert_eq!(rent.amount_minor, -55_000);
+        assert_eq!(rent.event_date, "2026-03-02T10:00:00");
+        assert_eq!(rent.note.as_deref(), Some("March rent"));
+        assert_eq!(rent.counterpart_account_id, None);
+        assert_eq!(rent.counterpart_account_name, None);
+        let salary = get_event_by_id(&conn, salary).unwrap().unwrap();
+        assert_eq!(salary.counterpart_account_id, Some(employer));
+        assert_eq!(salary.counterpart_account_name.as_deref(), Some("Employer"));
+    }
+}

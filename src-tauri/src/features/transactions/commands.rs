@@ -270,10 +270,17 @@ pub fn create_cashflow(
     state: State<'_, AppState>,
     input: CreateCashflowInput,
 ) -> Result<i64, AppError> {
-    crate::shared::validate_event_date(&input.event_date)?;
     let conn = state.conn()?;
+    create_cashflow_with_conn(&conn, input)
+}
+
+fn create_cashflow_with_conn(
+    conn: &rusqlite::Connection,
+    input: CreateCashflowInput,
+) -> Result<i64, AppError> {
+    crate::shared::validate_event_date(&input.event_date)?;
     if let Some(account_type) =
-        crate::features::accounts::repository::get_account_type(&conn, input.account_id)?
+        crate::features::accounts::repository::get_account_type(conn, input.account_id)?
     {
         if account_type == "partner" {
             return Err(AppError {
@@ -289,7 +296,7 @@ pub fn create_cashflow(
         });
     }
     let counterpart_type = match input.counterpart_account_id {
-        Some(cp_id) => crate::features::accounts::repository::get_account_type(&conn, cp_id)?,
+        Some(cp_id) => crate::features::accounts::repository::get_account_type(conn, cp_id)?,
         None => None,
     };
     let entry = repository::CashflowEntry {
@@ -305,10 +312,10 @@ pub fn create_cashflow(
         fx_rate_exponent: input.fx_rate_exponent,
     };
     let event_id = if counterpart_type.as_deref() == Some("account") {
-        let (source_id, _) = repository::create_transfer(&conn, &entry)?;
+        let (source_id, _) = repository::create_transfer(conn, &entry)?;
         source_id
     } else {
-        repository::create_cashflow(&conn, &entry)?
+        repository::create_cashflow(conn, &entry)?
     };
     Ok(event_id)
 }
@@ -316,6 +323,14 @@ pub fn create_cashflow(
 #[tauri::command]
 pub fn bulk_create_cashflows(
     state: State<'_, AppState>,
+    input: BulkCreateCashflowsInput,
+) -> Result<Vec<i64>, AppError> {
+    let conn = state.conn()?;
+    bulk_create_cashflows_with_conn(&conn, input)
+}
+
+fn bulk_create_cashflows_with_conn(
+    conn: &rusqlite::Connection,
     input: BulkCreateCashflowsInput,
 ) -> Result<Vec<i64>, AppError> {
     if input.entries.is_empty() {
@@ -327,10 +342,9 @@ pub fn bulk_create_cashflows(
     for entry in &input.entries {
         crate::shared::validate_event_date(&entry.event_date)?;
     }
-    let conn = state.conn()?;
     for entry in &input.entries {
         if let Some(account_type) =
-            crate::features::accounts::repository::get_account_type(&conn, entry.account_id)?
+            crate::features::accounts::repository::get_account_type(conn, entry.account_id)?
         {
             if account_type == "partner" {
                 return Err(AppError {
@@ -362,13 +376,21 @@ pub fn bulk_create_cashflows(
             fx_rate_exponent: e.fx_rate_exponent,
         })
         .collect();
-    let ids = repository::bulk_create_cashflows(&conn, &entries)?;
+    let ids = repository::bulk_create_cashflows(conn, &entries)?;
     Ok(ids)
 }
 
 #[tauri::command]
 pub fn create_split_group(
     state: State<'_, AppState>,
+    input: CreateSplitGroupInput,
+) -> Result<i64, AppError> {
+    let conn = state.conn()?;
+    create_split_group_with_conn(&conn, input)
+}
+
+fn create_split_group_with_conn(
+    conn: &rusqlite::Connection,
     input: CreateSplitGroupInput,
 ) -> Result<i64, AppError> {
     if input.legs.len() < 2 {
@@ -388,9 +410,8 @@ pub fn create_split_group(
             message: "All split group legs must share the same date".into(),
         });
     }
-    let conn = state.conn()?;
     if let Some(account_type) =
-        crate::features::accounts::repository::get_account_type(&conn, input.account_id)?
+        crate::features::accounts::repository::get_account_type(conn, input.account_id)?
     {
         if account_type == "partner" {
             return Err(AppError {
@@ -408,7 +429,7 @@ pub fn create_split_group(
         }
     }
     let split_group_id = repository::create_split_group_with_legs(
-        &conn,
+        conn,
         repository::CreateSplitGroupWithLegsParams {
             account_id: input.account_id,
             group_note: input.group_note,
@@ -1744,5 +1765,109 @@ mod tests {
         .unwrap_err();
 
         assert_eq!(err.code, "VALIDATION");
+    }
+
+    const UNKNOWN_ACCOUNT_ID: i64 = 9_999;
+
+    fn cashflow_input(account_id: i64, counterpart_account_id: Option<i64>) -> CreateCashflowInput {
+        CreateCashflowInput {
+            account_id,
+            amount_minor: -1_000,
+            event_date: "2026-03-01".to_owned(),
+            note: None,
+            counterpart_account_id,
+            bucket_id: None,
+            original_currency_id: None,
+            original_amount_minor: None,
+            fx_rate_mantissa: None,
+            fx_rate_exponent: None,
+        }
+    }
+
+    fn event_count(conn: &Connection) -> i64 {
+        conn.query_row("SELECT COUNT(*) FROM event", [], |row| row.get(0))
+            .unwrap()
+    }
+
+    fn mk_partner(conn: &Connection) -> i64 {
+        crate::features::partner_accounts::repository::create_partner_account(
+            conn,
+            crate::features::partner_accounts::repository::CreatePartnerAccountParams {
+                name: "Landlord".to_owned(),
+                iban: "SK3112000000198742637541".to_owned(),
+                currency_id: 1,
+            },
+        )
+        .expect("create partner failed")
+    }
+
+    #[test]
+    fn create_cashflow_rejects_an_unknown_counterpart() {
+        let conn = initialize_in_memory().unwrap();
+        let account = mk_account(&conn);
+        let events_before = event_count(&conn);
+
+        let err =
+            create_cashflow_with_conn(&conn, cashflow_input(account, Some(UNKNOWN_ACCOUNT_ID)))
+                .unwrap_err();
+
+        assert_eq!(err.code, "VALIDATION");
+        assert_eq!(event_count(&conn), events_before);
+    }
+
+    #[test]
+    fn create_cashflow_accepts_a_partner_counterpart() {
+        let conn = initialize_in_memory().unwrap();
+        let account = mk_account(&conn);
+        let partner = mk_partner(&conn);
+
+        let event_id =
+            create_cashflow_with_conn(&conn, cashflow_input(account, Some(partner))).unwrap();
+
+        let stored = repository::get_event_by_id(&conn, event_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(stored.counterpart_account_id, Some(partner));
+    }
+
+    #[test]
+    fn bulk_create_cashflows_rejects_an_unknown_counterpart_and_creates_nothing() {
+        let conn = initialize_in_memory().unwrap();
+        let account = mk_account(&conn);
+        let events_before = event_count(&conn);
+
+        let err = bulk_create_cashflows_with_conn(
+            &conn,
+            BulkCreateCashflowsInput {
+                entries: vec![
+                    cashflow_input(account, None),
+                    cashflow_input(account, Some(UNKNOWN_ACCOUNT_ID)),
+                ],
+            },
+        )
+        .unwrap_err();
+
+        assert_eq!(err.code, "VALIDATION");
+        assert_eq!(event_count(&conn), events_before);
+    }
+
+    #[test]
+    fn create_split_group_rejects_an_unknown_counterpart_and_creates_nothing() {
+        let conn = initialize_in_memory().unwrap();
+        let account = mk_account(&conn);
+        let events_before = event_count(&conn);
+
+        let err = create_split_group_with_conn(
+            &conn,
+            CreateSplitGroupInput {
+                account_id: account,
+                group_note: None,
+                legs: vec![leg(None, -1_000), leg(Some(UNKNOWN_ACCOUNT_ID), -2_000)],
+            },
+        )
+        .unwrap_err();
+
+        assert_eq!(err.code, "VALIDATION");
+        assert_eq!(event_count(&conn), events_before);
     }
 }
