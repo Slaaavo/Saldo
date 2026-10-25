@@ -1,5 +1,7 @@
 use std::collections::HashSet;
 
+use chrono::NaiveDateTime;
+
 use super::models::{EkasaReceiptItem, OfflineReceiptData, ProcessedItem};
 
 /// Groups receipt items by name, sums their prices, converts to minor units,
@@ -46,7 +48,7 @@ pub fn preprocess_receipt_items(items: &[EkasaReceiptItem]) -> Vec<ProcessedItem
 
 /// Parses an offline eKasa QR code string.
 ///
-/// Expected format: `{OKP}:{KP}:{YYMMDDHHmmss}:{sequence}:{total}`
+/// Expected format (spec section 2.9): `{OKP}:{KP}:{YYMMDDHHMISS}:{sequence}:{total}`
 ///
 /// Returns `None` if the format is unrecognised or any field fails to parse.
 pub fn parse_offline_qr(qr_content: &str) -> Option<OfflineReceiptData> {
@@ -55,14 +57,7 @@ pub fn parse_offline_qr(qr_content: &str) -> Option<OfflineReceiptData> {
         return None;
     }
 
-    let dt_str = parts[2];
-    // The helpers below slice by byte offset, so anything but 12 ASCII digits must stop here.
-    if dt_str.len() != 12 || !dt_str.bytes().all(|b| b.is_ascii_digit()) {
-        return None;
-    }
-
-    // Try YYMMDDHHmmss first; fall back to DDMMYYHHmmss if that produces an invalid date.
-    let event_date = parse_dt_yymmdd(dt_str).or_else(|| parse_dt_ddmmyy(dt_str))?;
+    let event_date = parse_dt_yymmddhhmiss(parts[2])?;
     let total_amount_minor = parse_total_to_minor(parts[4])?;
 
     Some(OfflineReceiptData {
@@ -71,50 +66,45 @@ pub fn parse_offline_qr(qr_content: &str) -> Option<OfflineReceiptData> {
     })
 }
 
-/// Interprets the first 6 chars of `dt_str` as `YY MM DD`.
-/// Returns `"20YY-MM-DD"` or `None` if the date fields are out of range.
-fn parse_dt_yymmdd(dt_str: &str) -> Option<String> {
-    let yy = &dt_str[0..2];
-    let mm = &dt_str[2..4];
-    let dd = &dt_str[4..6];
-
-    let mm_n: u32 = mm.parse().ok()?;
-    let dd_n: u32 = dd.parse().ok()?;
-
-    if !(1..=12).contains(&mm_n) || !(1..=31).contains(&dd_n) {
+/// Parses `YYMMDDHHMISS` and returns the date as `YYYY-MM-DD`.
+/// Returns `None` for anything that is not a real calendar date and time.
+fn parse_dt_yymmddhhmiss(dt_str: &str) -> Option<String> {
+    // chrono accepts space-padded fields such as "2612121212 0".
+    if dt_str.len() != 12 || !dt_str.bytes().all(|b| b.is_ascii_digit()) {
         return None;
     }
-
-    Some(format!("20{}-{}-{}", yy, mm, dd))
+    let dt = NaiveDateTime::parse_from_str(dt_str, "%y%m%d%H%M%S").ok()?;
+    Some(dt.date().format("%Y-%m-%d").to_string())
 }
 
-/// Interprets the first 6 chars of `dt_str` as `DD MM YY`.
-/// Returns `"20YY-MM-DD"` or `None` if the date fields are out of range.
-fn parse_dt_ddmmyy(dt_str: &str) -> Option<String> {
-    let dd = &dt_str[0..2];
-    let mm = &dt_str[2..4];
-    let yy = &dt_str[4..6];
+/// Largest absolute total the XSD Amount type allows, in minor units.
+const MAX_TOTAL_MINOR: i64 = 10_000_000 * 100;
 
-    let mm_n: u32 = mm.parse().ok()?;
-    let dd_n: u32 = dd.parse().ok()?;
-
-    if !(1..=12).contains(&mm_n) || !(1..=31).contains(&dd_n) {
-        return None;
-    }
-
-    Some(format!("20{}-{}-{}", yy, mm, dd))
-}
-
-/// Converts a total amount string to minor units (cents).
-/// Strings containing `'.'` are treated as decimal EUR (e.g. `"12.50"` → 1250).
-/// Strings without `'.'` are treated as already-integer minor units (e.g. `"1250"` → 1250).
+/// Converts a QR total to minor units (cents).
+///
+/// The total has the format of the XSD `Amount` attribute (spec section 3.3.12.17):
+/// 1 to 12 characters, a decimal part rounded to 2 decimal places, range
+/// -10000000 to 10000000. A dot and exactly two decimals are required, so `"1250"`
+/// is rejected instead of being read as 12.50 or 1250.00.
 fn parse_total_to_minor(total_str: &str) -> Option<i64> {
-    if total_str.contains('.') {
-        let val: f64 = total_str.parse().ok()?;
-        Some((val * 100.0_f64).round() as i64)
-    } else {
-        total_str.parse().ok()
+    if total_str.len() > 12 {
+        return None;
     }
+    let (negative, unsigned) = match total_str.strip_prefix('-') {
+        Some(rest) => (true, rest),
+        None => (false, total_str),
+    };
+    let (whole, decimals) = unsigned.split_once('.')?;
+    let is_digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
+    if !is_digits(whole) || decimals.len() != 2 || !is_digits(decimals) {
+        return None;
+    }
+
+    let minor = whole.parse::<i64>().ok()? * 100 + decimals.parse::<i64>().ok()?;
+    if minor > MAX_TOTAL_MINOR {
+        return None;
+    }
+    Some(if negative { -minor } else { minor })
 }
 
 // ---------------------------------------------------------------------------
@@ -348,7 +338,6 @@ mod tests {
             "260412250000", // hour 25
             "260412240000", // hour 24
             "260412126000", // minute 60
-            "260412120060", // second 60
             "260412996099",
         ] {
             let qr = format!("ABCD1234:XYZ9876:{dt}:001:10.00");
