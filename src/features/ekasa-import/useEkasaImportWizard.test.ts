@@ -18,6 +18,8 @@ const OFFLINE_RESULT: ProcessReceiptResult = {
   processedItems: [],
   qrContent: 'O-ABC:1:2:3',
   offlineFallback: { eventDate: '2025-04-12T10:30:00', totalAmountMinor: 1250 },
+  ekasaReceiptRef: 'offline:O-ABC:1:2:3',
+  alreadyImported: false,
 }
 
 const ONLINE_RESULT: ProcessReceiptResult = {
@@ -33,6 +35,8 @@ const ONLINE_RESULT: ProcessReceiptResult = {
   processedItems: [{ name: 'Milk', amountMinor: 500, vatRateBps: 2000 }],
   qrContent: 'abc',
   offlineFallback: null,
+  ekasaReceiptRef: 'online:abc',
+  alreadyImported: false,
 }
 
 const deferred = <T>() => {
@@ -75,6 +79,31 @@ describe('useEkasaImportWizard', () => {
     expect(result.current.state.processedLegs[0]).toMatchObject({ amount: '5.00', note: 'Milk', eventDate: '2025-05-03' })
     expect(result.current.state.vendorName).toBe('Shop')
     expect(result.current.state.offlineFallback).toBeNull()
+  })
+
+  it.each([
+    ['online', ONLINE_RESULT],
+    ['offline', OFFLINE_RESULT],
+  ])('keeps the reference and the already-imported flag of an %s receipt for the review', async (_, receipt) => {
+    ;(processReceiptFile as Mock).mockResolvedValue({ ...receipt, alreadyImported: true })
+    const { result } = renderHook(() => useEkasaImportWizard())
+
+    act(() => result.current.handleFileSelect('/receipt.png'))
+    await act(() => result.current.handleRulesConfirm())
+
+    expect(result.current.state.step).toBe('review')
+    expect(result.current.state.ekasaReceiptRef).toBe(receipt.ekasaReceiptRef)
+    expect(result.current.state.alreadyImported).toBe(true)
+  })
+
+  it('does not flag a receipt that was not imported before', async () => {
+    ;(processReceiptFile as Mock).mockResolvedValue(ONLINE_RESULT)
+    const { result } = renderHook(() => useEkasaImportWizard())
+
+    act(() => result.current.handleFileSelect('/receipt.png'))
+    await act(() => result.current.handleRulesConfirm())
+
+    expect(result.current.state.alreadyImported).toBe(false)
   })
 
   it('does not reuse an earlier offline receipt when the next file fails', async () => {

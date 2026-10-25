@@ -64,12 +64,23 @@ const deferred = () => {
   return { promise, resolve }
 }
 
-const renderStep = (processedLegs: SplitLegDraft[], onImportSuccess = vi.fn()) => {
+const RECEIPT_REF = 'online:O-7DBCDA8A56EE426DBCDA8A56EE426D1A'
+
+const renderStep = (processedLegs: SplitLegDraft[], { alreadyImported = false }: { alreadyImported?: boolean } = {}) => {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: 0 } } })
   const invalidate = vi.spyOn(queryClient, 'invalidateQueries')
+  const onImportSuccess = vi.fn()
   render(
     <QueryClientProvider client={queryClient}>
-      <ReviewStep processedLegs={processedLegs} vendorName="Shop" receiptDate="2025-05-03" onImportSuccess={onImportSuccess} onBack={vi.fn()} />
+      <ReviewStep
+        processedLegs={processedLegs}
+        vendorName="Shop"
+        receiptDate="2025-05-03"
+        ekasaReceiptRef={RECEIPT_REF}
+        alreadyImported={alreadyImported}
+        onImportSuccess={onImportSuccess}
+        onBack={vi.fn()}
+      />
     </QueryClientProvider>,
   )
   return { invalidate, onImportSuccess }
@@ -94,6 +105,45 @@ describe('ReviewStep', () => {
     await waitFor(() => expect(createTaxableSplitGroup).toHaveBeenCalledOnce())
     const input = (createTaxableSplitGroup as Mock).mock.calls[0][0]
     expect(input.legs.map((leg: { eventDate: string }) => leg.eventDate)).toEqual(['2025-06-01', '2025-06-01'])
+  })
+
+  it('stores the receipt reference with a single-item receipt', async () => {
+    renderStep([makeLeg('5.00', '2025-05-03')])
+
+    fireEvent.click(screen.getByText('ekasaImport.reviewStep.save'))
+
+    await waitFor(() => expect(createTaxableEvent).toHaveBeenCalledOnce())
+    expect((createTaxableEvent as Mock).mock.calls[0][0]).toMatchObject({ ekasaReceiptRef: RECEIPT_REF })
+  })
+
+  it('stores the receipt reference with a multi-item receipt', async () => {
+    renderStep([makeLeg('1.00', '2025-05-03'), makeLeg('2.00', '2025-05-03')])
+
+    fireEvent.click(screen.getByText('ekasaImport.reviewStep.save'))
+
+    await waitFor(() => expect(createTaxableSplitGroup).toHaveBeenCalledOnce())
+    expect((createTaxableSplitGroup as Mock).mock.calls[0][0]).toMatchObject({ ekasaReceiptRef: RECEIPT_REF })
+  })
+
+  it('shows no warning for a receipt that was not imported before', () => {
+    renderStep([makeLeg('5.00', '2025-05-03')])
+
+    expect(screen.queryByText('ekasaImport.reviewStep.alreadyImported')).toBeNull()
+  })
+
+  it.each([
+    ['single-item', [makeLeg('5.00', '2025-05-03')]],
+    ['multi-item', [makeLeg('1.00', '2025-05-03'), makeLeg('2.00', '2025-05-03')]],
+  ])('warns about an already imported %s receipt but still lets the user import it', async (_, legs) => {
+    const { onImportSuccess } = renderStep(legs, { alreadyImported: true })
+
+    expect(screen.getByText('ekasaImport.reviewStep.alreadyImported')).toBeTruthy()
+    const save = screen.getByText('ekasaImport.reviewStep.save') as HTMLButtonElement
+    expect(save.disabled).toBe(false)
+
+    fireEvent.click(save)
+
+    await waitFor(() => expect(onImportSuccess).toHaveBeenCalledOnce())
   })
 
   it('waits for the cashflow link before refreshing events and snapshots', async () => {
