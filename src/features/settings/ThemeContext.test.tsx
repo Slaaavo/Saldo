@@ -60,9 +60,11 @@ describe('ThemeProvider', () => {
     ;(getAppSetting as Mock).mockResolvedValue('dark')
     renderProvider(<ThemeReader label="a" />)
 
-    await waitFor(() => expect(screen.getByTestId('reader-a')).toHaveTextContent('dark/dark'))
-    expect(localStorage.getItem('theme')).toBe('dark')
-    expect(document.documentElement.classList.contains('dark')).toBe(true)
+    await waitFor(() => {
+      expect(screen.getByTestId('reader-a')).toHaveTextContent('dark/dark')
+      expect(localStorage.getItem('theme')).toBe('dark')
+      expect(document.documentElement.classList.contains('dark')).toBe(true)
+    })
   })
 
   it('shares one preference between all consumers', async () => {
