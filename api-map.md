@@ -13,7 +13,7 @@ Creates a new account with name, currency, optional initial balance, account typ
 - **BE command:** `create_account` → `src-tauri/src/features/accounts/commands.rs`
 - **Used in:**
   - `src/app/useModalActions.ts` (useModalActions hook)
-  - `src/features/assets/CreateAssetModal.tsx` (CreateAssetModal)
+  - `src/features/assets/CreateAssetModal/CreateAssetModal.tsx` (CreateAssetModal)
 
 ### `updateAccount`
 
@@ -33,7 +33,7 @@ Deletes an account by ID.
 
 ### `updateSortOrder`
 
-Updates display sort order for multiple accounts.
+Reorders the listed accounts: they swap among the `sort_order` slots they already hold, so accounts outside the list keep theirs.
 
 - **BE command:** `update_sort_order` → `src-tauri/src/features/accounts/commands.rs`
 - **Used in:**
@@ -58,7 +58,7 @@ Returns all account balances as of a given date (end-of-day).
 
 ### `listEvents`
 
-Lists events with optional filtering by account(s), bucket(s), date range, event types, and limit. Returns `{ events, totalCount }`.
+Lists events with optional filtering by account(s), bucket(s), date range, event types, person, unmatched-only, and limit. `limit` counts cards: a split group counts once and returns all its legs. Returns `{ events, totalCount }`, where `totalCount` counts all matching legs.
 
 - **BE command:** `list_events` → `src-tauri/src/features/transactions/commands.rs`
 - **Used in:**
@@ -66,6 +66,8 @@ Lists events with optional filtering by account(s), bucket(s), date range, event
     - → `src/features/dashboard/DashboardView.tsx` (DashboardView)
   - `src/features/ledger/useLedgerData.ts` (useLedgerData hook)
     - → `src/features/ledger/LedgerPage.tsx` (LedgerPage)
+  - `src/features/transactions/csv-import/useImportWizard.ts` (useImportWizard hook)
+    - → `src/features/transactions/CsvImportModal.tsx` (CsvImportModal)
 
 ### `createBalanceUpdate`
 
@@ -97,8 +99,9 @@ Retrieves a single event with all its data. For transfers, includes counterpart 
 
 - **BE command:** `get_event_by_id` → `src-tauri/src/features/transactions/commands.rs`
 - **Used in:**
-  - `src/features/ledger/LedgerPage.tsx` (LedgerPage)
-  - `src/features/dashboard/DashboardView.tsx` (DashboardView)
+  - `src/shared/hooks/useEditEventHandler.ts` (useEditEventHandler hook)
+    - → `src/features/ledger/LedgerPage.tsx` (LedgerPage)
+    - → `src/features/dashboard/DashboardView.tsx` (DashboardView)
 
 ### `bulkCreateBalanceUpdates`
 
@@ -146,13 +149,107 @@ Creates a split group with multiple legs for splitting one transaction across ca
   - `src/features/transactions/csv-import/useImportWizard.ts` (useImportWizard hook)
     - → `src/features/transactions/CsvImportModal.tsx` (CsvImportModal)
 
-### `updateSplitGroupDate`
+### `deleteSplitGroup`
 
-Updates the date for all legs of a split group.
+Deletes a split group and all its legs.
 
-- **BE command:** `update_split_group_date` → `src-tauri/src/features/transactions/commands.rs`
+- **BE command:** `delete_split_group` → `src-tauri/src/features/transactions/commands.rs`
 - **Used in:**
-  - **Not used in production code** (test mocks only)
+  - `src/app/useModalActions.ts` (useModalActions hook)
+    - → `src/app/AppModals.tsx` (AppModals)
+
+### `createTaxableEvent`
+
+Creates a taxable `revenue`, `expense` or `prepaid_expense` event for a person, with VAT and deductibility fields. Accepts an optional `ekasaReceiptRef`, which is stored with the event (set by the eKasa import).
+
+- **BE command:** `create_taxable_event` → `src-tauri/src/features/transactions/commands.rs`
+- **Used in:**
+  - `src/features/transactions/CreateRevenueModal.tsx` (CreateRevenueModal)
+  - `src/features/transactions/CreateExpenseModal.tsx` (CreateExpenseModal)
+  - `src/features/transactions/CreatePrepaidExpenseModal.tsx` (CreatePrepaidExpenseModal)
+  - `src/features/ekasa-import/ReviewStep.tsx` (ReviewStep)
+
+### `createTaxableSplitGroup`
+
+Creates a taxable split group (revenue or expense) with several legs. Accepts an optional `ekasaReceiptRef`, which is stored with the group's entries (set by the eKasa import).
+
+- **BE command:** `create_taxable_split_group` → `src-tauri/src/features/transactions/commands.rs`
+- **Used in:**
+  - `src/features/transactions/CreateRevenueModal.tsx` (CreateRevenueModal)
+  - `src/features/transactions/CreateExpenseModal.tsx` (CreateExpenseModal)
+  - `src/features/ekasa-import/ReviewStep.tsx` (ReviewStep)
+
+### `updateTaxableEvent`
+
+Updates a taxable event's amount, date, note and tax fields.
+
+- **BE command:** `update_taxable_event` → `src-tauri/src/features/transactions/commands.rs`
+- **Used in:**
+  - `src/features/transactions/EditTaxableEventModal.tsx` (EditTaxableEventModal)
+
+### `updateTaxableSplitGroup`
+
+Updates a taxable split group and its legs.
+
+- **BE command:** `update_taxable_split_group` → `src-tauri/src/features/transactions/commands.rs`
+- **Used in:**
+  - `src/features/transactions/EditTaxableSplitGroupModal.tsx` (EditTaxableSplitGroupModal)
+
+### `linkCashflowsToTaxable`
+
+Links cashflow events to a taxable event.
+
+- **BE command:** `link_cashflows_to_taxable` → `src-tauri/src/features/transactions/commands.rs`
+- **Used in:**
+  - `src/features/transactions/EditTaxableEventModal.tsx` (EditTaxableEventModal)
+  - `src/features/transactions/CreateRevenueModal.tsx` (CreateRevenueModal)
+  - `src/features/transactions/CreateExpenseModal.tsx` (CreateExpenseModal)
+  - `src/features/ekasa-import/ReviewStep.tsx` (ReviewStep)
+
+### `linkCashflowsToSplitGroup`
+
+Links cashflow events to a taxable split group.
+
+- **BE command:** `link_cashflows_to_split_group` → `src-tauri/src/features/transactions/commands.rs`
+- **Used in:**
+  - `src/features/transactions/CreateExpenseModal.tsx` (CreateExpenseModal)
+  - `src/features/ekasa-import/ReviewStep.tsx` (ReviewStep)
+
+### `unlinkCashflowFromTaxable`
+
+Removes the link between a cashflow and a taxable event.
+
+- **BE command:** `unlink_cashflow_from_taxable` → `src-tauri/src/features/transactions/commands.rs`
+- **Used in:**
+  - `src/features/transactions/EditTaxableEventModal.tsx` (EditTaxableEventModal)
+
+### `listLinkedCashflows`
+
+Lists the cashflow events linked to a taxable event.
+
+- **BE command:** `list_linked_cashflows` → `src-tauri/src/features/transactions/commands.rs`
+- **Used in:**
+  - `src/features/transactions/EditTaxableEventModal.tsx` (EditTaxableEventModal)
+
+### `listEligibleCashflows`
+
+Lists cashflows of a person that can be linked to a taxable event, optionally matching an amount and excluding already linked ones.
+
+- **BE command:** `list_eligible_cashflows` → `src-tauri/src/features/transactions/commands.rs`
+- **Used in:**
+  - `src/features/transactions/CashflowPicker.tsx` (CashflowPicker)
+    - → `src/features/transactions/EditTaxableEventModal.tsx`
+    - → `src/features/transactions/CreateRevenueModal.tsx`
+    - → `src/features/transactions/CreateExpenseModal.tsx`
+  - `src/features/ekasa-import/ReviewStep.tsx` (ReviewStep)
+
+### `getUnmatchedCashflowCount`
+
+Counts cashflows not yet linked to a taxable event, optionally for one person.
+
+- **BE command:** `get_unmatched_cashflow_count` → `src-tauri/src/features/transactions/commands.rs`
+- **Used in:**
+  - `src/features/ledger/LedgerPage.tsx` (LedgerPage)
 
 ---
 
@@ -218,7 +315,7 @@ Gets the current consolidation/base currency.
   - `src/features/currency/useFxRates.ts` (useFxRates hook → FxRatesPage)
   - `src/features/settings/useSettings.ts` (useSettings hook → SettingsPage)
   - `src/features/partners/usePartners.ts` (usePartners hook → PartnersPage)
-  - `src/features/assets/CreateAssetModal.tsx` (CreateAssetModal)
+  - `src/features/assets/CreateAssetModal/CreateAssetModal.tsx` (CreateAssetModal)
   - `src/features/assets/UnitsPage.tsx` (UnitsPage)
 
 ### `setConsolidationCurrency`
@@ -382,7 +479,7 @@ Creates a custom unit/currency with name and decimal places.
 
 - **BE command:** `create_custom_unit` → `src-tauri/src/features/assets/commands.rs`
 - **Used in:**
-  - `src/features/assets/CreateAssetModal.tsx` (CreateAssetModal)
+  - `src/features/assets/CreateAssetModal/CreateAssetModal.tsx` (CreateAssetModal)
 
 ### `listCustomUnits`
 
@@ -390,7 +487,7 @@ Lists all custom units (non-standard currencies).
 
 - **BE command:** `list_custom_units` → `src-tauri/src/features/assets/commands.rs`
 - **Used in:**
-  - `src/features/assets/CreateAssetModal.tsx` (CreateAssetModal)
+  - `src/features/assets/CreateAssetModal/CreateAssetModal.tsx` (CreateAssetModal)
   - `src/features/assets/UnitsPage.tsx` (UnitsPage)
 
 ### `updateCustomUnit`
@@ -517,6 +614,149 @@ Sets which CSV import profile is preferred for an account.
 
 ---
 
+## Persons
+
+### `listPersons`
+
+Lists all persons.
+
+- **BE command:** `list_persons` → `src-tauri/src/features/persons/commands.rs`
+- **Used in:**
+  - `src/features/persons/usePersons.ts` (usePersons hook → PersonsPage)
+  - `src/features/dashboard/PersonSelector.tsx` (PersonSelector)
+  - `src/features/dashboard/DashboardView.tsx` (DashboardView)
+  - `src/features/accounts/CreateAccountModal.tsx` (CreateAccountModal)
+  - `src/features/accounts/EditAccountModal.tsx` (EditAccountModal)
+  - `src/features/assets/CreateAssetModal/CreateAssetModal.tsx` (CreateAssetModal)
+  - `src/features/transactions/EditTaxableEventModal.tsx` (EditTaxableEventModal)
+  - `src/features/transactions/useResolvedPersonId.ts` (useResolvedPersonId hook)
+  - `src/features/tax-models/TaxModelFormPage.tsx` (TaxModelFormPage)
+  - `src/features/csv-profiles/ImportProfilesPage.tsx` (ImportProfilesPage)
+
+### `createPerson`
+
+Creates a person with name, type and VAT-payer flag.
+
+- **BE command:** `create_person` → `src-tauri/src/features/persons/commands.rs`
+- **Used in:**
+  - `src/features/persons/usePersons.ts` (usePersons hook → PersonsPage)
+  - `src/features/persons/CreatePersonDialog.tsx` (CreatePersonDialog)
+
+### `updatePerson`
+
+Updates a person's name, type and VAT-payer flag.
+
+- **BE command:** `update_person` → `src-tauri/src/features/persons/commands.rs`
+- **Used in:**
+  - `src/features/persons/usePersons.ts` (usePersons hook → PersonsPage)
+
+### `deletePerson`
+
+Deletes a person by ID.
+
+- **BE command:** `delete_person` → `src-tauri/src/features/persons/commands.rs`
+- **Used in:**
+  - `src/features/persons/usePersons.ts` (usePersons hook → PersonsPage)
+
+---
+
+## Tax Models
+
+### `listTaxModels`
+
+Lists all tax models.
+
+- **BE command:** `list_tax_models` → `src-tauri/src/features/tax_models/commands.rs`
+- **Used in:**
+  - `src/features/tax-models/useTaxModels.ts` (useTaxModels hook → TaxModelsPage)
+
+### `getTaxModel`
+
+Gets one tax model with its brackets.
+
+- **BE command:** `get_tax_model` → `src-tauri/src/features/tax_models/commands.rs`
+- **Used in:**
+  - `src/features/tax-models/TaxModelFormPage.tsx` (TaxModelFormPage)
+  - `src/features/tax-models/TaxModelResultsPage.tsx` (TaxModelResultsPage)
+
+### `createTaxModel`
+
+Creates a tax model with brackets, VAT status and reserve fund settings.
+
+- **BE command:** `create_tax_model` → `src-tauri/src/features/tax_models/commands.rs`
+- **Used in:**
+  - `src/features/tax-models/useTaxModelForm.ts` (useTaxModelForm hook → TaxModelFormPage)
+
+### `updateTaxModel`
+
+Updates an existing tax model.
+
+- **BE command:** `update_tax_model` → `src-tauri/src/features/tax_models/commands.rs`
+- **Used in:**
+  - `src/features/tax-models/useTaxModelForm.ts` (useTaxModelForm hook → TaxModelFormPage)
+
+### `deleteTaxModel`
+
+Deletes a tax model by ID.
+
+- **BE command:** `delete_tax_model` → `src-tauri/src/features/tax_models/commands.rs`
+- **Used in:**
+  - `src/features/tax-models/useTaxModels.ts` (useTaxModels hook → TaxModelsPage)
+
+### `calculateTaxModel`
+
+Calculates the tax result for a tax model.
+
+- **BE command:** `calculate_tax_model` → `src-tauri/src/features/tax_models/commands.rs`
+- **Used in:**
+  - `src/features/tax-models/TaxModelResultsPage.tsx` (TaxModelResultsPage)
+
+---
+
+## eKasa Import
+
+### `processReceiptFile`
+
+Decodes the QR code from a receipt file (PDF or image), looks the receipt up and returns its items with matching rules applied. Also returns `ekasaReceiptRef` (identifies the receipt) and `alreadyImported` (whether a live entry already carries that reference).
+
+- **BE command:** `process_receipt_file` → `src-tauri/src/features/ekasa/commands.rs`
+- **Used in:**
+  - `src/features/ekasa-import/useEkasaImportWizard.ts` (useEkasaImportWizard hook → EkasaImportModal)
+
+### `listEkasaProfiles`
+
+Lists all eKasa import profiles.
+
+- **BE command:** `list_ekasa_profiles` → `src-tauri/src/features/ekasa/commands.rs`
+- **Used in:**
+  - `src/features/csv-profiles/ImportProfilesPage.tsx` (ImportProfilesPage)
+
+### `getEkasaProfile`
+
+Gets the eKasa import profile of a person.
+
+- **BE command:** `get_ekasa_profile` → `src-tauri/src/features/ekasa/commands.rs`
+- **Used in:**
+  - `src/features/ekasa-import/useEkasaImportWizard.ts` (useEkasaImportWizard hook → EkasaImportModal)
+
+### `upsertEkasaProfile`
+
+Creates or replaces a person's eKasa import profile (default percentages and name-pattern rules).
+
+- **BE command:** `upsert_ekasa_profile` → `src-tauri/src/features/ekasa/commands.rs`
+- **Used in:**
+  - `src/features/ekasa-import/useEkasaImportWizard.ts` (useEkasaImportWizard hook → EkasaImportModal)
+
+### `deleteEkasaProfile`
+
+Deletes an eKasa import profile by ID.
+
+- **BE command:** `delete_ekasa_profile` → `src-tauri/src/features/ekasa/commands.rs`
+- **Used in:**
+  - `src/features/csv-profiles/ImportProfilesPage.tsx` (ImportProfilesPage)
+
+---
+
 ## Unused API Calls
 
 ### FE API functions not called in production code
@@ -524,10 +764,9 @@ Sets which CSV import profile is preferred for an account.
 | Function | Notes |
 |----------|-------|
 | `createCashflow` | Only mocked in tests. Bulk variant `bulkCreateCashflows` is used instead. |
-| `updateSplitGroupDate` | Only mocked in tests. No UI for editing split group dates yet. |
 | `updateCustomUnit` | Only mocked in tests. Units page shows units but doesn't offer rename. |
 | `listAccountAssetLinks` | Only mocked in tests. Links are managed via `setAccountAssetLinks` but never queried standalone in UI. |
 
 ### BE commands with no FE usage gaps
 
-All 55 registered BE commands have corresponding FE API wrappers. No orphaned BE commands exist.
+All 80 registered BE commands have corresponding FE API wrappers. No orphaned BE commands exist.
