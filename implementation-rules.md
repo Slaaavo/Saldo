@@ -63,10 +63,12 @@ Notes:
 - **Multi-currency (future):** Store original values and apply read-time conversion using time-indexed rates; store rates as high-precision scaled integers; surface provenance.
 - **Rounded vs floor integer division:** Use `div_round` from `shared/helpers.rs` when splitting monetary amounts proportionally (depreciation schedules, display estimates like monthly tax burden). Use floor division (`/`) for tax rate applications (`amount * bps / 10000`) — tax law convention is to truncate. Never write inline `(a + b/2) / b`; always call `div_round`. `div_round` and `convert_balance` round half away from zero, so a negative amount rounds to the negation of the positive one.
 
-## 5. Snapshot algorithm (per selected date)
-1. For each account, find the current data of the last non-deleted event: join `event` (with `deleted_at IS NULL`) to its latest `event_data` row (by `event_data.created_at DESC`), filter `event_data.event_date <= selected_datetime`, order by `event_data.event_date DESC, event.created_at DESC`, take the first. When the UI passes just a date, interpret it as end-of-day (`YYYY-MM-DDT23:59:59`) for snapshot purposes.
-2. If found, `account_balance_minor = event_data.amount_minor` (events are authoritative balance snapshots).
-3. If no event exists for the account (or all events are soft-deleted / after the selected date), the account balance is 0.
+## 5. Snapshot algorithm (live or at a moment)
+1. `get_accounts_snapshot` takes `asOf`. `live` has no cutoff: rows and rates dated after today count, and rates age from today. `at` takes a validated date, read as end of day (`YYYY-MM-DDT23:59:59`), or a datetime, and rates age from that day. The command parses it once into a `Moment`; repository code never sees a raw date string.
+2. An account's native balance is its latest non-deleted `balance_update` on or before the moment (read through `event.latest_data_id`, ordered by `event_date DESC, created_at DESC`), plus the `cashflow` and `transfer` amounts dated after that update and up to the moment. With no balance update, it is the sum of those amounts from the start. A bucket adds its linked sources' balances and its tagged cashflows as separate parts.
+3. Each amount is valued in the consolidation currency with the latest stored rate on or before the moment. A missing rate gives `Valuation::NoRate`: the amount has no value and stays out of every total, and the breakdown lists it as not counted. Never fall back to 1:1.
+4. A rate is stale when its age exceeds 7 days for a regular currency or 31 days for a custom unit (`currency/rate_age.rs`). A stale rate still counts and raises a rate warning that names the account, the amount, the rate date and the age.
+5. `transactions/metrics.rs` builds the headline metrics from the rows. Every row appears in every metric, counted or not counted with a reason, and `Metric::new` derives each total from its counted lines.
 
 All snapshot and list queries must filter out soft-deleted events: `WHERE event.deleted_at IS NULL`.
 
@@ -94,8 +96,9 @@ When listing or displaying an event, always use the latest `event_data` row for 
 
 ## 8. TypeScript / React guidelines
 - Keep business-critical calculations in Rust; React reads converted values via the command API.
+- **No sums of converted amounts in the UI.** Headline totals, breakdown lines, a bucket's counted value (`countedMinor`) and asset equity (`equityMinor`) come from the snapshot command. A component renders them and never adds converted amounts itself.
 - Use strict TypeScript (`strict: true`). Define interfaces for `Account`, `Event`, `EventData`, `SnapshotRow`.
-- **Application state:** Server/async state is managed by `@tanstack/react-query`. Navigation is managed by `@tanstack/react-router` (memory history). Cross-cutting UI state uses React context: `ModalContext` (modal open/close), `DemoContext` (demo mode), `SelectedDateContext` (date picker). `App.tsx` is the root route shell — a thin layout that renders `<Outlet />`. Each page component is zero-prop and self-fetching. `useModalManager` (in `src/app/useModalManager`) owns modal state via a `ModalState` discriminated union type (defined in `src/shared/types/`). The old `useFinanceData` hook has been deleted.
+- **Application state:** Server/async state is managed by `@tanstack/react-query`. Navigation is managed by `@tanstack/react-router` (memory history). Cross-cutting UI state uses React context: `ModalContext` (modal open/close), `DemoContext` (demo mode), `TimeMachineContext` (the dashboard's `asOf`: live until a date is picked). `App.tsx` is the root route shell — a thin layout that renders `<Outlet />`. Each page component is zero-prop and self-fetching. `useModalManager` (in `src/app/useModalManager`) owns modal state via a `ModalState` discriminated union type (defined in `src/shared/types/`). The old `useFinanceData` hook has been deleted.
 - **Feature vs Shared separation:** Page-level views live inside their feature folder (e.g. `src/features/dashboard/DashboardView.tsx`). Reusable UI components live in `src/shared/ui/`. Feature-specific components live in `src/features/<domain>/`. Components should not import across unrelated features; use `src/shared/` for cross-cutting concerns.
 - **Async calls in `useEffect`:** For API/IPC calls triggered from React effects, prefer the async/await pattern with an inner async function inside `useEffect` (e.g., define `const load = async () => { ... }` and then call `load()`). Avoid `.then()`/`.catch()` chaining in effects unless there is a specific reason to use promise chaining.
 - **Component folder structure:** When a component grows complex enough to warrant sub-components extracted to their own files, convert it from a flat file (`MyComponent.tsx`) into a folder (`MyComponent/`). The folder must contain:
@@ -228,10 +231,10 @@ End of implementation rules.
 
 - **Memory history:** `createMemoryHistory({ initialEntries: ['/dashboard'] })`. There are no real browser URLs — this is a desktop app.
 - **Route components must be zero-prop.** All data and callbacks must come from query hooks or contexts. If a route component has required props, they will be silently `undefined` at runtime (no TypeScript error). See `memory.md` for the SettingsPage bug story.
-- **Shared query hooks** live in `src/shared/hooks/`. Current hooks: `useSnapshotQuery(date)`, `useDashboardEventsQuery(date)`, `useConsolidationCurrencyQuery()`, `useBulkUpdateExclusionsQuery()`.
+- **Shared query hooks** live in `src/shared/hooks/`. Current hooks: `useSnapshotQuery(asOf)`, `useDashboardEventsQuery(asOf)`, `useConsolidationCurrencyQuery()`, `useBulkUpdateExclusionsQuery()`.
 - **Query key conventions:**
-  - `['snapshot', date]`
-  - `['events', 'dashboard', date]`
+  - `['snapshot', asOf, personId]`
+  - `['events', 'dashboard', asOf, personId]`
   - `['events', 'ledger', fromDate, toDate, accountIds, typeFilter]`
   - `['consolidation-currency']`
   - `['bulk-update-exclusions']`
@@ -240,7 +243,7 @@ End of implementation rules.
 - **Keys derived from events nest under `['events', ...]`.** Any query whose result changes when an event is created, edited, linked or deleted starts its key with `'events'`, so the `['events']` invalidation that every event mutation already runs refreshes it. A top-level key such as `['unmatched-cashflow-count']` goes stale under `staleTime: Infinity`.
 - **QueryClient config:** `staleTime: Infinity`, `refetchOnWindowFocus: false`, `retry: 0`. The singleton is exported from `src/app/queryClient.ts`. A global `QueryCache.onError` handler toasts all query failures via `extractErrorMessage()`. Individual consumers do not need their own error handling unless they want custom behavior beyond the default toast.
 - **Post-mutation refresh:** Call `queryClient.invalidateQueries({ queryKey: [...] })`. Never call fetch functions manually to refresh. Pass the minimum necessary key prefix (e.g., `['events']` invalidates all event queries).
-- **Contexts in AppShell:** `ModalProvider` → `SelectedDateProvider` → `DemoProvider` are nested inside `App.tsx`. Any component in the tree can call `useModal()`, `useSelectedDate()`, or `useDemo()`.
+- **Contexts in AppShell:** `ModalProvider` → `TimeMachineProvider` → `DemoProvider` are nested inside `App.tsx`. Any component in the tree can call `useModal()`, `useTimeMachine()`, or `useDemo()`.
 - **Navigation from code:** Use `const navigate = useNavigate()` from `@tanstack/react-router`, then `navigate({ to: '/dashboard' })`.
 - **Conditional UI based on route:** Use `useRouterState({ select: s => s.location.pathname })` to read the current path inside a component (e.g., Header shows date picker only on `/dashboard`, PersonSelector on `/dashboard` and `/ledger`).
 - **Persons query key:** `['persons']` — used by all person queries; invalidate after any CRUD mutation on persons. `SelectedPersonContext`/`useSelectedPerson` follows the same Fast Refresh-safe file split as other contexts. `selectedPersonId` is included in snapshot and events query keys so they re-fetch when the person filter changes.

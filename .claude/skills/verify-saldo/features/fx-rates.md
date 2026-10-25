@@ -1,6 +1,6 @@
 # FX rates
 
-The FX Rates page lists the stored exchange rates from EUR, the consolidation currency, to every other currency that has stored rates, one row per date. The dashboard converts foreign-currency balances with the latest rate on or before the selected date. Users can type a rate by hand (marked `manual`), fetch rates for one date from Open Exchange Rates, and backfill dates that have balance updates but no rate.
+The FX Rates page lists the stored exchange rates from EUR, the consolidation currency, to every other currency that has stored rates, one row per date. The dashboard converts foreign-currency balances with the newest stored rate when live, and with the latest rate on or before the picked date in the time machine. Users can type a rate by hand (marked `manual`), fetch rates for one date from Open Exchange Rates, and backfill dates that have balance updates but no rate.
 
 ## Sub-features
 
@@ -14,19 +14,19 @@ The FX Rates page lists the stored exchange rates from EUR, the consolidation cu
 
 - Sidebar → `FX Rates`.
 - Settings → Integrations → `Open Exchange Rates API Key` → `Save API Key` enables fetching.
-- Dashboard → yellow `Missing FX rate for …` banner, which is the symptom when no rate covers the date.
+- Dashboard → amber rate warning panel (`… has no USD rate, so it is not counted in the totals.` or `… uses a … rate from <date>, N days old.`), which is the symptom when no rate covers the moment or the rate is old.
 
 ## Driving it with computer use
 
 Preconditions:
 
-- Baseline from the [README](./README.md), in demo mode, which seeds manual EUR→BTC rates on the last day of each of the three previous months.
+- Baseline from the [README](./README.md), in demo mode, which seeds manual EUR→BTC rates on the last day of each of the three previous months and one dated today (equal to the latest month-end's).
 - No OXR key is saved unless the check is about `fx-fetch` or `fx-startup`. Fetching uses the network and the user's OXR quota. Only the user may type their key into Settings, because the agent never enters API keys. Check with `sqlite3 "file:<dev DB>?mode=ro" "select key from app_setting"`: a fresh dev DB lists only `consolidation_currency_code`.
 
-- **List (`fx-list`).** Click `AXLink "FX Rates"`. The page reads `Rates relative to EUR`, then `Fetch for date` with today's date and `Refresh Rates`. The table has a `BTC` column and one row per seeded month-end, each `(manual)`. On 2026-10-18 those were `2026-09-30 0.0000108981`, `2026-08-31 0.0000113379`, and `2026-07-31 0.0000121309`. Keep the screenshot.
-- **Before the edit.** On the dashboard (today), note `NET WORTH`, `LIQUID`, and the `Retirement Fund` bucket, which mirrors `BTC Wallet`. On 2026-10-18 they were `215 851.84`, `12 851.84`, and `8 441.84 EUR` (0.092 BTC at `0.0000108981`).
-- **Edit a rate (`fx-manual`).** On FX Rates, click the `2026-09-30` BTC cell. It turns into a small `AXTextField` (about 97×22) holding the current rate. Triple-click it, type `0.00001`, keep `<nn>-fx-edit-input`, and press `app_key` `return`. The cell reads `0.00001 (manual)`. `escape` cancels, and a blur saves.
-- **Effect on the dashboard.** Open `AXLink "Dashboard"` (today). `Retirement Fund` reads `9 200.00 EUR` (0.092 / 0.00001), `LIQUID` reads `13 610.00`, and `NET WORTH` reads `216 610.00`, each +758.16. `LEFT TO SPEND` stays `1 100.00`, because the bucket rises by the same amount.
+- **List (`fx-list`).** Click `AXLink "FX Rates"`. The page reads `Rates relative to EUR`, then `Fetch for date` with today's date and `Refresh Rates`. The table has a `BTC` column with a row for today and one per seeded month-end, each `(manual)`. On 2026-10-18 the month-ends were `2026-09-30 0.0000108981`, `2026-08-31 0.0000113379`, and `2026-07-31 0.0000121309`. Keep the screenshot.
+- **Before the edit.** On the live dashboard, note `NET WORTH`, `LIQUID`, and the `Retirement Fund` bucket, which mirrors `BTC Wallet`. On 2026-10-25 they were `215 851.84`, `12 851.84`, and `8 441.84 EUR` (0.092 BTC at `0.0000108981`).
+- **Edit a rate (`fx-manual`).** On FX Rates, click today's BTC cell, because live uses the newest rate. To edit a month-end instead, prove it in the time machine on a day before today's rate. It turns into a small `AXTextField` (about 97×22) holding the current rate. Triple-click it, type `0.00001`, keep `<nn>-fx-edit-input`, and press `app_key` `return`. The cell reads `0.00001 (manual)`. `escape` cancels, and a blur saves.
+- **Effect on the dashboard.** Open `AXLink "Dashboard"` (live). `Retirement Fund` reads `9 200.00 EUR` (0.092 / 0.00001), `LIQUID` reads `13 610.00`, and `NET WORTH` reads `216 610.00`, each +758.16. `LEFT TO SPEND` stays `1 100.00`, because the bucket rises by the same amount.
 - **Fetch without a key (`fx-fetch`, negative path).** With no key saved, click `AXButton "Refresh Rates"`. No network call happens. An inline red box under the actions (not a toast) reads `API key not configured. Set oxr_app_id in settings.`
 - **Fetch with a key (`fx-fetch`).** Only with a key the user saved: click `Refresh Rates`. New non-manual rows should appear for that date.
 - **Stored rows (dev DB only).** Run `evidence.sh db <nn>-fx "select date, to_currency_id, rate_mantissa, rate_exponent, is_manual from fx_rate order by date desc limit 10"`.

@@ -50,7 +50,7 @@ pnpm test:e2e           # Playwright; requires `pnpm tauri dev` already running 
 
 ### Request path
 
-React page → query/mutation hook → `src/shared/api/index.ts` (thin `invoke('snake_case_command', { input: {...camelCase} })` wrappers) → Tauri command in `src-tauri/src/features/<domain>/commands.rs` → SQL in `repository.rs` (or `repository/*.rs`) → SQLite. Business-critical calculations (snapshots, FX conversion, depreciation, tax) live in Rust; the UI renders what commands return.
+React page → query/mutation hook → `src/shared/api/index.ts` (thin `invoke('snake_case_command', { input: {...camelCase} })` wrappers) → Tauri command in `src-tauri/src/features/<domain>/commands.rs` → SQL in `repository.rs` (or `repository/*.rs`) → SQLite. Business-critical calculations (snapshots, FX conversion, headline totals, depreciation, tax) live in Rust; the UI renders what commands return.
 
 ### Backend (`src-tauri/src/`)
 
@@ -72,13 +72,14 @@ React page → query/mutation hook → `src/shared/api/index.ts` (thin `invoke('
 
 - `event` is identity/lifecycle (type, account, soft-delete via `deleted_at`). `event_data` is the versioned payload: every edit inserts a new row, and `event.latest_data_id` points at the current one. Always read through `latest_data_id` and filter `deleted_at IS NULL`.
 - Event types include `balance_update`, `cashflow`, `transfer` (linked pair across own accounts), and taxable `revenue` / `expense` / `prepaid_expense`. Split groups tie multiple legs together, and bucket links allocate balances to capital buckets.
-- **Snapshot balance** for an account at date D (`transactions/repository/snapshot.rs`) = the latest `balance_update` on or before D, plus the sum of `cashflow`/`transfer` amounts after that balance update and up to D, converted to the consolidation currency via stored FX rates. Dates passed from the UI are end-of-day (`T23:59:59`). (`implementation-rules.md` §5 still describes the older balance-update-only version.)
+- **Snapshot balance** for an account at moment D (`transactions/repository/snapshot.rs`) = the latest `balance_update` on or before D, plus the sum of `cashflow`/`transfer` amounts after that balance update and up to D, converted to the consolidation currency with the latest stored FX rate on or before D. `get_accounts_snapshot` takes `asOf`: `live` has no cutoff, so rows and rates dated after today count, while `at` takes a date (read as end of day, `T23:59:59`) or a datetime. An amount whose currency has no rate gets no value and stays out of every total. A rate older than 7 days (31 for custom units) is marked stale, aged from today when live and from the picked day otherwise (`currency/rate_age.rs`).
+- **Headline metrics** (Net Worth, Liquid, Total Balance, Left to Spend), their breakdown lines and the rate warnings come back with the same snapshot, built by the pure `transactions/metrics.rs`. Each metric's total is the sum of its counted lines, and every row also appears in it as counted or not counted with a reason.
 - Money is integer minor units (`i64`). Percentages are integer basis points (10000 = 100%). Datetimes are local ISO strings `YYYY-MM-DDTHH:MM:SS`.
 
 ### Frontend (`src/`)
 
 - `app/router.ts`: TanStack Router with **memory history** (no URLs; `/` redirects to `/dashboard`). Route components are zero-prop and self-fetching, because props on a route component are silently `undefined`.
-- `app/App.tsx` is the shell (Sidebar/Header/`<Outlet />`/Toaster) wrapping the providers: `ModalProvider`, `SelectedDateProvider`, `SelectedPersonProvider`, `DemoProvider`, etc. Each context is split into `useXxx.ts` (context + hook) and `XxxContext.tsx` (provider only) for Vite Fast Refresh.
+- `app/App.tsx` is the shell (Sidebar/Header/`<Outlet />`/Toaster) wrapping the providers: `ModalProvider`, `TimeMachineProvider` (the dashboard's `asOf`, live until a date is picked), `SelectedPersonProvider`, `DemoProvider`, etc. Each context is split into `useXxx.ts` (context + hook) and `XxxContext.tsx` (provider only) for Vite Fast Refresh.
 - **Modals** are driven by a single `ModalState` discriminated union (`shared/types`). Pages call `useModal().setModalState({ type: ... })`, `app/AppModals.tsx` renders the matching modal, and `app/useModalActions.ts` holds the shared mutation handlers.
 - **Server state:** TanStack Query singleton in `app/queryClient.ts` (`staleTime: Infinity`, no refetch on focus, global error toast). Refresh after mutations only via `queryClient.invalidateQueries` with key prefixes (`['snapshot']`, `['events']`, `['persons']`, ...). Shared query hooks are in `shared/hooks/`.
 - `features/<domain>/` holds pages, modals and hooks per domain. Do not import across unrelated features; promote shared pieces to `shared/` (`ui/` holds the shadcn/Radix primitives and app-specific inputs).

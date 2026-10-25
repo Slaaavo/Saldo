@@ -45,16 +45,17 @@ Reorders the listed accounts: they swap among the `sort_order` slots they alread
 
 ### `getAccountsSnapshot`
 <!-- this should go to shared -->
-Returns all account balances as of a given date (end-of-day).
+Returns every account, bucket and asset balance live (no cutoff) or at a picked date or datetime, plus the headline metrics with their breakdown lines and the rate warnings. Takes `asOf` (`{ kind: 'live' }` or `{ kind: 'at', until }`) and an optional person.
 
 - **BE command:** `get_accounts_snapshot` → `src-tauri/src/features/transactions/commands.rs`
 - **Used in:**
   - `src/shared/hooks/useSnapshotQuery.ts` (useSnapshotQuery hook)
-    - → `src/app/AppModals.tsx` (AppModals)
-    - → `src/app/useModalActions.ts` (useModalActions hook)
-    - → `src/features/dashboard/DashboardView.tsx` (DashboardView)
-    - → `src/features/ledger/LedgerPage.tsx` (LedgerPage)
-    - → `src/features/settings/SettingsPage.tsx` (SettingsPage)
+    - → `src/app/AppModals.tsx` (AppModals, live)
+    - → `src/app/useModalActions.ts` (useModalActions hook, live)
+    - → `src/features/dashboard/DashboardView.tsx` (DashboardView, live or the time-machine date)
+    - → `src/features/ledger/LedgerPage.tsx` (LedgerPage, live)
+    - → `src/features/settings/SettingsPage.tsx` (SettingsPage, live)
+    - → `src/features/transactions/BulkUpdateBalanceModal.tsx` (BulkUpdateBalanceModal, at the dialog's date)
 
 ### `listEvents`
 

@@ -40,7 +40,7 @@ Preconditions:
 - Last driven end to end on 2026-10-18, on the dev DB: `bu-initial` and `bu-card` in run `20261018-212805-claude-stoic-vaughan-132554`, then `bu-bulk`, `bu-edit` and `bu-delete` in run `20261018-213407-claude-keen-boyd-d370a7`. All five are verified.
 - `0` in Initial Balance and the empty Amount field are placeholders, so typing doesn't need a clear first. Edit dialogs come prefilled. Overwrite a field with a triple-click and then type. `app_type` with `mode: "replace"` appends to the old text instead.
 - The Account select and the Date picker in `Update Balance` are pop-ups. Open the dialog from the card so the account is preset. For another date, click the dialog's `Date` label, which opens the calendar.
-- The bulk dialog's date picker has a time component (default 23:59). The trigger shows only the date. According to the code, its calendar stays open after you pick a day, so close it with `escape`. The 2026-10-18 run kept today's date and never opened it.
+- The bulk dialog's date picker has a time component (default 23:59). The trigger shows only the date. Its calendar opens from a click on the dialog's `Date` label and stays open after you pick a day, so close it with `escape`. The balance under each name follows the picked date (run `20261025-172732-checkable-numbers`).
 - Two updates on the same date both show. The dashboard uses the one created last.
 - Ledger rows and hero metrics use a narrow space as the thousands separator (`1 350.00 EUR`). Match on the digits.
 - Cashflow rows on the Ledger have only the trash button, no pencil.
