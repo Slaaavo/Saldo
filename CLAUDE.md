@@ -66,7 +66,7 @@ React page → query/mutation hook → `src/shared/api/index.ts` (thin `invoke('
 
 ### Migrations
 
-`build.rs` scans `../migrations/*.sql`, sorts them, and generates a `MIGRATIONS` const via `include_str!`. Applied state is tracked in `_migrations`. To add one, create `migrations/NNN_description.sql` (next number) with no Rust registration needed, **and** bump the hardcoded migration count asserted in `migrations_apply_cleanly` / `migrations_are_idempotent` in `src-tauri/src/db.rs`. `schema/ddl.sql` is a human-readable reference only, not applied.
+`build.rs` scans `../migrations/*.sql`, sorts them, and generates a `MIGRATIONS` const via `include_str!`. Applied state is tracked in `_migrations`. The runner (`migrations.rs`) applies each file with foreign keys off inside one transaction, runs `PRAGMA foreign_key_check`, and records the file in the same transaction, so a migration lands whole or not at all and fails on any orphan row it leaves. To add one, create `migrations/NNN_description.sql` (next number) with no Rust registration needed and no `BEGIN`/`COMMIT` or `PRAGMA foreign_keys` lines, **and** bump the hardcoded migration count asserted in `migrations_apply_cleanly` / `migrations_are_idempotent` in `src-tauri/src/db.rs`. `schema/ddl.sql` is a human-readable reference only, not applied.
 
 ### Data model essentials
 
