@@ -9,6 +9,8 @@ pub struct ListEventsQuery {
     pub before_date: Option<String>,
     pub from_date: Option<String>,
     pub event_types: Option<Vec<String>>,
+    /// Maximum number of cards, newest first. A split group is one card and arrives with all
+    /// the legs that match the other filters; any other event is one card.
     pub limit: Option<i64>,
     pub bucket_ids: Option<Vec<i64>>,
     pub person_id: Option<i64>,
@@ -138,14 +140,39 @@ pub fn list_events(
         |row| row.get(0),
     )?;
 
-    // Events query: add ORDER BY and optional LIMIT
-    let mut sql = format!("SELECT {} {}{}", super::EVENT_SELECT, base, where_suffix);
-    sql.push_str(" ORDER BY ed.event_date DESC, e.created_at DESC");
-
-    if let Some(lim) = limit {
-        sql.push_str(" LIMIT ?");
-        params.push(Box::new(lim));
-    }
+    let sql = match limit {
+        Some(lim) => {
+            params.push(Box::new(lim));
+            format!(
+                "WITH matched AS (
+                   SELECT e.id AS event_id,
+                          CASE WHEN e.split_group_id IS NULL
+                               THEN 'e' || e.id ELSE 'g' || e.split_group_id END AS card,
+                          ed.event_date AS event_date,
+                          e.created_at AS created_at
+                   {base}{where_suffix}
+                 ),
+                 newest_cards AS (
+                   SELECT card FROM matched
+                   GROUP BY card
+                   ORDER BY MAX(event_date) DESC, MAX(created_at) DESC
+                   LIMIT ?
+                 )
+                 SELECT {select} FROM event e {joins}
+                 WHERE e.id IN (SELECT event_id FROM matched
+                                WHERE card IN (SELECT card FROM newest_cards))
+                 ORDER BY ed.event_date DESC, e.created_at DESC",
+                select = super::EVENT_SELECT,
+                joins = super::EVENT_JOINS,
+            )
+        }
+        None => format!(
+            "SELECT {} {}{} ORDER BY ed.event_date DESC, e.created_at DESC",
+            super::EVENT_SELECT,
+            base,
+            where_suffix
+        ),
+    };
 
     let mut stmt = conn.prepare(&sql)?;
     let rows = stmt.query_map(
