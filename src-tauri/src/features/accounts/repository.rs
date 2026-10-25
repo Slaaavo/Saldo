@@ -165,61 +165,38 @@ pub fn update_account(conn: &Connection, params: UpdateAccountParams) -> Result<
             });
         }
     }
-    match params.iban.as_deref() {
-        Some(raw) if !raw.is_empty() => {
-            let normalised = validate_iban(raw)?;
-            let rows = conn
-                .execute(
-                    "UPDATE account SET name = ?1, iban = ?2, person_id = ?3, purchase_price_minor = ?4, purchase_date = ?5, depreciation_period_months = ?6 WHERE id = ?7",
-                    params![
-                        params.name.as_str(),
-                        normalised,
-                        params.person_id,
-                        params.purchase_price_minor,
-                        params.purchase_date.as_deref(),
-                        params.depreciation_period_months,
-                        params.account_id
-                    ],
-                )
-                .map_err(|e| {
-                    if is_duplicate_iban_error(&e) {
-                        AppError {
-                            code: "DUPLICATE_IBAN".into(),
-                            message: "This IBAN is already in use by another account or partner."
-                                .into(),
-                        }
-                    } else {
-                        AppError::from(e)
-                    }
-                })?;
-            if rows == 0 {
-                return Err(AppError::from(rusqlite::Error::QueryReturnedNoRows));
+    // No IBAN leaves the stored one alone, an empty string clears it.
+    let (write_iban, iban) = match params.iban.as_deref() {
+        None => (false, None),
+        Some("") => (true, None),
+        Some(raw) => (true, Some(validate_iban(raw)?)),
+    };
+    let rows = conn
+        .execute(
+            "UPDATE account SET name = ?1, iban = CASE WHEN ?2 THEN ?3 ELSE iban END, person_id = ?4, purchase_price_minor = ?5, purchase_date = ?6, depreciation_period_months = ?7 WHERE id = ?8",
+            params![
+                params.name.as_str(),
+                write_iban,
+                iban,
+                params.person_id,
+                params.purchase_price_minor,
+                params.purchase_date.as_deref(),
+                params.depreciation_period_months,
+                params.account_id
+            ],
+        )
+        .map_err(|e| {
+            if is_duplicate_iban_error(&e) {
+                AppError {
+                    code: "DUPLICATE_IBAN".into(),
+                    message: "This IBAN is already in use by another account or partner.".into(),
+                }
+            } else {
+                AppError::from(e)
             }
-        }
-        Some(_empty) => {
-            // Empty string — clear the IBAN
-            let rows = conn
-                .execute(
-                    "UPDATE account SET name = ?1, iban = NULL, person_id = ?2, purchase_price_minor = ?3, purchase_date = ?4, depreciation_period_months = ?5 WHERE id = ?6",
-                    params![params.name.as_str(), params.person_id, params.purchase_price_minor, params.purchase_date.as_deref(), params.depreciation_period_months, params.account_id],
-                )
-                .map_err(AppError::from)?;
-            if rows == 0 {
-                return Err(AppError::from(rusqlite::Error::QueryReturnedNoRows));
-            }
-        }
-        None => {
-            // No IBAN update
-            let rows = conn
-                .execute(
-                    "UPDATE account SET name = ?1, person_id = ?2, purchase_price_minor = ?3, purchase_date = ?4, depreciation_period_months = ?5 WHERE id = ?6",
-                    params![params.name.as_str(), params.person_id, params.purchase_price_minor, params.purchase_date.as_deref(), params.depreciation_period_months, params.account_id],
-                )
-                .map_err(AppError::from)?;
-            if rows == 0 {
-                return Err(AppError::from(rusqlite::Error::QueryReturnedNoRows));
-            }
-        }
+        })?;
+    if rows == 0 {
+        return Err(AppError::from(rusqlite::Error::QueryReturnedNoRows));
     }
     Ok(())
 }
@@ -1373,5 +1350,162 @@ mod tests {
 
         assert_eq!(displayed_order(&conn), ["X", "A2", "B1", "A1"]);
         assert_eq!(sort_order_of(&conn, x), 0);
+    }
+
+    const IBAN: &str = "SK3112000000198742637541";
+    const OTHER_IBAN: &str = "DE89370400440532013000";
+
+    fn update_params(account_id: i64, iban: Option<&str>) -> UpdateAccountParams {
+        UpdateAccountParams {
+            account_id,
+            name: "Renamed".to_owned(),
+            iban: iban.map(str::to_owned),
+            person_id: Some(1),
+            purchase_price_minor: Some(120_000),
+            purchase_date: Some("2026-01-15".to_owned()),
+            depreciation_period_months: Some(24),
+        }
+    }
+
+    /// (name, iban, person_id, purchase_price_minor, purchase_date, depreciation_period_months)
+    type StoredAccount = (
+        String,
+        Option<String>,
+        Option<i64>,
+        Option<i64>,
+        Option<String>,
+        Option<i64>,
+    );
+
+    fn stored_account(conn: &Connection, account_id: i64) -> StoredAccount {
+        conn.query_row(
+            "SELECT name, iban, person_id, purchase_price_minor, purchase_date,
+                    depreciation_period_months
+             FROM account WHERE id = ?1",
+            params![account_id],
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                ))
+            },
+        )
+        .unwrap()
+    }
+
+    fn set_iban(conn: &Connection, account_id: i64, iban: &str) {
+        conn.execute(
+            "UPDATE account SET iban = ?1 WHERE id = ?2",
+            params![iban, account_id],
+        )
+        .unwrap();
+    }
+
+    fn renamed_with(iban: Option<&str>) -> StoredAccount {
+        (
+            "Renamed".to_owned(),
+            iban.map(str::to_owned),
+            Some(1),
+            Some(120_000),
+            Some("2026-01-15".to_owned()),
+            Some(24),
+        )
+    }
+
+    #[test]
+    fn update_account_stores_the_normalised_iban_with_the_other_fields() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let id = mk_person_account(&conn, "Checking", "account");
+
+        update_account(
+            &conn,
+            update_params(id, Some(" sk31 1200 0000 1987 4263 7541 ")),
+        )
+        .unwrap();
+
+        assert_eq!(stored_account(&conn, id), renamed_with(Some(IBAN)));
+    }
+
+    #[test]
+    fn update_account_clears_the_iban_when_given_an_empty_string() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let id = mk_person_account(&conn, "Checking", "account");
+        set_iban(&conn, id, IBAN);
+
+        update_account(&conn, update_params(id, Some(""))).unwrap();
+
+        assert_eq!(stored_account(&conn, id), renamed_with(None));
+    }
+
+    #[test]
+    fn update_account_keeps_the_iban_when_none_is_given() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let id = mk_person_account(&conn, "Checking", "account");
+        set_iban(&conn, id, IBAN);
+
+        update_account(&conn, update_params(id, None)).unwrap();
+
+        assert_eq!(stored_account(&conn, id), renamed_with(Some(IBAN)));
+    }
+
+    #[test]
+    fn update_account_rejects_an_iban_another_account_already_has() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let first = mk_person_account(&conn, "First", "account");
+        let second = mk_person_account(&conn, "Second", "account");
+        set_iban(&conn, first, IBAN);
+        set_iban(&conn, second, OTHER_IBAN);
+
+        let err = update_account(&conn, update_params(second, Some(IBAN))).unwrap_err();
+
+        assert_eq!(err.code, "DUPLICATE_IBAN");
+        let (name, iban, ..) = stored_account(&conn, second);
+        assert_eq!(
+            (name.as_str(), iban.as_deref()),
+            ("Second", Some(OTHER_IBAN))
+        );
+    }
+
+    #[test]
+    fn update_account_rejects_a_malformed_iban() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let id = mk_person_account(&conn, "Checking", "account");
+
+        let err = update_account(&conn, update_params(id, Some("too short"))).unwrap_err();
+
+        assert_eq!(err.code, "VALIDATION");
+        assert_eq!(stored_account(&conn, id).0, "Checking");
+    }
+
+    #[test]
+    fn update_account_rejects_setting_an_iban_on_a_bucket() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let id = mk_person_account(&conn, "Reserve", "bucket");
+
+        let err = update_account(&conn, update_params(id, Some(IBAN))).unwrap_err();
+
+        assert_eq!(err.code, "VALIDATION_ERROR");
+        assert_eq!(stored_account(&conn, id).0, "Reserve");
+    }
+
+    #[test]
+    fn update_account_without_an_iban_updates_a_bucket() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let id = mk_person_account(&conn, "Reserve", "bucket");
+
+        update_account(&conn, update_params(id, None)).unwrap();
+
+        assert_eq!(stored_account(&conn, id), renamed_with(None));
+    }
+
+    #[test]
+    fn update_account_fails_for_a_missing_account_when_no_iban_is_given() {
+        let conn = initialize_in_memory().expect("DB init failed");
+
+        assert!(update_account(&conn, update_params(9999, None)).is_err());
     }
 }
