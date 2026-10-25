@@ -1216,4 +1216,111 @@ mod tests {
         );
         assert!(result.is_err());
     }
+
+    fn sort_order_of(conn: &Connection, account_id: i64) -> i64 {
+        conn.query_row(
+            "SELECT sort_order FROM account WHERE id = ?1",
+            params![account_id],
+            |row| row.get(0),
+        )
+        .unwrap()
+    }
+
+    /// Names of the plain accounts in the order the dashboard lists them.
+    fn displayed_order(conn: &Connection) -> Vec<String> {
+        let mut stmt = conn
+            .prepare(
+                "SELECT name FROM account WHERE account_type = 'account' ORDER BY sort_order, id",
+            )
+            .unwrap();
+        stmt.query_map([], |row| row.get(0))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap()
+    }
+
+    /// The reorder dialog sends the listed accounts with their new positions 0, 1, 2, ...
+    fn reorder(conn: &Connection, new_order: &[i64]) {
+        update_sort_order(
+            conn,
+            UpdateSortOrderParams {
+                updates: new_order
+                    .iter()
+                    .enumerate()
+                    .map(|(position, &id)| (id, position as i64))
+                    .collect(),
+            },
+        )
+        .expect("update_sort_order failed");
+    }
+
+    #[test]
+    fn reordering_a_subset_leaves_the_accounts_outside_it_in_their_slots() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let a1 = mk_person_account(&conn, "A1", "account");
+        let b1 = mk_person_account(&conn, "B1", "account");
+        let a2 = mk_person_account(&conn, "A2", "account");
+        let b2 = mk_person_account(&conn, "B2", "account");
+        assert_eq!(
+            [a1, b1, a2, b2].map(|id| sort_order_of(&conn, id)),
+            [0, 1, 2, 3]
+        );
+
+        reorder(&conn, &[b2, b1]);
+
+        assert_eq!(sort_order_of(&conn, a1), 0);
+        assert_eq!(sort_order_of(&conn, a2), 2);
+        assert_eq!(sort_order_of(&conn, b2), 1);
+        assert_eq!(sort_order_of(&conn, b1), 3);
+        assert_eq!(displayed_order(&conn), ["A1", "B2", "A2", "B1"]);
+    }
+
+    #[test]
+    fn reordering_accounts_that_share_a_slot_keeps_the_order_the_user_chose() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let x = mk_person_account(&conn, "X", "account");
+        let y = mk_person_account(&conn, "Y", "account");
+        let p = mk_person_account(&conn, "P", "account");
+        let q = mk_person_account(&conn, "Q", "account");
+        let r = mk_person_account(&conn, "R", "account");
+        conn.execute(
+            "UPDATE account SET sort_order = 2 WHERE id = ?1",
+            params![q],
+        )
+        .unwrap();
+        conn.execute(
+            "UPDATE account SET sort_order = 3 WHERE id = ?1",
+            params![r],
+        )
+        .unwrap();
+        assert_eq!(displayed_order(&conn), ["X", "Y", "P", "Q", "R"]);
+
+        reorder(&conn, &[q, p]);
+
+        assert_eq!(displayed_order(&conn), ["X", "Y", "Q", "P", "R"]);
+        assert_eq!(sort_order_of(&conn, x), 0);
+        assert_eq!(sort_order_of(&conn, y), 1);
+    }
+
+    #[test]
+    fn reordering_an_account_that_shares_its_slot_with_one_outside_the_list() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let x = mk_person_account(&conn, "X", "account");
+        let a1 = mk_person_account(&conn, "A1", "account");
+        mk_person_account(&conn, "B1", "account");
+        let a2 = mk_person_account(&conn, "A2", "account");
+        conn.execute("UPDATE account SET sort_order = 1 WHERE name = 'B1'", [])
+            .unwrap();
+        conn.execute(
+            "UPDATE account SET sort_order = 2 WHERE id = ?1",
+            params![a2],
+        )
+        .unwrap();
+        assert_eq!(displayed_order(&conn), ["X", "A1", "B1", "A2"]);
+
+        reorder(&conn, &[a2, a1]);
+
+        assert_eq!(displayed_order(&conn), ["X", "A2", "B1", "A1"]);
+        assert_eq!(sort_order_of(&conn, x), 0);
+    }
 }
