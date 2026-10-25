@@ -2,7 +2,7 @@ use crate::error::AppError;
 use crate::features::ekasa::models::{EkasaImportProfileRow, EkasaRuleInput, ProcessReceiptResult};
 use crate::AppState;
 use serde::Deserialize;
-use tauri::State;
+use tauri::{Manager, State};
 
 use super::preprocessing::QrContent;
 use super::{ekasa_api, preprocessing, qr_decoder, repository};
@@ -90,17 +90,24 @@ pub fn list_ekasa_profiles(
 }
 
 #[tauri::command]
-pub async fn process_receipt_file(file_path: String) -> Result<ProcessReceiptResult, AppError> {
+pub async fn process_receipt_file(
+    app: tauri::AppHandle,
+    file_path: String,
+) -> Result<ProcessReceiptResult, AppError> {
+    // A resolution failure only drops this directory from the PDFium search.
+    let resource_dir = app.path().resource_dir().ok();
+
     // QR decoding involves PDF rendering (PDFium) and image processing (rxing),
     // both CPU-heavy synchronous operations. Must run on a blocking thread to
     // avoid stalling Tauri's async executor.
-    let qr_string =
-        tauri::async_runtime::spawn_blocking(move || qr_decoder::decode_qr_from_file(&file_path))
-            .await
-            .map_err(|e| AppError {
-                code: "TASK_ERROR".into(),
-                message: format!("QR decoding task failed: {}", e),
-            })??;
+    let qr_string = tauri::async_runtime::spawn_blocking(move || {
+        qr_decoder::decode_qr_from_file(&file_path, resource_dir.as_deref())
+    })
+    .await
+    .map_err(|e| AppError {
+        code: "TASK_ERROR".into(),
+        message: format!("QR decoding task failed: {}", e),
+    })??;
 
     match preprocessing::classify_qr_content(&qr_string) {
         QrContent::OnlineReceiptId(receipt_id) => {

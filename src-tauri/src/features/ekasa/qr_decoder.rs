@@ -1,8 +1,12 @@
 use crate::error::AppError;
 use image::{DynamicImage, GenericImageView, GrayImage};
 use pdfium_render::prelude::*;
+use std::path::{Path, PathBuf};
 
-pub fn decode_qr_from_file(file_path: &str) -> Result<String, AppError> {
+pub fn decode_qr_from_file(
+    file_path: &str,
+    resource_dir: Option<&Path>,
+) -> Result<String, AppError> {
     let ext = std::path::Path::new(file_path)
         .extension()
         .and_then(|e| e.to_str())
@@ -11,7 +15,7 @@ pub fn decode_qr_from_file(file_path: &str) -> Result<String, AppError> {
 
     match ext.as_str() {
         "png" | "jpg" | "jpeg" => decode_qr_from_image_file(file_path),
-        "pdf" => decode_qr_from_pdf(file_path),
+        "pdf" => decode_qr_from_pdf(file_path, resource_dir),
         _ => Err(AppError {
             code: "UNSUPPORTED_FILE".into(),
             message: "Unsupported file type".into(),
@@ -113,21 +117,46 @@ fn otsu_binarize(img: &GrayImage) -> GrayImage {
     out
 }
 
-/// Renders each page of a PDF to a raster image and attempts to decode a QR code.
-///
-/// Uses PDFium (Google's PDF renderer) via pdfium-render to rasterize pages.
-/// This works for all PDF types: scanned documents, digitally generated PDFs,
-/// and PDFs with vector-rendered QR codes. Requires the PDFium dynamic library
-/// (pdfium.dll / libpdfium.so / libpdfium.dylib) to be available at runtime.
-fn get_pdfium() -> Result<&'static Pdfium, AppError> {
+/// Directories searched for the PDFium library, in order. A bundle launched from
+/// Finder has cwd `/`, so the app's resource directory comes first; `./` serves a
+/// dev binary run from `src-tauri/`. The system library is tried after these.
+fn pdfium_library_dirs(resource_dir: Option<&Path>) -> Vec<PathBuf> {
+    resource_dir
+        .into_iter()
+        .map(Path::to_path_buf)
+        .chain([PathBuf::from("./")])
+        .collect()
+}
+
+fn pdfium_not_found_message(dirs: &[PathBuf], error: &str) -> String {
+    let library = Pdfium::pdfium_platform_library_name()
+        .to_string_lossy()
+        .into_owned();
+    let searched = dirs
+        .iter()
+        .map(|dir| dir.display().to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!(
+        "PDFium library not found. Place {library} in one of: {searched}, or install it system-wide. Error: {error}"
+    )
+}
+
+/// Binds the PDFium library once per process, from `resource_dir`, then `./`, then the system.
+fn get_pdfium(resource_dir: Option<&Path>) -> Result<&'static Pdfium, AppError> {
     use std::sync::OnceLock;
     static PDFIUM: OnceLock<Result<Pdfium, String>> = OnceLock::new();
     PDFIUM
         .get_or_init(|| {
-            Pdfium::bind_to_library(Pdfium::pdfium_platform_library_name_at_path("./"))
-                .or_else(|_| Pdfium::bind_to_system_library())
+            let dirs = pdfium_library_dirs(resource_dir);
+            dirs.iter()
+                .find_map(|dir| {
+                    Pdfium::bind_to_library(Pdfium::pdfium_platform_library_name_at_path(dir)).ok()
+                })
+                .map(Ok)
+                .unwrap_or_else(Pdfium::bind_to_system_library)
                 .map(Pdfium::new)
-                .map_err(|e| format!("PDFium library not found. Place pdfium.dll next to the executable. Error: {}", e))
+                .map_err(|e| pdfium_not_found_message(&dirs, &e.to_string()))
         })
         .as_ref()
         .map_err(|e| AppError {
@@ -136,8 +165,14 @@ fn get_pdfium() -> Result<&'static Pdfium, AppError> {
         })
 }
 
-fn decode_qr_from_pdf(file_path: &str) -> Result<String, AppError> {
-    let pdfium = get_pdfium()?;
+/// Renders each page of a PDF to a raster image and attempts to decode a QR code.
+///
+/// Uses PDFium (Google's PDF renderer) via pdfium-render to rasterize pages.
+/// This works for all PDF types: scanned documents, digitally generated PDFs,
+/// and PDFs with vector-rendered QR codes. Requires the PDFium dynamic library
+/// (pdfium.dll / libpdfium.so / libpdfium.dylib) to be available at runtime.
+fn decode_qr_from_pdf(file_path: &str, resource_dir: Option<&Path>) -> Result<String, AppError> {
+    let pdfium = get_pdfium(resource_dir)?;
 
     let document = pdfium
         .load_pdf_from_file(file_path, None)
@@ -175,4 +210,39 @@ fn decode_qr_from_pdf(file_path: &str) -> Result<String, AppError> {
         code: "QR_NOT_FOUND".into(),
         message: "No QR code found in any page of the PDF".into(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pdfium_dirs_try_resource_dir_before_cwd() {
+        let dirs = pdfium_library_dirs(Some(Path::new(
+            "/Applications/Saldo.app/Contents/Resources",
+        )));
+        assert_eq!(
+            dirs,
+            vec![
+                PathBuf::from("/Applications/Saldo.app/Contents/Resources"),
+                PathBuf::from("./")
+            ]
+        );
+    }
+
+    #[test]
+    fn pdfium_dirs_fall_back_to_cwd_without_a_resource_dir() {
+        assert_eq!(pdfium_library_dirs(None), vec![PathBuf::from("./")]);
+    }
+
+    #[test]
+    fn pdfium_not_found_message_names_the_library_and_every_directory() {
+        let dirs = pdfium_library_dirs(Some(Path::new("/res")));
+        let message = pdfium_not_found_message(&dirs, "dlopen failed");
+        let library = Pdfium::pdfium_platform_library_name();
+        assert!(message.contains(library.to_str().unwrap()), "{message}");
+        assert!(message.contains("/res"), "{message}");
+        assert!(message.contains("./"), "{message}");
+        assert!(message.contains("dlopen failed"), "{message}");
+    }
 }
