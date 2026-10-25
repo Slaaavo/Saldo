@@ -87,19 +87,70 @@ pub fn create_account(conn: &Connection, params: CreateAccountParams) -> Result<
     })
 }
 
+/// Puts the listed accounts in the new order among themselves. `updates` pairs each account with
+/// its position in the new order; only the order of the positions matters. The accounts swap among
+/// the `sort_order` values they already hold, so accounts outside the list keep theirs.
 pub fn update_sort_order(conn: &Connection, params: UpdateSortOrderParams) -> rusqlite::Result<()> {
     with_savepoint(conn, || {
-        for &(account_id, sort_order) in &params.updates {
-            let rows = conn.execute(
-                "UPDATE account SET sort_order = ?1 WHERE id = ?2",
-                params![sort_order, account_id],
+        let mut updates = params.updates;
+        updates.sort_by_key(|&(_, position)| position);
+        let new_order: Vec<i64> = updates.into_iter().map(|(id, _)| id).collect();
+
+        // Accounts that share a value cannot be told apart by it, so the old data's ties are
+        // first resolved in the order the dashboard shows them.
+        let mut tied_types: Vec<String> = Vec::new();
+        for &id in &new_order {
+            let (account_type, is_tied): (String, bool) = conn.query_row(
+                "SELECT a.account_type,
+                        EXISTS (SELECT 1 FROM account o
+                                WHERE o.account_type = a.account_type
+                                  AND o.sort_order = a.sort_order
+                                  AND o.id != a.id)
+                 FROM account a WHERE a.id = ?1",
+                params![id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
             )?;
-            if rows == 0 {
-                return Err(rusqlite::Error::QueryReturnedNoRows);
+            if is_tied && !tied_types.contains(&account_type) {
+                tied_types.push(account_type);
             }
+        }
+        for account_type in &tied_types {
+            renumber_account_type(conn, account_type)?;
+        }
+
+        let mut slots: Vec<i64> = Vec::with_capacity(new_order.len());
+        for &id in &new_order {
+            slots.push(conn.query_row(
+                "SELECT sort_order FROM account WHERE id = ?1",
+                params![id],
+                |row| row.get(0),
+            )?);
+        }
+        slots.sort_unstable();
+        for (&id, slot) in new_order.iter().zip(slots) {
+            conn.execute(
+                "UPDATE account SET sort_order = ?1 WHERE id = ?2",
+                params![slot, id],
+            )?;
         }
         Ok(())
     })
+}
+
+/// Gives the accounts of one type the values 0, 1, 2, ... in the order they are listed in.
+fn renumber_account_type(conn: &Connection, account_type: &str) -> rusqlite::Result<()> {
+    let mut stmt =
+        conn.prepare("SELECT id FROM account WHERE account_type = ?1 ORDER BY sort_order, id")?;
+    let ids: Vec<i64> = stmt
+        .query_map(params![account_type], |row| row.get(0))?
+        .collect::<rusqlite::Result<_>>()?;
+    for (position, id) in (0_i64..).zip(ids) {
+        conn.execute(
+            "UPDATE account SET sort_order = ?1 WHERE id = ?2",
+            params![position, id],
+        )?;
+    }
+    Ok(())
 }
 
 pub fn update_account(conn: &Connection, params: UpdateAccountParams) -> Result<(), AppError> {
