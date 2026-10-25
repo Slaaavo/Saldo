@@ -1,2 +1,4 @@
+command -v gitleaks >/dev/null || { echo "gitleaks is not installed: brew install gitleaks"; exit 1; }
+gitleaks git --pre-commit --staged --redact --verbose
 pnpm lint-staged
 cd src-tauri && cargo fmt && cargo clippy -- -D warnings

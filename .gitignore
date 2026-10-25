@@ -20,6 +20,17 @@ src-tauri/target/
 *.db
 *.sqlite
 
+# Secrets
+.env
+.env.*
+*.pem
+*.key
+
+# Real financial data (bank CSV exports, eKasa receipt PDFs); test fixtures are allowed back in
+*.csv
+!.claude/skills/verify-saldo/fixtures/*.csv
+*.pdf
+
 # Test outputs
 test-results/
 playwright-report/
