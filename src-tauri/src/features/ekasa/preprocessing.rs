@@ -30,11 +30,8 @@ pub fn preprocess_receipt_items(items: &[EkasaReceiptItem]) -> Vec<ProcessedItem
                 return None;
             }
 
-            // vat_rate comes from the first item in the group (string like "20" → 2000 bps)
+            // vat_rate is a percent (20.0 → 2000 bps), taken from the first item in the group
             let first = items.iter().find(|i| i.name == name)?;
-            // unwrap_or(0.0): an unparseable VAT rate is treated as 0 bps (no VAT).
-            // This is intentional — an unknown rate should not block import; the user
-            // can correct it manually when reviewing the generated expense event.
             let vat_rate_bps = (first.vat_rate * 100.0_f64).round() as i64;
 
             Some(ProcessedItem {
