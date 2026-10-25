@@ -45,14 +45,12 @@ pub struct EkasaRuleInput {
 // EkasaReceiptData is also Serialize so it can be forwarded to the frontend.
 // ---------------------------------------------------------------------------
 
-#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EkasaReceiptResponse {
     pub receipt: Option<EkasaReceiptData>,
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EkasaReceiptData {
@@ -64,7 +62,6 @@ pub struct EkasaReceiptData {
     pub vat_summary: Vec<EkasaVatSummary>,
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EkasaReceiptOrganization {
@@ -72,7 +69,6 @@ pub struct EkasaReceiptOrganization {
     pub ico: String,
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EkasaReceiptItem {
@@ -82,14 +78,12 @@ pub struct EkasaReceiptItem {
     pub vat_rate: f64,
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EkasaVatSummaryVat {
     pub vat_rate: f64,
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EkasaVatSummary {
@@ -102,7 +96,6 @@ pub struct EkasaVatSummary {
 // Processed / result structs — serialized and sent to the frontend
 // ---------------------------------------------------------------------------
 
-#[allow(dead_code)]
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProcessedItem {
@@ -111,7 +104,6 @@ pub struct ProcessedItem {
     pub vat_rate_bps: i64,
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OfflineReceiptData {
@@ -119,7 +111,6 @@ pub struct OfflineReceiptData {
     pub total_amount_minor: i64,
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProcessReceiptResult {
