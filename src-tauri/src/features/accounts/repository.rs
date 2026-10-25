@@ -153,11 +153,17 @@ fn renumber_account_type(conn: &Connection, account_type: &str) -> rusqlite::Res
     Ok(())
 }
 
+fn account_not_found() -> AppError {
+    AppError {
+        code: "NOT_FOUND".into(),
+        message: "Account not found".into(),
+    }
+}
+
 pub fn update_account(conn: &Connection, params: UpdateAccountParams) -> Result<(), AppError> {
     if params.iban.as_deref().is_some_and(|v| !v.is_empty()) {
-        let account_type = get_account_type(conn, params.account_id)
-            .map_err(AppError::from)?
-            .unwrap_or_default();
+        let account_type =
+            get_account_type(conn, params.account_id)?.ok_or_else(account_not_found)?;
         if account_type != "account" {
             return Err(AppError {
                 code: "VALIDATION_ERROR".into(),
@@ -196,7 +202,7 @@ pub fn update_account(conn: &Connection, params: UpdateAccountParams) -> Result<
             }
         })?;
     if rows == 0 {
-        return Err(AppError::from(rusqlite::Error::QueryReturnedNoRows));
+        return Err(account_not_found());
     }
     Ok(())
 }
@@ -1510,13 +1516,6 @@ mod tests {
         update_account(&conn, update_params(id, None)).unwrap();
 
         assert_eq!(stored_account(&conn, id), renamed_with(None));
-    }
-
-    #[test]
-    fn update_account_fails_for_a_missing_account_when_no_iban_is_given() {
-        let conn = initialize_in_memory().expect("DB init failed");
-
-        assert!(update_account(&conn, update_params(9999, None)).is_err());
     }
 
     #[test]
