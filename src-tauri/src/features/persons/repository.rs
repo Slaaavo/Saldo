@@ -1,4 +1,5 @@
 use crate::error::AppError;
+use crate::features::currency::repository::get_consolidation_currency;
 use crate::features::persons::models::PersonRow;
 use crate::shared::{local_now, with_savepoint_app};
 use rusqlite::{params, Connection, OptionalExtension};
@@ -16,34 +17,12 @@ pub struct UpdatePersonParams {
     pub vat_payer: bool,
 }
 
-/// Returns the consolidation currency ID, falling back to the first currency in the table.
-fn get_consolidation_currency_id(conn: &Connection) -> Result<i64, AppError> {
-    let id: Option<i64> = conn
-        .query_row(
-            "SELECT c.id FROM currency c
-             JOIN app_setting s ON s.value = c.code
-             WHERE s.key = 'consolidation_currency_code'
-             LIMIT 1",
-            [],
-            |row| row.get(0),
-        )
-        .optional()
-        .map_err(AppError::from)?;
-    if let Some(id) = id {
-        return Ok(id);
-    }
-    conn.query_row("SELECT id FROM currency ORDER BY id LIMIT 1", [], |row| {
-        row.get(0)
-    })
-    .map_err(AppError::from)
-}
-
 /// Creates the two hidden default taxable accounts for a person and returns (revenue_id, expense_id).
 pub fn create_default_taxable_accounts(
     conn: &Connection,
     person_id: i64,
 ) -> Result<(i64, i64), AppError> {
-    let currency_id = get_consolidation_currency_id(conn)?;
+    let currency_id = get_consolidation_currency(conn)?.id;
 
     conn.execute(
         "INSERT INTO account (name, currency_id, account_type, sort_order, person_id)
@@ -345,6 +324,39 @@ mod tests {
             )
             .expect("expense account not found");
         assert_eq!(expense_type, "default_expense");
+    }
+
+    #[test]
+    fn create_person_default_accounts_use_the_consolidation_currency() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let usd: i64 = conn
+            .query_row("SELECT id FROM currency WHERE code = 'USD'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        crate::features::currency::repository::set_consolidation_currency(&conn, usd).unwrap();
+
+        let id = create_person(
+            &conn,
+            CreatePersonParams {
+                name: "Dollar Ltd".to_owned(),
+                person_type: "legal".to_owned(),
+                vat_payer: false,
+            },
+        )
+        .expect("create_person failed");
+
+        let currencies: Vec<i64> = conn
+            .prepare(
+                "SELECT currency_id FROM account
+                 WHERE person_id = ?1 AND account_type IN ('default_revenue', 'default_expense')",
+            )
+            .unwrap()
+            .query_map([id], |r| r.get(0))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert_eq!(currencies, vec![usd, usd]);
     }
 
     #[test]
