@@ -26,11 +26,8 @@ pub async fn fetch_rates(api_key: &str, date: Option<&str>) -> Result<OxrRespons
         Some(d) => format!("{}/historical/{}.json?app_id={}", OXR_BASE_URL, d, api_key),
     };
 
-    let client = reqwest::ClientBuilder::new()
-        .timeout(std::time::Duration::from_secs(10))
-        .https_only(true)
-        .build()
-        .map_err(|e| AppError::from(e.without_url().to_string()))?;
+    let client =
+        crate::shared::http::client().map_err(|e| AppError::from(e.without_url().to_string()))?;
 
     let response = client.get(&url).send().await.map_err(network_error)?;
 
