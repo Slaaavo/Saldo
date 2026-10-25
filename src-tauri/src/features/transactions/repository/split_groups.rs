@@ -1,6 +1,5 @@
-use super::cashflows::{counterpart_leg_amount, create_cashflow_inner, CashflowEntry};
+use super::cashflows::{create_cashflow_or_transfer, CashflowEntry};
 use crate::error::AppError;
-use crate::features::accounts::repository::get_account_type;
 use crate::features::transactions::models::SplitGroupEntry;
 use crate::shared::with_savepoint_app;
 use rusqlite::{params, Connection, OptionalExtension};
@@ -28,66 +27,19 @@ pub fn create_split_group_with_legs(
         let split_group_id = conn.last_insert_rowid();
 
         for leg in &legs {
-            let counterpart_type = match leg.counterpart_account_id {
-                Some(cp_id) => get_account_type(conn, cp_id)?,
-                None => None,
+            let entry = CashflowEntry {
+                account_id,
+                amount_minor: leg.amount_minor,
+                event_date: leg.event_date.clone(),
+                note: leg.note.clone(),
+                counterpart_account_id: leg.counterpart_account_id,
+                bucket_id: leg.bucket_id,
+                original_currency_id: leg.original_currency_id,
+                original_amount_minor: leg.original_amount_minor,
+                fx_rate_mantissa: leg.fx_rate_mantissa,
+                fx_rate_exponent: leg.fx_rate_exponent,
             };
-
-            let leg_event_id = if counterpart_type.as_deref() == Some("account") {
-                let counterpart_account_id = leg.counterpart_account_id.unwrap();
-                let counterpart_amount =
-                    counterpart_leg_amount(leg.amount_minor, leg.original_amount_minor);
-
-                let source_entry = CashflowEntry {
-                    account_id,
-                    amount_minor: leg.amount_minor,
-                    event_date: leg.event_date.clone(),
-                    note: leg.note.clone(),
-                    counterpart_account_id: leg.counterpart_account_id,
-                    bucket_id: leg.bucket_id,
-                    original_currency_id: leg.original_currency_id,
-                    original_amount_minor: leg.original_amount_minor,
-                    fx_rate_mantissa: leg.fx_rate_mantissa,
-                    fx_rate_exponent: leg.fx_rate_exponent,
-                };
-                let source_id = create_cashflow_inner(conn, &source_entry, "transfer", None)?;
-
-                let counterpart_entry = CashflowEntry {
-                    account_id: counterpart_account_id,
-                    amount_minor: counterpart_amount,
-                    event_date: leg.event_date.clone(),
-                    note: leg.note.clone(),
-                    counterpart_account_id: Some(account_id),
-                    bucket_id: None,
-                    original_currency_id: None,
-                    original_amount_minor: None,
-                    fx_rate_mantissa: None,
-                    fx_rate_exponent: None,
-                };
-                let counterpart_id =
-                    create_cashflow_inner(conn, &counterpart_entry, "transfer", Some(source_id))?;
-
-                conn.execute(
-                    "UPDATE event SET linked_event_id = ?1 WHERE id = ?2",
-                    params![counterpart_id, source_id],
-                )?;
-
-                source_id
-            } else {
-                let entry = CashflowEntry {
-                    account_id,
-                    amount_minor: leg.amount_minor,
-                    event_date: leg.event_date.clone(),
-                    note: leg.note.clone(),
-                    counterpart_account_id: leg.counterpart_account_id,
-                    bucket_id: leg.bucket_id,
-                    original_currency_id: leg.original_currency_id,
-                    original_amount_minor: leg.original_amount_minor,
-                    fx_rate_mantissa: leg.fx_rate_mantissa,
-                    fx_rate_exponent: leg.fx_rate_exponent,
-                };
-                create_cashflow_inner(conn, &entry, "cashflow", None)?
-            };
+            let (leg_event_id, _) = create_cashflow_or_transfer(conn, &entry)?;
 
             conn.execute(
                 "UPDATE event SET split_group_id = ?1 WHERE id = ?2",
