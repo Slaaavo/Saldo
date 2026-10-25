@@ -1,4 +1,4 @@
-use rusqlite::{params, OptionalExtension};
+use rusqlite::{params, Connection, OptionalExtension};
 use serde::Deserialize;
 use tauri::State;
 
@@ -60,24 +60,7 @@ pub fn create_bucket_balance_update(
         }
     }
 
-    // Validate each source account is a regular account.
-    for &source_id in &input.linked_account_ids {
-        match crate::features::accounts::repository::get_account_type(&conn, source_id)? {
-            Some(ref t) if t == "account" => {}
-            Some(_) => {
-                return Err(AppError {
-                    code: "VALIDATION".into(),
-                    message: "linked_account_ids must all refer to regular account entries".into(),
-                });
-            }
-            None => {
-                return Err(AppError {
-                    code: "VALIDATION".into(),
-                    message: "a linked account_id was not found".into(),
-                });
-            }
-        }
-    }
+    validate_source_accounts(&conn, &input.linked_account_ids)?;
 
     with_savepoint_app(&conn, || {
         let event_id = crate::features::transactions::repository::create_balance_update_inner(
@@ -156,24 +139,7 @@ pub fn update_bucket_balance_update(
         }
     }
 
-    // Validate each source account is a regular account.
-    for &source_id in &input.linked_account_ids {
-        match crate::features::accounts::repository::get_account_type(&conn, source_id)? {
-            Some(ref t) if t == "account" => {}
-            Some(_) => {
-                return Err(AppError {
-                    code: "VALIDATION".into(),
-                    message: "linked_account_ids must all refer to regular account entries".into(),
-                });
-            }
-            None => {
-                return Err(AppError {
-                    code: "VALIDATION".into(),
-                    message: "a linked account_id was not found".into(),
-                });
-            }
-        }
-    }
+    validate_source_accounts(&conn, &input.linked_account_ids)?;
 
     with_savepoint_app(&conn, || {
         crate::features::transactions::repository::check_event_split_group_date_conflict(
@@ -247,6 +213,83 @@ pub fn get_latest_bucket_links(
     .map_err(AppError::from)
 }
 
+/// Every source account a bucket balance is allocated from must be a regular account.
+fn validate_source_accounts(conn: &Connection, linked_account_ids: &[i64]) -> Result<(), AppError> {
+    for &source_id in linked_account_ids {
+        match crate::features::accounts::repository::get_account_type(conn, source_id)? {
+            Some(ref t) if t == "account" => {}
+            Some(_) => {
+                return Err(AppError {
+                    code: "VALIDATION".into(),
+                    message: "linked_account_ids must all refer to regular account entries".into(),
+                });
+            }
+            None => {
+                return Err(AppError {
+                    code: "VALIDATION".into(),
+                    message: "a linked account_id was not found".into(),
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
 fn format_conflict_message(conflict: &LinkConflict) -> String {
     serde_json::to_string(conflict).unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::initialize_in_memory;
+    use crate::features::accounts::repository::{create_account, CreateAccountParams};
+
+    fn mk_account(conn: &Connection, account_type: &str) -> i64 {
+        create_account(
+            conn,
+            CreateAccountParams {
+                name: format!("{account_type} test"),
+                account_type: account_type.to_owned(),
+                currency_id: 1,
+                ..Default::default()
+            },
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn source_accounts_accept_regular_accounts_and_an_empty_list() {
+        let conn = initialize_in_memory().unwrap();
+        let account = mk_account(&conn, "account");
+
+        validate_source_accounts(&conn, &[]).unwrap();
+        validate_source_accounts(&conn, &[account]).unwrap();
+    }
+
+    #[test]
+    fn source_accounts_reject_a_non_regular_account() {
+        let conn = initialize_in_memory().unwrap();
+        let account = mk_account(&conn, "account");
+        let bucket = mk_account(&conn, "bucket");
+
+        let err = validate_source_accounts(&conn, &[account, bucket]).unwrap_err();
+
+        assert_eq!(err.code, "VALIDATION");
+        assert_eq!(
+            err.message,
+            "linked_account_ids must all refer to regular account entries"
+        );
+    }
+
+    #[test]
+    fn source_accounts_reject_an_unknown_id() {
+        let conn = initialize_in_memory().unwrap();
+        let account = mk_account(&conn, "account");
+
+        let err = validate_source_accounts(&conn, &[account, 99_999]).unwrap_err();
+
+        assert_eq!(err.code, "VALIDATION");
+        assert_eq!(err.message, "a linked account_id was not found");
+    }
 }
