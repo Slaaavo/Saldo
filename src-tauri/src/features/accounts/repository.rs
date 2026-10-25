@@ -1493,6 +1493,16 @@ mod tests {
     }
 
     #[test]
+    fn update_account_accepts_an_empty_iban_on_a_bucket() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let id = mk_person_account(&conn, "Reserve", "bucket");
+
+        update_account(&conn, update_params(id, Some(""))).unwrap();
+
+        assert_eq!(stored_account(&conn, id), renamed_with(None));
+    }
+
+    #[test]
     fn update_account_without_an_iban_updates_a_bucket() {
         let conn = initialize_in_memory().expect("DB init failed");
         let id = mk_person_account(&conn, "Reserve", "bucket");
