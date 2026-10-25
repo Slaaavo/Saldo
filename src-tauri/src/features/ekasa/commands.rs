@@ -4,6 +4,7 @@ use crate::AppState;
 use serde::Deserialize;
 use tauri::State;
 
+use super::preprocessing::QrContent;
 use super::{ekasa_api, preprocessing, qr_decoder, repository};
 
 #[derive(Debug, Deserialize)]
@@ -55,23 +56,6 @@ pub fn list_ekasa_profiles(
     repository::list_ekasa_profiles(&conn)
 }
 
-/// Extracts the receipt ID from a QR code URL string.
-///
-/// Returns `Some(id)` only if the string contains a `receiptId=` query parameter,
-/// as seen in online eKasa QR codes. Returns `None` for plain IDs and offline QR formats.
-fn extract_receipt_id_from_qr(qr_content: &str) -> Option<String> {
-    // URL format: ...?receiptId=XXXX[&...]
-    if let Some(pos) = qr_content.find("receiptId=") {
-        let after = &qr_content[pos + "receiptId=".len()..];
-        let end = after.find('&').unwrap_or(after.len());
-        let id = after[..end].trim();
-        if !id.is_empty() {
-            return Some(id.to_string());
-        }
-    }
-    None
-}
-
 #[tauri::command]
 pub async fn process_receipt_file(file_path: String) -> Result<ProcessReceiptResult, AppError> {
     // QR decoding involves PDF rendering (PDFium) and image processing (rxing),
@@ -85,60 +69,35 @@ pub async fn process_receipt_file(file_path: String) -> Result<ProcessReceiptRes
                 message: format!("QR decoding task failed: {}", e),
             })??;
 
-    // Branch 1: URL with receiptId= param → extract ID and call API
-    if let Some(receipt_id) = extract_receipt_id_from_qr(&qr_string) {
-        let response = ekasa_api::fetch_ekasa_receipt(&receipt_id).await?;
-        return match response.receipt {
-            Some(receipt_data) => {
-                let processed_items = preprocessing::preprocess_receipt_items(&receipt_data.items);
-                Ok(ProcessReceiptResult {
-                    receipt_data: Some(receipt_data),
-                    processed_items,
-                    qr_content: qr_string,
-                    offline_fallback: None,
-                })
-            }
-            None => Ok(ProcessReceiptResult {
-                receipt_data: None,
-                processed_items: vec![],
-                qr_content: qr_string,
-                offline_fallback: None,
-            }),
-        };
-    }
-
-    // Branch 2: Multiple colons → likely offline QR format; try offline parse first
-    let colon_count = qr_string.chars().filter(|&c| c == ':').count();
-    if colon_count > 2 {
-        if let Some(offline) = preprocessing::parse_offline_qr(&qr_string) {
-            return Ok(ProcessReceiptResult {
-                receipt_data: None,
-                processed_items: vec![],
-                qr_content: qr_string,
-                offline_fallback: Some(offline),
-            });
-        }
-        // Offline parse failed — fall through to API attempt with the raw string
-    }
-
-    // Branch 3: Plain alphanumeric ID (no colons, or offline parse failed) → call API
-    let receipt_id = qr_string.trim().to_string();
-    let response = ekasa_api::fetch_ekasa_receipt(&receipt_id).await?;
-    match response.receipt {
-        Some(receipt_data) => {
-            let processed_items = preprocessing::preprocess_receipt_items(&receipt_data.items);
+    match preprocessing::classify_qr_content(&qr_string) {
+        QrContent::OnlineReceiptId(receipt_id) => {
+            let response = ekasa_api::fetch_ekasa_receipt(&receipt_id).await?;
+            let (receipt_data, processed_items) = match response.receipt {
+                Some(receipt_data) => {
+                    let processed_items =
+                        preprocessing::preprocess_receipt_items(&receipt_data.items);
+                    (Some(receipt_data), processed_items)
+                }
+                None => (None, vec![]),
+            };
             Ok(ProcessReceiptResult {
-                receipt_data: Some(receipt_data),
+                receipt_data,
                 processed_items,
                 qr_content: qr_string,
                 offline_fallback: None,
             })
         }
-        None => Ok(ProcessReceiptResult {
+        QrContent::Offline(offline) => Ok(ProcessReceiptResult {
             receipt_data: None,
             processed_items: vec![],
             qr_content: qr_string,
-            offline_fallback: None,
+            offline_fallback: Some(offline),
+        }),
+        QrContent::NotEkasa => Err(AppError {
+            code: "QR_NOT_EKASA".into(),
+            message: "The QR code in this file is not an eKasa receipt code. \
+                      Choose a file that shows the QR code printed on the receipt."
+                .into(),
         }),
     }
 }

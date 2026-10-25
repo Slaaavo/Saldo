@@ -46,6 +46,53 @@ pub fn preprocess_receipt_items(items: &[EkasaReceiptItem]) -> Vec<ProcessedItem
         .collect()
 }
 
+/// What a decoded QR text is. Only `OnlineReceiptId` may be sent to the eKasa API.
+#[derive(Debug)]
+pub enum QrContent {
+    OnlineReceiptId(String),
+    Offline(OfflineReceiptData),
+    NotEkasa,
+}
+
+/// Sorts decoded QR text into an online receipt id (bare, or in a `receiptId=` URL),
+/// an offline receipt code, or something that is not an eKasa code at all.
+pub fn classify_qr_content(qr_content: &str) -> QrContent {
+    let text = qr_content.trim();
+    if let Some(id) = extract_receipt_id_from_url(text) {
+        return QrContent::OnlineReceiptId(id);
+    }
+    if is_online_receipt_id(text) {
+        return QrContent::OnlineReceiptId(text.to_string());
+    }
+    match parse_offline_qr(text) {
+        Some(offline) => QrContent::Offline(offline),
+        None => QrContent::NotEkasa,
+    }
+}
+
+/// Extracts the id from the `receiptId=` query parameter of a QR code URL.
+fn extract_receipt_id_from_url(qr_content: &str) -> Option<String> {
+    // URL format: ...?receiptId=XXXX[&...]
+    let pos = qr_content.find("receiptId=")?;
+    let after = &qr_content[pos + "receiptId=".len()..];
+    let end = after.find('&').unwrap_or(after.len());
+    let id = after[..end].trim();
+    if id.is_empty() {
+        None
+    } else {
+        Some(id.to_string())
+    }
+}
+
+/// Online receipt id per spec section 3.4.4.4: `[VO]-` followed by 32 hex digits.
+/// The `-TEST` ids of the integration environment are not served by the production API.
+fn is_online_receipt_id(text: &str) -> bool {
+    match text.as_bytes() {
+        [b'V' | b'O', b'-', hex @ ..] => hex.len() == 32 && hex.iter().all(u8::is_ascii_hexdigit),
+        _ => false,
+    }
+}
+
 /// Parses an offline eKasa QR code string.
 ///
 /// Expected format (spec section 2.9): `{OKP}:{KP}:{YYMMDDHHMISS}:{sequence}:{total}`
@@ -53,7 +100,7 @@ pub fn preprocess_receipt_items(items: &[EkasaReceiptItem]) -> Vec<ProcessedItem
 /// Returns `None` if the format is unrecognised or any field fails to parse.
 pub fn parse_offline_qr(qr_content: &str) -> Option<OfflineReceiptData> {
     let parts: Vec<&str> = qr_content.split(':').collect();
-    if parts.len() < 5 {
+    if parts.len() != 5 {
         return None;
     }
 
@@ -364,6 +411,95 @@ mod tests {
         for dt in ["26121212120a", "2612121212 0", "-26121212120"] {
             let qr = format!("ABCD1234:XYZ9876:{dt}:001:10.00");
             assert!(parse_offline_qr(&qr).is_none(), "{dt:?}");
+        }
+    }
+
+    #[test]
+    fn test_parse_offline_qr_requires_exactly_five_parts() {
+        let qr = "ABCD1234:XYZ9876:260412153045:001:12.50:extra";
+        assert!(parse_offline_qr(qr).is_none());
+    }
+
+    // -----------------------------------------------------------------------
+    // classify_qr_content
+    // -----------------------------------------------------------------------
+
+    const ONLINE_ID: &str = "O-7DBCDA8A56EE426DBCDA8A56EE426D1A";
+    const OFFLINE_CODE: &str =
+        "C44B3977-0E415CC6-EE663AA1-776C973A-A143B660:99920045678900001:180213093414:23:237.23";
+
+    fn online_id_of(qr: &str) -> Option<String> {
+        match classify_qr_content(qr) {
+            QrContent::OnlineReceiptId(id) => Some(id),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn test_classify_bare_online_receipt_id() {
+        assert_eq!(online_id_of(ONLINE_ID).as_deref(), Some(ONLINE_ID));
+        let lower = "V-7dbcda8a56ee426dbcda8a56ee426d1a";
+        assert_eq!(online_id_of(lower).as_deref(), Some(lower));
+    }
+
+    #[test]
+    fn test_classify_trims_surrounding_whitespace() {
+        let qr = format!("  {ONLINE_ID}\r\n");
+        assert_eq!(online_id_of(&qr).as_deref(), Some(ONLINE_ID));
+    }
+
+    #[test]
+    fn test_classify_receipt_id_url() {
+        let qr = format!("https://ekasa.financnasprava.sk/receipt?receiptId={ONLINE_ID}&lang=sk");
+        assert_eq!(online_id_of(&qr).as_deref(), Some(ONLINE_ID));
+    }
+
+    #[test]
+    fn test_classify_offline_code() {
+        match classify_qr_content(OFFLINE_CODE) {
+            QrContent::Offline(data) => {
+                assert_eq!(data.event_date, "2018-02-13");
+                assert_eq!(data.total_amount_minor, 23723);
+            }
+            other => panic!("expected an offline code, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_classify_other_text_is_not_ekasa() {
+        for qr in [
+            "",
+            "   ",
+            "hello",
+            "https://example.com/menu",
+            "https://example.com/?receiptId=",
+            "WIFI:T:WPA;S:cafe;P:secret;;",
+            "8590123456789",
+            "O-7DBCDA8A56EE426DBCDA8A56EE4-TEST", // integration environment id
+            "O-7DBCDA8A56EE426DBCDA8A56EE426D1",  // 31 hex digits
+            "O-7DBCDA8A56EE426DBCDA8A56EE426D1AB", // 33 hex digits
+            "O-7DBCDA8A56EE426DBCDA8A56EE426D1G", // not hex
+            "X-7DBCDA8A56EE426DBCDA8A56EE426D1A", // unknown prefix
+            "7DBCDA8A56EE426DBCDA8A56EE426D1A",   // no prefix
+        ] {
+            assert!(
+                matches!(classify_qr_content(qr), QrContent::NotEkasa),
+                "{qr:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_classify_malformed_offline_code_is_not_ekasa() {
+        for qr in [
+            "C44B3977-0E415CC6-EE663AA1-776C973A-A143B660:99920045678900001:180230093414:23:237.23",
+            "C44B3977-0E415CC6-EE663AA1-776C973A-A143B660:99920045678900001:180213093414:23:23723",
+            "C44B3977-0E415CC6-EE663AA1-776C973A-A143B660:99920045678900001:180213093414:23",
+        ] {
+            assert!(
+                matches!(classify_qr_content(qr), QrContent::NotEkasa),
+                "{qr:?}"
+            );
         }
     }
 }
