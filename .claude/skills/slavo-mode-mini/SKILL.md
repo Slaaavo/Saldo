@@ -55,6 +55,15 @@ Done means all three:
 - The description is in chat, per Landing.
 - Your reply ends with a high-level summary of the work that leads with the architectural decisions.
 
+## Reviewing your own code
+
+Applies to every code change you write, whatever the playbook.
+
+- Run the `interrogate` skill (`~/.claude/skills/pstack/skills/interrogate/SKILL.md`) on the branch diff against `master` before you post the description, after `unslop` and `no-comments`. Take its intent from the request. This replaces Feature step 7's "if the design is contested".
+- Fix the **Act on** findings before you post the description. Ask about one that is a business-logic call, per Business logic.
+- List the **Consider** findings in your reply for the user to decide, with the reviewers that raised each one. Leave out its other sections.
+- On requested changes, run it again on what changed since the last run before you post the updated description.
+
 ## Landing
 
 This replaces poteto-mode's Opening a MR, Babysit, and Shipping playbooks. Their commit and prose rules still apply, except that commit summaries are plain sentences, not Conventional Commits.
