@@ -583,6 +583,7 @@ dataStorage:
   confirmResetMessage: "A database was found at the default location. Switch to it? Your current data will remain at its original path."
   toasts:
     fallbackWarning: "Custom database location not found. Using default location."
+    externalChanges: "Updated with changes made outside Saldo"
   errors:
     change: "Failed to change database location: {{error}}"
     reset: "Failed to reset database location: {{error}}"

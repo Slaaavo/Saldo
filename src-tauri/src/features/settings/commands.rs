@@ -121,6 +121,14 @@ fn exit_demo(state: &AppState) -> Result<(), AppError> {
     Ok(())
 }
 
+/// The active connection's `PRAGMA data_version`. The frontend compares it when the window comes
+/// back: a change means another process (`saldo mcp`) wrote to the database.
+#[tauri::command]
+pub fn get_db_data_version(state: State<'_, AppState>) -> Result<i64, AppError> {
+    let conn = state.conn()?;
+    crate::db::data_version(&conn)
+}
+
 /// Returns `true` when the app is currently running against the ephemeral demo database.
 #[tauri::command]
 pub fn is_demo_mode(state: State<'_, AppState>) -> Result<bool, AppError> {

@@ -127,6 +127,8 @@ vi.mock('./useModalManager', () => ({
   }),
 }))
 
+vi.mock('./useRefreshOnExternalWrites', () => ({ useRefreshOnExternalWrites: () => {} }))
+
 const mockHandleCreateBalanceUpdate = vi.fn()
 const mockHandleEditBalanceUpdate = vi.fn()
 const mockHandleDeleteEvent = vi.fn()

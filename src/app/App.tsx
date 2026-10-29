@@ -17,6 +17,7 @@ import { TimeMachineProvider } from './TimeMachineContext'
 import { SelectedPersonProvider } from './SelectedPersonContext'
 import { PageHeaderProvider } from './PageHeaderContext'
 import { usePageHeader } from './usePageHeader'
+import { useRefreshOnExternalWrites } from './useRefreshOnExternalWrites'
 
 const PAGE_TITLES: Record<string, string> = {
   dashboard: 'sidebar.dashboard',
@@ -41,6 +42,7 @@ const AppShell = () => {
   const dbLocation = useDbLocation({ setModalState })
 
   useDbFallbackWarning()
+  useRefreshOnExternalWrites()
 
   const demo = useDemoMode()
 

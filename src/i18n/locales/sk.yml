@@ -564,6 +564,7 @@ dataStorage:
   confirmResetMessage: "Na predvolenom mieste bola nájdená databáza. Prepnúť na ňu? Vaše aktuálne dáta zostanú na pôvodnom mieste."
   toasts:
     fallbackWarning: "Vlastné umiestnenie databázy nebolo nájdené. Používa sa predvolené umiestnenie."
+    externalChanges: "Aktualizované o zmeny urobené mimo Salda"
   errors:
     change: "Nepodarilo sa zmeniť umiestnenie databázy: {{error}}"
     reset: "Nepodarilo sa obnoviť umiestnenie databázy: {{error}}"

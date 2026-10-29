@@ -470,6 +470,14 @@ Checks if a database file exists at the default OS location.
 - **Used in:**
   - `src/features/settings/useDbLocation.ts` (useDbLocation hook → App, SettingsPage)
 
+### `getDbDataVersion`
+
+Gets the `PRAGMA data_version` of the app's database connection. It changes only when another process (`saldo mcp`) wrote, never for the app's own writes.
+
+- **BE command:** `get_db_data_version` → `src-tauri/src/features/settings/commands.rs`
+- **Used in:**
+  - `src/app/useRefreshOnExternalWrites.ts` (useRefreshOnExternalWrites hook → App: invalidates every query when the window comes back and the version moved)
+
 ---
 
 ## Assets & Custom Units

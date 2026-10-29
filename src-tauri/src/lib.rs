@@ -255,6 +255,7 @@ pub fn run() {
             features::exit_demo_mode,
             features::is_demo_mode,
             features::get_db_location,
+            features::get_db_data_version,
             features::pick_db_folder,
             features::change_db_location,
             features::reset_db_location,

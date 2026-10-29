@@ -23,6 +23,12 @@ pub fn open_existing(db_path: &Path) -> Result<Connection, AppError> {
     Ok(conn)
 }
 
+/// `PRAGMA data_version` of this connection. It moves only when another connection committed,
+/// never for this connection's own writes.
+pub fn data_version(conn: &Connection) -> Result<i64, AppError> {
+    Ok(conn.query_row("PRAGMA data_version", [], |row| row.get(0))?)
+}
+
 /// Pragmas that return a row run through `query_row`: `execute_batch` discards the row, so a
 /// result reporting failure would pass silently.
 fn set_pragmas(conn: &Connection) -> Result<(), AppError> {
@@ -194,6 +200,31 @@ mod tests {
             .query_row("PRAGMA journal_mode", [], |row| row.get(0))
             .unwrap();
         assert_eq!(journal_mode, "wal");
+    }
+
+    #[test]
+    fn data_version_moves_only_for_another_connections_commit() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("saldo.db");
+        let app = initialize_db(&path).unwrap();
+        let mcp = open_existing(&path).unwrap();
+        let write = |conn: &Connection, theme: &str| {
+            conn.execute(
+                "INSERT INTO app_setting (key, value) VALUES ('theme', ?1)
+                 ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+                [theme],
+            )
+            .unwrap()
+        };
+        let start = data_version(&app).unwrap();
+
+        write(&app, "dark");
+        let after_own_write = data_version(&app).unwrap();
+        write(&mcp, "light");
+        let after_other_write = data_version(&app).unwrap();
+
+        assert_eq!(after_own_write, start);
+        assert_ne!(after_other_write, after_own_write);
     }
 
     #[test]
