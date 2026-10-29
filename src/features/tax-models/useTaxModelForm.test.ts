@@ -6,6 +6,7 @@ import { toast } from 'sonner'
 import { useTaxModelForm } from './useTaxModelForm'
 import type { Currency, PersonRow, TaxModelDetail } from '../../shared/types'
 import type { BracketFormState } from './BracketEditor'
+import { makeFigures } from './taxForecastFixtures'
 
 vi.mock('../../shared/api', () => ({
   createTaxModel: vi.fn(),
@@ -76,6 +77,8 @@ const makeModel = (overrides?: Partial<TaxModelDetail>): TaxModelDetail => ({
     { id: 1, sortOrder: 0, lowerBoundMinor: 0, rateType: 'flat', flatRateBps: 1500, tiersJson: null },
     { id: 2, sortOrder: 1, lowerBoundMinor: 4000000, rateType: 'flat', flatRateBps: 2500, tiersJson: null },
   ],
+  minimumTaxBands: [],
+  figures: makeFigures(),
   ...overrides,
 })
 
@@ -330,6 +333,99 @@ describe('useTaxModelForm', () => {
         { thresholdMinor: 0, rateBps: 1000 },
         { thresholdMinor: 10050, rateBps: 2000 },
       ])
+    })
+
+    it('saves the minimum tax bands of a company with each lower bound taken from the band before', async () => {
+      const { result } = renderHook(() => useTaxModelForm(undefined, [LEGAL], undefined), { wrapper: makeWrapper(makeQueryClient()) })
+      act(() => {
+        result.current.setBrackets([flatBracket()])
+        result.current.setMinimumTaxBands([
+          { upperBoundMinor: '50000', amountMinor: '340' },
+          { upperBoundMinor: '250000', amountMinor: '960.50' },
+          { upperBoundMinor: '', amountMinor: '1920' },
+        ])
+      })
+
+      await act(() => result.current.handleSave())
+
+      const input = (createTaxModel as Mock).mock.calls[0][0]
+      expect(input.minimumTaxBands).toEqual([
+        { lowerBoundMinor: 0, amountMinor: 34000 },
+        { lowerBoundMinor: 5000000, amountMinor: 96050 },
+        { lowerBoundMinor: 25000000, amountMinor: 192000 },
+      ])
+    })
+
+    it('loads the minimum tax bands of an existing model as revenue limits and saves them back unchanged', async () => {
+      const bands = [
+        { lowerBoundMinor: 0, amountMinor: 34000 },
+        { lowerBoundMinor: 5000000, amountMinor: 96000 },
+      ]
+      const model = makeModel({ personId: 2, personName: 'Acme s.r.o.', personType: 'legal', minimumTaxBands: bands })
+      const { result } = renderHook(() => useTaxModelForm(7, [LEGAL], model), { wrapper: makeWrapper(makeQueryClient()) })
+
+      expect(result.current.minimumTaxBands).toEqual([
+        { upperBoundMinor: '50000.00', amountMinor: '340.00' },
+        { upperBoundMinor: '', amountMinor: '960.00' },
+      ])
+
+      await act(() => result.current.handleSave())
+
+      expect((updateTaxModel as Mock).mock.calls[0][0].minimumTaxBands).toEqual(bands)
+    })
+
+    it('ignores a hidden, half-filled band row when saving for a physical person', async () => {
+      const { result } = renderHook(() => useTaxModelForm(undefined, [PHYSICAL], undefined), { wrapper: makeWrapper(makeQueryClient()) })
+      act(() => {
+        result.current.setBrackets([flatBracket()])
+        result.current.setMinimumTaxBands([{ upperBoundMinor: '', amountMinor: '' }])
+      })
+
+      await act(() => result.current.handleSave())
+
+      expect(toast.error).not.toHaveBeenCalled()
+      expect((createTaxModel as Mock).mock.calls[0][0].minimumTaxBands).toEqual([])
+    })
+
+    it('saves the bands of an existing company model back unchanged after it is edited under a physical person', async () => {
+      const bands = [
+        { lowerBoundMinor: 0, amountMinor: 34000 },
+        { lowerBoundMinor: 5000000, amountMinor: 96000 },
+      ]
+      const model = makeModel({ personId: 2, personName: 'Acme s.r.o.', personType: 'legal', minimumTaxBands: bands })
+      const { result } = renderHook(() => useTaxModelForm(7, [LEGAL, PHYSICAL], model), { wrapper: makeWrapper(makeQueryClient()) })
+      act(() => result.current.setPersonId(PHYSICAL.id))
+
+      await act(() => result.current.handleSave())
+
+      expect(result.current.selectedPersonType).toBe('physical')
+      expect((updateTaxModel as Mock).mock.calls[0][0].minimumTaxBands).toEqual(bands)
+    })
+
+    it('saves no minimum tax bands when a company has none', async () => {
+      const { result } = renderHook(() => useTaxModelForm(undefined, [LEGAL], undefined), { wrapper: makeWrapper(makeQueryClient()) })
+      act(() => result.current.setBrackets([flatBracket()]))
+
+      await act(() => result.current.handleSave())
+
+      expect((createTaxModel as Mock).mock.calls[0][0].minimumTaxBands).toEqual([])
+    })
+
+    it('reports the band whose revenue limit does not rise instead of saving it', async () => {
+      const { result } = renderHook(() => useTaxModelForm(undefined, [LEGAL], undefined), { wrapper: makeWrapper(makeQueryClient()) })
+      act(() => {
+        result.current.setBrackets([flatBracket()])
+        result.current.setMinimumTaxBands([
+          { upperBoundMinor: '1000', amountMinor: '340' },
+          { upperBoundMinor: '900', amountMinor: '960' },
+          { upperBoundMinor: '', amountMinor: '1920' },
+        ])
+      })
+
+      await act(() => result.current.handleSave())
+
+      expect(toast.error).toHaveBeenCalledWith('taxModels.validation.minimumTax.upperBoundNotIncreasing')
+      expect(createTaxModel).not.toHaveBeenCalled()
     })
 
     it('requires a person to be selected', async () => {

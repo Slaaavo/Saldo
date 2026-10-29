@@ -1,3 +1,7 @@
+import type { EarlierProfitResult, EntryKind, EntryNotCountedReason, ForecastFigures, ForecastLineResult, MinimumTaxBand } from './taxForecast'
+
+export * from './taxForecast'
+
 export interface PersonRow {
   id: number
   name: string
@@ -374,11 +378,13 @@ export interface TaxModelBracketRow {
 
 export interface TaxModelDetail extends TaxModelRow {
   brackets: TaxModelBracketRow[]
+  minimumTaxBands: MinimumTaxBand[]
+  figures: ForecastFigures
 }
 
 export interface TaxEventBreakdown {
   eventId: number
-  eventType: string
+  kind: EntryKind
   eventDate: string
   note: string | null
   amountMinor: number
@@ -388,6 +394,7 @@ export interface TaxEventBreakdown {
   nonReclaimableVatMinor: number
   taxDeductibleCostMinor: number
   nonTaxDeductibleCostMinor: number
+  notCounted: EntryNotCountedReason | null
 }
 
 export interface TaxCalculationResult {
@@ -404,4 +411,12 @@ export interface TaxCalculationResult {
   monthlyTaxBurdenMinor: number
   personType: string
   eventBreakdowns: TaxEventBreakdown[]
+  actualsThroughMonth: number
+  lines: ForecastLineResult[]
+  appliedFlatRateBps: number | null
+  computedTaxMinor: number
+  minimumTaxMinor: number | null
+  dividendFromYearMinor: number
+  dividendFromYearTaxMinor: number
+  earlierProfits: EarlierProfitResult[]
 }

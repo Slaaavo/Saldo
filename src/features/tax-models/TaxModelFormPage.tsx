@@ -10,6 +10,7 @@ import { PercentageInput } from '../../shared/ui/PercentageInput'
 import { DatePicker } from '../../shared/ui/date-picker'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../shared/ui/select'
 import BracketEditor from './BracketEditor'
+import MinimumTaxEditor from './MinimumTaxEditor'
 import { useTaxModelForm } from './useTaxModelForm'
 import { listPersons, getTaxModel } from '../../shared/api'
 import { usePageTitle } from '../../app/usePageHeader'
@@ -55,6 +56,8 @@ const TaxModelFormPage = () => {
     setDividendTaxRateBps,
     brackets,
     setBrackets,
+    minimumTaxBands,
+    setMinimumTaxBands,
     selectedPersonType,
     minorUnits,
     currencyCode,
@@ -171,6 +174,17 @@ const TaxModelFormPage = () => {
                     placeholder="0.00"
                   />
                 </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {selectedPersonType === 'legal' && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">{t('taxModels.minimumTax')}</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <MinimumTaxEditor bands={minimumTaxBands} onBandsChange={setMinimumTaxBands} minorUnits={minorUnits} currencyCode={currencyCode} />
               </CardContent>
             </Card>
           )}

@@ -872,9 +872,22 @@ taxModels:
     upperBoundInvalid: "Bracket {{bracket}}: upper bound is not a valid number"
     lastUpperBoundNotAllowed: "Bracket {{bracket}}: the last bracket must not have an upper bound set"
     reserveFundMaxRequired: "Reserve fund maximum amount is required when an allocation percentage is set"
+    minimumTax:
+      amountInvalid: "Minimum tax band {{band}}: the minimum tax must be an amount of 0 or more"
+      upperBoundRequired: "Minimum tax band {{band}}: the revenue limit is required"
+      upperBoundInvalid: "Minimum tax band {{band}}: the revenue limit is not a valid number"
+      upperBoundNotIncreasing: "Minimum tax band {{band}}: the revenue limit must be above the previous one"
+      lastUpperBoundNotAllowed: "Minimum tax band {{band}}: the last band must not have a revenue limit"
+  minimumTax: "Minimum tax"
+  minimumTaxBandRow: "Minimum tax band {{band}}"
+  minimumTaxUpTo: "Up to revenue"
+  minimumTaxAmount: "Minimum tax"
+  addMinimumTaxBand: "Add band"
+  removeMinimumTaxBand: "Remove band"
   backToList: "Back to List"
   resultsTitle: Tax Model Results
   adjustSettings: Adjust Settings
+  updateFigures: Update figures
   totalIncome: Total Income
   totalExpenses: Total Expenses
   deductibleExpenses: Deductible Expenses
@@ -883,11 +896,9 @@ taxModels:
   totalTax: Total Tax
   netProfit: Net Profit
   reserveFundAllocation: Reserve Fund Allocation
-  dividendAmount: Dividend Amount
   withholdingTax: Withholding Tax on Dividends
   monthlyTaxBurden: Monthly Tax Burden
   netDividend: Net Dividend
-  noEventsForYear: "No taxable events found for this year. Add revenue or expense events to see the calculation."
   breakdownSection: "Event Breakdown"
   breakdownDate: "Date"
   breakdownNote: "Note"
@@ -899,5 +910,61 @@ taxModels:
   breakdownDeductibleCost: "Deductible Cost"
   breakdownNonDeductibleCost: "Non-Deductible Cost"
   breakdownTotal: "Total"
-  revenueGroup: "Revenue"
-  expenseGroup: "Expenses"
+  forecast:
+    line:
+      revenue: Revenue
+      payroll: Payroll
+      depreciation: Depreciation
+      deductible_costs: Deductible costs
+      non_deductible_costs: Non-deductible costs
+    column:
+      soFar: So far
+      rest: Rest of year
+      year: Year
+    source:
+      typed: Typed
+      entries: From entries
+      schedule: Schedule
+      average: Average
+      monthly_amount: Monthly amount
+      nothing: Not entered
+    actualAndProjected: "Actual {{from}} to {{to}}, projected {{restFrom}} to {{restTo}}"
+    wholeYearActual: "Whole year actual"
+    wholeYearProjected: "Whole year projected"
+    corporateTaxAt: "Corporate income tax at {{rate}}"
+    minimumTaxApplies: "Minimum tax applies instead of the computed tax"
+    dividendFromYear: "Dividend from {{year}} profit"
+    dividendTax: "Dividend tax"
+    dividendTaxAt: "Dividend tax at {{rate}}"
+    profitLeftFrom: "Profit left from {{year}}"
+    maximumDividend: "Maximum dividend"
+    kind:
+      revenue: Revenue
+      depreciation: Depreciation
+      prepaid: "Prepaid expense share"
+      expense: Expense
+    reason:
+      typed_value: "Replaced by a typed value"
+      after_actual_months: "After the actual months"
+  figures:
+    title: "Update figures"
+    actualsThrough: "Actual figures cover January to"
+    noMonthsYet: "No months yet"
+    emptyHint: "Leave a field empty to use Saldo's value"
+    payrollMonthly: "Payroll per month"
+    earlierProfitTitle: "Profit left from earlier years"
+    earlierProfitRow: "Profit left from earlier years, row {{row}}"
+    year: "Year"
+    amount: "Amount"
+    dividendTax: "Dividend tax"
+    addYear: "Add year"
+    remove: "Remove"
+    save: "Save"
+    cancel: "Cancel"
+    validation:
+      amountInvalid: "{{field}}: enter a valid amount"
+      amountNegative: "{{field}}: the amount cannot be negative"
+      yearInvalid: "Profit left from earlier years, row {{row}}: enter a four-digit year"
+      rateInvalid: "Profit left from earlier years, row {{row}}: the dividend tax must be between 0 and 100%"
+      yearNotBefore: "Profit left from earlier years, row {{row}}: the year must be before {{year}}"
+      yearDuplicate: "Profit left from earlier years, row {{row}}: this year is already listed"

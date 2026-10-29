@@ -873,9 +873,22 @@ taxModels:
     upperBoundInvalid: "Pásmo {{bracket}}: horná hranica nie je platné číslo"
     lastUpperBoundNotAllowed: "Pásmo {{bracket}}: posledné pásmo nesmie mať nastavenú hornú hranicu"
     reserveFundMaxRequired: "Maximálna výška rezervného fondu je povinná, ak je zadaný percentuálny príspevok"
+    minimumTax:
+      amountInvalid: "Pásmo minimálnej dane {{band}}: minimálna daň musí byť suma 0 alebo viac"
+      upperBoundRequired: "Pásmo minimálnej dane {{band}}: hranica tržieb je povinná"
+      upperBoundInvalid: "Pásmo minimálnej dane {{band}}: hranica tržieb nie je platné číslo"
+      upperBoundNotIncreasing: "Pásmo minimálnej dane {{band}}: hranica tržieb musí byť vyššia ako predchádzajúca"
+      lastUpperBoundNotAllowed: "Pásmo minimálnej dane {{band}}: posledné pásmo nesmie mať hranicu tržieb"
+  minimumTax: "Minimálna daň"
+  minimumTaxBandRow: "Pásmo minimálnej dane {{band}}"
+  minimumTaxUpTo: "Do tržieb"
+  minimumTaxAmount: "Minimálna daň"
+  addMinimumTaxBand: "Pridať pásmo"
+  removeMinimumTaxBand: "Odstrániť pásmo"
   backToList: "Späť na zoznam"
   resultsTitle: Výsledky daňového modelu
   adjustSettings: Upraviť nastavenia
+  updateFigures: Aktualizovať údaje
   totalIncome: Celkové príjmy
   totalExpenses: Celkové výdavky
   deductibleExpenses: Odpočítateľné výdavky
@@ -884,11 +897,9 @@ taxModels:
   totalTax: Celková daň
   netProfit: Čistý zisk
   reserveFundAllocation: Príspevok do rezervného fondu
-  dividendAmount: Výška dividendy
   withholdingTax: Zrážková daň z dividend
   monthlyTaxBurden: Mesačné daňové zaťaženie
   netDividend: Čistá dividenda
-  noEventsForYear: "Pre tento rok neboli nájdené žiadne zdaniteľné udalosti. Pridajte príjmy alebo výdavky, aby ste videli výpočet."
   breakdownSection: "Prehľad udalostí"
   breakdownDate: "Dátum"
   breakdownNote: "Poznámka"
@@ -900,5 +911,61 @@ taxModels:
   breakdownDeductibleCost: "Odpočítateľný náklad"
   breakdownNonDeductibleCost: "Neodpočítateľný náklad"
   breakdownTotal: "Spolu"
-  revenueGroup: "Príjmy"
-  expenseGroup: "Výdavky"
+  forecast:
+    line:
+      revenue: Tržby
+      payroll: Mzdové náklady
+      depreciation: Odpisy
+      deductible_costs: Odpočítateľné náklady
+      non_deductible_costs: Neodpočítateľné náklady
+    column:
+      soFar: Doteraz
+      rest: Zvyšok roka
+      year: Rok
+    source:
+      typed: Zadané
+      entries: Zo záznamov
+      schedule: Podľa plánu
+      average: Priemer
+      monthly_amount: Mesačná suma
+      nothing: Nezadané
+    actualAndProjected: "Skutočnosť {{from}} až {{to}}, odhad {{restFrom}} až {{restTo}}"
+    wholeYearActual: "Celý rok podľa skutočnosti"
+    wholeYearProjected: "Celý rok podľa odhadu"
+    corporateTaxAt: "Daň z príjmov právnickej osoby pri sadzbe {{rate}}"
+    minimumTaxApplies: "Uplatní sa minimálna daň namiesto vypočítanej dane"
+    dividendFromYear: "Dividenda zo zisku za rok {{year}}"
+    dividendTax: "Daň z dividend"
+    dividendTaxAt: "Daň z dividend pri sadzbe {{rate}}"
+    profitLeftFrom: "Nerozdelený zisk z roku {{year}}"
+    maximumDividend: "Maximálna dividenda"
+    kind:
+      revenue: Tržby
+      depreciation: Odpisy
+      prepaid: "Podiel predplateného nákladu"
+      expense: Výdavky
+    reason:
+      typed_value: "Nahradené zadanou hodnotou"
+      after_actual_months: "Po skutočných mesiacoch"
+  figures:
+    title: "Aktualizovať údaje"
+    actualsThrough: "Skutočné údaje pokrývajú január až"
+    noMonthsYet: "Zatiaľ žiadne mesiace"
+    emptyHint: "Nechajte pole prázdne, ak chcete použiť hodnotu zo Saldo"
+    payrollMonthly: "Mzdové náklady za mesiac"
+    earlierProfitTitle: "Nerozdelený zisk z predchádzajúcich rokov"
+    earlierProfitRow: "Nerozdelený zisk z predchádzajúcich rokov, riadok {{row}}"
+    year: "Rok"
+    amount: "Suma"
+    dividendTax: "Daň z dividend"
+    addYear: "Pridať rok"
+    remove: "Odstrániť"
+    save: "Uložiť"
+    cancel: "Zrušiť"
+    validation:
+      amountInvalid: "{{field}}: zadajte platnú sumu"
+      amountNegative: "{{field}}: suma nemôže byť záporná"
+      yearInvalid: "Nerozdelený zisk z predchádzajúcich rokov, riadok {{row}}: zadajte štvorciferný rok"
+      rateInvalid: "Nerozdelený zisk z predchádzajúcich rokov, riadok {{row}}: daň z dividend musí byť od 0 do 100 %"
+      yearNotBefore: "Nerozdelený zisk z predchádzajúcich rokov, riadok {{row}}: rok musí byť skorší ako {{year}}"
+      yearDuplicate: "Nerozdelený zisk z predchádzajúcich rokov, riadok {{row}}: tento rok už je v zozname"

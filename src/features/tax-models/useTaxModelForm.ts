@@ -9,6 +9,7 @@ import { extractErrorMessage } from '../../shared/utils/errors'
 import { useConsolidationCurrencyQuery } from '../../shared/hooks/useConsolidationCurrencyQuery'
 import type { PersonRow, TaxModelDetail } from '../../shared/types'
 import type { BracketFormState, TierFormState } from './BracketEditor'
+import { bandsFromForm, bandsToForm, type MinimumTaxBandFormState } from './minimumTaxBands'
 
 const currentYear = new Date().getFullYear()
 
@@ -23,6 +24,7 @@ interface FormState {
   reserveFundMaxMinor: string
   dividendTaxRateBps: string
   brackets: BracketFormState[]
+  minimumTaxBands: MinimumTaxBandFormState[]
 }
 
 const defaultFormState = (): FormState => ({
@@ -36,6 +38,7 @@ const defaultFormState = (): FormState => ({
   reserveFundMaxMinor: '',
   dividendTaxRateBps: '',
   brackets: [{ upperBoundMinor: '', rateType: 'flat', flatRateBps: '', tiers: [] }],
+  minimumTaxBands: [],
 })
 
 const formStateFromModel = (model: TaxModelDetail, minorUnits: number): FormState => {
@@ -71,6 +74,7 @@ const formStateFromModel = (model: TaxModelDetail, minorUnits: number): FormStat
     reserveFundMaxMinor: model.reserveFundMaxMinor !== null ? fromMinorUnits(model.reserveFundMaxMinor, minorUnits) : '',
     dividendTaxRateBps: model.dividendTaxRateBps !== null ? bpsToPct(model.dividendTaxRateBps) : '',
     brackets: parsedBrackets.length > 0 ? parsedBrackets : [{ upperBoundMinor: '', rateType: 'flat', flatRateBps: '', tiers: [] }],
+    minimumTaxBands: bandsToForm(model.minimumTaxBands, minorUnits),
   }
 }
 
@@ -202,6 +206,16 @@ export const useTaxModelForm = (modelId: number | undefined, persons: PersonRow[
       }
     }
 
+    let minimumTaxBands = initialData?.minimumTaxBands ?? []
+    if (selectedPersonType === 'legal') {
+      const parsedBands = bandsFromForm(form.minimumTaxBands, minorUnits)
+      if (!parsedBands.ok) {
+        toast.error(t(`taxModels.validation.minimumTax.${parsedBands.error.kind}`, { band: parsedBands.error.band }))
+        return
+      }
+      minimumTaxBands = parsedBands.bands
+    }
+
     try {
       const baseInput = {
         name: form.name,
@@ -214,6 +228,7 @@ export const useTaxModelForm = (modelId: number | undefined, persons: PersonRow[
         reserveFundMaxMinor: form.reserveFundMaxMinor ? toMinorUnits(form.reserveFundMaxMinor, minorUnits) : null,
         dividendTaxRateBps: form.dividendTaxRateBps ? (pctToBps(form.dividendTaxRateBps) ?? null) : null,
         brackets,
+        minimumTaxBands,
       }
 
       if (modelId !== undefined) {
@@ -253,6 +268,8 @@ export const useTaxModelForm = (modelId: number | undefined, persons: PersonRow[
     setDividendTaxRateBps: set('dividendTaxRateBps'),
     brackets: form.brackets,
     setBrackets: set('brackets'),
+    minimumTaxBands: form.minimumTaxBands,
+    setMinimumTaxBands: set('minimumTaxBands'),
     selectedPersonType,
     minorUnits,
     currencyCode,

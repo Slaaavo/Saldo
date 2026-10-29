@@ -17,6 +17,8 @@ import type {
   TaxModelRow,
   TaxModelDetail,
   TaxCalculationResult,
+  MinimumTaxBand,
+  ForecastFigures,
 } from '../types'
 
 export const createBalanceUpdate = (accountId: number, amountMinor: number, eventDate: string, note?: string): Promise<number> => {
@@ -604,10 +606,16 @@ export interface CreateTaxModelInput {
   reserveFundMaxMinor: number | null
   dividendTaxRateBps: number | null
   brackets: BracketInput[]
+  minimumTaxBands: MinimumTaxBand[]
 }
 
 export interface UpdateTaxModelInput extends CreateTaxModelInput {
   modelId: number
+}
+
+export interface SaveTaxForecastFiguresInput {
+  modelId: number
+  figures: ForecastFigures
 }
 
 export const listTaxModels = (): Promise<TaxModelRow[]> => {
@@ -632,6 +640,10 @@ export const deleteTaxModel = (modelId: number): Promise<void> => {
 
 export const calculateTaxModel = (modelId: number): Promise<TaxCalculationResult> => {
   return invoke('calculate_tax_model', { modelId })
+}
+
+export const saveTaxForecastFigures = (input: SaveTaxForecastFiguresInput): Promise<void> => {
+  return invoke('save_tax_forecast_figures', { input })
 }
 
 export const processReceiptFile = (filePath: string): Promise<ProcessReceiptResult> => {
