@@ -287,6 +287,7 @@ pub fn run() {
             features::get_tax_model,
             features::update_tax_model,
             features::delete_tax_model,
+            features::save_tax_forecast_figures,
             features::create_taxable_event,
             features::create_taxable_split_group,
             features::update_taxable_event,

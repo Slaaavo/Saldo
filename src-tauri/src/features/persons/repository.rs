@@ -233,8 +233,12 @@ mod tests {
     use super::*;
     use crate::db::initialize_in_memory;
     use crate::features::accounts::repository::{create_account, CreateAccountParams};
+    use crate::features::tax_models::models::{
+        ActualMonths, EarlierProfit, ForecastFigures, ForecastLine, MinimumTaxBand, TypedPair,
+    };
     use crate::features::tax_models::repository::{
-        create_tax_model, BracketInput, CreateTaxModelParams,
+        create_tax_model, save_tax_forecast_figures, BracketInput, CreateTaxModelParams,
+        SaveTaxForecastFiguresParams,
     };
     use crate::features::transactions::repository::depreciation::generate_depreciation_events;
     use crate::features::transactions::repository::taxable_links::{
@@ -244,6 +248,7 @@ mod tests {
         create_cashflow, create_taxable_event, create_transfer, CashflowEntry,
         CreateTaxableEventParams,
     };
+    use std::collections::BTreeMap;
 
     fn get_default_person_id(conn: &Connection) -> i64 {
         conn.query_row("SELECT id FROM person WHERE is_default = 1", [], |row| {
@@ -511,9 +516,37 @@ mod tests {
                     flat_rate_bps: Some(1500),
                     tiers_json: None,
                 }],
+                minimum_tax_bands: vec![MinimumTaxBand {
+                    lower_bound_minor: 0,
+                    amount_minor: 340_00,
+                }],
+                actuals_through_month: ActualMonths::new(9).unwrap(),
             },
         )
         .expect("create_tax_model failed");
+        save_tax_forecast_figures(
+            &conn,
+            SaveTaxForecastFiguresParams {
+                model_id: tax_model_id,
+                figures: ForecastFigures {
+                    actuals_through_month: ActualMonths::new(9).unwrap(),
+                    payroll_monthly_minor: 4_000_00,
+                    typed_values: BTreeMap::from([(
+                        ForecastLine::Revenue,
+                        TypedPair {
+                            so_far_minor: Some(90_000_00),
+                            rest_minor: None,
+                        },
+                    )]),
+                    earlier_profits: vec![EarlierProfit {
+                        profit_year: 2025,
+                        amount_minor: 15_000_00,
+                        dividend_tax_rate_bps: 700,
+                    }],
+                },
+            },
+        )
+        .expect("save_tax_forecast_figures failed");
 
         let account_ids = get_person_accounts(&conn, person_id).unwrap();
         assert_eq!(account_ids.len(), 4);
@@ -562,14 +595,22 @@ mod tests {
             ),
             0
         );
-        assert_eq!(
-            count(
-                &conn,
-                "SELECT COUNT(*) FROM tax_model_bracket WHERE tax_model_id = ?1",
-                tax_model_id
-            ),
-            0
-        );
+        for table in [
+            "tax_model_bracket",
+            "tax_model_minimum_tax_band",
+            "tax_model_typed_value",
+            "tax_model_earlier_profit",
+        ] {
+            assert_eq!(
+                count(
+                    &conn,
+                    &format!("SELECT COUNT(*) FROM {table} WHERE tax_model_id = ?1"),
+                    tax_model_id
+                ),
+                0,
+                "{table} kept rows of the deleted person's model"
+            );
+        }
         let (event_type, linked_event_id): (String, Option<i64>) = conn
             .query_row(
                 "SELECT event_type, linked_event_id FROM event WHERE id = ?1",

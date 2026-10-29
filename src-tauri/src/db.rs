@@ -135,7 +135,7 @@ mod tests {
         let count: i64 = conn
             .query_row("SELECT COUNT(*) FROM _migrations", [], |row| row.get(0))
             .expect("_migrations count query failed");
-        assert_eq!(count, 35, "Expected 35 migrations to be applied");
+        assert_eq!(count, 36, "Expected 36 migrations to be applied");
     }
 
     #[test]
@@ -146,7 +146,7 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM _migrations", [], |row| row.get(0))
             .expect("_migrations count query failed");
         assert_eq!(
-            count, 35,
+            count, 36,
             "Running migrations twice must not duplicate rows"
         );
     }

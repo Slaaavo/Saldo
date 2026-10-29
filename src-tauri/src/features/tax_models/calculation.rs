@@ -1,7 +1,9 @@
-use crate::features::tax_models::models::{
-    EventDataForCalc, TaxCalculationResult, TaxEventBreakdown, TaxModelBracketRow, TaxModelDetail,
-    TaxTier,
+use super::forecast::{self, LineTotals};
+use super::models::{
+    EarlierProfit, EarlierProfitResult, EntryKind, EventDataForCalc, MinimumTaxBand,
+    TaxCalculationResult, TaxEventBreakdown, TaxModelBracketRow, TaxModelDetail, TaxTier,
 };
+use crate::shared::div_round;
 
 pub fn calculate_net_amount(amount_minor: i64, vat_rate_bps: i64) -> i64 {
     if vat_rate_bps == 0 {
@@ -88,34 +90,80 @@ pub fn calculate_progressive_tax(tax_basis_minor: i64, tiers: &[TaxTier]) -> i64
     total_tax
 }
 
-/// Picks the last bracket (in sort order) whose `lower_bound_minor` the basis reaches and applies
-/// its flat rate or progressive tiers to the whole basis. A basis below every bound is untaxed.
-pub fn calculate_tax_from_brackets(tax_basis_minor: i64, brackets: &[TaxModelBracketRow]) -> i64 {
-    let Some(bracket) = brackets
+fn pick_band<T>(items: &[T], lower_bound: impl Fn(&T) -> i64, value: i64) -> Option<&T> {
+    items
         .iter()
         .rev()
-        .find(|b| b.lower_bound_minor <= tax_basis_minor)
-    else {
-        return 0;
+        .find(|item| lower_bound(item) < value)
+        .or_else(|| items.first().filter(|first| value >= lower_bound(first)))
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct BracketTax {
+    pub tax_minor: i64,
+    pub flat_rate_bps: Option<i64>,
+}
+
+pub fn calculate_tax_from_brackets(
+    brackets: &[TaxModelBracketRow],
+    pick_value: i64,
+    tax_basis_minor: i64,
+) -> BracketTax {
+    let Some(bracket) = pick_band(brackets, |b| b.lower_bound_minor, pick_value) else {
+        return BracketTax::default();
     };
     match bracket.rate_type.as_str() {
         "flat" => {
             let rate = bracket.flat_rate_bps.unwrap_or(0);
-            calculate_flat_tax(tax_basis_minor, rate)
+            BracketTax {
+                tax_minor: calculate_flat_tax(tax_basis_minor, rate),
+                flat_rate_bps: Some(rate),
+            }
         }
         "progressive" => {
-            let tiers_str = match bracket.tiers_json.as_deref() {
-                Some(s) if !s.is_empty() => s,
-                _ => return 0,
-            };
-            let tiers: Vec<TaxTier> = match serde_json::from_str(tiers_str) {
-                Ok(t) => t,
-                Err(_) => return 0,
-            };
-            calculate_progressive_tax(tax_basis_minor, &tiers)
+            let tiers: Vec<TaxTier> = bracket
+                .tiers_json
+                .as_deref()
+                .and_then(|json| serde_json::from_str(json).ok())
+                .unwrap_or_default();
+            BracketTax {
+                tax_minor: calculate_progressive_tax(tax_basis_minor, &tiers),
+                flat_rate_bps: None,
+            }
         }
-        _ => 0,
+        _ => BracketTax::default(),
     }
+}
+
+fn minimum_tax(
+    bands: &[MinimumTaxBand],
+    revenue_minor: i64,
+    computed_tax_minor: i64,
+) -> Option<i64> {
+    pick_band(bands, |b| b.lower_bound_minor, revenue_minor)
+        .map(|band| band.amount_minor)
+        .filter(|&minimum| computed_tax_minor < minimum)
+}
+
+fn allocate_loss(earlier: &[EarlierProfit], loss_minor: i64) -> Vec<EarlierProfitResult> {
+    let mut oldest_first: Vec<&EarlierProfit> = earlier.iter().collect();
+    oldest_first.sort_by_key(|row| row.profit_year);
+    let mut loss_left = loss_minor;
+    oldest_first
+        .into_iter()
+        .map(|row| {
+            let used = loss_left.min(row.amount_minor);
+            loss_left -= used;
+            let payable_minor = row.amount_minor - used;
+            EarlierProfitResult {
+                profit_year: row.profit_year,
+                amount_minor: row.amount_minor,
+                payable_minor,
+                dividend_tax_rate_bps: row.dividend_tax_rate_bps,
+                dividend_tax_minor: payable_minor * row.dividend_tax_rate_bps / 10000,
+            }
+        })
+        .collect()
 }
 
 pub fn calculate_expense_breakdown(
@@ -136,7 +184,7 @@ pub fn calculate_expense_breakdown(
     let non_tax_deductible_cost_minor = cost_minor - tax_deductible_cost_minor;
     TaxEventBreakdown {
         event_id: event.event_id,
-        event_type: event.event_type.clone(),
+        kind: event.kind,
         event_date: event.event_date.clone(),
         note: event.note.clone(),
         amount_minor: event.amount_minor,
@@ -146,6 +194,7 @@ pub fn calculate_expense_breakdown(
         non_reclaimable_vat_minor,
         tax_deductible_cost_minor,
         non_tax_deductible_cost_minor,
+        not_counted: None,
     }
 }
 
@@ -155,7 +204,7 @@ pub fn calculate_revenue_breakdown(event: &EventDataForCalc) -> TaxEventBreakdow
     let vat_amount_minor = calculate_vat_amount(event.amount_minor, net_amount_minor);
     TaxEventBreakdown {
         event_id: event.event_id,
-        event_type: event.event_type.clone(),
+        kind: event.kind,
         event_date: event.event_date.clone(),
         note: event.note.clone(),
         amount_minor: event.amount_minor,
@@ -165,6 +214,49 @@ pub fn calculate_revenue_breakdown(event: &EventDataForCalc) -> TaxEventBreakdow
         non_reclaimable_vat_minor: 0,
         tax_deductible_cost_minor: 0,
         non_tax_deductible_cost_minor: 0,
+        not_counted: None,
+    }
+}
+
+fn calculate_breakdown(model: &TaxModelDetail, event: &EventDataForCalc) -> TaxEventBreakdown {
+    match event.kind {
+        EntryKind::Revenue => calculate_revenue_breakdown(event),
+        EntryKind::Depreciation | EntryKind::Prepaid | EntryKind::Expense => {
+            let can_reclaim = determine_can_reclaim(
+                &model.vat_status,
+                model.vat_from_date.as_deref(),
+                &event.event_date,
+                event.reclaimed_vat,
+            );
+            calculate_expense_breakdown(event, can_reclaim)
+        }
+    }
+}
+
+#[derive(Default)]
+struct Dividends {
+    reserve_minor: i64,
+    from_year_minor: i64,
+    from_year_tax_minor: i64,
+    earlier: Vec<EarlierProfitResult>,
+}
+
+fn company_dividends(model: &TaxModelDetail, profit_minor: i64) -> Dividends {
+    let (reserve_minor, from_year_minor) = if profit_minor > 0 {
+        let target = profit_minor * model.reserve_fund_pct_bps.unwrap_or(0) / 10000;
+        let room = (model.reserve_fund_max_minor.unwrap_or(0)
+            - model.reserve_fund_current_minor.unwrap_or(0))
+        .max(0);
+        let reserve = target.min(room);
+        (reserve, profit_minor - reserve)
+    } else {
+        (0, 0)
+    };
+    Dividends {
+        reserve_minor,
+        from_year_minor,
+        from_year_tax_minor: from_year_minor * model.dividend_tax_rate_bps.unwrap_or(0) / 10000,
+        earlier: allocate_loss(&model.figures.earlier_profits, (-profit_minor).max(0)),
     }
 }
 
@@ -172,95 +264,97 @@ pub fn calculate_tax_model_results(
     model: &TaxModelDetail,
     events: &[EventDataForCalc],
 ) -> TaxCalculationResult {
-    let vat_status = model.vat_status.as_str();
-    let vat_from_date = model.vat_from_date.as_deref();
+    let entries = events
+        .iter()
+        .map(|event| (event.month, calculate_breakdown(model, event)))
+        .collect();
+    let forecast = forecast::build(&model.figures, entries);
+    let LineTotals {
+        revenue_minor,
+        deductible_minor,
+        non_deductible_minor,
+    } = forecast.totals;
 
-    let mut event_breakdowns: Vec<TaxEventBreakdown> = Vec::new();
-    let mut total_income_minor = 0i64;
-    let mut total_tax_deductible_expenses_minor = 0i64;
-    let mut total_non_tax_deductible_expenses_minor = 0i64;
+    let tax_basis_minor = (revenue_minor - deductible_minor).max(0);
+    let revenue_pick_minor = revenue_minor.max(0);
+    let bracket_pick_minor = if model.is_company() {
+        revenue_pick_minor
+    } else {
+        tax_basis_minor
+    };
+    let BracketTax {
+        tax_minor: computed_tax_minor,
+        flat_rate_bps: applied_flat_rate_bps,
+    } = calculate_tax_from_brackets(&model.brackets, bracket_pick_minor, tax_basis_minor);
+    let minimum_tax_minor = if model.is_company() {
+        minimum_tax(
+            &model.minimum_tax_bands,
+            revenue_pick_minor,
+            computed_tax_minor,
+        )
+    } else {
+        None
+    };
+    let tax_amount_minor = minimum_tax_minor.unwrap_or(computed_tax_minor);
+    let total_profit_minor =
+        revenue_minor - deductible_minor - non_deductible_minor - tax_amount_minor;
 
-    for event in events {
-        let breakdown = match event.event_type.as_str() {
-            "revenue" => calculate_revenue_breakdown(event),
-            "expense" => {
-                let can_reclaim = determine_can_reclaim(
-                    vat_status,
-                    vat_from_date,
-                    &event.event_date,
-                    event.reclaimed_vat,
-                );
-                calculate_expense_breakdown(event, can_reclaim)
-            }
-            _ => continue,
-        };
-
-        match event.event_type.as_str() {
-            "revenue" => total_income_minor += breakdown.net_amount_minor,
-            "expense" => {
-                total_tax_deductible_expenses_minor += breakdown.tax_deductible_cost_minor;
-                total_non_tax_deductible_expenses_minor += breakdown.non_tax_deductible_cost_minor;
-            }
-            _ => {}
-        }
-
-        event_breakdowns.push(breakdown);
-    }
-
-    let tax_basis_minor = (total_income_minor - total_tax_deductible_expenses_minor).max(0);
-    let tax_amount_minor = calculate_tax_from_brackets(tax_basis_minor, &model.brackets);
-    let total_profit_minor = total_income_minor
-        - total_tax_deductible_expenses_minor
-        - total_non_tax_deductible_expenses_minor
-        - tax_amount_minor;
-
-    let (reserve_fund_generation_minor, dividend_minor, withholding_tax_minor, net_dividend_minor) =
-        if model.person_type == "legal" && total_profit_minor > 0 {
-            let reserve_rate = model.reserve_fund_pct_bps.unwrap_or(0);
-            let reserve_target = total_profit_minor * reserve_rate / 10000;
-            let reserve_current = model.reserve_fund_current_minor.unwrap_or(0);
-            let reserve_max = model.reserve_fund_max_minor.unwrap_or(0);
-            let reserve_cap = (reserve_max - reserve_current).max(0);
-            let reserve_generation = reserve_target.min(reserve_cap);
-            let dividend = total_profit_minor - reserve_generation;
-            let withholding_rate = model.dividend_tax_rate_bps.unwrap_or(0);
-            let withholding_tax = dividend * withholding_rate / 10000;
-            let net_dividend = dividend - withholding_tax;
-            (reserve_generation, dividend, withholding_tax, net_dividend)
-        } else {
-            (0, 0, 0, 0)
-        };
-
-    let monthly_tax_burden_minor =
-        crate::shared::div_round(tax_amount_minor + withholding_tax_minor, 12);
+    let dividends = if model.is_company() {
+        company_dividends(model, total_profit_minor)
+    } else {
+        Dividends::default()
+    };
+    let dividend_minor = dividends.from_year_minor
+        + dividends
+            .earlier
+            .iter()
+            .map(|row| row.payable_minor)
+            .sum::<i64>();
+    let withholding_tax_minor = dividends.from_year_tax_minor
+        + dividends
+            .earlier
+            .iter()
+            .map(|row| row.dividend_tax_minor)
+            .sum::<i64>();
 
     TaxCalculationResult {
-        total_income_minor,
-        total_tax_deductible_expenses_minor,
-        total_non_tax_deductible_expenses_minor,
+        total_income_minor: revenue_minor,
+        total_tax_deductible_expenses_minor: deductible_minor,
+        total_non_tax_deductible_expenses_minor: non_deductible_minor,
         tax_basis_minor,
         tax_amount_minor,
         total_profit_minor,
-        reserve_fund_generation_minor,
+        reserve_fund_generation_minor: dividends.reserve_minor,
         dividend_minor,
         withholding_tax_minor,
-        net_dividend_minor,
-        monthly_tax_burden_minor,
+        net_dividend_minor: dividend_minor - withholding_tax_minor,
+        monthly_tax_burden_minor: div_round(tax_amount_minor + dividends.from_year_tax_minor, 12),
         person_type: model.person_type.clone(),
-        event_breakdowns,
+        event_breakdowns: forecast.entries,
+        actuals_through_month: model.figures.actuals_through_month.get(),
+        lines: forecast.lines,
+        applied_flat_rate_bps,
+        computed_tax_minor,
+        minimum_tax_minor,
+        dividend_from_year_minor: dividends.from_year_minor,
+        dividend_from_year_tax_minor: dividends.from_year_tax_minor,
+        earlier_profits: dividends.earlier,
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use super::*;
     use crate::features::tax_models::models::{
-        EventDataForCalc, TaxModelBracketRow, TaxModelDetail,
+        ActualMonths, EntryNotCountedReason, ForecastCell, ForecastFigures, ForecastLine,
+        ForecastLineResult, TypedPair, ValueSource,
     };
 
     fn make_event(
         event_id: i64,
-        event_type: &str,
+        kind: EntryKind,
         amount_minor: i64,
         vat_rate_bps: Option<i64>,
         vat_reclaimable_pct_bps: Option<i64>,
@@ -269,7 +363,8 @@ mod tests {
     ) -> EventDataForCalc {
         EventDataForCalc {
             event_id,
-            event_type: event_type.to_owned(),
+            kind,
+            month: 1,
             amount_minor,
             event_date: "2026-01-15T00:00:00".to_owned(),
             note: None,
@@ -315,6 +410,8 @@ mod tests {
             created_at: "2026-01-01T00:00:00".to_owned(),
             updated_at: "2026-01-01T00:00:00".to_owned(),
             brackets: vec![flat_bracket(flat_rate_bps)],
+            minimum_tax_bands: vec![],
+            figures: ForecastFigures::default(),
         }
     }
 
@@ -338,7 +435,7 @@ mod tests {
         // 20% VAT (100% reclaimable), 100% tax-deductible, can_reclaim=true
         let event = make_event(
             1,
-            "expense",
+            EntryKind::Expense,
             12000,
             Some(2000),
             Some(10000),
@@ -359,7 +456,7 @@ mod tests {
         // 20% VAT (50% reclaimable), 100% tax-deductible, can_reclaim=true
         let event = make_event(
             2,
-            "expense",
+            EntryKind::Expense,
             12000,
             Some(2000),
             Some(5000),
@@ -381,7 +478,7 @@ mod tests {
         // can_reclaim=false → reclaimable_vat = 0, all VAT is non-reclaimable
         let event = make_event(
             3,
-            "expense",
+            EntryKind::Expense,
             12000,
             Some(2000),
             Some(10000),
@@ -397,7 +494,15 @@ mod tests {
     fn test_expense_breakdown_partial_deductible() {
         // 20% VAT, 75% expense-deductible, can_reclaim=false
         // cost base = net 10000 + non-reclaimable VAT 2000 = 12000, split 75/25
-        let event = make_event(4, "expense", 12000, Some(2000), Some(0), Some(7500), None);
+        let event = make_event(
+            4,
+            EntryKind::Expense,
+            12000,
+            Some(2000),
+            Some(0),
+            Some(7500),
+            None,
+        );
         let bd = calculate_expense_breakdown(&event, false);
         assert_eq!(bd.net_amount_minor, 10000);
         assert_eq!(bd.tax_deductible_cost_minor, 9000);
@@ -407,7 +512,15 @@ mod tests {
     #[test]
     fn test_expense_breakdown_nil_deductible_pct_defaults_to_full() {
         // expense_deductible_pct_bps = None → treated as 10000 (100%)
-        let event = make_event(5, "expense", 12000, Some(2000), Some(0), None, None);
+        let event = make_event(
+            5,
+            EntryKind::Expense,
+            12000,
+            Some(2000),
+            Some(0),
+            None,
+            None,
+        );
         let bd = calculate_expense_breakdown(&event, false);
         assert_eq!(bd.tax_deductible_cost_minor, 12000);
         assert_eq!(bd.non_tax_deductible_cost_minor, 0);
@@ -419,7 +532,7 @@ mod tests {
         // cost base 11000 split 60/40 → 6600 / 4400
         let event = make_event(
             7,
-            "expense",
+            EntryKind::Expense,
             12000,
             Some(2000),
             Some(5000),
@@ -435,7 +548,7 @@ mod tests {
 
     #[test]
     fn test_revenue_breakdown() {
-        let event = make_event(6, "revenue", 12000, Some(2000), None, None, None);
+        let event = make_event(6, EntryKind::Revenue, 12000, Some(2000), None, None, None);
         let bd = calculate_revenue_breakdown(&event);
         assert_eq!(bd.net_amount_minor, 10000);
         assert_eq!(bd.vat_amount_minor, 2000);
@@ -640,48 +753,94 @@ mod tests {
         ]
     }
 
+    fn tax_by_basis(basis: i64, brackets: &[TaxModelBracketRow]) -> (i64, Option<i64>) {
+        let tax = calculate_tax_from_brackets(brackets, basis, basis);
+        (tax.tax_minor, tax.flat_rate_bps)
+    }
+
     #[test]
     fn test_brackets_zero_basis_uses_first_bracket() {
-        assert_eq!(calculate_tax_from_brackets(0, &three_brackets()), 0);
+        assert_eq!(tax_by_basis(0, &three_brackets()), (0, Some(1000)));
     }
 
     #[test]
     fn test_brackets_basis_below_bound_uses_previous_bracket() {
+        assert_eq!(tax_by_basis(99_999, &three_brackets()), (9_999, Some(1000)));
+    }
+
+    #[test]
+    fn test_brackets_basis_at_bound_stays_in_the_bracket_below() {
         assert_eq!(
-            calculate_tax_from_brackets(99_999, &three_brackets()),
-            9_999
+            tax_by_basis(100_000, &three_brackets()),
+            (10_000, Some(1000))
         );
     }
 
     #[test]
-    fn test_brackets_basis_at_bound_uses_that_bracket_for_whole_basis() {
+    fn test_brackets_basis_just_above_bound_uses_the_next_bracket() {
         assert_eq!(
-            calculate_tax_from_brackets(100_000, &three_brackets()),
-            20_000
+            tax_by_basis(100_001, &three_brackets()),
+            (20_000, Some(2000))
         );
     }
 
     #[test]
     fn test_brackets_basis_above_bound_uses_that_bracket_for_whole_basis() {
         assert_eq!(
-            calculate_tax_from_brackets(150_000, &three_brackets()),
-            30_000
+            tax_by_basis(150_000, &three_brackets()),
+            (30_000, Some(2000))
         );
     }
 
     #[test]
     fn test_brackets_progressive_bracket_tiers_apply_to_whole_basis() {
         // 30% on 0..250000 = 75000, 40% on 250000..300000 = 20000
-        assert_eq!(
-            calculate_tax_from_brackets(300_000, &three_brackets()),
-            95_000
-        );
+        assert_eq!(tax_by_basis(300_000, &three_brackets()), (95_000, None));
     }
 
     #[test]
     fn test_brackets_basis_below_first_bound_is_untaxed() {
         let brackets = vec![bracket(0, 50_000, "flat", Some(1000), None)];
-        assert_eq!(calculate_tax_from_brackets(40_000, &brackets), 0);
+        assert_eq!(tax_by_basis(40_000, &brackets), (0, None));
+    }
+
+    #[test]
+    fn test_brackets_pick_value_and_basis_are_separate() {
+        assert_eq!(
+            calculate_tax_from_brackets(&three_brackets(), 150_000, 10_000),
+            BracketTax {
+                tax_minor: 2_000,
+                flat_rate_bps: Some(2000)
+            }
+        );
+    }
+
+    // --- pick_band ---
+
+    #[test]
+    fn pick_band_keeps_each_upper_bound_inside_its_band() {
+        let bounds = [0, 100];
+        let pick = |value| pick_band(&bounds, |b| *b, value).copied();
+        assert_eq!(pick(0), Some(0));
+        assert_eq!(pick(50), Some(0));
+        assert_eq!(pick(100), Some(0));
+        assert_eq!(pick(101), Some(100));
+        assert_eq!(pick(1_000_000), Some(100));
+    }
+
+    #[test]
+    fn pick_band_below_a_first_bound_above_zero_picks_nothing() {
+        let bounds = [50];
+        let pick = |value| pick_band(&bounds, |b| *b, value).copied();
+        assert_eq!(pick(0), None);
+        assert_eq!(pick(49), None);
+        assert_eq!(pick(50), Some(50));
+        assert_eq!(pick(51), Some(50));
+    }
+
+    #[test]
+    fn pick_band_of_no_bands_is_none() {
+        assert_eq!(pick_band(&[] as &[i64], |b| *b, 10), None);
     }
 
     // --- calculate_tax_model_results ---
@@ -711,13 +870,14 @@ mod tests {
         let model = make_flat_model("physical", 2000, None, None, None, None);
         let revenue = EventDataForCalc {
             event_date: "2026-01-01T00:00:00".to_owned(),
-            ..make_event(1, "revenue", 100_000, None, None, None, None)
+            ..make_event(1, EntryKind::Revenue, 100_000, None, None, None, None)
         };
         let expense = EventDataForCalc {
             event_date: "2026-02-01T00:00:00".to_owned(),
+            month: 2,
             ..make_event(
                 2,
-                "expense",
+                EntryKind::Expense,
                 24_000,
                 Some(2000),
                 Some(10000),
@@ -757,10 +917,10 @@ mod tests {
         // withholding 7% = 54720 * 700 / 10000 = 3830
         // net_dividend = 54720 - 3830 = 50890
         let model = make_flat_model("legal", 2000, Some(1000), Some(0), Some(50_000), Some(700));
-        let revenue = make_event(1, "revenue", 100_000, None, None, None, None);
+        let revenue = make_event(1, EntryKind::Revenue, 100_000, None, None, None, None);
         let expense = make_event(
             2,
-            "expense",
+            EntryKind::Expense,
             24_000,
             Some(2000),
             Some(10000),
@@ -789,10 +949,10 @@ mod tests {
             Some(50_000),
             Some(0),
         );
-        let revenue = make_event(1, "revenue", 100_000, None, None, None, None);
+        let revenue = make_event(1, EntryKind::Revenue, 100_000, None, None, None, None);
         let expense = make_event(
             2,
-            "expense",
+            EntryKind::Expense,
             24_000,
             Some(2000),
             Some(10000),
@@ -809,10 +969,10 @@ mod tests {
     fn test_aggregate_negative_profit() {
         // Expenses exceed income: profit < 0, reserve_fund = 0, dividend = 0
         let model = make_flat_model("legal", 2000, Some(1000), Some(0), Some(50_000), Some(700));
-        let revenue = make_event(1, "revenue", 10_000, None, None, None, None);
+        let revenue = make_event(1, EntryKind::Revenue, 10_000, None, None, None, None);
         // expense cost = net 20000 + non-reclaimable VAT 4000 = 24000 (deductible),
         // tax_basis = max(0, 10000-24000) = 0
-        let expense = make_event(2, "expense", 24_000, Some(2000), None, None, None);
+        let expense = make_event(2, EntryKind::Expense, 24_000, Some(2000), None, None, None);
         let result = calculate_tax_model_results(&model, &[revenue, expense]);
 
         assert_eq!(result.tax_basis_minor, 0);
@@ -822,5 +982,401 @@ mod tests {
         assert_eq!(result.reserve_fund_generation_minor, 0);
         assert_eq!(result.dividend_minor, 0);
         assert_eq!(result.withholding_tax_minor, 0);
+    }
+
+    // --- the forecast and the tax rules ---
+
+    fn figures(
+        month: i64,
+        payroll_monthly_minor: i64,
+        typed: &[(ForecastLine, Option<i64>, Option<i64>)],
+        earlier_profits: Vec<EarlierProfit>,
+    ) -> ForecastFigures {
+        ForecastFigures {
+            actuals_through_month: ActualMonths::new(month).unwrap(),
+            payroll_monthly_minor,
+            typed_values: typed
+                .iter()
+                .map(|&(line, so_far_minor, rest_minor)| {
+                    (
+                        line,
+                        TypedPair {
+                            so_far_minor,
+                            rest_minor,
+                        },
+                    )
+                })
+                .collect::<BTreeMap<_, _>>(),
+            earlier_profits,
+        }
+    }
+
+    fn whole_year(revenue_minor: i64, deductible_minor: i64) -> ForecastFigures {
+        figures(
+            12,
+            0,
+            &[
+                (ForecastLine::Revenue, Some(revenue_minor), None),
+                (ForecastLine::DeductibleCosts, Some(deductible_minor), None),
+            ],
+            vec![],
+        )
+    }
+
+    fn band(lower_bound_minor: i64, amount_minor: i64) -> MinimumTaxBand {
+        MinimumTaxBand {
+            lower_bound_minor,
+            amount_minor,
+        }
+    }
+
+    fn earlier(profit_year: i64, amount_minor: i64, dividend_tax_rate_bps: i64) -> EarlierProfit {
+        EarlierProfit {
+            profit_year,
+            amount_minor,
+            dividend_tax_rate_bps,
+        }
+    }
+
+    fn rates_10_and_21() -> Vec<TaxModelBracketRow> {
+        vec![
+            bracket(0, 0, "flat", Some(1000), None),
+            bracket(1, 100_000_00, "flat", Some(2100), None),
+        ]
+    }
+
+    fn model(person_type: &str, figures: ForecastFigures) -> TaxModelDetail {
+        TaxModelDetail {
+            brackets: rates_10_and_21(),
+            minimum_tax_bands: vec![
+                band(0, 340_00),
+                band(50_000_00, 960_00),
+                band(250_000_00, 1_920_00),
+            ],
+            figures,
+            ..make_flat_model(
+                person_type,
+                0,
+                Some(1000),
+                Some(500_00),
+                Some(500_00),
+                Some(700),
+            )
+        }
+    }
+
+    fn worked_example(typed_deductible_rest: Option<i64>) -> TaxModelDetail {
+        model(
+            "legal",
+            figures(
+                9,
+                4_000_00,
+                &[
+                    (ForecastLine::Revenue, Some(90_000_00), None),
+                    (ForecastLine::Payroll, Some(36_000_00), None),
+                    (
+                        ForecastLine::DeductibleCosts,
+                        Some(18_000_00),
+                        typed_deductible_rest,
+                    ),
+                    (ForecastLine::NonDeductibleCosts, Some(1_500_00), None),
+                ],
+                vec![earlier(2025, 15_000_00, 700)],
+            ),
+        )
+    }
+
+    fn depreciation_350_a_month() -> Vec<EventDataForCalc> {
+        (1..=12u8)
+            .map(|month| EventDataForCalc {
+                event_date: format!("2026-{month:02}-28T23:59:59"),
+                month,
+                ..make_event(
+                    i64::from(month),
+                    EntryKind::Depreciation,
+                    350_00,
+                    None,
+                    None,
+                    Some(10000),
+                    None,
+                )
+            })
+            .collect()
+    }
+
+    fn cell(amount_minor: i64, source: ValueSource, untyped_minor: i64) -> ForecastCell {
+        ForecastCell {
+            amount_minor,
+            source,
+            untyped_minor,
+        }
+    }
+
+    #[test]
+    fn worked_example_fills_every_cell_with_its_source() {
+        let result =
+            calculate_tax_model_results(&worked_example(None), &depreciation_350_a_month());
+
+        let row = |line, so_far, rest, year_minor| ForecastLineResult {
+            line,
+            so_far,
+            rest,
+            year_minor,
+        };
+        assert_eq!(result.actuals_through_month, 9);
+        assert_eq!(
+            result.lines,
+            vec![
+                row(
+                    ForecastLine::Revenue,
+                    cell(90_000_00, ValueSource::Typed, 0),
+                    cell(30_000_00, ValueSource::Average, 30_000_00),
+                    120_000_00,
+                ),
+                row(
+                    ForecastLine::Payroll,
+                    cell(36_000_00, ValueSource::Typed, 0),
+                    cell(12_000_00, ValueSource::MonthlyAmount, 12_000_00),
+                    48_000_00,
+                ),
+                row(
+                    ForecastLine::Depreciation,
+                    cell(3_150_00, ValueSource::Schedule, 3_150_00),
+                    cell(1_050_00, ValueSource::Schedule, 1_050_00),
+                    4_200_00,
+                ),
+                row(
+                    ForecastLine::DeductibleCosts,
+                    cell(18_000_00, ValueSource::Typed, 0),
+                    cell(6_000_00, ValueSource::Average, 6_000_00),
+                    24_000_00,
+                ),
+                row(
+                    ForecastLine::NonDeductibleCosts,
+                    cell(1_500_00, ValueSource::Typed, 0),
+                    cell(500_00, ValueSource::Average, 500_00),
+                    2_000_00,
+                ),
+            ]
+        );
+        assert!(result
+            .event_breakdowns
+            .iter()
+            .all(|e| e.not_counted.is_none()));
+    }
+
+    #[test]
+    fn worked_example_tax_profit_and_dividends() {
+        let result =
+            calculate_tax_model_results(&worked_example(None), &depreciation_350_a_month());
+
+        assert_eq!(result.total_income_minor, 120_000_00);
+        assert_eq!(result.total_tax_deductible_expenses_minor, 76_200_00);
+        assert_eq!(result.total_non_tax_deductible_expenses_minor, 2_000_00);
+        assert_eq!(result.tax_basis_minor, 43_800_00);
+        assert_eq!(result.applied_flat_rate_bps, Some(2100));
+        assert_eq!(result.computed_tax_minor, 9_198_00);
+        assert_eq!(result.minimum_tax_minor, None);
+        assert_eq!(result.tax_amount_minor, 9_198_00);
+        assert_eq!(result.total_profit_minor, 32_602_00);
+        assert_eq!(result.reserve_fund_generation_minor, 0);
+        assert_eq!(result.dividend_from_year_minor, 32_602_00);
+        assert_eq!(result.dividend_from_year_tax_minor, 2_282_14);
+        assert_eq!(
+            result.earlier_profits,
+            vec![EarlierProfitResult {
+                profit_year: 2025,
+                amount_minor: 15_000_00,
+                payable_minor: 15_000_00,
+                dividend_tax_rate_bps: 700,
+                dividend_tax_minor: 1_050_00,
+            }]
+        );
+        assert_eq!(result.dividend_minor, 47_602_00);
+        assert_eq!(result.withholding_tax_minor, 3_332_14);
+        assert_eq!(result.net_dividend_minor, 44_269_86);
+        assert_eq!(
+            result.monthly_tax_burden_minor, 956_68,
+            "the burden leaves out the earlier profit's dividend tax"
+        );
+    }
+
+    #[test]
+    fn worked_example_with_typed_deductible_rest() {
+        let result = calculate_tax_model_results(
+            &worked_example(Some(5_600_00)),
+            &depreciation_350_a_month(),
+        );
+        let deductible = result
+            .lines
+            .iter()
+            .find(|l| l.line == ForecastLine::DeductibleCosts)
+            .unwrap();
+        assert_eq!(
+            deductible.rest,
+            cell(5_600_00, ValueSource::Typed, 6_000_00)
+        );
+        assert_eq!(result.tax_basis_minor, 44_200_00);
+        assert_eq!(result.tax_amount_minor, 9_282_00);
+    }
+
+    #[test]
+    fn a_loss_year_uses_up_earlier_profit_oldest_first() {
+        let model = model(
+            "legal",
+            figures(
+                12,
+                0,
+                &[
+                    (ForecastLine::Revenue, Some(10_000_00), None),
+                    (ForecastLine::DeductibleCosts, Some(15_000_00), None),
+                ],
+                vec![earlier(2024, 4_000_00, 1000), earlier(2025, 3_000_00, 700)],
+            ),
+        );
+        let result = calculate_tax_model_results(&model, &[]);
+
+        assert_eq!(result.computed_tax_minor, 0);
+        assert_eq!(result.minimum_tax_minor, Some(340_00));
+        assert_eq!(result.tax_amount_minor, 340_00);
+        assert_eq!(result.total_profit_minor, -5_340_00);
+        assert_eq!(result.reserve_fund_generation_minor, 0);
+        assert_eq!(result.dividend_from_year_minor, 0);
+        assert_eq!(result.dividend_from_year_tax_minor, 0);
+        let payable: Vec<(i64, i64, i64)> = result
+            .earlier_profits
+            .iter()
+            .map(|p| (p.profit_year, p.payable_minor, p.dividend_tax_minor))
+            .collect();
+        assert_eq!(payable, vec![(2024, 0, 0), (2025, 1_660_00, 116_20)]);
+        assert_eq!(result.dividend_minor, 1_660_00);
+        assert_eq!(result.withholding_tax_minor, 116_20);
+        assert_eq!(result.net_dividend_minor, 1_543_80);
+        assert_eq!(result.monthly_tax_burden_minor, 28_33);
+    }
+
+    #[test]
+    fn a_loss_uses_up_the_oldest_year_whatever_order_the_years_come_in() {
+        let model = model(
+            "legal",
+            figures(
+                12,
+                0,
+                &[(ForecastLine::DeductibleCosts, Some(1_000_00), None)],
+                vec![earlier(2025, 3_000_00, 700), earlier(2023, 500_00, 700)],
+            ),
+        );
+        let result = calculate_tax_model_results(&model, &[]);
+        let payable: Vec<(i64, i64)> = result
+            .earlier_profits
+            .iter()
+            .map(|p| (p.profit_year, p.payable_minor))
+            .collect();
+        assert_eq!(result.total_profit_minor, -1_340_00);
+        assert_eq!(payable, vec![(2023, 0), (2025, 2_160_00)]);
+    }
+
+    #[test]
+    fn a_loss_bigger_than_every_earlier_profit_leaves_no_dividend() {
+        let model = model(
+            "legal",
+            figures(
+                12,
+                0,
+                &[(ForecastLine::DeductibleCosts, Some(10_000_00), None)],
+                vec![earlier(2025, 3_000_00, 700)],
+            ),
+        );
+        let result = calculate_tax_model_results(&model, &[]);
+        assert_eq!(result.earlier_profits[0].payable_minor, 0);
+        assert_eq!(result.dividend_minor, 0);
+        assert_eq!(result.net_dividend_minor, 0);
+    }
+
+    #[test]
+    fn company_bracket_follows_revenue_with_the_bound_inside() {
+        let tax = |revenue_minor, deductible_minor| {
+            let result = calculate_tax_model_results(
+                &model("legal", whole_year(revenue_minor, deductible_minor)),
+                &[],
+            );
+            (result.computed_tax_minor, result.applied_flat_rate_bps)
+        };
+        assert_eq!(tax(100_000_00, 60_000_00), (4_000_00, Some(1000)));
+        assert_eq!(tax(100_000_01, 60_000_00), (8_400_00, Some(2100)));
+        assert_eq!(tax(200_000_00, 199_000_00), (210_00, Some(2100)));
+    }
+
+    #[test]
+    fn physical_person_bracket_follows_the_tax_base_with_the_bound_inside() {
+        let tax = |revenue_minor, deductible_minor| {
+            let result = calculate_tax_model_results(
+                &model("physical", whole_year(revenue_minor, deductible_minor)),
+                &[],
+            );
+            (result.computed_tax_minor, result.applied_flat_rate_bps)
+        };
+        assert_eq!(tax(300_000_00, 200_000_00), (10_000_00, Some(1000)));
+        assert_eq!(tax(300_000_00, 199_999_99), (21_000_00, Some(2100)));
+    }
+
+    #[test]
+    fn minimum_tax_replaces_a_lower_computed_tax_for_a_company() {
+        let result = calculate_tax_model_results(&model("legal", whole_year(3_000_00, 0)), &[]);
+        assert_eq!(result.computed_tax_minor, 300_00);
+        assert_eq!(result.minimum_tax_minor, Some(340_00));
+        assert_eq!(result.tax_amount_minor, 340_00);
+        assert_eq!(result.total_profit_minor, 2_660_00);
+    }
+
+    #[test]
+    fn negative_revenue_still_gets_the_first_bands_minimum_tax() {
+        let credit_note = make_event(1, EntryKind::Revenue, -1_000_00, None, None, None, None);
+        let result = calculate_tax_model_results(
+            &model("legal", figures(12, 0, &[], vec![])),
+            &[credit_note],
+        );
+        assert_eq!(result.total_income_minor, -1_000_00);
+        assert_eq!(result.computed_tax_minor, 0);
+        assert_eq!(result.applied_flat_rate_bps, Some(1000));
+        assert_eq!(result.minimum_tax_minor, Some(340_00));
+        assert_eq!(result.tax_amount_minor, 340_00);
+    }
+
+    #[test]
+    fn a_physical_person_never_gets_the_minimum_tax() {
+        let result = calculate_tax_model_results(&model("physical", whole_year(3_000_00, 0)), &[]);
+        assert_eq!(result.computed_tax_minor, 300_00);
+        assert_eq!(result.minimum_tax_minor, None);
+        assert_eq!(result.tax_amount_minor, 300_00);
+    }
+
+    #[test]
+    fn a_physical_person_ignores_earlier_profit() {
+        let model = model(
+            "physical",
+            figures(12, 0, &[], vec![earlier(2025, 3_000_00, 700)]),
+        );
+        let result = calculate_tax_model_results(&model, &[]);
+        assert!(result.earlier_profits.is_empty());
+        assert_eq!(result.dividend_minor, 0);
+        assert_eq!(result.withholding_tax_minor, 0);
+    }
+
+    #[test]
+    fn an_entry_after_the_actual_months_is_listed_but_not_counted() {
+        let model = model("legal", figures(9, 0, &[], vec![]));
+        let october = EventDataForCalc {
+            event_date: "2026-10-05T00:00:00".to_owned(),
+            month: 10,
+            ..make_event(1, EntryKind::Expense, 50_000, None, None, None, None)
+        };
+        let result = calculate_tax_model_results(&model, &[october]);
+        assert_eq!(result.total_tax_deductible_expenses_minor, 0);
+        assert_eq!(
+            result.event_breakdowns[0].not_counted,
+            Some(EntryNotCountedReason::AfterActualMonths)
+        );
+        assert_eq!(result.event_breakdowns[0].kind, EntryKind::Expense);
     }
 }
