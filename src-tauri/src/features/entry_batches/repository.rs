@@ -17,12 +17,9 @@ pub(super) fn create_batch(conn: &Connection, params: CreateBatchParams) -> Resu
     Ok(conn.last_insert_rowid())
 }
 
-/// What a document wrote that carries the batch. Generated rows (prepaid shares, depreciation)
-/// are never stamped: undo finds them through their parent.
 pub(super) enum Root {
     Event(i64),
     SplitGroup(i64),
-    /// The account and its initial balance update; the account also takes the reference.
     AssetAccount {
         account_id: i64,
         source_ref: SourceRef,
@@ -34,7 +31,6 @@ pub(super) struct StampParams {
     pub root: Root,
 }
 
-/// The only writer of `batch_id` and of `account.source_ref`.
 pub(super) fn stamp(conn: &Connection, params: StampParams) -> Result<(), AppError> {
     let batch_id = params.batch_id;
     match params.root {
@@ -101,7 +97,6 @@ pub(super) fn list_recent_batches(
     Ok(batches)
 }
 
-/// `None` when there is no such batch; otherwise whether it was already undone.
 pub(super) fn find_batch_undone(
     conn: &Connection,
     batch_id: i64,
@@ -125,7 +120,6 @@ pub(super) fn mark_undone(conn: &Connection, batch_id: i64) -> Result<(), AppErr
     Ok(())
 }
 
-/// An entry or split leg the batch recorded, outside its own asset accounts.
 pub(super) struct RootEntry {
     pub event_id: i64,
     pub split_group_id: Option<i64>,
@@ -140,7 +134,6 @@ pub(super) struct BatchAsset {
     pub purchase_date: Option<String>,
 }
 
-/// Events on the batch's own asset accounts go with the account, so they are not listed.
 pub(super) fn list_root_entries(
     conn: &Connection,
     batch_id: i64,
@@ -187,10 +180,6 @@ pub(super) fn list_batch_assets(
     Ok(assets)
 }
 
-/// What the user changed in Saldo since the batch: a batch row edited (it has a second
-/// `event_data` version), a leg added to one of its split groups, or an entry added to one of
-/// its asset accounts. Depreciation rows are written by Saldo on the person's expense account,
-/// so they never count.
 pub(super) fn list_changed_rows(
     conn: &Connection,
     batch_id: i64,

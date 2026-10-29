@@ -1,15 +1,10 @@
 -- Migration 037: One general source reference, and the batches that recorded documents.
 --
--- event.ekasa_receipt_ref becomes event.source_ref. It holds a canonical, prefixed reference
--- built only by SourceRef in Rust: 'online:<id>' / 'offline:<code>' for eKasa receipts (values
--- unchanged) or 'invoice:<ISSUER>/<NUMBER>'. Every leg of a split group carries the same
--- reference, and the app may import an eKasa receipt twice on purpose, so it stays NOT UNIQUE.
+-- source_ref is not UNIQUE: the legs of a split group share it, and an eKasa receipt may be
+-- imported twice on purpose.
 --
--- An asset is an account, not an event, so account gets its own source_ref.
---
--- batch_id marks the rows a batch created: entries, split legs, asset accounts and their
--- initial balance update. Generated rows (prepaid shares, depreciation) are found through
--- linked_prepaid_event_id and linked_asset_id instead, so regenerating them never loses them.
+-- Generated rows (prepaid shares, depreciation) carry no batch_id. They are regenerated, so
+-- undo finds them through linked_prepaid_event_id and linked_asset_id.
 
 ALTER TABLE event RENAME COLUMN ekasa_receipt_ref TO source_ref;
 DROP INDEX idx_event_ekasa_receipt_ref;

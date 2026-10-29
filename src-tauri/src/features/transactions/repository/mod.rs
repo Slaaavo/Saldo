@@ -59,6 +59,13 @@ pub use taxable_links::{
 pub use depreciation::generate_depreciation_events;
 pub(crate) use depreciation::recalculate_depreciation_for_asset;
 
+/// A cash flow (`e`) with no link to a live entry.
+const NO_LINK_TO_A_LIVE_ENTRY: &str = "NOT EXISTS (
+    SELECT 1 FROM taxable_cashflow_link tcl
+    JOIN event te ON te.id = tcl.taxable_event_id AND te.deleted_at IS NULL
+    WHERE tcl.cashflow_event_id = e.id
+)";
+
 // ---------------------------------------------------------------------------
 // Shared EventWithData query infrastructure
 // Used by queries.rs and taxable_links.rs to avoid duplicating the 28-column

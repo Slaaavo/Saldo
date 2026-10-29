@@ -31,12 +31,7 @@ pub fn read_db_location(app_data_dir: &Path) -> Option<PathBuf> {
 pub enum DbLocation {
     Default(PathBuf),
     Custom(PathBuf),
-    /// A custom folder is configured but its `saldo.db` is not there (e.g. a cloud-sync file
-    /// that was evicted or not yet downloaded, or an unmounted drive).
-    CustomMissing {
-        folder: PathBuf,
-        default: PathBuf,
-    },
+    CustomMissing { folder: PathBuf, default: PathBuf },
 }
 
 pub fn resolve_db_location(app_data_dir: &Path) -> DbLocation {

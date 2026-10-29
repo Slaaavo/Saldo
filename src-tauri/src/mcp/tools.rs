@@ -53,8 +53,6 @@ struct Tool {
     run: Run,
 }
 
-/// `tools/list` and `tools/call` both read this table, and each schema is derived from the type
-/// its arguments are parsed into, so a new tool is one line here plus its handler.
 fn tools() -> Vec<Tool> {
     vec![
         tool(
@@ -199,7 +197,6 @@ impl From<rusqlite::Error> for ToolFailure {
 }
 
 impl ToolFailure {
-    /// The one place that decides the error shape the model sees.
     fn into_json(self) -> Value {
         match self {
             ToolFailure::Unavailable(refusal) => {
@@ -257,11 +254,12 @@ fn validate_dates(dates: &[(&Option<String>, &str)]) -> Result<(), AppError> {
     Ok(())
 }
 
-fn page_size(limit: Option<u32>) -> u32 {
-    limit.unwrap_or(50).min(500)
-}
+const DEFAULT_PAGE_SIZE: u32 = 50;
+const MAX_PAGE_SIZE: u32 = 500;
 
-// ---- saldo_context -------------------------------------------------------------------------
+fn page_size(limit: Option<u32>) -> u32 {
+    limit.unwrap_or(DEFAULT_PAGE_SIZE).min(MAX_PAGE_SIZE)
+}
 
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -274,7 +272,6 @@ struct SaldoContext {
     consolidation_currency: CurrencyRef,
     persons: Vec<PersonContext>,
     tax_models: Vec<TaxModelContext>,
-    /// The latest batches, newest first, so a lost batch id can be found again.
     recent_batches: Vec<BatchSummary>,
 }
 
@@ -291,7 +288,6 @@ struct CurrencyRef {
 struct PersonContext {
     id: i64,
     name: String,
-    /// `legal` (a company) or `physical`.
     person_type: String,
     is_default: bool,
     vat_payer: bool,
@@ -367,8 +363,6 @@ fn saldo_context(db: &SaldoDb, _: NoArgs) -> Result<SaldoContext, ToolFailure> {
     })
 }
 
-// ---- find_entries --------------------------------------------------------------------------
-
 #[derive(Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct FindEntriesInput {
@@ -432,8 +426,6 @@ fn find_entries(db: &SaldoDb, input: FindEntriesInput) -> Result<EntriesOutput, 
     Ok(EntriesOutput { entries })
 }
 
-// ---- find_payments -------------------------------------------------------------------------
-
 #[derive(Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct FindPaymentsInput {
@@ -471,18 +463,16 @@ fn find_payments_tool(
             person_id: input.person_id,
             from_date: input.from,
             to_date: input.to,
-            amount_minor: input.amount_minor,
+            amount_either_sign_minor: input.amount_minor,
             original_currency: input.original_currency,
             note_contains: input.note_contains,
             unlinked_only: input.unlinked_only,
-            event_ids: Vec::new(),
+            event_ids: None,
             limit: page_size(input.limit),
         },
     )?;
     Ok(PaymentsOutput { payments })
 }
-
-// ---- get_forecast --------------------------------------------------------------------------
 
 #[derive(Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -496,8 +486,6 @@ fn get_forecast(
 ) -> Result<TaxCalculationResult, ToolFailure> {
     Ok(calculate_tax_model_inner(&db.conn, input.tax_model_id)?)
 }
-
-// ---- record_batch / undo_batch -------------------------------------------------------------
 
 fn record_batch(db: &SaldoDb, input: RecordBatchInput) -> Result<BatchReceipt, ToolFailure> {
     entry_batches::record_batch(&db.conn, input).map_err(ToolFailure::Batch)
@@ -531,7 +519,6 @@ mod tests {
         payment_id: i64,
     }
 
-    /// An app data folder whose saldo.db holds one paid Orange invoice and a 2026 tax model.
     fn seeded() -> Seeded {
         let dir = tempfile::tempdir().unwrap();
         let conn = crate::db::initialize_db(&dir.path().join(DB_FILENAME)).unwrap();
@@ -628,7 +615,6 @@ mod tests {
         .unwrap()
     }
 
-    /// Calls a tool the way `tools/call` does and returns whether it succeeded and its result.
     fn call(dir: &tempfile::TempDir, name: &str, arguments: Value) -> (bool, Value) {
         match Server::new(dir.path().to_path_buf()).call(name, arguments) {
             ToolOutcome::Done(value) => (true, value),
@@ -713,6 +699,17 @@ mod tests {
             !record_batch.contains("$ref"),
             "subschemas are inlined for clients that do not follow references"
         );
+    }
+
+    #[test]
+    fn the_limit_text_in_the_schema_names_the_page_size_constants() {
+        let listed = Server::new(PathBuf::new()).list();
+        let named = format!("Default {DEFAULT_PAGE_SIZE}, at most {MAX_PAGE_SIZE}");
+
+        for tool in [&listed[1], &listed[2]] {
+            let limit = tool["inputSchema"]["properties"]["limit"].to_string();
+            assert!(limit.contains(&named), "{}: {limit}", tool["name"]);
+        }
     }
 
     fn orange_invoice(seeded: &Seeded, number: &str) -> Value {

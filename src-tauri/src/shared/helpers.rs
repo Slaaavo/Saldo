@@ -19,10 +19,11 @@ where
     run_in_savepoint(conn, f)
 }
 
-/// The outermost scope is a transaction begun IMMEDIATE, so it takes the write lock before its
-/// first read. A deferred transaction that reads and then writes fails with SQLITE_BUSY_SNAPSHOT
-/// when another process (`saldo mcp`) committed in between, and `busy_timeout` does not retry
-/// that. Nested scopes are savepoints.
+/// A deferred transaction that reads and then writes fails with SQLITE_BUSY_SNAPSHOT when another
+/// connection committed in between, and `busy_timeout` does not retry that. Taking the write lock
+/// first avoids it.
+const BEGIN_WRITE: &str = "BEGIN IMMEDIATE";
+
 fn run_in_savepoint<T, E, F>(conn: &Connection, f: F) -> Result<T, E>
 where
     E: From<rusqlite::Error>,
@@ -43,14 +44,14 @@ where
     result
 }
 
-/// COMMIT fails on a deferred foreign key violation (`event.latest_data_id`) and leaves the
-/// transaction open, so a failed commit is rolled back too.
+/// COMMIT fails on a deferred foreign key violation and leaves the transaction open, so a failed
+/// commit is rolled back too.
 fn run_in_transaction<T, E, F>(conn: &Connection, f: F) -> Result<T, E>
 where
     E: From<rusqlite::Error>,
     F: FnOnce() -> Result<T, E>,
 {
-    conn.execute_batch("BEGIN IMMEDIATE")?;
+    conn.execute_batch(BEGIN_WRITE)?;
     let result = f().and_then(|val| {
         conn.execute_batch("COMMIT")?;
         Ok(val)
@@ -61,8 +62,6 @@ where
     result
 }
 
-/// A transaction begun IMMEDIATE that rolls back when dropped without `commit`, also while a
-/// panic unwinds. `with_savepoint` scopes inside it are savepoints.
 pub struct WriteTxn<'c> {
     conn: &'c Connection,
     open: bool,
@@ -70,7 +69,7 @@ pub struct WriteTxn<'c> {
 
 impl<'c> WriteTxn<'c> {
     pub fn begin(conn: &'c Connection) -> rusqlite::Result<Self> {
-        conn.execute_batch("BEGIN IMMEDIATE")?;
+        conn.execute_batch(BEGIN_WRITE)?;
         Ok(Self { conn, open: true })
     }
 
@@ -309,7 +308,6 @@ mod savepoint_tests {
         assert_eq!(count(&conn, "parent"), 1);
     }
 
-    /// Two connections on one WAL file, as the app and `saldo mcp` are.
     fn two_connections() -> (tempfile::TempDir, Connection, Connection) {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("shared.db");

@@ -8,19 +8,13 @@ pub fn run_pending(conn: &Connection) -> Result<(), AppError> {
     apply_pending(conn, MIGRATIONS)
 }
 
-/// How a database's applied migrations differ from this binary's list.
 #[derive(Debug, PartialEq, Eq)]
 pub enum SchemaMismatch {
-    /// No `_migrations` table: not a database Saldo has opened.
     NotInitialized,
-    /// This binary knows migrations the database lacks.
     Behind { missing: Vec<String> },
-    /// The database has migrations this binary does not know: a newer Saldo migrated it. Wins
-    /// over `Behind` when both apply.
     Ahead { unknown: Vec<String> },
 }
 
-/// Compares the applied migrations with this binary's list. Reads only, never migrates.
 pub fn check_schema(conn: &Connection) -> Result<Result<(), SchemaMismatch>, AppError> {
     compare_schema(conn, MIGRATIONS)
 }
@@ -178,6 +172,20 @@ mod tests {
 
         assert_eq!(
             compare_schema(&conn, &[FIRST]).unwrap(),
+            Err(SchemaMismatch::Ahead {
+                unknown: vec!["002_second.sql".into()]
+            })
+        );
+    }
+
+    #[test]
+    fn a_database_both_behind_and_ahead_is_reported_ahead() {
+        let conn = fk_enabled_conn();
+        apply_pending(&conn, &[FIRST, SECOND]).unwrap();
+
+        let third: (&str, &str) = ("003_third.sql", "CREATE TABLE third (id INTEGER);");
+        assert_eq!(
+            compare_schema(&conn, &[FIRST, third]).unwrap(),
             Err(SchemaMismatch::Ahead {
                 unknown: vec!["002_second.sql".into()]
             })

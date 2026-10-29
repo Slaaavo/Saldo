@@ -360,7 +360,6 @@ pub struct DocumentEntry {
     pub kind: TaxableKind,
     pub person_id: i64,
     pub date: String,
-    /// Sum of the lines, VAT included. Negative for a credit note.
     pub total_gross_minor: i64,
     pub note: Option<String>,
     pub source_ref: Option<String>,
@@ -369,7 +368,6 @@ pub struct DocumentEntry {
     pub prepaid_until: Option<String>,
     pub reclaimed_vat: Option<bool>,
     pub lines: Vec<EntryLine>,
-    /// Payments linked to any line.
     pub linked_payment_ids: Vec<i64>,
 }
 
@@ -393,24 +391,30 @@ pub struct Payment {
     pub account_name: String,
     pub person_id: Option<i64>,
     pub date: String,
-    /// In the account's currency. Negative for money going out.
     pub amount_minor: i64,
     pub currency: String,
     pub original_amount_minor: Option<i64>,
     pub original_currency: Option<String>,
-    /// The bank or card text.
     pub note: Option<String>,
-    /// Live entries this payment is linked to. Empty means unlinked.
     pub linked_entry_ids: Vec<i64>,
 }
 
 /// What already carries a document's reference: a live entry or an asset account.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RecordedSource {
-    pub event_id: Option<i64>,
-    pub asset_account_id: Option<i64>,
-    pub batch_id: Option<i64>,
-    /// The entry's date, or the asset's purchase date.
-    pub date: Option<String>,
+#[serde(
+    tag = "kind",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase"
+)]
+pub enum RecordedSource {
+    Entry {
+        event_id: i64,
+        batch_id: Option<i64>,
+        date: String,
+    },
+    Asset {
+        asset_account_id: i64,
+        batch_id: Option<i64>,
+        date: Option<String>,
+    },
 }

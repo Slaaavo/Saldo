@@ -276,7 +276,6 @@ export const checkDefaultDb = (): Promise<boolean> => {
   return invoke('check_default_db')
 }
 
-/** `PRAGMA data_version` of the app's connection. It changes only when another process wrote. */
 export const getDbDataVersion = (): Promise<number> => {
   return invoke('get_db_data_version')
 }

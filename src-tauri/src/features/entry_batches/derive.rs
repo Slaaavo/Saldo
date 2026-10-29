@@ -9,7 +9,6 @@ use crate::shared::validate_iso_date;
 const ASSET_MIN_PRICE_EXCLUSIVE_MINOR: i64 = 170_000;
 const ASSET_MIN_MONTHS_EXCLUSIVE: i64 = 12;
 
-/// The facts Saldo derives from a document, by the rules the user settled.
 pub(super) struct Derived {
     pub source_ref: SourceRef,
     pub entry_date: String,
@@ -33,14 +32,16 @@ pub(super) struct DerivedAsset {
     pub price_basis: PriceBasis,
 }
 
-/// `vat_payer` is the person's flag, the default for a document without `reclaimedVat`.
-pub(super) fn document(item: &DocumentItem, vat_payer: bool) -> Result<Derived, AppError> {
+pub(super) fn document(
+    item: &DocumentItem,
+    default_reclaims_vat: bool,
+) -> Result<Derived, AppError> {
     let source_ref = SourceRef::invoice(&item.document.issuer, &item.document.number)?;
     let (entry_date, date_source) = entry_date(&item.issue_date, item.delivery_date.as_deref())?;
     let (line_count, reclaimed_vat, assets) = match &item.content {
         DocumentContent::Revenue(revenue) => (revenue.lines.len(), None, Vec::new()),
         DocumentContent::Expense(expense) => {
-            let reclaims = expense.reclaimed_vat.unwrap_or(vat_payer);
+            let reclaims = expense.reclaimed_vat.unwrap_or(default_reclaims_vat);
             let assets = expense
                 .assets
                 .iter()
@@ -50,7 +51,7 @@ pub(super) fn document(item: &DocumentItem, vat_payer: bool) -> Result<Derived, 
         }
         DocumentContent::PrepaidExpense(prepaid) => (
             1,
-            Some(prepaid.reclaimed_vat.unwrap_or(vat_payer)),
+            Some(prepaid.reclaimed_vat.unwrap_or(default_reclaims_vat)),
             Vec::new(),
         ),
     };
@@ -76,7 +77,6 @@ pub(super) fn document(item: &DocumentItem, vat_payer: bool) -> Result<Derived, 
     })
 }
 
-/// The delivery date (dátum dodania) when the document has one, the issue date otherwise.
 pub(super) fn entry_date(
     issue_date: &str,
     delivery_date: Option<&str>,
@@ -91,7 +91,6 @@ pub(super) fn entry_date(
     }
 }
 
-/// One line is one entry, two or more lines are a split group.
 pub(super) fn entry_shape(line_count: usize) -> EntryShape {
     match line_count {
         0 => EntryShape::None,
@@ -100,7 +99,6 @@ pub(super) fn entry_shape(line_count: usize) -> EntryShape {
     }
 }
 
-/// The price depreciation spreads: without VAT when the VAT is reclaimed, with it otherwise.
 pub(super) fn asset_price(part: &AssetPart, reclaims_vat: bool) -> Result<DerivedAsset, AppError> {
     if part.name.trim().is_empty() {
         return Err(invalid("An asset needs a name"));
@@ -146,6 +144,8 @@ fn invalid(message: &str) -> AppError {
 mod tests {
     use super::*;
     use crate::features::entry_batches::models::{Bps, DocumentId, ExpenseContent, ExpenseLine};
+
+    const GROSS_NETTING_TO_THE_THRESHOLD_MINOR: i64 = 209_100;
 
     fn bps(value: i64) -> Bps {
         Bps::try_from(value).unwrap()
@@ -226,7 +226,6 @@ mod tests {
 
     #[test]
     fn an_asset_costs_its_price_without_vat_when_the_vat_is_reclaimed() {
-        // 3,599.00 with 23 % VAT is 2,926.01 without it.
         assert_eq!(
             asset_price(&laptop(359_900, 48), true).unwrap(),
             DerivedAsset {
@@ -251,8 +250,7 @@ mod tests {
     fn an_asset_must_cost_over_1700_euros() {
         assert!(asset_price(&laptop(170_000, 48), false).is_err());
         assert!(asset_price(&laptop(170_001, 48), false).is_ok());
-        // 2,091.00 with VAT is exactly 1,700.00 without it.
-        assert!(asset_price(&laptop(209_100, 48), true).is_err());
+        assert!(asset_price(&laptop(GROSS_NETTING_TO_THE_THRESHOLD_MINOR, 48), true).is_err());
     }
 
     #[test]

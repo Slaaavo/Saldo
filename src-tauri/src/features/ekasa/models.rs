@@ -122,6 +122,5 @@ pub struct ProcessReceiptResult {
     pub offline_fallback: Option<OfflineReceiptData>,
     /// Identifies the receipt; the create commands store it with the imported entries.
     pub source_ref: SourceRef,
-    /// Whether a live entry already carries `source_ref`.
     pub already_imported: bool,
 }

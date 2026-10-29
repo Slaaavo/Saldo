@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # Runs `saldo mcp` from this run's Saldo Dev bundle through a scripted MCP session and saves the
-# transcript as evidence. The bundle was built with the dev identifier, and mcp-drive.py stops
-# before the first step unless the server opened the dev DB. Run with the sandbox disabled.
+# transcript as evidence. Run with the sandbox disabled.
 #
 #   mcp.sh <name> <steps.json>     transcript goes to <evidence>/<name>.txt
 set -euo pipefail

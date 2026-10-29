@@ -4,7 +4,6 @@ use std::time::Duration;
 
 use crate::{error::AppError, migrations};
 
-/// How long a write waits for the other process (the app or `saldo mcp`) to release the lock.
 const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub fn initialize_db(db_path: &Path) -> Result<Connection, AppError> {
@@ -14,8 +13,6 @@ pub fn initialize_db(db_path: &Path) -> Result<Connection, AppError> {
     Ok(conn)
 }
 
-/// Opens a database that must already exist, with the app's pragmas and without migrating it.
-/// A missing file is an error, never a new empty database.
 pub fn open_existing(db_path: &Path) -> Result<Connection, AppError> {
     let flags = OpenFlags::default().difference(OpenFlags::SQLITE_OPEN_CREATE);
     let conn = Connection::open_with_flags(db_path, flags)?;
@@ -23,8 +20,7 @@ pub fn open_existing(db_path: &Path) -> Result<Connection, AppError> {
     Ok(conn)
 }
 
-/// `PRAGMA data_version` of this connection. It moves only when another connection committed,
-/// never for this connection's own writes.
+/// It moves only when another connection committed, never for this connection's own writes.
 pub fn data_version(conn: &Connection) -> Result<i64, AppError> {
     Ok(conn.query_row("PRAGMA data_version", [], |row| row.get(0))?)
 }

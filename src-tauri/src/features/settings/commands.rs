@@ -121,8 +121,6 @@ fn exit_demo(state: &AppState) -> Result<(), AppError> {
     Ok(())
 }
 
-/// The active connection's `PRAGMA data_version`. The frontend compares it when the window comes
-/// back: a change means another process (`saldo mcp`) wrote to the database.
 #[tauri::command]
 pub fn get_db_data_version(state: State<'_, AppState>) -> Result<i64, AppError> {
     let conn = state.conn()?;

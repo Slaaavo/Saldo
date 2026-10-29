@@ -6,24 +6,15 @@ const ONLINE: &str = "online:";
 const OFFLINE: &str = "offline:";
 const INVOICE: &str = "invoice:";
 
-/// The document an entry or an asset was recorded from, in the one canonical form that is
-/// stored on `event.source_ref` and `account.source_ref`:
-///
-/// - `online:<receipt id>` and `offline:<offline code>` for eKasa receipts;
-/// - `invoice:<ISSUER>/<NUMBER>` for an invoice or credit note, uppercased with all whitespace
-///   removed. Invoice numbers are unique only per issuer, hence the issuer in the reference.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
 pub struct SourceRef(String);
 
 impl SourceRef {
-    /// The id alone identifies an online receipt, however its QR code carried it.
     pub fn ekasa_online(receipt_id: &str) -> Self {
         Self(format!("{ONLINE}{receipt_id}"))
     }
 
-    /// The whole offline code: it holds the OKP, cash register code, date and time, receipt
-    /// number and total.
     pub fn ekasa_offline(offline_code: &str) -> Self {
         Self(format!("{OFFLINE}{}", offline_code.trim()))
     }
@@ -41,7 +32,6 @@ impl SourceRef {
     }
 }
 
-/// The start every invoice reference from `issuer` shares.
 pub fn invoice_issuer_prefix(issuer: &str) -> Result<String, AppError> {
     let issuer = canonical(issuer);
     if issuer.is_empty() {

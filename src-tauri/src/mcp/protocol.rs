@@ -2,25 +2,25 @@ use serde_json::{json, Value};
 use std::io::{BufRead, Write};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
-/// Newest first. `initialize` echoes the client's version when it is listed and answers with the
-/// newest otherwise; the client then decides whether it can continue.
-const PROTOCOL_VERSIONS: &[&str] = &["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
+const LATEST_PROTOCOL_VERSION: &str = "2025-11-25";
+const PROTOCOL_VERSIONS: &[&str] = &[
+    LATEST_PROTOCOL_VERSION,
+    "2025-06-18",
+    "2025-03-26",
+    "2024-11-05",
+];
 
 const INSTRUCTIONS: &str = "Saldo is the user's offline finance app. Call saldo_context first. \
 Record documents with record_batch and dryRun true, show the user the resulting table, and call \
 it again without dryRun only after the user approved that table.";
 
-/// What the transport needs from the tool layer.
 pub(super) trait ToolHost {
-    /// The `tools/list` entries.
     fn list(&self) -> Vec<Value>;
     fn call(&self, name: &str, arguments: Value) -> ToolOutcome;
 }
 
 pub(super) enum ToolOutcome {
     Done(Value),
-    /// The tool ran and said no (bad arguments, a refused batch, an unavailable database). The
-    /// value reaches the model as an `isError` result it can read and act on.
     Refused(Value),
     UnknownTool,
 }
@@ -70,7 +70,7 @@ fn initialize(params: &Value) -> Value {
     let version = PROTOCOL_VERSIONS
         .iter()
         .find(|version| Some(**version) == requested)
-        .unwrap_or(&PROTOCOL_VERSIONS[0]);
+        .unwrap_or(&LATEST_PROTOCOL_VERSION);
     json!({
         "protocolVersion": version,
         "capabilities": { "tools": { "listChanged": false } },

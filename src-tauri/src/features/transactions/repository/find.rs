@@ -6,16 +6,15 @@ use crate::features::transactions::models::{DocumentEntry, EntryLine, Payment, T
 use rusqlite::types::ToSql;
 use rusqlite::{params_from_iter, Connection};
 
+use super::NO_LINK_TO_A_LIVE_ENTRY;
+
 #[derive(Default)]
 pub struct FindDocumentEntriesParams {
     pub person_id: Option<i64>,
     pub from_date: Option<String>,
     pub to_date: Option<String>,
-    /// The document's total, sign included.
     pub total_gross_minor: Option<i64>,
-    /// Case-insensitive part of a note or of the reference.
     pub text: Option<String>,
-    /// Every document whose reference starts with this.
     pub source_ref_prefix: Option<String>,
     pub source_ref: Option<String>,
     pub batch_id: Option<i64>,
@@ -28,15 +27,11 @@ pub struct FindPaymentsParams {
     pub person_id: Option<i64>,
     pub from_date: Option<String>,
     pub to_date: Option<String>,
-    /// Matches the amount or the original amount, either sign: an invoice total is positive and
-    /// its payment usually negative, and a foreign invoice matches the original amount.
-    pub amount_minor: Option<i64>,
+    pub amount_either_sign_minor: Option<i64>,
     pub original_currency: Option<String>,
     pub note_contains: Option<String>,
-    /// No link to a live entry, as `list_eligible_cashflows` counts it.
     pub unlinked_only: bool,
-    /// Only these cash flows, when not empty.
-    pub event_ids: Vec<i64>,
+    pub event_ids: Option<Vec<i64>>,
     pub limit: u32,
 }
 
@@ -197,14 +192,7 @@ fn load_documents(
         .collect::<rusqlite::Result<Vec<Leg>>>()?;
 
     let event_ids: Vec<i64> = legs.iter().map(|leg| leg.line.event_id).collect();
-    let links = linked_pairs(
-        conn,
-        "SELECT tcl.taxable_event_id, tcl.cashflow_event_id
-         FROM taxable_cashflow_link tcl
-         JOIN event ce ON ce.id = tcl.cashflow_event_id AND ce.deleted_at IS NULL
-         WHERE tcl.taxable_event_id IN",
-        &event_ids,
-    )?;
+    let links = linked_pairs(conn, LinkLookup::PaymentsOfEntries, &event_ids)?;
 
     let mut documents: BTreeMap<i64, DocumentEntry> = BTreeMap::new();
     for leg in legs {
@@ -258,7 +246,7 @@ pub fn find_payments(
         filters.push_str(" AND substr(ed.event_date, 1, 10) <= ?");
         values.push(Box::new(to));
     }
-    if let Some(amount) = params.amount_minor {
+    if let Some(amount) = params.amount_either_sign_minor {
         filters.push_str(" AND (abs(ed.amount_minor) = ? OR abs(ed.original_amount_minor) = ?)");
         values.push(Box::new(amount.abs()));
         values.push(Box::new(amount.abs()));
@@ -272,20 +260,11 @@ pub fn find_payments(
         values.push(Box::new(text));
     }
     if params.unlinked_only {
-        filters.push_str(
-            " AND NOT EXISTS (
-                SELECT 1 FROM taxable_cashflow_link tcl
-                JOIN event te ON te.id = tcl.taxable_event_id AND te.deleted_at IS NULL
-                WHERE tcl.cashflow_event_id = e.id
-              )",
-        );
+        filters.push_str(&format!(" AND {NO_LINK_TO_A_LIVE_ENTRY}"));
     }
-    if !params.event_ids.is_empty() {
-        filters.push_str(&format!(
-            " AND e.id IN ({})",
-            placeholders(params.event_ids.len())
-        ));
-        for id in &params.event_ids {
+    if let Some(event_ids) = &params.event_ids {
+        filters.push_str(&format!(" AND e.id IN ({})", placeholders(event_ids.len())));
+        for id in event_ids {
             values.push(Box::new(*id));
         }
     }
@@ -323,24 +302,41 @@ pub fn find_payments(
         .collect::<rusqlite::Result<Vec<Payment>>>()?;
 
     let ids: Vec<i64> = payments.iter().map(|p| p.event_id).collect();
-    let links = linked_pairs(
-        conn,
-        "SELECT tcl.cashflow_event_id, tcl.taxable_event_id
-         FROM taxable_cashflow_link tcl
-         JOIN event te ON te.id = tcl.taxable_event_id AND te.deleted_at IS NULL
-         WHERE tcl.cashflow_event_id IN",
-        &ids,
-    )?;
+    let links = linked_pairs(conn, LinkLookup::EntriesOfPayments, &ids)?;
     for payment in &mut payments {
         payment.linked_entry_ids = links.get(&payment.event_id).cloned().unwrap_or_default();
     }
     Ok(payments)
 }
 
-/// Runs `select_where_in (ids)` and groups the second column by the first, both ascending.
+#[derive(Clone, Copy)]
+enum LinkLookup {
+    PaymentsOfEntries,
+    EntriesOfPayments,
+}
+
+impl LinkLookup {
+    fn select_where_in(self) -> &'static str {
+        match self {
+            LinkLookup::PaymentsOfEntries => {
+                "SELECT tcl.taxable_event_id, tcl.cashflow_event_id
+                 FROM taxable_cashflow_link tcl
+                 JOIN event ce ON ce.id = tcl.cashflow_event_id AND ce.deleted_at IS NULL
+                 WHERE tcl.taxable_event_id IN"
+            }
+            LinkLookup::EntriesOfPayments => {
+                "SELECT tcl.cashflow_event_id, tcl.taxable_event_id
+                 FROM taxable_cashflow_link tcl
+                 JOIN event te ON te.id = tcl.taxable_event_id AND te.deleted_at IS NULL
+                 WHERE tcl.cashflow_event_id IN"
+            }
+        }
+    }
+}
+
 fn linked_pairs(
     conn: &Connection,
-    select_where_in: &str,
+    lookup: LinkLookup,
     ids: &[i64],
 ) -> Result<BTreeMap<i64, Vec<i64>>, AppError> {
     let mut pairs: BTreeMap<i64, Vec<i64>> = BTreeMap::new();
@@ -348,7 +344,8 @@ fn linked_pairs(
         return Ok(pairs);
     }
     let sql = format!(
-        "{select_where_in} ({}) ORDER BY 1, 2",
+        "{} ({}) ORDER BY 1, 2",
+        lookup.select_where_in(),
         placeholders(ids.len())
     );
     let rows = conn
@@ -705,14 +702,14 @@ mod tests {
         let by_amount = payments(
             &conn,
             FindPaymentsParams {
-                amount_minor: Some(2_399),
+                amount_either_sign_minor: Some(2_399),
                 ..Default::default()
             },
         );
         let by_original = payments(
             &conn,
             FindPaymentsParams {
-                amount_minor: Some(4_900),
+                amount_either_sign_minor: Some(4_900),
                 original_currency: Some("usd".to_owned()),
                 ..Default::default()
             },
@@ -731,7 +728,7 @@ mod tests {
         let found = find_payments(
             &conn,
             FindPaymentsParams {
-                amount_minor: Some(4_900),
+                amount_either_sign_minor: Some(4_900),
                 limit: 1,
                 ..Default::default()
             },

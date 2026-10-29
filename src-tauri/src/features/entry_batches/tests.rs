@@ -21,7 +21,6 @@ struct Books {
     tax_model_id: i64,
 }
 
-/// A VAT-paying company with a bank account and a 2026 tax model.
 fn books(conn: &Connection) -> Books {
     let person_id = create_person(
         conn,
@@ -332,7 +331,10 @@ fn records_every_kind_of_document_and_links_its_payments() {
     let asset_id = alza.assets[0].account_id.unwrap();
     let asset_ref = SourceRef::invoice("36562939", "FA20261187").unwrap();
     let recorded = find_recorded_source(&conn, &asset_ref).unwrap().unwrap();
-    assert!(recorded.event_id.is_some() || recorded.asset_account_id == Some(asset_id));
+    assert!(
+        matches!(&recorded, RecordedSource::Entry { .. })
+            || matches!(&recorded, RecordedSource::Asset { asset_account_id, .. } if *asset_account_id == asset_id)
+    );
     assert!(depreciation_rows(&conn, asset_id) > 0);
     let initial: (i64, String) = conn
         .query_row(
@@ -409,10 +411,10 @@ fn a_document_already_in_saldo_is_refused_and_nothing_of_the_batch_is_written() 
     assert_eq!(errors.len(), 1);
     assert_eq!(errors[0].index, 1);
     assert_eq!(errors[0].code, "ALREADY_RECORDED");
-    assert_eq!(
-        errors[0].recorded.as_ref().unwrap().batch_id,
-        first.batch_id
-    );
+    let Some(RecordedSource::Entry { batch_id, .. }) = &errors[0].recorded else {
+        panic!("the earlier document is an entry");
+    };
+    assert_eq!(*batch_id, first.batch_id);
     assert_eq!(passed[0].index, 0);
     assert_eq!(documents(&conn, &books).len(), 1);
     assert_eq!(list_recent_batches(&conn, 10).unwrap().len(), 1);
@@ -803,9 +805,6 @@ fn undo_skips_entries_the_user_already_deleted() {
     assert_eq!(undone.removed_event_ids, [ids[1]]);
 }
 
-// ---- the arguments as the model sends them -------------------------------------------------
-
-/// Parses as the tool layer does and returns the error as the model reads it.
 fn parse(items: Value) -> Result<RecordBatchInput, String> {
     let input = json!({ "label": "x", "items": [items] });
     serde_path_to_error::deserialize::<_, RecordBatchInput>(input)

@@ -5,15 +5,11 @@ use crate::config::{self, DbLocation};
 use crate::error::AppError;
 use crate::migrations::{self, SchemaMismatch};
 
-/// The database one tool call works on. It is opened for that call and dropped after it, so a
-/// changed location, a newly installed Saldo or a restored file shows on the next call, and an
-/// idle server holds no lock and no snapshot.
 pub(super) struct SaldoDb {
     pub conn: Connection,
     pub path: PathBuf,
 }
 
-/// Why the database was not opened. Each one tells the user what to do.
 #[derive(Debug)]
 pub(super) enum OpenRefusal {
     NoDatabase { expected: PathBuf },

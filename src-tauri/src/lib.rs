@@ -312,8 +312,7 @@ pub fn run() {
         .expect("error while running tauri application");
 }
 
-/// The one `generate_context!` site: the macro embeds the frontend, so a second call would embed
-/// it twice. `saldo mcp` reads the identifier this binary was built with from it.
+/// The macro embeds the frontend, so a second call would embed it twice.
 fn tauri_context() -> tauri::Context<tauri::Wry> {
     let mut ctx = tauri::generate_context!();
     ctx.set_default_window_icon(Some(
@@ -323,8 +322,6 @@ fn tauri_context() -> tauri::Context<tauri::Wry> {
     ctx
 }
 
-/// `saldo mcp`: serves Saldo's tools to an AI assistant over stdin and stdout until stdin
-/// closes. It never builds the app and never migrates the database. Returns the exit code.
 pub fn run_mcp() -> i32 {
     mcp::serve_stdio(&tauri_context().config().identifier)
 }

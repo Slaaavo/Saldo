@@ -39,7 +39,6 @@ pub struct CreateTaxableSplitGroupWithLegsParams {
     pub event_type: String,
     pub group_note: Option<String>,
     pub legs: Vec<TaxableEventLeg>,
-    /// Stored on every leg.
     pub source_ref: Option<SourceRef>,
 }
 

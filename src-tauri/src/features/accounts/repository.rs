@@ -16,7 +16,6 @@ pub struct CreateAccountParams {
     pub purchase_price_minor: Option<i64>,
     pub purchase_date: Option<String>,
     pub depreciation_period_months: Option<i64>,
-    /// The initial balance's date; today when `None`.
     pub initial_balance_date: Option<String>,
 }
 

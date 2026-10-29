@@ -3,8 +3,6 @@ use crate::features::transactions::models::RecordedSource;
 use crate::features::transactions::SourceRef;
 use rusqlite::{params, Connection, OptionalExtension};
 
-/// Whether a document is already in Saldo: a live entry or an asset account carries its
-/// reference. The eKasa import and `record_batch` both ask this one question.
 pub fn find_recorded_source(
     conn: &Connection,
     source_ref: &SourceRef,
@@ -19,9 +17,8 @@ pub fn find_recorded_source(
              LIMIT 1",
             params![source_ref.as_str()],
             |row| {
-                Ok(RecordedSource {
-                    event_id: Some(row.get(0)?),
-                    asset_account_id: None,
+                Ok(RecordedSource::Entry {
+                    event_id: row.get(0)?,
                     batch_id: row.get(1)?,
                     date: row.get(2)?,
                 })
@@ -39,9 +36,8 @@ pub fn find_recorded_source(
              LIMIT 1",
             params![source_ref.as_str()],
             |row| {
-                Ok(RecordedSource {
-                    event_id: None,
-                    asset_account_id: Some(row.get(0)?),
+                Ok(RecordedSource::Asset {
+                    asset_account_id: row.get(0)?,
                     batch_id: row.get(1)?,
                     date: row.get(2)?,
                 })
@@ -151,8 +147,14 @@ mod tests {
         let id = import_expense(&conn, Some(receipt()));
 
         let recorded = find_recorded_source(&conn, &receipt()).unwrap().unwrap();
-        assert_eq!(recorded.event_id, Some(id));
-        assert_eq!(recorded.date.as_deref(), Some("2026-05-01"));
+        assert_eq!(
+            recorded,
+            RecordedSource::Entry {
+                event_id: id,
+                batch_id: None,
+                date: "2026-05-01".to_owned()
+            }
+        );
     }
 
     #[test]
@@ -217,8 +219,13 @@ mod tests {
 
         let recorded = find_recorded_source(&conn, &invoice).unwrap().unwrap();
 
-        assert_eq!(recorded.asset_account_id, Some(account_id));
-        assert_eq!(recorded.event_id, None);
-        assert_eq!(recorded.date.as_deref(), Some("2026-10-12"));
+        assert_eq!(
+            recorded,
+            RecordedSource::Asset {
+                asset_account_id: account_id,
+                batch_id: None,
+                date: Some("2026-10-12".to_owned())
+            }
+        );
     }
 }

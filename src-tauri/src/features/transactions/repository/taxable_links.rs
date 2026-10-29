@@ -345,14 +345,7 @@ pub fn list_eligible_cashflows(
     }
 
     if params.exclude_already_linked {
-        where_clauses.push(
-            "NOT EXISTS (
-                SELECT 1 FROM taxable_cashflow_link tcl
-                JOIN event te ON te.id = tcl.taxable_event_id AND te.deleted_at IS NULL
-                WHERE tcl.cashflow_event_id = e.id
-            )"
-            .to_string(),
-        );
+        where_clauses.push(super::NO_LINK_TO_A_LIVE_ENTRY.to_string());
     }
 
     let where_sql = where_clauses.join(" AND ");

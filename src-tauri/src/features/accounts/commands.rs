@@ -22,8 +22,6 @@ pub struct CreateAccountInput {
     pub purchase_price_minor: Option<i64>,
     pub purchase_date: Option<String>,
     pub depreciation_period_months: Option<i64>,
-    /// When the initial balance applies. Defaults to today; a recorded asset uses its purchase
-    /// date so past dashboards show it from the day it was bought.
     #[serde(default)]
     pub initial_balance_date: Option<String>,
 }

@@ -7,7 +7,6 @@ use crate::error::AppError;
 use crate::features::transactions::models::RecordedSource;
 use crate::features::transactions::SourceRef;
 
-/// Basis points: 10000 is 100 %. Out-of-range values fail while the arguments parse.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(try_from = "i64")]
 pub struct Bps(i64);
@@ -51,9 +50,8 @@ impl JsonSchema for Bps {
     }
 }
 
-// ---- record_batch input --------------------------------------------------------------------
-// Every struct denies unknown fields: a misspelt optional field must fail, never default. The
-// shares the user approves in the review table are required.
+// Every input struct denies unknown fields: a misspelt optional field must fail, never default.
+// The shares the user approves in the review table are required.
 
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -136,7 +134,8 @@ pub struct PrepaidContent {
     pub line: ExpenseLine,
     /// The last day the payment covers, YYYY-MM-DD, in a later year than the entry date.
     pub prepaid_until: String,
-    /// As for an expense.
+    /// Whether the company reclaims this document's VAT; the person's VAT-payer flag when
+    /// missing.
     pub reclaimed_vat: Option<bool>,
 }
 
@@ -217,18 +216,12 @@ pub struct UndoBatchInput {
     pub include_changed: bool,
 }
 
-// ---- results -------------------------------------------------------------------------------
-
-/// What a batch recorded, or on a dry run would record. Built from the real writes, so the
-/// derived facts (entry date, net amounts, asset price) are Saldo's own.
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BatchReceipt {
     pub dry_run: bool,
-    /// None on a dry run.
     pub batch_id: Option<i64>,
     pub documents: Vec<RecordedDocument>,
-    /// The tax models of each document's person and year: call get_forecast on these.
     pub affected_tax_model_ids: Vec<i64>,
 }
 
@@ -251,7 +244,6 @@ pub struct RecordedDocument {
 }
 
 impl RecordedDocument {
-    /// Ids from a rolled-back write would point at rows that do not exist.
     pub(super) fn forget_ids(&mut self) {
         self.shape = match self.shape {
             RecordedShape::Single { .. } => RecordedShape::Single { event_id: None },
@@ -332,8 +324,6 @@ pub enum PriceBasis {
     rename_all_fields = "camelCase"
 )]
 pub enum Warning {
-    /// The linked payments do not add up to the document's total, as when a foreign invoice was
-    /// not recorded at its payment's amount.
     PaymentAmountDiffers {
         payments_total_minor: i64,
         document_total_minor: i64,
@@ -342,8 +332,10 @@ pub enum Warning {
         payment_id: i64,
         linked_entry_ids: Vec<i64>,
     },
-    /// The same issuer and total within two weeks under another number: possibly a re-issue.
-    SimilarDocument { source_ref: String, date: String },
+    SimilarDocument {
+        source_ref: String,
+        date: String,
+    },
 }
 
 #[derive(Debug)]
@@ -352,10 +344,8 @@ pub enum RecordBatchError {
     Items {
         dry_run: bool,
         errors: Vec<ItemError>,
-        /// The documents that would have gone through, so the table can show every row.
         passed: Vec<RecordedDocument>,
     },
-    /// The batch itself is invalid, or the database failed. Nothing was written.
     App(AppError),
 }
 
@@ -378,7 +368,6 @@ pub struct ItemError {
     pub file: String,
     /// None when the reference itself could not be built.
     pub source_ref: Option<SourceRef>,
-    /// VALIDATION, ALREADY_RECORDED, DUPLICATE_IN_BATCH, NOT_FOUND, ...
     pub code: String,
     pub message: String,
     /// For ALREADY_RECORDED: what carries the reference.
@@ -392,7 +381,6 @@ pub struct UndoReceipt {
     pub already_undone: bool,
     pub removed_event_ids: Vec<i64>,
     pub removed_asset_account_ids: Vec<i64>,
-    /// Entries of the batch the user had already deleted in Saldo.
     pub skipped_already_deleted: Vec<i64>,
     pub affected_tax_model_ids: Vec<i64>,
 }
@@ -402,12 +390,10 @@ pub enum UndoBatchError {
     NotFound {
         batch_id: i64,
     },
-    /// Nothing was removed. Ask the user about these rows, then retry with includeChanged.
     Changed {
         batch_id: i64,
         rows: Vec<ChangedRow>,
     },
-    /// Such as an asset that is linked to a bucket now. Nothing was removed.
     App(AppError),
 }
 

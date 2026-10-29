@@ -1,7 +1,3 @@
-//! Recording source documents (invoices, credit notes) as Saldo entries and assets in batches,
-//! and undoing a batch. `record_batch` writes every document through the same validated
-//! `_inner` functions the app's commands use.
-
 mod derive;
 pub mod models;
 mod repository;
@@ -37,10 +33,8 @@ use derive::{Derived, EntryShape};
 use models::*;
 use repository::{Root, StampParams};
 
-/// Records every document of `input` in one transaction, or nothing. Each document is written
-/// in its own savepoint, so a failing one rolls back alone and the rest still report their own
-/// errors; any error then rolls the whole batch back. A dry run is the same path ending in a
-/// rollback, so the preview cannot disagree with the real write.
+const SIMILAR_DOCUMENT_WINDOW_DAYS: i64 = 14;
+
 pub fn record_batch(
     conn: &Connection,
     input: RecordBatchInput,
@@ -97,12 +91,6 @@ pub fn record_batch(
     })
 }
 
-/// Removes what one batch created, all or nothing.
-///
-/// Entries are soft-deleted as the app deletes them (prepaid shares with their parent, a split
-/// group with its legs), so their payments count as unlinked again. Asset accounts are deleted
-/// as the app deletes an account, depreciation included. A second undo changes nothing. Rows
-/// the user changed in Saldo since stop the undo unless `include_changed` is set.
 pub fn undo_batch(conn: &Connection, input: UndoBatchInput) -> Result<UndoReceipt, UndoBatchError> {
     let batch_id = input.batch_id;
     let txn = WriteTxn::begin(conn)?;
@@ -276,7 +264,6 @@ struct Written {
     assets: Vec<RecordedAsset>,
 }
 
-/// A document's line in the shape both revenue and expense entries take.
 struct Line {
     gross_minor: i64,
     vat_rate_bps: i64,
@@ -491,15 +478,13 @@ fn load_payments(conn: &Connection, payment_ids: &[i64]) -> Result<Vec<Payment>,
     find_payments(
         conn,
         FindPaymentsParams {
-            event_ids: payment_ids.to_vec(),
+            event_ids: Some(payment_ids.to_vec()),
             limit: payment_ids.len() as u32,
             ..Default::default()
         },
     )
 }
 
-/// Live documents of the same issuer and total, dated within two weeks, under another number.
-/// A wider window would flag every monthly invoice of a fixed amount.
 fn similar_documents(
     conn: &Connection,
     item: &DocumentItem,
@@ -516,7 +501,7 @@ fn similar_documents(
     if derived.entries == EntryShape::None {
         return Ok(Vec::new());
     }
-    let window = Duration::days(14);
+    let window = Duration::days(SIMILAR_DOCUMENT_WINDOW_DAYS);
     let found = find_document_entries(
         conn,
         FindDocumentEntriesParams {
@@ -540,7 +525,6 @@ fn similar_documents(
         .collect())
 }
 
-/// The tax models whose person and year a batch touched. `person_dates` holds ISO dates.
 fn affected_tax_models(
     conn: &Connection,
     person_dates: &[(i64, String)],
@@ -559,12 +543,17 @@ fn affected_tax_models(
 }
 
 fn already_recorded_message(recorded: &RecordedSource) -> String {
-    let what = match (recorded.event_id, recorded.asset_account_id) {
-        (Some(event_id), _) => format!("entry {event_id}"),
-        (None, Some(account_id)) => format!("asset account {account_id}"),
-        (None, None) => "an entry".to_owned(),
+    let (what, batch_id) = match recorded {
+        RecordedSource::Entry {
+            event_id, batch_id, ..
+        } => (format!("entry {event_id}"), batch_id),
+        RecordedSource::Asset {
+            asset_account_id,
+            batch_id,
+            ..
+        } => (format!("asset account {asset_account_id}"), batch_id),
     };
-    match recorded.batch_id {
+    match batch_id {
         Some(batch_id) => format!("This document is already in Saldo ({what}, batch {batch_id})"),
         None => format!("This document is already in Saldo ({what})"),
     }
