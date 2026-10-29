@@ -145,5 +145,6 @@ All of these live in `.claude/skills/verify-saldo/scripts/` and run from any dir
 | `evidence.sh` | `evidence.sh dir`, `keep <name> <image>`, `db <name> <sql>`, `note <text>` | off |
 | `cleanup.sh` | `cleanup.sh` | off |
 | `reset-dev-db.sh` | `reset-dev-db.sh [reason]` (app must be down) | off |
+| `mcp.sh` | `mcp.sh <name> <steps.json>`: runs `saldo mcp` from the run's bundle through `mcp-drive.py`, refuses unless it opened the dev DB, saves the transcript | off |
 | `runner.sh` | started by `launch.sh` through `tauri dev --runner`; don't run it by hand | n/a |
 | `lib.sh` | sourced by the others | n/a |

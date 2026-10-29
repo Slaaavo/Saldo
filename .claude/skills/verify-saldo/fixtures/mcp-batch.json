@@ -1,0 +1,38 @@
+[
+  {"call": "find_payments", "args": {"personId": 1, "from": "2026-10-01", "to": "2026-10-06", "unlinkedOnly": true}},
+  {"call": "record_batch", "args": {
+    "label": "Verify MCP batch", "dryRun": false,
+    "items": [
+      {"document": {"issuer": "12345678", "number": "VER-001", "file": "coffee.pdf"}, "personId": 1,
+       "issueDate": "2026-10-03", "deliveryDate": "2026-10-01", "note": "Verify MCP coffee", "paymentIds": [8],
+       "content": {"kind": "expense", "lines": [{"grossMinor": 1250, "vatRateBps": 2300, "deductiblePctBps": 10000, "vatReclaimablePctBps": 0}]}},
+      {"document": {"issuer": "87654321", "number": "VER-002", "file": "two-rates.pdf"}, "personId": 1,
+       "issueDate": "2026-10-05", "note": "Verify MCP two VAT rates",
+       "content": {"kind": "expense", "lines": [
+         {"grossMinor": 300, "vatRateBps": 2300, "deductiblePctBps": 10000, "vatReclaimablePctBps": 0},
+         {"grossMinor": 100, "vatRateBps": 1000, "deductiblePctBps": 5000, "vatReclaimablePctBps": 0}]}},
+      {"document": {"issuer": "12345678", "number": "VER-003-DB", "file": "credit-note.pdf"}, "personId": 1,
+       "issueDate": "2026-10-21", "deliveryDate": "2026-10-21", "note": "Verify MCP credit note",
+       "content": {"kind": "expense", "lines": [{"grossMinor": -500, "vatRateBps": 2300, "deductiblePctBps": 10000, "vatReclaimablePctBps": 0}]}},
+      {"document": {"issuer": "SELF", "number": "VER-INV-1", "file": "issued-1.pdf"}, "personId": 1,
+       "issueDate": "2026-10-02", "deliveryDate": "2026-10-02", "note": "Verify MCP issued invoice", "paymentIds": [9],
+       "content": {"kind": "revenue", "lines": [{"grossMinor": 25000, "vatRateBps": 0}]}},
+      {"document": {"issuer": "11223344", "number": "VER-004", "file": "yearly.pdf"}, "personId": 1,
+       "issueDate": "2026-03-01", "deliveryDate": "2026-03-01", "note": "Verify MCP yearly licence",
+       "content": {"kind": "prepaid_expense", "prepaidUntil": "2027-02-28",
+                   "line": {"grossMinor": 12000, "vatRateBps": 2300, "deductiblePctBps": 10000, "vatReclaimablePctBps": 0}}},
+      {"document": {"issuer": "55667788", "number": "VER-005", "file": "laptop.pdf"}, "personId": 1,
+       "issueDate": "2026-03-06", "deliveryDate": "2026-03-04", "note": "Verify MCP laptop and sleeve",
+       "content": {"kind": "expense", "reclaimedVat": true,
+                   "lines": [{"grossMinor": 3690, "vatRateBps": 2300, "deductiblePctBps": 10000, "vatReclaimablePctBps": 10000}],
+                   "assets": [{"name": "Verify MCP laptop", "grossMinor": 250000, "vatRateBps": 2300, "depreciationMonths": 48}]}}
+    ]}},
+  {"call": "record_batch", "args": {
+    "label": "Verify MCP repeat", "dryRun": false,
+    "items": [
+      {"document": {"issuer": "12345678", "number": "ver-001", "file": "coffee-again.pdf"}, "personId": 1,
+       "issueDate": "2026-10-03", "deliveryDate": "2026-10-01", "note": "Verify MCP coffee again",
+       "content": {"kind": "expense", "lines": [{"grossMinor": 1250, "vatRateBps": 2300, "deductiblePctBps": 10000, "vatReclaimablePctBps": 0}]}}
+    ]}},
+  {"call": "get_forecast", "args": {"taxModelId": 1}}
+]

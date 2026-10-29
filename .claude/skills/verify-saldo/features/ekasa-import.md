@@ -26,7 +26,7 @@ Preconditions:
 - **Open the wizard.** Click `Import`, then `eKasa Receipt`. The `eKasa Receipt Import — Upload` dialog shows a drop zone and `Browse`.
 - **Pick the file.** `Browse`, then `cmd+shift+g`, the absolute path, `return`, `Open`. Click `Next`.
 - **Offline code (`ekasa-offline`).** The rules step lists `Default` with deductible and VAT percentages. Click `Next`. The review shows the receipt's date and total. Click `Save`; a profile prompt may follow.
-- **Duplicate (`ekasa-duplicate`).** Import the same file again. The review shows an amber box "This receipt was already imported. Saving it again will create a duplicate." above the form, and `Save` stays enabled. Query `select id, ekasa_receipt_ref, deleted_at from event where ekasa_receipt_ref is not null` as proof: both entries carry the same `offline:` reference.
+- **Duplicate (`ekasa-duplicate`).** Import the same file again. The review shows an amber box "This receipt was already imported. Saving it again will create a duplicate." above the form, and `Save` stays enabled. Query `select id, source_ref, deleted_at from event where source_ref like 'o%line:%'` as proof: both entries carry the same `offline:` reference.
 - **Rejected codes (`ekasa-reject`).** A malformed offline code or a URL ends on `eKasa Receipt Import — Error` with "The QR code in this file is not an eKasa receipt code..." and `Try Again`.
 
 ## Gotchas
