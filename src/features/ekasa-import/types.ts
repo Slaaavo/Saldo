@@ -40,7 +40,7 @@ export interface ProcessReceiptResult {
   processedItems: EkasaProcessedItem[]
   qrContent: string
   offlineFallback: OfflineReceiptData | null
-  ekasaReceiptRef: string
+  sourceRef: string
   alreadyImported: boolean
 }
 
@@ -58,6 +58,6 @@ export interface EkasaWizardState {
   vendorName: string
   receiptDate: string
   offlineFallback: OfflineReceiptData | null
-  ekasaReceiptRef: string | null
+  sourceRef: string | null
   alreadyImported: boolean
 }

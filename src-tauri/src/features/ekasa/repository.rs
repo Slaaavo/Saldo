@@ -10,18 +10,6 @@ pub struct UpsertEkasaProfileParams {
     pub rules: Vec<EkasaRuleInput>,
 }
 
-/// Whether a live (not deleted) entry was imported from the receipt with this reference.
-pub fn is_receipt_imported(conn: &Connection, ekasa_receipt_ref: &str) -> Result<bool, AppError> {
-    conn.query_row(
-        "SELECT EXISTS(
-           SELECT 1 FROM event WHERE ekasa_receipt_ref = ?1 AND deleted_at IS NULL
-         )",
-        params![ekasa_receipt_ref],
-        |row| row.get(0),
-    )
-    .map_err(AppError::from)
-}
-
 fn load_rules_for_profile(
     conn: &Connection,
     profile_id: i64,
@@ -207,148 +195,13 @@ pub fn list_ekasa_profiles(conn: &Connection) -> Result<Vec<EkasaImportProfileRo
 mod tests {
     use super::*;
     use crate::db::initialize_in_memory;
-    use crate::features::persons::repository::{
-        create_person, get_default_expense_account_id, CreatePersonParams,
-    };
-    use crate::features::transactions::repository::{
-        create_taxable_event, create_taxable_split_group_with_legs, delete_event,
-        delete_split_group, update_taxable_event, CreateTaxableEventParams,
-        CreateTaxableSplitGroupWithLegsParams, TaxableEventLeg, UpdateTaxableEventParams,
-    };
+    use crate::features::persons::repository::{create_person, CreatePersonParams};
 
     fn get_default_person_id(conn: &Connection) -> i64 {
         conn.query_row("SELECT id FROM person WHERE is_default = 1", [], |row| {
             row.get(0)
         })
         .expect("default person not found")
-    }
-
-    const RECEIPT_REF: &str = "online:O-7DBCDA8A56EE426DBCDA8A56EE426D1A";
-
-    fn import_expense(conn: &Connection, ekasa_receipt_ref: Option<&str>) -> i64 {
-        let account_id = get_default_expense_account_id(conn, get_default_person_id(conn)).unwrap();
-        create_taxable_event(
-            conn,
-            CreateTaxableEventParams {
-                account_id,
-                event_type: "expense".to_owned(),
-                amount_minor: -1_250,
-                event_date: "2026-05-01".to_owned(),
-                ekasa_receipt_ref: ekasa_receipt_ref.map(str::to_owned),
-                ..Default::default()
-            },
-        )
-        .unwrap()
-    }
-
-    fn leg(amount_minor: i64) -> TaxableEventLeg {
-        TaxableEventLeg {
-            amount_minor,
-            event_date: "2026-05-01".to_owned(),
-            note: None,
-            vat_rate_bps: None,
-            vat_reclaimable_pct_bps: None,
-            expense_deductible_pct_bps: None,
-            prepaid_until: None,
-            reclaimed_vat: None,
-        }
-    }
-
-    fn import_split_group(conn: &Connection, ekasa_receipt_ref: &str) -> i64 {
-        let account_id = get_default_expense_account_id(conn, get_default_person_id(conn)).unwrap();
-        create_taxable_split_group_with_legs(
-            conn,
-            CreateTaxableSplitGroupWithLegsParams {
-                account_id,
-                event_type: "expense".to_owned(),
-                legs: vec![leg(-1_000), leg(-250)],
-                ekasa_receipt_ref: Some(ekasa_receipt_ref.to_owned()),
-                ..Default::default()
-            },
-        )
-        .unwrap()
-    }
-
-    fn live_leg_ids(conn: &Connection, split_group_id: i64) -> Vec<i64> {
-        conn.prepare(
-            "SELECT id FROM event WHERE split_group_id = ?1 AND deleted_at IS NULL ORDER BY id",
-        )
-        .unwrap()
-        .query_map(params![split_group_id], |row| row.get(0))
-        .unwrap()
-        .collect::<rusqlite::Result<_>>()
-        .unwrap()
-    }
-
-    #[test]
-    fn a_receipt_that_was_never_imported_is_not_flagged() {
-        let conn = initialize_in_memory().expect("DB init failed");
-        import_expense(&conn, None);
-        import_expense(&conn, Some("online:O-00000000000000000000000000000000"));
-
-        assert!(!is_receipt_imported(&conn, RECEIPT_REF).unwrap());
-    }
-
-    #[test]
-    fn an_imported_expense_flags_its_receipt() {
-        let conn = initialize_in_memory().expect("DB init failed");
-        import_expense(&conn, Some(RECEIPT_REF));
-
-        assert!(is_receipt_imported(&conn, RECEIPT_REF).unwrap());
-    }
-
-    #[test]
-    fn a_deleted_expense_no_longer_flags_its_receipt() {
-        let conn = initialize_in_memory().expect("DB init failed");
-        let first = import_expense(&conn, Some(RECEIPT_REF));
-        let second = import_expense(&conn, Some(RECEIPT_REF));
-
-        delete_event(&conn, first).unwrap();
-        assert!(
-            is_receipt_imported(&conn, RECEIPT_REF).unwrap(),
-            "the second import is still live"
-        );
-
-        delete_event(&conn, second).unwrap();
-        assert!(!is_receipt_imported(&conn, RECEIPT_REF).unwrap());
-    }
-
-    #[test]
-    fn an_imported_split_group_flags_its_receipt_until_every_leg_is_deleted() {
-        let conn = initialize_in_memory().expect("DB init failed");
-        let group_id = import_split_group(&conn, RECEIPT_REF);
-        let legs = live_leg_ids(&conn, group_id);
-        assert!(is_receipt_imported(&conn, RECEIPT_REF).unwrap());
-
-        delete_event(&conn, legs[0]).unwrap();
-        assert!(
-            is_receipt_imported(&conn, RECEIPT_REF).unwrap(),
-            "one leg is still live"
-        );
-
-        delete_split_group(&conn, group_id).unwrap();
-        assert!(!is_receipt_imported(&conn, RECEIPT_REF).unwrap());
-    }
-
-    #[test]
-    fn editing_an_imported_expense_keeps_flagging_its_receipt() {
-        let conn = initialize_in_memory().expect("DB init failed");
-        let id = import_expense(&conn, Some(RECEIPT_REF));
-
-        update_taxable_event(
-            &conn,
-            UpdateTaxableEventParams {
-                event_id: id,
-                event_type: "expense".to_owned(),
-                amount_minor: -2_000,
-                event_date: "2026-05-02".to_owned(),
-                note: Some("edited".to_owned()),
-                ..Default::default()
-            },
-        )
-        .unwrap();
-
-        assert!(is_receipt_imported(&conn, RECEIPT_REF).unwrap());
     }
 
     fn make_rule(sort_order: i64, name_pattern: &str) -> EkasaRuleInput {

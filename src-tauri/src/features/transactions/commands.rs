@@ -10,6 +10,7 @@ use tauri::State;
 
 use super::models::{CreateSplitGroupInput, EventWithData, ListEventsResult, Snapshot};
 use super::repository::{self, GetSnapshotParams, Moment};
+use super::SourceRef;
 
 #[derive(Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
@@ -574,7 +575,7 @@ pub struct CreateTaxableEventInput {
     pub expense_deductible_pct_bps: Option<i64>,
     pub prepaid_until: Option<String>,
     pub reclaimed_vat: Option<bool>,
-    pub ekasa_receipt_ref: Option<String>,
+    pub source_ref: Option<SourceRef>,
 }
 
 #[derive(Deserialize)]
@@ -597,7 +598,7 @@ pub struct CreateTaxableSplitGroupInput {
     pub event_type: String,
     pub group_note: Option<String>,
     pub legs: Vec<SplitTaxableLegInput>,
-    pub ekasa_receipt_ref: Option<String>,
+    pub source_ref: Option<SourceRef>,
 }
 
 #[derive(Deserialize)]
@@ -806,7 +807,7 @@ fn create_taxable_event_inner(
                 expense_deductible_pct_bps: input.expense_deductible_pct_bps,
                 prepaid_until: input.prepaid_until.clone(),
                 reclaimed_vat: resolved_reclaimed_vat,
-                ekasa_receipt_ref: input.ekasa_receipt_ref,
+                source_ref: input.source_ref,
             },
         )?;
         if event_type_is_prepaid {
@@ -893,7 +894,7 @@ fn create_taxable_split_group_inner(
             event_type: input.event_type,
             group_note: input.group_note,
             legs,
-            ekasa_receipt_ref: input.ekasa_receipt_ref,
+            source_ref: input.source_ref,
         },
     )?;
     Ok(id)
@@ -1305,7 +1306,7 @@ mod tests {
             expense_deductible_pct_bps: None,
             prepaid_until: Some("2025-06-30".to_owned()),
             reclaimed_vat: None,
-            ekasa_receipt_ref: None,
+            source_ref: None,
         }
     }
 
@@ -1572,7 +1573,7 @@ mod tests {
             event_type: event_type.to_owned(),
             group_note: None,
             legs: vec![split_leg(3000), split_leg(2000)],
-            ekasa_receipt_ref: None,
+            source_ref: None,
         }
     }
 
@@ -1685,7 +1686,7 @@ mod tests {
             expense_deductible_pct_bps: None,
             prepaid_until: None,
             reclaimed_vat: Some(false),
-            ekasa_receipt_ref: None,
+            source_ref: None,
         }
     }
 
@@ -1799,11 +1800,12 @@ mod tests {
         assert_eq!(stored_reclaimed_vat(&conn, new_leg), Some(true));
     }
 
+    const RECEIPT_ID: &str = "O-7DBCDA8A56EE426DBCDA8A56EE426D1A";
     const RECEIPT_REF: &str = "online:O-7DBCDA8A56EE426DBCDA8A56EE426D1A";
 
     fn stored_receipt_ref(conn: &Connection, event_id: i64) -> Option<String> {
         conn.query_row(
-            "SELECT ekasa_receipt_ref FROM event WHERE id = ?1",
+            "SELECT source_ref FROM event WHERE id = ?1",
             params![event_id],
             |row| row.get(0),
         )
@@ -1812,14 +1814,14 @@ mod tests {
 
     fn imported_expense_input(person_id: i64) -> CreateTaxableEventInput {
         CreateTaxableEventInput {
-            ekasa_receipt_ref: Some(RECEIPT_REF.to_owned()),
+            source_ref: Some(SourceRef::ekasa_online(RECEIPT_ID)),
             ..expense_input(person_id)
         }
     }
 
     fn imported_split_input(person_id: i64) -> CreateTaxableSplitGroupInput {
         CreateTaxableSplitGroupInput {
-            ekasa_receipt_ref: Some(RECEIPT_REF.to_owned()),
+            source_ref: Some(SourceRef::ekasa_online(RECEIPT_ID)),
             ..split_input(person_id, "expense")
         }
     }
@@ -1863,7 +1865,7 @@ mod tests {
 
         let stored: i64 = conn
             .query_row(
-                "SELECT COUNT(*) FROM event WHERE ekasa_receipt_ref = ?1",
+                "SELECT COUNT(*) FROM event WHERE source_ref = ?1",
                 params![RECEIPT_REF],
                 |row| row.get(0),
             )

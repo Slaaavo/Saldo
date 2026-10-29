@@ -105,7 +105,7 @@ const EkasaImportModal = ({ onClose }: Props) => {
               processedLegs={state.processedLegs}
               vendorName={state.vendorName}
               receiptDate={state.receiptDate}
-              ekasaReceiptRef={state.ekasaReceiptRef}
+              sourceRef={state.sourceRef}
               alreadyImported={state.alreadyImported}
               onImportSuccess={handleImportSuccess}
               onBack={handleBack}

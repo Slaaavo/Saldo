@@ -20,13 +20,13 @@ interface ReviewStepProps {
   processedLegs: SplitLegDraft[]
   vendorName: string
   receiptDate: string
-  ekasaReceiptRef: string | null
+  sourceRef: string | null
   alreadyImported: boolean
   onImportSuccess: () => void
   onBack: () => void
 }
 
-const ReviewStep = ({ processedLegs, vendorName, receiptDate, ekasaReceiptRef, alreadyImported, onImportSuccess, onBack }: ReviewStepProps) => {
+const ReviewStep = ({ processedLegs, vendorName, receiptDate, sourceRef, alreadyImported, onImportSuccess, onBack }: ReviewStepProps) => {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const { personId, persons } = useResolvedPersonId()
@@ -124,7 +124,7 @@ const ReviewStep = ({ processedLegs, vendorName, receiptDate, ekasaReceiptRef, a
             prepaidUntil: null,
             reclaimedVat: leg.reclaimedVat,
           })),
-          ekasaReceiptRef,
+          sourceRef,
         })
         await linkSelectedCashflows((cashflowIds) => linkCashflowsToSplitGroup(splitGroupId, cashflowIds))
       } else {
@@ -145,7 +145,7 @@ const ReviewStep = ({ processedLegs, vendorName, receiptDate, ekasaReceiptRef, a
           expenseDeductiblePctBps: pctToBps(expenseDeductiblePct),
           prepaidUntil: null,
           reclaimedVat,
-          ekasaReceiptRef,
+          sourceRef,
         })
         await linkSelectedCashflows((cashflowIds) => linkCashflowsToTaxable(newEventId, cashflowIds))
       }

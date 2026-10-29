@@ -76,7 +76,7 @@ const renderStep = (processedLegs: SplitLegDraft[], { alreadyImported = false }:
         processedLegs={processedLegs}
         vendorName="Shop"
         receiptDate="2025-05-03"
-        ekasaReceiptRef={RECEIPT_REF}
+        sourceRef={RECEIPT_REF}
         alreadyImported={alreadyImported}
         onImportSuccess={onImportSuccess}
         onBack={vi.fn()}
@@ -113,7 +113,7 @@ describe('ReviewStep', () => {
     fireEvent.click(screen.getByText('ekasaImport.reviewStep.save'))
 
     await waitFor(() => expect(createTaxableEvent).toHaveBeenCalledOnce())
-    expect((createTaxableEvent as Mock).mock.calls[0][0]).toMatchObject({ ekasaReceiptRef: RECEIPT_REF })
+    expect((createTaxableEvent as Mock).mock.calls[0][0]).toMatchObject({ sourceRef: RECEIPT_REF })
   })
 
   it('stores the receipt reference with a multi-item receipt', async () => {
@@ -122,7 +122,7 @@ describe('ReviewStep', () => {
     fireEvent.click(screen.getByText('ekasaImport.reviewStep.save'))
 
     await waitFor(() => expect(createTaxableSplitGroup).toHaveBeenCalledOnce())
-    expect((createTaxableSplitGroup as Mock).mock.calls[0][0]).toMatchObject({ ekasaReceiptRef: RECEIPT_REF })
+    expect((createTaxableSplitGroup as Mock).mock.calls[0][0]).toMatchObject({ sourceRef: RECEIPT_REF })
   })
 
   it('shows no warning for a receipt that was not imported before', () => {

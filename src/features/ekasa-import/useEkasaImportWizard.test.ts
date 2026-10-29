@@ -18,7 +18,7 @@ const OFFLINE_RESULT: ProcessReceiptResult = {
   processedItems: [],
   qrContent: 'O-ABC:1:2:3',
   offlineFallback: { eventDate: '2025-04-12T10:30:00', totalAmountMinor: 1250 },
-  ekasaReceiptRef: 'offline:O-ABC:1:2:3',
+  sourceRef: 'offline:O-ABC:1:2:3',
   alreadyImported: false,
 }
 
@@ -35,7 +35,7 @@ const ONLINE_RESULT: ProcessReceiptResult = {
   processedItems: [{ name: 'Milk', amountMinor: 500, vatRateBps: 2000 }],
   qrContent: 'abc',
   offlineFallback: null,
-  ekasaReceiptRef: 'online:abc',
+  sourceRef: 'online:abc',
   alreadyImported: false,
 }
 
@@ -92,7 +92,7 @@ describe('useEkasaImportWizard', () => {
     await act(() => result.current.handleRulesConfirm())
 
     expect(result.current.state.step).toBe('review')
-    expect(result.current.state.ekasaReceiptRef).toBe(receipt.ekasaReceiptRef)
+    expect(result.current.state.sourceRef).toBe(receipt.sourceRef)
     expect(result.current.state.alreadyImported).toBe(true)
   })
 

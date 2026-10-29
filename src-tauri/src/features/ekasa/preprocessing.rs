@@ -67,18 +67,6 @@ pub fn classify_qr_content(qr_content: &str) -> QrContent {
     }
 }
 
-/// The reference stored with an online receipt's imported entries. The id alone identifies
-/// the receipt, however the QR code carried it (bare or in a `receiptId=` URL).
-pub fn online_receipt_reference(receipt_id: &str) -> String {
-    format!("online:{receipt_id}")
-}
-
-/// The reference stored with an offline receipt's imported entries: the whole offline code,
-/// which holds the OKP, cash register code, date and time, receipt number and total.
-pub fn offline_receipt_reference(offline_code: &str) -> String {
-    format!("offline:{}", offline_code.trim())
-}
-
 /// Extracts the id from the `receiptId=` query parameter of a QR code URL.
 fn extract_receipt_id_from_url(qr_content: &str) -> Option<String> {
     // URL format: ...?receiptId=XXXX[&...]
@@ -171,6 +159,7 @@ fn parse_total_to_minor(total_str: &str) -> Option<i64> {
 mod tests {
     use super::*;
     use crate::features::ekasa::models::EkasaReceiptItem;
+    use crate::features::transactions::SourceRef;
 
     fn item(name: &str, price: f64, vat_rate: f64) -> EkasaReceiptItem {
         EkasaReceiptItem {
@@ -478,12 +467,12 @@ mod tests {
     fn test_online_reference_is_the_same_however_the_qr_carries_the_id() {
         let url = format!("https://ekasa.financnasprava.sk/receipt?receiptId={ONLINE_ID}&lang=sk");
         let padded = format!("  {ONLINE_ID}\r\n");
-        let references: Vec<String> = [ONLINE_ID, url.as_str(), padded.as_str()]
+        let references: Vec<SourceRef> = [ONLINE_ID, url.as_str(), padded.as_str()]
             .iter()
-            .map(|qr| online_receipt_reference(&online_id_of(qr).unwrap()))
+            .map(|qr| SourceRef::ekasa_online(&online_id_of(qr).unwrap()))
             .collect();
 
-        assert_eq!(references[0], format!("online:{ONLINE_ID}"));
+        assert_eq!(references[0].as_str(), format!("online:{ONLINE_ID}"));
         assert_eq!(references[1], references[0]);
         assert_eq!(references[2], references[0]);
     }
@@ -491,7 +480,7 @@ mod tests {
     #[test]
     fn test_offline_reference_is_the_trimmed_code() {
         assert_eq!(
-            offline_receipt_reference(&format!("  {OFFLINE_CODE}\n")),
+            SourceRef::ekasa_offline(&format!("  {OFFLINE_CODE}\n")).as_str(),
             format!("offline:{OFFLINE_CODE}")
         );
     }
@@ -501,17 +490,17 @@ mod tests {
         let other_number = OFFLINE_CODE.replace(":23:", ":24:");
         let other_total = OFFLINE_CODE.replace(":237.23", ":237.24");
 
-        let reference = offline_receipt_reference(OFFLINE_CODE);
+        let reference = SourceRef::ekasa_offline(OFFLINE_CODE);
 
-        assert_ne!(reference, offline_receipt_reference(&other_number));
-        assert_ne!(reference, offline_receipt_reference(&other_total));
+        assert_ne!(reference, SourceRef::ekasa_offline(&other_number));
+        assert_ne!(reference, SourceRef::ekasa_offline(&other_total));
     }
 
     #[test]
     fn test_online_and_offline_references_never_collide() {
         assert_ne!(
-            online_receipt_reference(ONLINE_ID),
-            offline_receipt_reference(ONLINE_ID)
+            SourceRef::ekasa_online(ONLINE_ID),
+            SourceRef::ekasa_offline(ONLINE_ID)
         );
     }
 

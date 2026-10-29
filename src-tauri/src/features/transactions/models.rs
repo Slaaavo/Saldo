@@ -322,3 +322,14 @@ pub struct CreateSplitGroupInput {
     pub group_note: Option<String>,
     pub legs: Vec<SplitGroupEntry>,
 }
+
+/// What already carries a document's reference: a live entry or an asset account.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordedSource {
+    pub event_id: Option<i64>,
+    pub asset_account_id: Option<i64>,
+    pub batch_id: Option<i64>,
+    /// The entry's date, or the asset's purchase date.
+    pub date: Option<String>,
+}

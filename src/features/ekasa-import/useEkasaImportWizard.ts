@@ -21,7 +21,7 @@ const INITIAL_STATE: EkasaWizardState = {
   vendorName: '',
   receiptDate: '',
   offlineFallback: null,
-  ekasaReceiptRef: null,
+  sourceRef: null,
   alreadyImported: false,
 }
 
@@ -84,7 +84,7 @@ const reviewOfflineReceipt = (prev: EkasaWizardState, result: ProcessReceiptResu
     receiptDate: offline.eventDate,
     vendorName: '',
     offlineFallback: offline,
-    ekasaReceiptRef: result.ekasaReceiptRef,
+    sourceRef: result.sourceRef,
     alreadyImported: result.alreadyImported,
     isProcessing: false,
     step: 'review',
@@ -159,7 +159,7 @@ export const useEkasaImportWizard = () => {
         receiptDate: date,
         vendorName,
         offlineFallback: result.offlineFallback,
-        ekasaReceiptRef: result.ekasaReceiptRef,
+        sourceRef: result.sourceRef,
         alreadyImported: result.alreadyImported,
         isProcessing: false,
         step: 'review',

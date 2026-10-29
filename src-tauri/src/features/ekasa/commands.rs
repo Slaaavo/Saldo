@@ -1,5 +1,7 @@
 use crate::error::AppError;
 use crate::features::ekasa::models::{EkasaImportProfileRow, EkasaRuleInput, ProcessReceiptResult};
+use crate::features::transactions::repository::find_recorded_source;
+use crate::features::transactions::SourceRef;
 use crate::AppState;
 use serde::Deserialize;
 use tauri::{Manager, State};
@@ -90,9 +92,9 @@ pub fn list_ekasa_profiles(
 }
 
 /// Takes the DB lock only for the lookup, so callers can `.await` right after.
-fn is_already_imported(state: &AppState, ekasa_receipt_ref: &str) -> Result<bool, AppError> {
+fn is_already_imported(state: &AppState, source_ref: &SourceRef) -> Result<bool, AppError> {
     let conn = state.conn()?;
-    repository::is_receipt_imported(&conn, ekasa_receipt_ref)
+    Ok(find_recorded_source(&conn, source_ref)?.is_some())
 }
 
 #[tauri::command]
@@ -127,26 +129,26 @@ pub async fn process_receipt_file(
                 }
                 None => (None, vec![]),
             };
-            let ekasa_receipt_ref = preprocessing::online_receipt_reference(&receipt_id);
-            let already_imported = is_already_imported(&state, &ekasa_receipt_ref)?;
+            let source_ref = SourceRef::ekasa_online(&receipt_id);
+            let already_imported = is_already_imported(&state, &source_ref)?;
             Ok(ProcessReceiptResult {
                 receipt_data,
                 processed_items,
                 qr_content: qr_string,
                 offline_fallback: None,
-                ekasa_receipt_ref,
+                source_ref,
                 already_imported,
             })
         }
         QrContent::Offline(offline) => {
-            let ekasa_receipt_ref = preprocessing::offline_receipt_reference(&qr_string);
-            let already_imported = is_already_imported(&state, &ekasa_receipt_ref)?;
+            let source_ref = SourceRef::ekasa_offline(&qr_string);
+            let already_imported = is_already_imported(&state, &source_ref)?;
             Ok(ProcessReceiptResult {
                 receipt_data: None,
                 processed_items: vec![],
                 qr_content: qr_string,
                 offline_fallback: Some(offline),
-                ekasa_receipt_ref,
+                source_ref,
                 already_imported,
             })
         }

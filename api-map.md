@@ -161,7 +161,7 @@ Deletes a split group and all its legs.
 
 ### `createTaxableEvent`
 
-Creates a taxable `revenue`, `expense` or `prepaid_expense` event for a person, with VAT and deductibility fields. Accepts an optional `ekasaReceiptRef`, which is stored with the event (set by the eKasa import).
+Creates a taxable `revenue`, `expense` or `prepaid_expense` event for a person, with VAT and deductibility fields. Accepts an optional `sourceRef` (the document the entry came from, such as `online:…` for an eKasa receipt), which is stored with the event (set by the eKasa import).
 
 - **BE command:** `create_taxable_event` → `src-tauri/src/features/transactions/commands.rs`
 - **Used in:**
@@ -172,7 +172,7 @@ Creates a taxable `revenue`, `expense` or `prepaid_expense` event for a person, 
 
 ### `createTaxableSplitGroup`
 
-Creates a taxable split group (revenue or expense) with several legs. Accepts an optional `ekasaReceiptRef`, which is stored with the group's entries (set by the eKasa import).
+Creates a taxable split group (revenue or expense) with several legs. Accepts an optional `sourceRef`, which is stored with the group's entries (set by the eKasa import).
 
 - **BE command:** `create_taxable_split_group` → `src-tauri/src/features/transactions/commands.rs`
 - **Used in:**
@@ -728,7 +728,7 @@ Replaces a tax model's forecast figures: the month the actual figures cover, the
 
 ### `processReceiptFile`
 
-Decodes the QR code from a receipt file (PDF or image), looks the receipt up and returns its items with matching rules applied. Also returns `ekasaReceiptRef` (identifies the receipt) and `alreadyImported` (whether a live entry already carries that reference).
+Decodes the QR code from a receipt file (PDF or image), looks the receipt up and returns its items with matching rules applied. Also returns `sourceRef` (identifies the receipt) and `alreadyImported` (whether a live entry already carries that reference).
 
 - **BE command:** `process_receipt_file` → `src-tauri/src/features/ekasa/commands.rs`
 - **Used in:**

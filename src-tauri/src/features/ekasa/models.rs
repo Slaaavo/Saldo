@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::features::transactions::SourceRef;
+
 // ---------------------------------------------------------------------------
 // Profile structs — serialized and sent to the frontend
 // ---------------------------------------------------------------------------
@@ -119,7 +121,7 @@ pub struct ProcessReceiptResult {
     pub qr_content: String,
     pub offline_fallback: Option<OfflineReceiptData>,
     /// Identifies the receipt; the create commands store it with the imported entries.
-    pub ekasa_receipt_ref: String,
-    /// Whether a live entry already carries `ekasa_receipt_ref`.
+    pub source_ref: SourceRef,
+    /// Whether a live entry already carries `source_ref`.
     pub already_imported: bool,
 }

@@ -5,9 +5,12 @@ mod events;
 pub(crate) mod prepaid_expenses;
 mod queries;
 mod snapshot;
+mod source_refs;
 mod split_groups;
 mod taxable_events;
 pub mod taxable_links;
+
+pub use source_refs::find_recorded_source;
 
 pub(crate) use balance_updates::create_balance_update_inner;
 pub use balance_updates::{
