@@ -1,6 +1,6 @@
 use crate::error::AppError;
 use chrono::{NaiveDate, NaiveDateTime};
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
 
 /// Execute `f` inside a SAVEPOINT. Rolls back on error, releases on success.
 /// Works with &Connection (no &mut needed).
@@ -59,6 +59,46 @@ where
         let _ = conn.execute_batch("ROLLBACK");
     }
     result
+}
+
+/// A transaction begun IMMEDIATE that rolls back when dropped without `commit`, also while a
+/// panic unwinds. `with_savepoint` scopes inside it are savepoints.
+pub struct WriteTxn<'c> {
+    conn: &'c Connection,
+    open: bool,
+}
+
+impl<'c> WriteTxn<'c> {
+    pub fn begin(conn: &'c Connection) -> rusqlite::Result<Self> {
+        conn.execute_batch("BEGIN IMMEDIATE")?;
+        Ok(Self { conn, open: true })
+    }
+
+    /// `event.latest_data_id` is a deferred key, so a broken one would fail the COMMIT with no
+    /// row named. The check names it first.
+    pub fn commit(mut self) -> Result<(), AppError> {
+        let violation: Option<i64> = self
+            .conn
+            .query_row("PRAGMA foreign_key_check(event)", [], |row| row.get(1))
+            .optional()?;
+        if let Some(event_id) = violation {
+            return Err(AppError {
+                code: "FOREIGN_KEY_VIOLATION".into(),
+                message: format!("Event {event_id} references a row that does not exist"),
+            });
+        }
+        self.conn.execute_batch("COMMIT")?;
+        self.open = false;
+        Ok(())
+    }
+}
+
+impl Drop for WriteTxn<'_> {
+    fn drop(&mut self) {
+        if self.open && !self.conn.is_autocommit() {
+            let _ = self.conn.execute_batch("ROLLBACK");
+        }
+    }
 }
 
 pub fn local_now() -> String {
@@ -189,7 +229,7 @@ pub fn convert_balance(
 
 #[cfg(test)]
 mod savepoint_tests {
-    use super::{with_savepoint, with_savepoint_app};
+    use super::{with_savepoint, with_savepoint_app, WriteTxn};
     use crate::error::AppError;
     use rusqlite::Connection;
 
@@ -309,6 +349,73 @@ mod savepoint_tests {
             .execute("INSERT INTO parent (id) VALUES (7)", [])
             .unwrap();
         assert_eq!(count(&app, "parent"), 2);
+    }
+
+    fn saldo_conn() -> Connection {
+        let conn = crate::db::initialize_in_memory().unwrap();
+        conn.execute_batch("CREATE TABLE parent (id INTEGER PRIMARY KEY);")
+            .unwrap();
+        conn
+    }
+
+    #[test]
+    fn write_txn_rolls_back_when_dropped() {
+        let conn = saldo_conn();
+
+        {
+            let _txn = WriteTxn::begin(&conn).unwrap();
+            with_savepoint(&conn, || insert_parent(&conn)).unwrap();
+        }
+
+        assert!(conn.is_autocommit());
+        assert_eq!(count(&conn, "parent"), 0);
+    }
+
+    #[test]
+    fn write_txn_rolls_back_when_a_panic_unwinds() {
+        let conn = saldo_conn();
+
+        let unwound = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _txn = WriteTxn::begin(&conn).unwrap();
+            insert_parent(&conn).unwrap();
+            panic!("handler failed");
+        }));
+
+        assert!(unwound.is_err());
+        assert!(conn.is_autocommit());
+        assert_eq!(count(&conn, "parent"), 0);
+    }
+
+    #[test]
+    fn write_txn_commits() {
+        let conn = saldo_conn();
+
+        let txn = WriteTxn::begin(&conn).unwrap();
+        insert_parent(&conn).unwrap();
+        txn.commit().unwrap();
+
+        assert!(conn.is_autocommit());
+        assert_eq!(count(&conn, "parent"), 1);
+    }
+
+    #[test]
+    fn write_txn_names_a_broken_event_reference_and_writes_nothing() {
+        let conn = crate::db::initialize_in_memory().unwrap();
+        let account_id: i64 = conn
+            .query_row("SELECT MIN(id) FROM account", [], |row| row.get(0))
+            .unwrap();
+
+        let txn = WriteTxn::begin(&conn).unwrap();
+        conn.execute(
+            "INSERT INTO event (account_id, event_type, latest_data_id) VALUES (?1, 'expense', 999)",
+            [account_id],
+        )
+        .unwrap();
+        let err = txn.commit().unwrap_err();
+
+        assert_eq!(err.code, "FOREIGN_KEY_VIOLATION");
+        assert!(conn.is_autocommit());
+        assert_eq!(count(&conn, "event"), 0);
     }
 }
 

@@ -1,6 +1,6 @@
 use crate::error::AppError;
 use crate::features::currency::repository::get_consolidation_currency;
-use crate::shared::{is_iso_date, with_savepoint_app};
+use crate::shared::{is_iso_date, validate_event_date, with_savepoint_app};
 use crate::AppState;
 use rusqlite::Connection;
 use serde::Deserialize;
@@ -22,6 +22,10 @@ pub struct CreateAccountInput {
     pub purchase_price_minor: Option<i64>,
     pub purchase_date: Option<String>,
     pub depreciation_period_months: Option<i64>,
+    /// When the initial balance applies. Defaults to today; a recorded asset uses its purchase
+    /// date so past dashboards show it from the day it was bought.
+    #[serde(default)]
+    pub initial_balance_date: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -58,12 +62,18 @@ pub fn create_account(
     create_account_with_conn(&conn, input)
 }
 
-fn create_account_with_conn(conn: &Connection, input: CreateAccountInput) -> Result<i64, AppError> {
+pub(crate) fn create_account_with_conn(
+    conn: &Connection,
+    input: CreateAccountInput,
+) -> Result<i64, AppError> {
     if input.name.trim().is_empty() {
         return Err(AppError {
             code: "VALIDATION".into(),
             message: "Account name is required".into(),
         });
+    }
+    if let Some(date) = &input.initial_balance_date {
+        validate_event_date(date)?;
     }
     let account_type = input.account_type.as_deref().unwrap_or("account");
     if !matches!(account_type, "account" | "bucket" | "asset") {
@@ -118,6 +128,7 @@ fn create_account_with_conn(conn: &Connection, input: CreateAccountInput) -> Res
                 purchase_price_minor: input.purchase_price_minor,
                 purchase_date: input.purchase_date.clone(),
                 depreciation_period_months,
+                initial_balance_date: input.initial_balance_date.clone(),
             },
         )?;
 
@@ -439,6 +450,7 @@ mod tests {
             purchase_price_minor: None,
             purchase_date: None,
             depreciation_period_months: None,
+            initial_balance_date: None,
         }
     }
 
@@ -687,5 +699,56 @@ mod tests {
         let err = update_account_with_conn(&conn, update_input(&conn, 9999)).unwrap_err();
 
         assert_eq!(err.code, "NOT_FOUND");
+    }
+
+    fn initial_balance_date(conn: &Connection, account_id: i64) -> String {
+        conn.query_row(
+            "SELECT ed.event_date FROM event e JOIN event_data ed ON ed.id = e.latest_data_id
+             WHERE e.account_id = ?1 AND e.event_type = 'balance_update'",
+            [account_id],
+            |row| row.get(0),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn an_asset_bought_earlier_starts_its_value_on_the_purchase_date() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let input = CreateAccountInput {
+            initial_balance_minor: Some(120_000),
+            initial_balance_date: Some("2026-01-15".to_owned()),
+            ..with_depreciation(create_input(&conn, "asset", EUR_ID))
+        };
+
+        let id = create_account_with_conn(&conn, input).unwrap();
+
+        assert_eq!(initial_balance_date(&conn, id), "2026-01-15");
+    }
+
+    #[test]
+    fn an_initial_balance_without_a_date_starts_today() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let input = CreateAccountInput {
+            initial_balance_minor: Some(5_000),
+            ..create_input(&conn, "account", EUR_ID)
+        };
+
+        let id = create_account_with_conn(&conn, input).unwrap();
+
+        assert_eq!(initial_balance_date(&conn, id), crate::shared::local_now());
+    }
+
+    #[test]
+    fn an_initial_balance_date_must_be_a_date() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let input = CreateAccountInput {
+            initial_balance_minor: Some(5_000),
+            initial_balance_date: Some("15.01.2026".to_owned()),
+            ..create_input(&conn, "account", EUR_ID)
+        };
+
+        let err = create_account_with_conn(&conn, input).unwrap_err();
+
+        assert_eq!(err.code, "VALIDATION");
     }
 }

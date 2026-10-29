@@ -214,27 +214,36 @@ pub fn update_event(state: State<'_, AppState>, input: UpdateEventInput) -> Resu
 #[tauri::command]
 pub fn delete_event(state: State<'_, AppState>, event_id: i64) -> Result<(), AppError> {
     let conn = state.conn()?;
-    repository::check_event_not_system_generated(&conn, event_id)?;
+    delete_event_inner(&conn, event_id)
+}
+
+pub(crate) fn delete_event_inner(conn: &Connection, event_id: i64) -> Result<(), AppError> {
+    repository::check_event_not_system_generated(conn, event_id)?;
 
     // If this is a prepaid_expense parent, cascade-delete its system-generated children first.
-    let event_type = repository::get_active_event_type(&conn, event_id)?;
+    let event_type = repository::get_active_event_type(conn, event_id)?;
 
-    with_savepoint_app(&conn, || {
+    with_savepoint_app(conn, || {
         if event_type == "prepaid_expense" {
-            repository::prepaid_expenses::delete_prepaid_child_events(&conn, event_id)?;
+            repository::prepaid_expenses::delete_prepaid_child_events(conn, event_id)?;
         }
-        repository::delete_event(&conn, event_id)?;
+        repository::delete_event(conn, event_id)?;
         Ok(())
-    })?;
-    Ok(())
+    })
 }
 
 #[tauri::command]
 pub fn delete_split_group(state: State<'_, AppState>, split_group_id: i64) -> Result<(), AppError> {
     let conn = state.conn()?;
-    repository::check_split_group_not_system_generated(&conn, split_group_id)?;
-    repository::delete_split_group(&conn, split_group_id).map_err(AppError::from)?;
-    Ok(())
+    delete_split_group_inner(&conn, split_group_id)
+}
+
+pub(crate) fn delete_split_group_inner(
+    conn: &Connection,
+    split_group_id: i64,
+) -> Result<(), AppError> {
+    repository::check_split_group_not_system_generated(conn, split_group_id)?;
+    repository::delete_split_group(conn, split_group_id).map_err(AppError::from)
 }
 
 #[tauri::command]
@@ -764,7 +773,7 @@ pub fn create_taxable_event(
     create_taxable_event_inner(&conn, input)
 }
 
-fn create_taxable_event_inner(
+pub(crate) fn create_taxable_event_inner(
     conn: &Connection,
     input: CreateTaxableEventInput,
 ) -> Result<i64, AppError> {
@@ -840,7 +849,7 @@ pub fn create_taxable_split_group(
     create_taxable_split_group_inner(&conn, input)
 }
 
-fn create_taxable_split_group_inner(
+pub(crate) fn create_taxable_split_group_inner(
     conn: &Connection,
     input: CreateTaxableSplitGroupInput,
 ) -> Result<i64, AppError> {

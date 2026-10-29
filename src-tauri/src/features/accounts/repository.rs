@@ -16,6 +16,8 @@ pub struct CreateAccountParams {
     pub purchase_price_minor: Option<i64>,
     pub purchase_date: Option<String>,
     pub depreciation_period_months: Option<i64>,
+    /// The initial balance's date; today when `None`.
+    pub initial_balance_date: Option<String>,
 }
 
 pub struct UpdateAccountParams {
@@ -64,13 +66,12 @@ pub fn create_account(conn: &Connection, params: CreateAccountParams) -> Result<
         let account_id = conn.last_insert_rowid();
 
         if let Some(amount) = params.initial_balance_minor {
-            let now = local_now();
             crate::features::transactions::repository::create_balance_update_inner(
                 conn,
                 crate::features::transactions::repository::CreateBalanceUpdateParams {
                     account_id,
                     amount_minor: amount,
-                    event_date: now,
+                    event_date: params.initial_balance_date.unwrap_or_else(local_now),
                     note: None,
                 },
             )?;

@@ -35,6 +35,8 @@ pub struct FindPaymentsParams {
     pub note_contains: Option<String>,
     /// No link to a live entry, as `list_eligible_cashflows` counts it.
     pub unlinked_only: bool,
+    /// Only these cash flows, when not empty.
+    pub event_ids: Vec<i64>,
     pub limit: u32,
 }
 
@@ -277,6 +279,15 @@ pub fn find_payments(
                 WHERE tcl.cashflow_event_id = e.id
               )",
         );
+    }
+    if !params.event_ids.is_empty() {
+        filters.push_str(&format!(
+            " AND e.id IN ({})",
+            placeholders(params.event_ids.len())
+        ));
+        for id in &params.event_ids {
+            values.push(Box::new(*id));
+        }
     }
     values.push(Box::new(params.limit));
 

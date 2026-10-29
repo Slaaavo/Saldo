@@ -10,6 +10,11 @@ use super::protocol::{ToolHost, ToolOutcome};
 use crate::error::AppError;
 use crate::features::accounts::repository::get_account_currency_id;
 use crate::features::currency::repository::{get_consolidation_currency, list_currencies};
+use crate::features::entry_batches::models::{
+    BatchReceipt, BatchSummary, RecordBatchError, RecordBatchInput, UndoBatchError, UndoBatchInput,
+    UndoReceipt,
+};
+use crate::features::entry_batches::{self, list_recent_batches};
 use crate::features::persons::repository::list_persons;
 use crate::features::tax_models::commands::calculate_tax_model_inner;
 use crate::features::tax_models::models::TaxCalculationResult;
@@ -35,6 +40,7 @@ impl Server {
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Access {
     Read,
+    Write,
 }
 
 type Run = Box<dyn Fn(&SaldoDb, Value) -> Result<Value, ToolFailure>>;
@@ -80,6 +86,25 @@ fn tools() -> Vec<Tool> {
             "The tax forecast of a tax model, as Saldo's tax model page shows it.",
             Access::Read,
             get_forecast,
+        ),
+        tool(
+            "record_batch",
+            "Record documents (invoices, credit notes) as revenue, expense and prepaid expense \
+             entries and assets, all of them or none. Saldo dates each entry by the delivery \
+             date (else the issue date), makes a split group of two or more lines, prices an \
+             asset without VAT when the VAT is reclaimed, and links the given payments. A \
+             document already in Saldo is refused. Call it with dryRun true first, show the \
+             user the table, and call it again without dryRun only after the user approved it.",
+            Access::Write,
+            record_batch,
+        ),
+        tool(
+            "undo_batch",
+            "Remove everything one batch recorded: entries, their prepaid shares and split \
+             legs, assets and their depreciation, payment links. Undoing twice changes nothing. \
+             When rows were changed in Saldo since, it refuses and lists them.",
+            Access::Write,
+            undo_batch,
         ),
     ]
 }
@@ -157,6 +182,8 @@ enum ToolFailure {
     Unavailable(OpenRefusal),
     InvalidArguments { path: String, message: String },
     App(AppError),
+    Batch(RecordBatchError),
+    Undo(UndoBatchError),
 }
 
 impl From<AppError> for ToolFailure {
@@ -183,7 +210,40 @@ impl ToolFailure {
                 "path": path,
                 "message": format!("{path}: {message}"),
             }),
-            ToolFailure::App(e) => json!({ "code": e.code, "message": e.message }),
+            ToolFailure::App(e)
+            | ToolFailure::Batch(RecordBatchError::App(e))
+            | ToolFailure::Undo(UndoBatchError::App(e)) => {
+                json!({ "code": e.code, "message": e.message })
+            }
+            ToolFailure::Batch(RecordBatchError::Items {
+                dry_run,
+                errors,
+                passed,
+            }) => json!({
+                "code": "BATCH_REFUSED",
+                "message": format!(
+                    "{} of {} documents failed. Nothing was recorded.",
+                    errors.len(),
+                    errors.len() + passed.len()
+                ),
+                "dryRun": dry_run,
+                "errors": errors,
+                "passed": passed,
+            }),
+            ToolFailure::Undo(UndoBatchError::NotFound { batch_id }) => json!({
+                "code": "NOT_FOUND",
+                "message": format!("There is no batch {batch_id}"),
+            }),
+            ToolFailure::Undo(UndoBatchError::Changed { batch_id, rows }) => json!({
+                "code": "BATCH_CHANGED",
+                "message": format!(
+                    "Rows of batch {batch_id} were changed in Saldo since it was recorded. \
+                     Nothing was removed. Ask the user whether to remove them too, then call \
+                     undo_batch with includeChanged."
+                ),
+                "batchId": batch_id,
+                "rows": rows,
+            }),
         }
     }
 }
@@ -214,6 +274,8 @@ struct SaldoContext {
     consolidation_currency: CurrencyRef,
     persons: Vec<PersonContext>,
     tax_models: Vec<TaxModelContext>,
+    /// The latest batches, newest first, so a lost batch id can be found again.
+    recent_batches: Vec<BatchSummary>,
 }
 
 #[derive(Serialize)]
@@ -301,6 +363,7 @@ fn saldo_context(db: &SaldoDb, _: NoArgs) -> Result<SaldoContext, ToolFailure> {
         },
         persons,
         tax_models,
+        recent_batches: list_recent_batches(conn, 20)?,
     })
 }
 
@@ -412,6 +475,7 @@ fn find_payments_tool(
             original_currency: input.original_currency,
             note_contains: input.note_contains,
             unlinked_only: input.unlinked_only,
+            event_ids: Vec::new(),
             limit: page_size(input.limit),
         },
     )?;
@@ -431,6 +495,16 @@ fn get_forecast(
     input: GetForecastInput,
 ) -> Result<TaxCalculationResult, ToolFailure> {
     Ok(calculate_tax_model_inner(&db.conn, input.tax_model_id)?)
+}
+
+// ---- record_batch / undo_batch -------------------------------------------------------------
+
+fn record_batch(db: &SaldoDb, input: RecordBatchInput) -> Result<BatchReceipt, ToolFailure> {
+    entry_batches::record_batch(&db.conn, input).map_err(ToolFailure::Batch)
+}
+
+fn undo_batch(db: &SaldoDb, input: UndoBatchInput) -> Result<UndoReceipt, ToolFailure> {
+    entry_batches::undo_batch(&db.conn, input).map_err(ToolFailure::Undo)
 }
 
 #[cfg(test)]
@@ -594,25 +668,99 @@ mod tests {
     fn tools_list_carries_each_schema_and_whether_the_tool_only_reads() {
         let listed = Server::new(PathBuf::new()).list();
 
-        let names: Vec<&str> = listed.iter().filter_map(|t| t["name"].as_str()).collect();
+        let read_only: Vec<(&str, bool)> = listed
+            .iter()
+            .map(|t| {
+                (
+                    t["name"].as_str().unwrap(),
+                    t["annotations"]["readOnlyHint"] == true,
+                )
+            })
+            .collect();
         assert_eq!(
-            names,
+            read_only,
             [
-                "saldo_context",
-                "find_entries",
-                "find_payments",
-                "get_forecast"
+                ("saldo_context", true),
+                ("find_entries", true),
+                ("find_payments", true),
+                ("get_forecast", true),
+                ("record_batch", false),
+                ("undo_batch", false),
             ]
         );
         for tool in &listed {
             assert_eq!(tool["inputSchema"]["type"], "object", "{}", tool["name"]);
             assert!(tool["description"].as_str().is_some_and(|d| !d.is_empty()));
-            assert_eq!(tool["annotations"]["readOnlyHint"], true);
         }
         let find_entries = &listed[1]["inputSchema"];
         assert!(find_entries["properties"]["issuer"].is_object());
         assert_eq!(find_entries["additionalProperties"], false);
         assert_eq!(listed[3]["inputSchema"]["required"], json!(["taxModelId"]));
+        let record_batch = listed[4]["inputSchema"].to_string();
+        for field in [
+            "dryRun",
+            "deliveryDate",
+            "deductiblePctBps",
+            "prepaidUntil",
+            "depreciationMonths",
+        ] {
+            assert!(
+                record_batch.contains(field),
+                "record_batch's schema lacks {field}"
+            );
+        }
+        assert!(
+            !record_batch.contains("$ref"),
+            "subschemas are inlined for clients that do not follow references"
+        );
+    }
+
+    fn orange_invoice(seeded: &Seeded, number: &str) -> Value {
+        json!({
+            "label": "Invoices 2026-10",
+            "items": [{
+                "document": { "issuer": "35697270", "number": number, "file": "orange.pdf" },
+                "personId": seeded.person_id,
+                "issueDate": "2026-10-31",
+                "content": { "kind": "expense", "lines": [{
+                    "grossMinor": 2399, "vatRateBps": 2300,
+                    "deductiblePctBps": 8000, "vatReclaimablePctBps": 8000 }] },
+            }],
+        })
+    }
+
+    #[test]
+    fn a_recorded_batch_shows_in_the_context_and_undoes() {
+        let seeded = seeded();
+
+        let (ok, receipt) = call(&seeded.dir, "record_batch", orange_invoice(&seeded, "FV2"));
+        let (_, context) = call(&seeded.dir, "saldo_context", json!({}));
+        let batch_id = receipt["batchId"].clone();
+        let (undone, undo) = call(&seeded.dir, "undo_batch", json!({ "batchId": batch_id }));
+
+        assert!(ok, "{receipt}");
+        assert_eq!(receipt["documents"][0]["shape"]["kind"], "single");
+        assert_eq!(receipt["affectedTaxModelIds"], json!([seeded.tax_model_id]));
+        assert_eq!(context["recentBatches"][0]["id"], batch_id);
+        assert!(undone, "{undo}");
+        assert_eq!(undo["alreadyUndone"], false);
+    }
+
+    #[test]
+    fn a_refused_batch_is_an_error_result_listing_each_document() {
+        let seeded = seeded();
+
+        let (ok, refusal) = call(
+            &seeded.dir,
+            "record_batch",
+            orange_invoice(&seeded, "FV2026091044"),
+        );
+
+        assert!(!ok);
+        assert_eq!(refusal["code"], "BATCH_REFUSED");
+        assert_eq!(refusal["errors"][0]["code"], "ALREADY_RECORDED");
+        assert_eq!(refusal["errors"][0]["file"], "orange.pdf");
+        assert_eq!(refusal["errors"][0]["recorded"]["eventId"], seeded.entry_id);
     }
 
     #[test]
