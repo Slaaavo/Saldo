@@ -1,7 +1,11 @@
 use rusqlite::Connection;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use crate::{error::AppError, migrations};
+
+/// How long a write waits for the other process (the app or `saldo mcp`) to release the lock.
+const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub fn initialize_db(db_path: &Path) -> Result<Connection, AppError> {
     let conn = Connection::open(db_path)?;
@@ -13,6 +17,7 @@ pub fn initialize_db(db_path: &Path) -> Result<Connection, AppError> {
 /// Pragmas that return a row run through `query_row`: `execute_batch` discards the row, so a
 /// result reporting failure would pass silently.
 fn set_pragmas(conn: &Connection) -> Result<(), AppError> {
+    conn.busy_timeout(BUSY_TIMEOUT)?;
     conn.execute_batch("PRAGMA foreign_keys = ON;")?;
     let journal_mode: String = conn.query_row("PRAGMA journal_mode = WAL", [], |row| row.get(0))?;
     // An in-memory database has no WAL and reports "memory".
@@ -148,6 +153,25 @@ mod tests {
         assert_eq!(
             count, 36,
             "Running migrations twice must not duplicate rows"
+        );
+    }
+
+    #[test]
+    fn a_second_writer_waits_for_the_first_instead_of_failing() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("saldo.db");
+        let app = initialize_db(&path).unwrap();
+        let other = initialize_db(&path).unwrap();
+        app.execute_batch("BEGIN IMMEDIATE").unwrap();
+
+        let writer =
+            std::thread::spawn(move || other.execute_batch("BEGIN IMMEDIATE; COMMIT;").is_ok());
+        std::thread::sleep(Duration::from_millis(200));
+        app.execute_batch("COMMIT").unwrap();
+
+        assert!(
+            writer.join().unwrap(),
+            "the second writer got the lock once it was free"
         );
     }
 

@@ -19,14 +19,18 @@ where
     run_in_savepoint(conn, f)
 }
 
-/// The outermost RELEASE is the commit, and it fails on a deferred foreign key violation
-/// (`event.latest_data_id`). That failure leaves the savepoint open, so it is rolled back and
-/// released too, or the connection would stay inside the transaction for good.
+/// The outermost scope is a transaction begun IMMEDIATE, so it takes the write lock before its
+/// first read. A deferred transaction that reads and then writes fails with SQLITE_BUSY_SNAPSHOT
+/// when another process (`saldo mcp`) committed in between, and `busy_timeout` does not retry
+/// that. Nested scopes are savepoints.
 fn run_in_savepoint<T, E, F>(conn: &Connection, f: F) -> Result<T, E>
 where
     E: From<rusqlite::Error>,
     F: FnOnce() -> Result<T, E>,
 {
+    if conn.is_autocommit() {
+        return run_in_transaction(conn, f);
+    }
     conn.execute_batch("SAVEPOINT repo_sp")?;
     let result = f().and_then(|val| {
         conn.execute_batch("RELEASE SAVEPOINT repo_sp")?;
@@ -35,6 +39,24 @@ where
     if result.is_err() {
         let _ = conn.execute_batch("ROLLBACK TO SAVEPOINT repo_sp");
         let _ = conn.execute_batch("RELEASE SAVEPOINT repo_sp");
+    }
+    result
+}
+
+/// COMMIT fails on a deferred foreign key violation (`event.latest_data_id`) and leaves the
+/// transaction open, so a failed commit is rolled back too.
+fn run_in_transaction<T, E, F>(conn: &Connection, f: F) -> Result<T, E>
+where
+    E: From<rusqlite::Error>,
+    F: FnOnce() -> Result<T, E>,
+{
+    conn.execute_batch("BEGIN IMMEDIATE")?;
+    let result = f().and_then(|val| {
+        conn.execute_batch("COMMIT")?;
+        Ok(val)
+    });
+    if result.is_err() && !conn.is_autocommit() {
+        let _ = conn.execute_batch("ROLLBACK");
     }
     result
 }
@@ -226,6 +248,67 @@ mod savepoint_tests {
         assert!(conn.is_autocommit());
         assert_eq!(count(&conn, "parent"), 1);
         assert_eq!(count(&conn, "child"), 0);
+    }
+
+    #[test]
+    fn a_failing_nested_scope_rolls_back_alone() {
+        let conn = deferred_fk_conn();
+
+        with_savepoint(&conn, || {
+            insert_parent(&conn)?;
+            let inner = with_savepoint(&conn, || {
+                conn.execute("INSERT INTO parent (id) VALUES (2)", [])?;
+                conn.execute("INSERT INTO parent (id) VALUES (1)", [])
+            });
+            assert!(inner.is_err());
+            Ok(())
+        })
+        .unwrap();
+
+        assert!(conn.is_autocommit());
+        assert_eq!(count(&conn, "parent"), 1);
+    }
+
+    /// Two connections on one WAL file, as the app and `saldo mcp` are.
+    fn two_connections() -> (tempfile::TempDir, Connection, Connection) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("shared.db");
+        let open = || {
+            let conn = Connection::open(&path).unwrap();
+            conn.busy_timeout(std::time::Duration::from_millis(50))
+                .unwrap();
+            conn.query_row("PRAGMA journal_mode = WAL", [], |row| {
+                row.get::<_, String>(0)
+            })
+            .unwrap();
+            conn
+        };
+        let first = open();
+        first
+            .execute_batch("CREATE TABLE parent (id INTEGER PRIMARY KEY);")
+            .unwrap();
+        let second = open();
+        (dir, first, second)
+    }
+
+    #[test]
+    fn the_outermost_scope_takes_the_write_lock_before_it_reads() {
+        let (_dir, app, other) = two_connections();
+
+        with_savepoint(&app, || {
+            let other_write = other.execute("INSERT INTO parent (id) VALUES (7)", []);
+            assert!(
+                other_write.is_err(),
+                "the other process must wait for the lock"
+            );
+            insert_parent(&app)
+        })
+        .unwrap();
+
+        other
+            .execute("INSERT INTO parent (id) VALUES (7)", [])
+            .unwrap();
+        assert_eq!(count(&app, "parent"), 2);
     }
 }
 
