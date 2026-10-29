@@ -49,3 +49,4 @@ Keep implementation details out of the map. Name only user paths, stable handles
 - [Account reorder](./account-reorder.md): drag accounts into a new order, also under a person filter without moving other persons' accounts.
 - [eKasa receipt import](./ekasa-import.md): import a receipt from its QR code, with the duplicate warning and the error step for non-eKasa codes.
 - [Database location](./db-location.md): move, switch, start fresh or reset the database folder from Settings.
+- [Tax forecast](./tax-forecast.md): a tax model's sheet of the year so far and the rest of the year, Update figures, minimum tax, the revenue bracket bound, and why an entry doesn't count.

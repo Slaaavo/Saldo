@@ -673,16 +673,17 @@ Lists all tax models.
 
 ### `getTaxModel`
 
-Gets one tax model with its brackets.
+Gets one tax model with its brackets, minimum tax bands and forecast figures.
 
 - **BE command:** `get_tax_model` → `src-tauri/src/features/tax_models/commands.rs`
 - **Used in:**
   - `src/features/tax-models/TaxModelFormPage.tsx` (TaxModelFormPage)
-  - `src/features/tax-models/TaxModelResultsPage.tsx` (TaxModelResultsPage)
+  - `src/features/tax-models/TaxModelResultsPage/TaxModelResultsPage.tsx` (TaxModelResultsPage)
+  - `src/features/tax-models/TaxForecastFiguresPage/TaxForecastFiguresPage.tsx` (TaxForecastFiguresPage)
 
 ### `createTaxModel`
 
-Creates a tax model with brackets, VAT status and reserve fund settings.
+Creates a tax model with brackets, minimum tax bands, VAT status and reserve fund settings. Its actual months default to the last ended month for the current year, December for a past year and none for a future year.
 
 - **BE command:** `create_tax_model` → `src-tauri/src/features/tax_models/commands.rs`
 - **Used in:**
@@ -690,7 +691,7 @@ Creates a tax model with brackets, VAT status and reserve fund settings.
 
 ### `updateTaxModel`
 
-Updates an existing tax model.
+Updates an existing tax model's settings and minimum tax bands. It leaves the forecast figures alone, and rejects a calendar year that is not after every stored earlier-profit year.
 
 - **BE command:** `update_tax_model` → `src-tauri/src/features/tax_models/commands.rs`
 - **Used in:**
@@ -706,11 +707,20 @@ Deletes a tax model by ID.
 
 ### `calculateTaxModel`
 
-Calculates the tax result for a tax model.
+Calculates a tax model's forecast: the five lines with their year so far, rest of year and year, the tax at the picked rate or the minimum tax, the dividends including earlier profit, and the entries behind the sheet with the reason any of them don't count.
 
 - **BE command:** `calculate_tax_model` → `src-tauri/src/features/tax_models/commands.rs`
 - **Used in:**
-  - `src/features/tax-models/TaxModelResultsPage.tsx` (TaxModelResultsPage)
+  - `src/features/tax-models/TaxModelResultsPage/TaxModelResultsPage.tsx` (TaxModelResultsPage)
+  - `src/features/tax-models/TaxForecastFiguresPage/useTaxForecastFigures.ts` (useTaxForecastFigures hook → TaxForecastFiguresPage, for the placeholders)
+
+### `saveTaxForecastFigures`
+
+Replaces a tax model's forecast figures: the month the actual figures cover, the monthly payroll amount, the typed values per line, and the earlier unpaid profit per year.
+
+- **BE command:** `save_tax_forecast_figures` → `src-tauri/src/features/tax_models/commands.rs`
+- **Used in:**
+  - `src/features/tax-models/TaxForecastFiguresPage/useTaxForecastFigures.ts` (useTaxForecastFigures hook → TaxForecastFiguresPage)
 
 ---
 
