@@ -25,24 +25,44 @@ pub fn read_db_location(app_data_dir: &Path) -> Option<PathBuf> {
     Some(PathBuf::from(folder))
 }
 
-/// Resolves the database file to open at startup, plus whether to warn that the configured
-/// custom location was unavailable.
-///
-/// The custom location is used only when its `saldo.db` is present: opening a missing file would
-/// silently create an empty database there (e.g. a cloud-sync file that was evicted or not yet
-/// downloaded). Otherwise the default path is used with the warning flag set.
-pub fn resolve_db_path(app_data_dir: &Path) -> (PathBuf, bool) {
-    let default_path = app_data_dir.join(DB_FILENAME);
+/// Where `saldo.db` is, as `db-location.json` says. The app and `saldo mcp` read the same value
+/// and differ only in what they do when a configured folder has no database.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DbLocation {
+    Default(PathBuf),
+    Custom(PathBuf),
+    /// A custom folder is configured but its `saldo.db` is not there (e.g. a cloud-sync file
+    /// that was evicted or not yet downloaded, or an unmounted drive).
+    CustomMissing {
+        folder: PathBuf,
+        default: PathBuf,
+    },
+}
+
+pub fn resolve_db_location(app_data_dir: &Path) -> DbLocation {
+    let default = app_data_dir.join(DB_FILENAME);
     match read_db_location(app_data_dir) {
         Some(folder) => {
             let custom_path = folder.join(DB_FILENAME);
             if custom_path.exists() {
-                (custom_path, false)
+                DbLocation::Custom(custom_path)
             } else {
-                (default_path, true)
+                DbLocation::CustomMissing { folder, default }
             }
         }
-        None => (default_path, false),
+        None => DbLocation::Default(default),
+    }
+}
+
+impl DbLocation {
+    /// The app's policy: the database file to open at startup, plus whether to warn that the
+    /// configured custom location was unavailable. Opening the missing custom file would
+    /// silently create an empty database there, so the default path is used instead.
+    pub fn for_app(self) -> (PathBuf, bool) {
+        match self {
+            DbLocation::Default(path) | DbLocation::Custom(path) => (path, false),
+            DbLocation::CustomMissing { default, .. } => (default, true),
+        }
     }
 }
 
@@ -134,10 +154,10 @@ mod tests {
     #[test]
     fn resolve_without_config_uses_default_path() {
         let dir = make_temp_dir();
-        assert_eq!(
-            resolve_db_path(dir.path()),
-            (dir.path().join(DB_FILENAME), false)
-        );
+        let location = resolve_db_location(dir.path());
+
+        assert_eq!(location, DbLocation::Default(dir.path().join(DB_FILENAME)));
+        assert_eq!(location.for_app(), (dir.path().join(DB_FILENAME), false));
     }
 
     #[test]
@@ -148,21 +168,28 @@ mod tests {
         fs::write(folder.join(DB_FILENAME), b"").unwrap();
         write_db_location(dir.path(), &folder).unwrap();
 
-        assert_eq!(
-            resolve_db_path(dir.path()),
-            (folder.join(DB_FILENAME), false)
-        );
+        let location = resolve_db_location(dir.path());
+
+        assert_eq!(location, DbLocation::Custom(folder.join(DB_FILENAME)));
+        assert_eq!(location.for_app(), (folder.join(DB_FILENAME), false));
     }
 
     #[test]
     fn resolve_falls_back_when_custom_folder_is_missing() {
         let dir = make_temp_dir();
-        write_db_location(dir.path(), &dir.path().join("gone")).unwrap();
+        let folder = dir.path().join("gone");
+        write_db_location(dir.path(), &folder).unwrap();
+
+        let location = resolve_db_location(dir.path());
 
         assert_eq!(
-            resolve_db_path(dir.path()),
-            (dir.path().join(DB_FILENAME), true)
+            location,
+            DbLocation::CustomMissing {
+                folder,
+                default: dir.path().join(DB_FILENAME)
+            }
         );
+        assert_eq!(location.for_app(), (dir.path().join(DB_FILENAME), true));
     }
 
     #[test]
@@ -173,7 +200,7 @@ mod tests {
         write_db_location(dir.path(), &folder).unwrap();
 
         assert_eq!(
-            resolve_db_path(dir.path()),
+            resolve_db_location(dir.path()).for_app(),
             (dir.path().join(DB_FILENAME), true)
         );
     }
@@ -190,8 +217,8 @@ mod tests {
         crate::db::initialize_db(&folder.join(DB_FILENAME)).expect("DB init failed");
 
         assert_eq!(
-            resolve_db_path(dir.path()),
-            (folder.join(DB_FILENAME), false)
+            resolve_db_location(dir.path()),
+            DbLocation::Custom(folder.join(DB_FILENAME))
         );
     }
 

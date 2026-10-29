@@ -1,3 +1,6 @@
+// In `saldo mcp`, stdout carries the protocol and nothing else.
+#![deny(clippy::print_stdout)]
+
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
@@ -8,6 +11,7 @@ mod db;
 mod demo;
 mod error;
 mod features;
+mod mcp;
 mod migrations;
 mod oxr;
 mod shared;
@@ -201,9 +205,7 @@ pub fn run() {
                 .expect("failed to get app data dir");
             std::fs::create_dir_all(&app_dir).expect("failed to create app data dir");
 
-            // Use the custom location when its saldo.db is present; otherwise fall back to
-            // app_data_dir with a warning flag.
-            let (db_path, fallback_warning) = config::resolve_db_path(&app_dir);
+            let (db_path, fallback_warning) = config::resolve_db_location(&app_dir).for_app();
 
             let conn = db::initialize_db(&db_path).expect("failed to initialize database");
 
@@ -305,15 +307,25 @@ pub fn run() {
             features::upsert_ekasa_profile,
             features::process_receipt_file,
         ])
-        .run({
-            let mut ctx = tauri::generate_context!();
-            ctx.set_default_window_icon(Some(
-                tauri::image::Image::from_bytes(include_bytes!("../icons/icon.png"))
-                    .expect("failed to load window icon"),
-            ));
-            ctx
-        })
+        .run(tauri_context())
         .expect("error while running tauri application");
+}
+
+/// The one `generate_context!` site: the macro embeds the frontend, so a second call would embed
+/// it twice. `saldo mcp` reads the identifier this binary was built with from it.
+fn tauri_context() -> tauri::Context<tauri::Wry> {
+    let mut ctx = tauri::generate_context!();
+    ctx.set_default_window_icon(Some(
+        tauri::image::Image::from_bytes(include_bytes!("../icons/icon.png"))
+            .expect("failed to load window icon"),
+    ));
+    ctx
+}
+
+/// `saldo mcp`: serves Saldo's tools to an AI assistant over stdin and stdout until stdin
+/// closes. It never builds the app and never migrates the database. Returns the exit code.
+pub fn run_mcp() -> i32 {
+    mcp::serve_stdio(&tauri_context().config().identifier)
 }
 
 /// Background task: fetch missing FX rates on startup without blocking the UI.

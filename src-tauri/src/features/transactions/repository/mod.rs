@@ -2,6 +2,7 @@ mod balance_updates;
 mod cashflows;
 pub(crate) mod depreciation;
 mod events;
+mod find;
 pub(crate) mod prepaid_expenses;
 mod queries;
 mod snapshot;
@@ -10,6 +11,9 @@ mod split_groups;
 mod taxable_events;
 pub mod taxable_links;
 
+pub use find::{
+    find_document_entries, find_payments, FindDocumentEntriesParams, FindPaymentsParams,
+};
 pub use source_refs::find_recorded_source;
 
 pub(crate) use balance_updates::create_balance_update_inner;

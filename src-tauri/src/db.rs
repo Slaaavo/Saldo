@@ -1,4 +1,4 @@
-use rusqlite::Connection;
+use rusqlite::{Connection, OpenFlags};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -11,6 +11,15 @@ pub fn initialize_db(db_path: &Path) -> Result<Connection, AppError> {
     let conn = Connection::open(db_path)?;
     set_pragmas(&conn)?;
     migrations::run_pending(&conn)?;
+    Ok(conn)
+}
+
+/// Opens a database that must already exist, with the app's pragmas and without migrating it.
+/// A missing file is an error, never a new empty database.
+pub fn open_existing(db_path: &Path) -> Result<Connection, AppError> {
+    let flags = OpenFlags::default().difference(OpenFlags::SQLITE_OPEN_CREATE);
+    let conn = Connection::open_with_flags(db_path, flags)?;
+    set_pragmas(&conn)?;
     Ok(conn)
 }
 
@@ -154,6 +163,37 @@ mod tests {
             count, 37,
             "Running migrations twice must not duplicate rows"
         );
+    }
+
+    #[test]
+    fn open_existing_never_creates_a_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("saldo.db");
+
+        assert!(open_existing(&path).is_err());
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn open_existing_opens_without_migrating() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("saldo.db");
+        drop(Connection::open(&path).unwrap());
+
+        let conn = open_existing(&path).unwrap();
+
+        let migrations_table: bool = conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name = '_migrations')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(!migrations_table);
+        let journal_mode: String = conn
+            .query_row("PRAGMA journal_mode", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(journal_mode, "wal");
     }
 
     #[test]

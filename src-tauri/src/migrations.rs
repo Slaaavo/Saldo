@@ -8,6 +8,58 @@ pub fn run_pending(conn: &Connection) -> Result<(), AppError> {
     apply_pending(conn, MIGRATIONS)
 }
 
+/// How a database's applied migrations differ from this binary's list.
+#[derive(Debug, PartialEq, Eq)]
+pub enum SchemaMismatch {
+    /// No `_migrations` table: not a database Saldo has opened.
+    NotInitialized,
+    /// This binary knows migrations the database lacks.
+    Behind { missing: Vec<String> },
+    /// The database has migrations this binary does not know: a newer Saldo migrated it. Wins
+    /// over `Behind` when both apply.
+    Ahead { unknown: Vec<String> },
+}
+
+/// Compares the applied migrations with this binary's list. Reads only, never migrates.
+pub fn check_schema(conn: &Connection) -> Result<Result<(), SchemaMismatch>, AppError> {
+    compare_schema(conn, MIGRATIONS)
+}
+
+fn compare_schema(
+    conn: &Connection,
+    migrations: &[(&str, &str)],
+) -> Result<Result<(), SchemaMismatch>, AppError> {
+    let initialized: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = '_migrations')",
+        [],
+        |row| row.get(0),
+    )?;
+    if !initialized {
+        return Ok(Err(SchemaMismatch::NotInitialized));
+    }
+    let applied: Vec<String> = conn
+        .prepare("SELECT filename FROM _migrations ORDER BY filename")?
+        .query_map([], |row| row.get(0))?
+        .collect::<rusqlite::Result<_>>()?;
+    let unknown: Vec<String> = applied
+        .iter()
+        .filter(|name| !migrations.iter().any(|(known, _)| known == name))
+        .cloned()
+        .collect();
+    if !unknown.is_empty() {
+        return Ok(Err(SchemaMismatch::Ahead { unknown }));
+    }
+    let missing: Vec<String> = migrations
+        .iter()
+        .filter(|(known, _)| !applied.iter().any(|name| name == known))
+        .map(|(known, _)| known.to_string())
+        .collect();
+    if !missing.is_empty() {
+        return Ok(Err(SchemaMismatch::Behind { missing }));
+    }
+    Ok(Ok(()))
+}
+
 fn apply_pending(conn: &Connection, migrations: &[(&str, &str)]) -> Result<(), AppError> {
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS _migrations (
@@ -92,6 +144,61 @@ mod tests {
             .unwrap()
             .collect::<rusqlite::Result<_>>()
             .unwrap()
+    }
+
+    const FIRST: (&str, &str) = ("001_first.sql", "CREATE TABLE first (id INTEGER);");
+    const SECOND: (&str, &str) = ("002_second.sql", "CREATE TABLE second (id INTEGER);");
+
+    #[test]
+    fn a_database_on_the_same_migrations_matches() {
+        let conn = fk_enabled_conn();
+        apply_pending(&conn, &[FIRST, SECOND]).unwrap();
+
+        assert_eq!(compare_schema(&conn, &[FIRST, SECOND]).unwrap(), Ok(()));
+    }
+
+    #[test]
+    fn a_database_missing_migrations_is_behind() {
+        let conn = fk_enabled_conn();
+        apply_pending(&conn, &[FIRST]).unwrap();
+
+        assert_eq!(
+            compare_schema(&conn, &[FIRST, SECOND]).unwrap(),
+            Err(SchemaMismatch::Behind {
+                missing: vec!["002_second.sql".into()]
+            })
+        );
+        assert!(!table_exists(&conn, "second"), "the check never migrates");
+    }
+
+    #[test]
+    fn a_database_with_unknown_migrations_is_ahead() {
+        let conn = fk_enabled_conn();
+        apply_pending(&conn, &[FIRST, SECOND]).unwrap();
+
+        assert_eq!(
+            compare_schema(&conn, &[FIRST]).unwrap(),
+            Err(SchemaMismatch::Ahead {
+                unknown: vec!["002_second.sql".into()]
+            })
+        );
+    }
+
+    #[test]
+    fn a_database_saldo_never_opened_is_not_initialized() {
+        let conn = fk_enabled_conn();
+
+        assert_eq!(
+            compare_schema(&conn, &[FIRST]).unwrap(),
+            Err(SchemaMismatch::NotInitialized)
+        );
+    }
+
+    #[test]
+    fn a_migrated_database_matches_this_build() {
+        let conn = crate::db::initialize_in_memory().unwrap();
+
+        assert_eq!(check_schema(&conn).unwrap(), Ok(()));
     }
 
     #[test]

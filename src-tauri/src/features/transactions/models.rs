@@ -323,6 +323,87 @@ pub struct CreateSplitGroupInput {
     pub legs: Vec<SplitGroupEntry>,
 }
 
+/// The kinds of taxable entry a document can become.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum TaxableKind {
+    Revenue,
+    Expense,
+    PrepaidExpense,
+}
+
+impl TaxableKind {
+    pub fn event_type(self) -> &'static str {
+        match self {
+            TaxableKind::Revenue => "revenue",
+            TaxableKind::Expense => "expense",
+            TaxableKind::PrepaidExpense => "prepaid_expense",
+        }
+    }
+}
+
+impl rusqlite::types::FromSql for TaxableKind {
+    fn column_result(value: rusqlite::types::ValueRef<'_>) -> rusqlite::types::FromSqlResult<Self> {
+        match value.as_str()? {
+            "revenue" => Ok(TaxableKind::Revenue),
+            "expense" => Ok(TaxableKind::Expense),
+            "prepaid_expense" => Ok(TaxableKind::PrepaidExpense),
+            _ => Err(rusqlite::types::FromSqlError::InvalidType),
+        }
+    }
+}
+
+/// One source document as Saldo holds it: a single entry, or the legs of a split group.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentEntry {
+    pub kind: TaxableKind,
+    pub person_id: i64,
+    pub date: String,
+    /// Sum of the lines, VAT included. Negative for a credit note.
+    pub total_gross_minor: i64,
+    pub note: Option<String>,
+    pub source_ref: Option<String>,
+    pub batch_id: Option<i64>,
+    pub split_group_id: Option<i64>,
+    pub prepaid_until: Option<String>,
+    pub reclaimed_vat: Option<bool>,
+    pub lines: Vec<EntryLine>,
+    /// Payments linked to any line.
+    pub linked_payment_ids: Vec<i64>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EntryLine {
+    pub event_id: i64,
+    pub gross_minor: i64,
+    pub net_minor: i64,
+    pub vat_rate_bps: Option<i64>,
+    pub deductible_pct_bps: Option<i64>,
+    pub vat_reclaimable_pct_bps: Option<i64>,
+}
+
+/// A cash flow that can pay a document.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Payment {
+    pub event_id: i64,
+    pub account_id: i64,
+    pub account_name: String,
+    pub person_id: Option<i64>,
+    pub date: String,
+    /// In the account's currency. Negative for money going out.
+    pub amount_minor: i64,
+    pub currency: String,
+    pub original_amount_minor: Option<i64>,
+    pub original_currency: Option<String>,
+    /// The bank or card text.
+    pub note: Option<String>,
+    /// Live entries this payment is linked to. Empty means unlinked.
+    pub linked_entry_ids: Vec<i64>,
+}
+
 /// What already carries a document's reference: a live entry or an asset account.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]

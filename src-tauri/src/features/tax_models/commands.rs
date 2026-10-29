@@ -551,16 +551,22 @@ pub fn calculate_tax_model(
     model_id: i64,
 ) -> Result<TaxCalculationResult, AppError> {
     let conn = state.conn()?;
-    let model = repository::get_tax_model(&conn, model_id)?;
+    calculate_tax_model_inner(&conn, model_id)
+}
+
+pub(crate) fn calculate_tax_model_inner(
+    conn: &rusqlite::Connection,
+    model_id: i64,
+) -> Result<TaxCalculationResult, AppError> {
+    let model = repository::get_tax_model(conn, model_id)?;
     let events = repository::list_taxable_events_for_model(
-        &conn,
+        conn,
         repository::ListTaxableEventsForModelParams {
             person_id: model.person_id,
             calendar_year: model.calendar_year as i32,
         },
     )?;
-    let result = calculation::calculate_tax_model_results(&model, &events);
-    Ok(result)
+    Ok(calculation::calculate_tax_model_results(&model, &events))
 }
 
 #[cfg(test)]

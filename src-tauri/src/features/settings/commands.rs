@@ -498,8 +498,8 @@ mod tests {
 
         assert!(state.db_generation() > before);
         assert_eq!(
-            config::resolve_db_path(&state.app_data_dir),
-            (target.join(config::DB_FILENAME), false)
+            config::resolve_db_location(&state.app_data_dir),
+            config::DbLocation::Custom(target.join(config::DB_FILENAME))
         );
     }
 
@@ -517,8 +517,8 @@ mod tests {
         assert!(state.db_generation() > before);
         assert!(!old_path.exists());
         assert_eq!(
-            config::resolve_db_path(&state.app_data_dir),
-            (target.join(config::DB_FILENAME), false)
+            config::resolve_db_location(&state.app_data_dir),
+            config::DbLocation::Custom(target.join(config::DB_FILENAME))
         );
         let conn = state.conn().unwrap();
         repository::get_app_setting(&conn, "consolidation_currency_code").unwrap();
