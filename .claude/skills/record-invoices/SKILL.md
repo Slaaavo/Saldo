@@ -16,7 +16,7 @@ You read the documents. Saldo validates them, stores them as entries and assets,
 	```
 
 - Call `saldo_context`. Check that `databasePath` is the file the user expects. Pick the person the documents belong to: company documents go to the person with `personType` `legal`. Note its `vatPayer` flag and the `recentBatches`.
-- A tool can refuse with a sentence for the user, for example `DATABASE_BEHIND` ("open Saldo once") or `DATABASE_FOLDER_MISSING`. Relay it and stop. Saldo never writes into a database it refused.
+- A tool can refuse with a sentence for the user, for example `DATABASE_BEHIND` ("open Saldo once"), `DATABASE_FOLDER_MISSING`, or `DATABASE_CHANGED` when Saldo moved or switched its database during the call. Relay it and stop. Saldo never writes into a database it refused.
 
 ## Read each document
 
@@ -38,30 +38,31 @@ Take these from every document. Amounts are integer cents (minor units), VAT inc
 
 ## Find each payment
 
-- Call `find_payments` with the person, a window from a few days before the issue date to a few weeks after the due date, `amountMinor` set to the document total (either sign matches), and `unlinkedOnly` true.
+- Call `find_payments` with the person, a window from a few days before the issue date to a few weeks after the due date, `amountMinor` set to the document total (either sign matches), and `unlinkedOnly` true. `noteContains` ignores case and accents, so `cez` finds `ČEZ`.
 - Put the matching payment ids in the document's `paymentIds`. Saldo links them to the entry.
 - A foreign-currency document takes the euro amount of its payment, so its `grossMinor` values come from the payment, split by the document's VAT rates. Search with `originalCurrency` and the original amount. If the payment is not in Saldo yet, leave the document out of the batch and list it as waiting for its payment.
 
 ## Record the batch
 
 1. Call `get_forecast` for the person's tax model of that year, and keep the result.
-2. Call `record_batch` with all documents and `dryRun` true. Saldo runs the real write and rolls it back.
+2. Call `record_batch` with all documents and `dryRun` true. Saldo runs the real write and rolls it back. The answer carries a `reviewToken`.
 3. If it refuses (`BATCH_REFUSED`), fix every listed item and run the dry run again. `ALREADY_RECORDED` means the document is in Saldo already. Drop it and tell the user.
 4. Show the user one table, built from the dry run's answer. Give one row per document: the file, issuer, number, the date Saldo used and its source, the kind and shape, the gross total, the VAT rates, the shares, the asset price and months, the linked payments and every warning. List the documents waiting for a payment below it.
-5. Wait for the user's yes. Never call `record_batch` without `dryRun` before that yes.
-6. Call `record_batch` with the same documents and `dryRun` false. Keep the `batchId`.
-7. Call `get_forecast` for each id in `affectedTaxModelIds`, and tell the user which forecast lines moved and by how much.
+5. Wait for the user's yes.
+6. Call `record_batch` with the identical label and documents, `dryRun` false and the dry run's `reviewToken`. Keep the `batchId`. Saldo refuses with `REVIEW_TOKEN_MISMATCH` when anything differs from the reviewed dry run, `file` and `note` included. After a correction, run the dry run again and show the user the new table before you write.
+7. Call `get_forecast` for each id in `affectedTaxModelIds`, and tell the user which forecast lines moved and by how much. The ids include later years that a prepaid expense or an asset's depreciation reaches.
 
 A forecast line counts entries only for the months the model marks as actual, and only while the user has not typed that line's year-so-far value. If a line did not move, check those two causes first and name the one that applies.
 
 ## Undo a batch
 
 - Call `undo_batch` with the `batchId`. It soft-deletes the batch's entries and deletes its assets with their depreciation. A second call changes nothing.
-- `BATCH_CHANGED` lists rows the user edited in Saldo after the batch. Show them, and send `includeChanged` true only after the user agrees.
+- `BATCH_CHANGED` lists what the user changed in Saldo after the batch: an edited entry, a leg added to a split, an event added to an asset, an edited asset (name, price, purchase date or months), and a payment link added or removed by hand. Show the list, and send `includeChanged` true only after the user agrees.
 - A lost batch id is in `saldo_context`'s `recentBatches`, or on any entry `find_entries` returns.
 
 ## Warnings in a result
 
 - `payment_amount_differs`: the linked payments do not add up to the document total. For a foreign-currency document this usually means the amounts were not taken from the payment.
+- `payment_direction_differs`: a linked payment goes the wrong way, for example money coming in for an expense. Check that it is the right payment.
 - `payment_already_linked`: the payment is linked to another entry too. Check that this is intended.
-- `similar_document`: the same issuer has a document with the same total within two weeks. Check that it is not a duplicate under another number.
+- `similar_document`: another entry of the same person and kind has the same total within two weeks, from any issuer or typed in by hand (`sourceRef` null). Check that it is not the same document under another key or number.

@@ -4,8 +4,10 @@ Usage: python3 -I mcp-drive.py <steps.json> [--expect-db <path>] -- <server comm
 
 The steps file is a JSON list. Each step is one of
   {"call": "<tool>", "args": {...}}          a tools/call
+  {"record": {...record_batch args...}}        a dry run, then the write with its reviewToken
   {"list": true}                               a tools/list
   {"raw": {"method": "...", "params": {...}}}  any other request
+A record step skips the write when the dry run is refused.
 The client sends initialize and notifications/initialized first. With --expect-db it then calls
 saldo_context and stops before any step unless databasePath is exactly <path>. It exits non-zero
 when the server closes early, answers with a JSON-RPC error, or the database does not match.
@@ -77,7 +79,17 @@ def main() -> int:
             raise SystemExit(f"refusing to run the steps: the server opened {opened}, not {expect_db}")
 
     for step in steps:
-        if "call" in step:
+        if "record" in step:
+            batch = {key: value for key, value in step["record"].items() if key not in ("dryRun", "reviewToken")}
+            reply = request("tools/call", {"name": "record_batch", "arguments": {**batch, "dryRun": True}})
+            preview = reply.get("result", {})
+            if "error" not in reply and not preview.get("isError"):
+                token = preview.get("structuredContent", {}).get("reviewToken")
+                reply = request(
+                    "tools/call",
+                    {"name": "record_batch", "arguments": {**batch, "dryRun": False, "reviewToken": token}},
+                )
+        elif "call" in step:
             reply = request("tools/call", {"name": step["call"], "arguments": step.get("args", {})})
         elif step.get("list"):
             reply = request("tools/list", {})

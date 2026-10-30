@@ -1,7 +1,14 @@
 [
   {"call": "find_payments", "args": {"personId": 1, "from": "2026-10-01", "to": "2026-10-06", "unlinkedOnly": true}},
   {"call": "record_batch", "args": {
-    "label": "Verify MCP batch", "dryRun": false,
+    "label": "Verify MCP write without a review", "dryRun": false,
+    "items": [
+      {"document": {"issuer": "12345678", "number": "VER-000", "file": "unreviewed.pdf"}, "personId": 1,
+       "issueDate": "2026-10-03", "note": "Verify MCP unreviewed",
+       "content": {"kind": "expense", "lines": [{"grossMinor": 999, "vatRateBps": 2300, "deductiblePctBps": 10000, "vatReclaimablePctBps": 0}]}}
+    ]}},
+  {"record": {
+    "label": "Verify MCP batch",
     "items": [
       {"document": {"issuer": "12345678", "number": "VER-001", "file": "coffee.pdf"}, "personId": 1,
        "issueDate": "2026-10-03", "deliveryDate": "2026-10-01", "note": "Verify MCP coffee", "paymentIds": [8],
@@ -27,8 +34,8 @@
                    "lines": [{"grossMinor": 3690, "vatRateBps": 2300, "deductiblePctBps": 10000, "vatReclaimablePctBps": 10000}],
                    "assets": [{"name": "Verify MCP laptop", "grossMinor": 250000, "vatRateBps": 2300, "depreciationMonths": 48}]}}
     ]}},
-  {"call": "record_batch", "args": {
-    "label": "Verify MCP repeat", "dryRun": false,
+  {"record": {
+    "label": "Verify MCP repeat",
     "items": [
       {"document": {"issuer": "12345678", "number": "ver-001", "file": "coffee-again.pdf"}, "personId": 1,
        "issueDate": "2026-10-03", "deliveryDate": "2026-10-01", "note": "Verify MCP coffee again",
