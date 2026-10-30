@@ -47,8 +47,11 @@ cat > "$BUNDLE/Contents/Info.plist" <<EOF
 </plist>
 EOF
 cp -f "${CARGO_TARGET_DIR:-$W/src-tauri/target}/$profile/saldo" "$APP_BIN"
+# The installed app carries PDFium in Contents/Resources, which `saldo mcp` finds from the
+# binary's path whatever its working directory.
+mkdir -p "$BUNDLE/Contents/Resources"
+cp -f "$W/src-tauri/libpdfium.dylib" "$BUNDLE/Contents/Resources/libpdfium.dylib"
 
 echo "[verify-saldo] starting Saldo Dev (pid $$, bundle id $DEV_ID)"
-# eKasa import loads ./libpdfium.dylib relative to the working directory.
 cd "$W/src-tauri"
 exec "$APP_BIN" ${app_args[@]+"${app_args[@]}"}

@@ -8,12 +8,17 @@ The steps file is a JSON list. Each step is one of
   {"list": true}                               a tools/list
   {"raw": {"method": "...", "params": {...}}}  any other request
 A record step skips the write when the dry run is refused.
+A call step with "save": "<name>" keeps its structuredContent. A later step's argument string
+"$<name>.<field>.<field>" is replaced by that saved value, so a read_receipt answer's receipt
+object can go into a record step. "${FIXTURES}" in the steps file is the folder holding it.
+The server runs with "/" as its working directory, as it does under Claude Code.
 The client sends initialize and notifications/initialized first. With --expect-db it then calls
 saldo_context and stops before any step unless databasePath is exactly <path>. It exits non-zero
 when the server closes early, answers with a JSON-RPC error, or the database does not match.
 """
 
 import json
+import os
 import subprocess
 import sys
 
@@ -24,7 +29,22 @@ def main() -> int:
     steps_path = options[0]
     expect_db = options[options.index("--expect-db") + 1] if "--expect-db" in options else None
     with open(steps_path) as f:
-        steps = json.load(f)
+        fixtures = os.path.dirname(os.path.abspath(steps_path))
+        steps = json.loads(f.read().replace("${FIXTURES}", fixtures))
+    saved = {}
+
+    def resolve(value):
+        if isinstance(value, dict):
+            return {key: resolve(item) for key, item in value.items()}
+        if isinstance(value, list):
+            return [resolve(item) for item in value]
+        if isinstance(value, str) and value.startswith("$") and value[1:].split(".")[0] in saved:
+            name, *path = value[1:].split(".")
+            found = saved[name]
+            for key in path:
+                found = found[key]
+            return found
+        return value
 
     proc = subprocess.Popen(
         sys.argv[sep + 1 :],
@@ -33,6 +53,7 @@ def main() -> int:
         stderr=sys.stderr,
         text=True,
         bufsize=1,
+        cwd="/",
     )
     next_id = 0
 
@@ -79,6 +100,7 @@ def main() -> int:
             raise SystemExit(f"refusing to run the steps: the server opened {opened}, not {expect_db}")
 
     for step in steps:
+        step = resolve(step)
         if "record" in step:
             batch = {key: value for key, value in step["record"].items() if key not in ("dryRun", "reviewToken")}
             reply = request("tools/call", {"name": "record_batch", "arguments": {**batch, "dryRun": True}})
@@ -91,6 +113,8 @@ def main() -> int:
                 )
         elif "call" in step:
             reply = request("tools/call", {"name": step["call"], "arguments": step.get("args", {})})
+            if "save" in step:
+                saved[step["save"]] = reply.get("result", {}).get("structuredContent", {})
         elif step.get("list"):
             reply = request("tools/list", {})
         else:

@@ -9,6 +9,7 @@ The user imports a Slovak eKasa receipt from a photo, a PDF or a screenshot of i
 - `ekasa-duplicate` warns in the review step when a live entry already carries the receipt, and still allows the import.
 - `ekasa-online` fetches an online receipt id from the government API.
 - `ekasa-pdf` decodes the QR from a PDF through PDFium.
+- `ekasa-rules` matches an online receipt's items to the rules step's rules through Saldo's matcher (`match_ekasa_rules`): case and accents ignored, the first match wins, an unmatched item takes the Default row, and a pattern that does not compile is skipped with a warning toast. Saving a profile with such a pattern is refused.
 
 ## How to get to it (user POV)
 
@@ -32,6 +33,8 @@ Preconditions:
 ## Gotchas
 
 - Last driven on 2026-10-25, on the dev DB, in run `20261025-081534-worktree-open-review-fixes`: `ekasa-offline`, `ekasa-duplicate` and `ekasa-reject` (Feb 30 and a URL), with the UI in Slovak, and `ekasa-pdf` with PDFium staged only in the bundle's Resources folder. `ekasa-online` (needs a real receipt id and the network) was not driven.
-- PDFium binds once per app process. To prove the installed-app lookup in the dev bundle, put `libpdfium.dylib` in `.verify-saldo/Saldo Dev.app/Contents/Resources/`, move `src-tauri/libpdfium.dylib` aside before the first PDF import of the run, import a PDF, and restore the file afterwards. Without the library anywhere, the error names every directory it tried.
+- PDFium binds once per app process. `runner.sh` puts `libpdfium.dylib` in `.verify-saldo/Saldo Dev.app/Contents/Resources/`, as the installed app has it, so the bundle lookup is the one exercised. Without the library anywhere, the error names every directory it tried.
+- The wizard and `saldo mcp` share one reader (`ekasa/reading.rs`) and one rule matcher (`ekasa/rules.rs`). An online id Finančná správa does not know now ends on the error step with `RECEIPT_NOT_FOUND` instead of an empty review.
+- `ekasa-rules` has not been driven in the window: it needs a real online receipt id, and the `Import` menu and the file panel need display-scope control. The matcher, the command and the wizard are covered by cargo and Vitest tests, and `saldo mcp` exercised the matcher on the dev DB (see [mcp-recording](./mcp-recording.md)).
 - Backend error messages are English even when the UI is Slovak; the wizard shows them as-is.
 - A taxable expense from eKasa stores a date-only `event_date` (`2018-02-13`).

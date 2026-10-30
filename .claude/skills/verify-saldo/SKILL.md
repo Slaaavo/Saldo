@@ -51,7 +51,7 @@ Exit 0 prints `ready: Saldo Dev pid <pid>` and the evidence folder. Exit 1 means
 How it works: `launch.sh` runs `pnpm tauri dev --config src-tauri/tauri.dev.conf.json --runner scripts/runner.sh`.
 
 - `tauri.dev.conf.json` sets the identifier to `com.teamsumbal.saldo.dev`.
-- The plain debug binary has no bundle id, so computer use can't see its window. `runner.sh` therefore builds what `cargo run` would build, copies the binary into `.verify-saldo/Saldo Dev.app`, and execs it from there with `src-tauri/` as the working directory. eKasa import looks for PDFium in the app's resource folder first (`Saldo Dev.app/Contents/Resources/`, empty here), then falls back to `./libpdfium.dylib` in that working directory.
+- The plain debug binary has no bundle id, so computer use can't see its window. `runner.sh` therefore builds what `cargo run` would build, copies the binary and `libpdfium.dylib` into `.verify-saldo/Saldo Dev.app` (the library into `Contents/Resources/`, as in the installed app), and execs it from there with `src-tauri/` as the working directory. eKasa import and `saldo mcp` look for PDFium in that resource folder first, then fall back to `./libpdfium.dylib` in the working directory.
 - Vite and teardown on quit work as in normal `tauri dev`. Frontend edits hot-reload in the open window. A Rust edit should make `tauri dev` re-run the runner, which rebuilds and restarts the app; this hasn't been exercised yet. After one, run `wait-ready.sh` and take a fresh screenshot.
 
 **Grant computer use once per session.** Call `request_access` with `apps: ["com.teamsumbal.saldo.dev"]`. The user approves the dialog. The app is only listed while it runs, so launch it first.
@@ -145,6 +145,7 @@ All of these live in `.claude/skills/verify-saldo/scripts/` and run from any dir
 | `evidence.sh` | `evidence.sh dir`, `keep <name> <image>`, `db <name> <sql>`, `note <text>` | off |
 | `cleanup.sh` | `cleanup.sh` | off |
 | `reset-dev-db.sh` | `reset-dev-db.sh [reason]` (app must be down) | off |
-| `mcp.sh` | `mcp.sh <name> <steps.json>`: runs `saldo mcp` from the run's bundle through `mcp-drive.py`, refuses unless it opened the dev DB, saves the transcript | off |
+| `mcp.sh` | `mcp.sh <name> <steps.json>`: runs `saldo mcp` from the run's bundle through `mcp-drive.py` with `/` as its working directory, refuses unless it opened the dev DB, saves the transcript | off |
+| `make-receipts.py` | `<python with segno> -I make-receipts.py <worktree root>`: regenerates the eKasa receipt images in `fixtures/receipts/` and the decoder test's PNG; segno needs a throwaway venv and the user's approval | either |
 | `runner.sh` | started by `launch.sh` through `tauri dev --runner`; don't run it by hand | n/a |
 | `lib.sh` | sourced by the others | n/a |

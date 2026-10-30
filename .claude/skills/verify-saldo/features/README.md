@@ -50,4 +50,4 @@ Keep implementation details out of the map. Name only user paths, stable handles
 - [eKasa receipt import](./ekasa-import.md): import a receipt from its QR code, with the duplicate warning and the error step for non-eKasa codes.
 - [Database location](./db-location.md): move, switch, start fresh or reset the database folder from Settings.
 - [Tax forecast](./tax-forecast.md): a tax model's sheet of the year so far and the rest of the year, Update figures, minimum tax, the revenue bracket bound, and why an entry doesn't count.
-- [Recording documents through `saldo mcp`](./mcp-recording.md): record, preview, refuse duplicates and undo invoice batches over MCP, and the open app's refresh after an outside write.
+- [Recording documents through `saldo mcp`](./mcp-recording.md): record, preview, refuse duplicates and undo invoice and eKasa receipt batches over MCP, read receipts with `read_receipt`, and the open app's refresh after an outside write.

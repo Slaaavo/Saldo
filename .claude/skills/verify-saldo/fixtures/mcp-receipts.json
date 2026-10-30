@@ -1,0 +1,47 @@
+[
+  {"call": "read_receipt", "args": {"file": "${FIXTURES}/receipts/not-ekasa.png"}},
+  {"call": "read_receipt", "args": {"file": "receipts/offline-receipt.png"}},
+  {"call": "read_receipt", "args": {"file": "${FIXTURES}/receipts/offline-receipt.png"}},
+  {"call": "read_receipt", "args": {"file": "${FIXTURES}/receipts/offline-receipt.pdf"}, "save": "pdf"},
+  {"call": "read_receipt", "args": {"file": "${FIXTURES}/receipts/offline-receipt.pdf", "code": "O-00000000000000000000000000000000"}},
+  {"call": "record_batch", "args": {"label": "verify-saldo receipts", "dryRun": true, "items": [
+    {"receipt": "$pdf.receipt", "personId": 1, "date": "$pdf.date", "vendor": "VERIFY POTRAVINY s.r.o.", "lines": [
+      {"name": "KAVA ZRNKOVA 1KG", "grossMinor": 1299, "vatRateBps": 2300},
+      {"name": "MLIEKO POLOTUCNE 1L", "grossMinor": 129, "vatRateBps": 500},
+      {"name": "PAPIER A4 500L", "grossMinor": 662, "vatRateBps": 2300},
+      {"name": "PIVO SVETLE 0,5L", "grossMinor": 250, "vatRateBps": 2300}
+    ]}
+  ]}},
+  {"call": "record_batch", "args": {"label": "verify-saldo receipts", "dryRun": true, "items": [
+    {"receipt": "$pdf.receipt", "personId": 1, "date": "$pdf.date", "vendor": "VERIFY POTRAVINY s.r.o.", "lines": [
+      {"name": "KAVA ZRNKOVA 1KG", "grossMinor": 1299, "vatRateBps": 2300},
+      {"name": "MLIEKO POLOTUCNE 1L", "grossMinor": 129, "vatRateBps": 500, "shares": {"deductiblePctBps": 0, "vatReclaimablePctBps": 0, "by": "claude"}},
+      {"name": "PAPIER A4 500L", "grossMinor": 662, "vatRateBps": 2300, "shares": {"deductiblePctBps": 10000, "vatReclaimablePctBps": 10000, "by": "user"}},
+      {"name": "PIVO SVETLE 0,5L", "grossMinor": 205, "vatRateBps": 2300, "shares": {"deductiblePctBps": 10000, "vatReclaimablePctBps": 10000, "by": "claude"}}
+    ]}
+  ]}},
+  {"call": "record_batch", "args": {"label": "verify-saldo receipts", "dryRun": true, "items": [
+    {"receipt": "$pdf.receipt", "personId": 1, "date": "2026-10-16", "vendor": "VERIFY POTRAVINY s.r.o.", "lines": [
+      {"name": "KAVA ZRNKOVA 1KG", "grossMinor": 2340, "vatRateBps": 2300, "shares": {"deductiblePctBps": 0, "vatReclaimablePctBps": 0, "by": "claude"}}
+    ]}
+  ]}},
+  {"call": "record_batch", "args": {"label": "verify-saldo receipts", "dryRun": true, "items": [
+    {"receipt": {"file": "${FIXTURES}/receipts/offline-receipt.pdf", "code": "$pdf.receipt.code", "readToken": "0000000000000000"}, "personId": 1, "date": "$pdf.date", "vendor": "VERIFY POTRAVINY s.r.o.", "lines": [
+      {"name": "KAVA ZRNKOVA 1KG", "grossMinor": 2340, "vatRateBps": 2300, "shares": {"deductiblePctBps": 0, "vatReclaimablePctBps": 0, "by": "claude"}}
+    ]}
+  ]}},
+  {"record": {"label": "verify-saldo receipts", "items": [
+    {"receipt": "$pdf.receipt", "personId": 1, "date": "$pdf.date", "vendor": "VERIFY POTRAVINY s.r.o.", "paymentIds": [8], "lines": [
+      {"name": "KAVA ZRNKOVA 1KG", "grossMinor": 1299, "vatRateBps": 2300, "shares": {"deductiblePctBps": 0, "vatReclaimablePctBps": 0, "by": "claude"}},
+      {"name": "MLIEKO POLOTUCNE 1L", "grossMinor": 129, "vatRateBps": 500, "shares": {"deductiblePctBps": 0, "vatReclaimablePctBps": 0, "by": "claude"}},
+      {"name": "PAPIER A4 500L", "grossMinor": 662, "vatRateBps": 2300, "shares": {"deductiblePctBps": 10000, "vatReclaimablePctBps": 10000, "by": "user"}},
+      {"name": "PIVO SVETLE 0,5L", "grossMinor": 250, "vatRateBps": 2300, "shares": {"deductiblePctBps": 10000, "vatReclaimablePctBps": 10000, "by": "claude"}}
+    ]}
+  ]}},
+  {"call": "read_receipt", "args": {"file": "${FIXTURES}/receipts/offline-receipt.png"}},
+  {"call": "record_batch", "args": {"label": "verify-saldo receipts again", "dryRun": true, "items": [
+    {"receipt": "$pdf.receipt", "personId": 1, "date": "$pdf.date", "vendor": "VERIFY POTRAVINY s.r.o.", "lines": [
+      {"name": "KAVA ZRNKOVA 1KG", "grossMinor": 2340, "vatRateBps": 2300, "shares": {"deductiblePctBps": 0, "vatReclaimablePctBps": 0, "by": "claude"}}
+    ]}
+  ]}}
+]

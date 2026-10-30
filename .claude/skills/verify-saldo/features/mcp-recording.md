@@ -1,6 +1,6 @@
 # Recording documents through `saldo mcp`
 
-`saldo mcp` is a second mode of the Saldo binary that serves six MCP tools on stdin and stdout, so Claude can record invoices without driving the window. `record_batch` writes revenue, expense and prepaid entries, split groups for several VAT rates, credit notes and assets, links their payments, and refuses a document that is already recorded. `undo_batch` removes a batch. The open app shows MCP writes the next time its window gets focus, with an "Updated with changes made outside Saldo" toast.
+`saldo mcp` is a second mode of the Saldo binary that serves seven MCP tools on stdin and stdout, so Claude can record invoices and eKasa receipts without driving the window. `read_receipt` decodes a receipt's QR code and, for an online receipt, fetches its lines from Finančná správa. `record_batch` writes revenue, expense and prepaid entries, split groups for several VAT rates or receipt items, credit notes and assets, links their payments, and refuses a document or receipt that is already recorded. `undo_batch` removes a batch. The open app shows MCP writes the next time its window gets focus, with an "Updated with changes made outside Saldo" toast.
 
 ## Sub-features
 
@@ -11,6 +11,8 @@
 - `mcp-review` refuses a write that does not carry the `reviewToken` of a dry run of the identical batch.
 - `mcp-undo` removes a batch's entries and assets. A second undo changes nothing.
 - `mcp-refresh` refreshes the open app after an MCP write when its window regains focus, and shows the toast.
+- `mcp-receipt-read` reads an offline receipt from a PNG and from a PDF (PDFium from the bundle's `Contents/Resources`, working directory `/`), refuses a non-eKasa QR code and a relative path, and looks up a typed online id at Finančná správa.
+- `mcp-receipt-record` records a receipt as one leg per item with the item names as notes and the shop as the group note. Each line's shares come from the user, else the person's eKasa rule (accents ignored), else Claude, and the dry run names the source. It refuses missing shares, an offline receipt whose lines or date do not match its QR code, a changed reading, and a receipt already in Saldo.
 
 ## How to get to it (user POV)
 
@@ -32,9 +34,32 @@ Preconditions:
 - **App edit stops the undo.** Edit `Verify MCP yearly licence` with its pencil: triple-click `Amount`, type `121.00`, click `Save`. An `undo_batch` without `includeChanged` then answers `BATCH_CHANGED` with that event and `edited_in_saldo`.
 - **Undo (`mcp-undo`).** Write `[{"call": "undo_batch", "args": {"batchId": <batch>}}, {"call": "undo_batch", "args": {"batchId": <batch>}}]` to a file in the scratchpad and run it through `mcp.sh 22-mcp-undo <file>`. The first answer has `alreadyUndone: false` and lists the removed event ids and the asset account. The second has `alreadyUndone: true`. The stored-rows query returns nothing, and the Ledger loses the rows after the window regains focus.
 - **Dry run (`mcp-dry-run`).** Turn a `record` step into `{"call": "record_batch", "args": {..., "dryRun": true}}`. The answer has `dryRun: true`, a `reviewToken`, null ids and the derived facts (`dateSource`, `shape`, `priceBasis`), and the row count does not change.
+- **Receipts (`mcp-receipt-read`, `mcp-receipt-record`).** Person 1 needs an eKasa profile with rules `káva|čaj` 100/100, `pivo` 0/0 and the uncompilable `ka(va`. The wizard saves profiles, but its `Import` menu and file panel need display-scope control; without it, seed the dev DB (the app may run):
+
+  ```sql
+  INSERT INTO ekasa_import_profile (person_id, default_deductible_pct_bps, default_vat_reclaimable_pct_bps, created_at, updated_at) VALUES (1, 10000, 10000, '2026-10-30T17:30:00', '2026-10-30T17:30:00');
+  INSERT INTO ekasa_import_profile_rule (profile_id, sort_order, name_pattern, deductible_pct_bps, vat_reclaimable_pct_bps) SELECT id, 0, 'káva|čaj', 10000, 10000 FROM ekasa_import_profile WHERE person_id = 1;
+  INSERT INTO ekasa_import_profile_rule (profile_id, sort_order, name_pattern, deductible_pct_bps, vat_reclaimable_pct_bps) SELECT id, 1, 'pivo', 0, 0 FROM ekasa_import_profile WHERE person_id = 1;
+  INSERT INTO ekasa_import_profile_rule (profile_id, sort_order, name_pattern, deductible_pct_bps, vat_reclaimable_pct_bps) SELECT id, 2, 'ka(va', 10000, 0 FROM ekasa_import_profile WHERE person_id = 1;
+  ```
+
+  Run `scripts/mcp.sh 30-mcp-receipts .claude/skills/verify-saldo/fixtures/mcp-receipts.json` with the sandbox disabled. It needs the network for one lookup. In order:
+  - `not-ekasa.png` gives `QR_NOT_EKASA`, and a relative path gives `INVALID_ARGUMENTS`.
+  - The PNG and the PDF read as `kind: offline`, date `2026-10-15`, `totalMinor` 2340.
+  - The typed id `O-000…0` gives `RECEIPT_NOT_FOUND` from Finančná správa.
+  - A dry run without shares gives `SHARES_NEEDED` naming the milk and paper lines, which no rule matches.
+  - Beer misread as 2.05 gives `RECEIPT_TOTAL_DIFFERS` (22.95 against 23.40).
+  - Date 2026-10-16 gives `RECEIPT_DATE_DIFFERS`.
+  - A zeroed `readToken` gives `RECEIPT_CHANGED`.
+  - The `record` step writes a split group of four legs with these sources: coffee `rule` 1 (`KAVA` against `káva|čaj`, with Claude's 0/0 in `shares.claude`), milk `claude` 0/0, paper `user` 100/100, beer `rule` 2 0/0. It also carries the warnings `payment_amount_differs` (payment 8 linked) and `invalid_ekasa_rule` (position 3, "unclosed group").
+  - The later read reports `alreadyRecorded`, and a second batch gets `ALREADY_RECORDED`.
+
+  `evidence.sh db` on `event` with `batch_id = <batch>` shows the four legs with their notes, shares and the `offline:` reference, and `split_group` holds the shop. In the window, the Ledger shows `Personal`, `Split ×4`, `VERIFY POTRAVINY s.r.o.`, 23.40 EUR on 15 October 2026 after the `visibilitychange` refresh, and `Unmatched cashflows` drops by one. Undo it as in `mcp-undo`; `read_receipt` then reports `alreadyRecorded: null`.
 
 ## Gotchas
 
+- Receipts were last driven on 2026-10-30 in run `20261030-171812-feat-mcp-ekasa-receipts`: `mcp-receipt-read` and `mcp-receipt-record` as above, plus `mcp-undo` and a rerun of `mcp-batch.json` (invoices unchanged, same forecast). An online receipt with real items was not driven, because no real receipt id was at hand; the typed-id lookup proved only the network path. The wizard's rules step was not driven either (no display-scope control).
+- `read_receipt` takes absolute paths only, so a steps file names its receipts as `${FIXTURES}/receipts/...`. A `read_receipt` step with `"save": "pdf"` lets a later step pass `"$pdf.receipt"` and `"$pdf.date"` (see `mcp-drive.py`).
 - Last driven end to end on 2026-10-30, on the dev DB. Run `20261029-212440-saldo-mcp` drove `mcp-context`, `mcp-dry-run`, `mcp-record`, `mcp-duplicate` and `mcp-undo` through the stdio client. Run `20261030-071022-saldo-mcp` drove `mcp-review`, `mcp-record`, `mcp-duplicate`, `mcp-refresh` (through the `visibilitychange` path; the focus path needs full-screen control) and `mcp-undo` stopping at an edit made in the window. A real Claude Code client was not tried, because the bundled `claude` CLI was not signed in.
 - The duplicate check counts live rows only. An undone batch's documents can be recorded again, which is how the fixture reruns.
 - Entries store a bare date (`2026-10-01`), the same as entries created in the app. Generated rows (prepaid shares, depreciation) carry a time.
