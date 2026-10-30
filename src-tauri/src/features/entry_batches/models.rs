@@ -333,12 +333,16 @@ pub enum Warning {
         payments_total_minor: i64,
         document_total_minor: i64,
     },
+    /// The payment's sign is the wrong way round for the document.
+    PaymentDirectionDiffers { payment_id: i64, amount_minor: i64 },
     PaymentAlreadyLinked {
         payment_id: i64,
         linked_entry_ids: Vec<i64>,
     },
+    /// `event_id` is the entry's first line; `source_ref` is None for an entry typed in by hand.
     SimilarDocument {
-        source_ref: String,
+        event_id: i64,
+        source_ref: Option<String>,
         date: String,
     },
 }

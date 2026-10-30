@@ -405,7 +405,7 @@ struct FindEntriesInput {
     to: Option<String>,
     /// The document's total in minor units, VAT included; negative for a credit note.
     total_gross_minor: Option<i64>,
-    /// Part of a note or of the document reference, in any case.
+    /// Part of a note or of the document reference, ignoring case and accents.
     text: Option<String>,
     /// The issuer as record_batch takes it (IČO when printed): every document from this issuer.
     issuer: Option<String>,
@@ -470,7 +470,7 @@ struct FindPaymentsInput {
     amount_minor: Option<i64>,
     /// ISO code, such as USD: only payments made in that currency.
     original_currency: Option<String>,
-    /// Part of the bank text, in any case.
+    /// Part of the bank text, ignoring case and accents.
     note_contains: Option<String>,
     /// Only payments not linked to any entry yet.
     #[serde(default)]

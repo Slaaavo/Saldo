@@ -99,8 +99,8 @@ fn find_document_keys(
     }
     if let Some(text) = &params.text {
         doc_filters.push_str(
-            " AND MAX(instr(lower(COALESCE(ed.note, '') || ' ' || COALESCE(sg.note, '') || ' '
-                                 || COALESCE(e.source_ref, '')), lower(?)) > 0)",
+            " AND MAX(instr(fold(COALESCE(ed.note, '') || ' ' || COALESCE(sg.note, '') || ' '
+                                || COALESCE(e.source_ref, '')), fold(?)) > 0)",
         );
         values.push(Box::new(text.clone()));
     }
@@ -256,7 +256,7 @@ pub fn find_payments(
         values.push(Box::new(currency.to_uppercase()));
     }
     if let Some(text) = params.note_contains {
-        filters.push_str(" AND instr(lower(COALESCE(ed.note, '')), lower(?)) > 0");
+        filters.push_str(" AND instr(fold(COALESCE(ed.note, '')), fold(?)) > 0");
         values.push(Box::new(text));
     }
     if params.unlinked_only {
@@ -611,6 +611,38 @@ mod tests {
         assert!(by_total[0].split_group_id.is_some());
         assert_eq!(by_text.len(), 1);
         assert!(by_text[0].split_group_id.is_some());
+    }
+
+    #[test]
+    fn text_searches_ignore_case_and_accents() {
+        let conn = initialize_in_memory().unwrap();
+        let books = books(&conn);
+        let orange = expense(&conn, &books, "2026-09-30", 2_399, None);
+        let skoda = payment(&conn, &books, -30_000, "ŠKODA FINANCIAL SERVICES");
+        let cez = payment(&conn, &books, -8_000, "CEZ SLOVENSKO");
+        payment(&conn, &books, -500, "ORANGE");
+
+        let entries = find(
+            &conn,
+            FindDocumentEntriesParams {
+                text: Some("PAUSAL".to_owned()),
+                ..all(books.person_id)
+            },
+        );
+        let note = |text: &str| {
+            payments(
+                &conn,
+                FindPaymentsParams {
+                    note_contains: Some(text.to_owned()),
+                    ..Default::default()
+                },
+            )
+        };
+
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].lines[0].event_id, orange);
+        assert_eq!(note("skoda"), [skoda]);
+        assert_eq!(note("čez"), [cez]);
     }
 
     #[test]

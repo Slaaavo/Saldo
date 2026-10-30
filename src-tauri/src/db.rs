@@ -1,3 +1,4 @@
+use rusqlite::functions::FunctionFlags;
 use rusqlite::{Connection, OpenFlags};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -8,7 +9,7 @@ const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub fn initialize_db(db_path: &Path) -> Result<Connection, AppError> {
     let conn = Connection::open(db_path)?;
-    set_pragmas(&conn)?;
+    configure(&conn)?;
     migrations::run_pending(&conn)?;
     Ok(conn)
 }
@@ -16,7 +17,7 @@ pub fn initialize_db(db_path: &Path) -> Result<Connection, AppError> {
 pub fn open_existing(db_path: &Path) -> Result<Connection, AppError> {
     let flags = OpenFlags::default().difference(OpenFlags::SQLITE_OPEN_CREATE);
     let conn = Connection::open_with_flags(db_path, flags)?;
-    set_pragmas(&conn)?;
+    configure(&conn)?;
     Ok(conn)
 }
 
@@ -40,6 +41,11 @@ pub fn lock_until_closed(
     result
 }
 
+fn configure(conn: &Connection) -> Result<(), AppError> {
+    set_pragmas(conn)?;
+    register_fold(conn)
+}
+
 /// Pragmas that return a row run through `query_row`: `execute_batch` discards the row, so a
 /// result reporting failure would pass silently.
 fn set_pragmas(conn: &Connection) -> Result<(), AppError> {
@@ -59,9 +65,62 @@ fn set_pragmas(conn: &Connection) -> Result<(), AppError> {
     Ok(())
 }
 
+/// SQL `fold(text)` for searches that ignore case and accents. SQLite's `lower()` folds only
+/// A to Z, and Slovak bank texts and supplier names carry diacritics.
+fn register_fold(conn: &Connection) -> Result<(), AppError> {
+    conn.create_scalar_function(
+        "fold",
+        1,
+        FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
+        |ctx| Ok(ctx.get::<Option<String>>(0)?.map(|text| fold(&text))),
+    )?;
+    Ok(())
+}
+
+/// Lowercases, then drops combining marks and the diacritics of Latin letters, so `ŠKODA`
+/// folds to `skoda`.
+fn fold(text: &str) -> String {
+    let mut folded = String::with_capacity(text.len());
+    for c in text.chars().flat_map(char::to_lowercase) {
+        match c {
+            '\u{0300}'..='\u{036f}' => {}
+            'ß' => folded.push_str("ss"),
+            'æ' => folded.push_str("ae"),
+            'œ' => folded.push_str("oe"),
+            _ => folded.push(latin_base_letter(c)),
+        }
+    }
+    folded
+}
+
+fn latin_base_letter(c: char) -> char {
+    match c {
+        'à'..='å' | 'ā' | 'ă' | 'ą' => 'a',
+        'ç' | 'ć' | 'ĉ' | 'ċ' | 'č' => 'c',
+        'ď' | 'đ' => 'd',
+        'è'..='ë' | 'ē' | 'ĕ' | 'ė' | 'ę' | 'ě' => 'e',
+        'ĝ' | 'ğ' | 'ġ' | 'ģ' => 'g',
+        'ĥ' | 'ħ' => 'h',
+        'ì'..='ï' | 'ĩ' | 'ī' | 'ĭ' | 'į' | 'ı' => 'i',
+        'ĵ' => 'j',
+        'ķ' => 'k',
+        'ĺ' | 'ļ' | 'ľ' | 'ŀ' | 'ł' => 'l',
+        'ñ' | 'ń' | 'ņ' | 'ň' => 'n',
+        'ò'..='ö' | 'ø' | 'ō' | 'ŏ' | 'ő' => 'o',
+        'ŕ' | 'ŗ' | 'ř' => 'r',
+        'ś' | 'ŝ' | 'ş' | 'š' => 's',
+        'ţ' | 'ť' | 'ŧ' => 't',
+        'ù'..='ü' | 'ũ' | 'ū' | 'ŭ' | 'ů' | 'ű' | 'ų' => 'u',
+        'ŵ' => 'w',
+        'ý' | 'ÿ' | 'ŷ' => 'y',
+        'ź' | 'ż' | 'ž' => 'z',
+        _ => c,
+    }
+}
+
 pub fn initialize_in_memory() -> Result<Connection, AppError> {
     let conn = Connection::open_in_memory()?;
-    set_pragmas(&conn)?;
+    configure(&conn)?;
     crate::migrations::run_pending(&conn)?;
     Ok(conn)
 }
@@ -152,6 +211,31 @@ mod tests {
             account_count, 2,
             "Expected 2 accounts: migration 008 removes Main Account, migration 024 adds default taxable accounts for the default person"
         );
+    }
+
+    #[test]
+    fn fold_ignores_case_and_accents_in_sql() {
+        let conn = initialize_in_memory().unwrap();
+        let folded = |text: &str| -> Option<String> {
+            conn.query_row("SELECT fold(?1)", [text], |row| row.get(0))
+                .unwrap()
+        };
+
+        assert_eq!(
+            folded("ŠKODA AUTO a.s.").as_deref(),
+            Some("skoda auto a.s.")
+        );
+        assert_eq!(folded("čez").as_deref(), Some("cez"));
+        assert_eq!(
+            folded("ĽUBOŠ Ďurčík ÔŔ").as_deref(),
+            Some("lubos durcik or")
+        );
+        assert_eq!(folded("S\u{030C}KODA").as_deref(), Some("skoda"));
+        assert_eq!(folded("Straße").as_deref(), Some("strasse"));
+        let null: Option<String> = conn
+            .query_row("SELECT fold(NULL)", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(null, None);
     }
 
     #[test]

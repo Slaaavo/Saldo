@@ -602,6 +602,146 @@ fn payments_that_do_not_add_up_or_are_already_linked_are_warnings() {
     );
 }
 
+fn revenue(books: &Books, number: &str, gross_minor: i64) -> Value {
+    item(
+        books,
+        "50123456",
+        number,
+        json!({ "kind": "revenue", "lines": [{ "grossMinor": gross_minor, "vatRateBps": 2300 }] }),
+    )
+}
+
+fn single_event_id(document: &RecordedDocument) -> i64 {
+    match document.shape {
+        RecordedShape::Single { event_id } => event_id.unwrap(),
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn a_payment_the_wrong_way_round_is_a_warning() {
+    let conn = initialize_in_memory().unwrap();
+    let books = books(&conn);
+    let received = payment(&conn, &books, 120_000);
+    let paid_out = payment(&conn, &books, -2_399);
+    let refunded = payment(&conn, &books, 615);
+    let sent_back = payment(&conn, &books, -615);
+    let linked =
+        |document: Value, payment_id: i64| with(document, "paymentIds", json!([payment_id]));
+
+    let receipt = run_batch(
+        &conn,
+        batch(
+            vec![
+                linked(revenue(&books, "2026001", 120_000), received),
+                linked(revenue(&books, "2026002", 2_399), paid_out),
+                linked(single_expense(&books, "35697270", "FV1", 2_399), paid_out),
+                linked(single_expense(&books, "35697270", "DB1", -615), refunded),
+                linked(single_expense(&books, "35697270", "DB2", -615), sent_back),
+            ],
+            true,
+        ),
+    )
+    .unwrap();
+
+    let direction: Vec<Vec<&Warning>> = receipt
+        .documents
+        .iter()
+        .map(|doc| {
+            doc.warnings
+                .iter()
+                .filter(|w| matches!(w, Warning::PaymentDirectionDiffers { .. }))
+                .collect()
+        })
+        .collect();
+    assert!(direction[0].is_empty(), "revenue comes in");
+    assert_eq!(
+        direction[1],
+        [&Warning::PaymentDirectionDiffers {
+            payment_id: paid_out,
+            amount_minor: -2_399,
+        }]
+    );
+    assert!(direction[2].is_empty(), "an expense is paid out");
+    assert!(
+        direction[3].is_empty(),
+        "an expense credit note is refunded"
+    );
+    assert_eq!(
+        direction[4],
+        [&Warning::PaymentDirectionDiffers {
+            payment_id: sent_back,
+            amount_minor: -615,
+        }]
+    );
+}
+
+#[test]
+fn an_entry_of_the_same_kind_and_total_nearby_is_similar_whatever_its_reference() {
+    let conn = initialize_in_memory().unwrap();
+    let books = books(&conn);
+    let keyed_by_name = record(
+        &conn,
+        vec![single_expense(
+            &books,
+            "Orange Slovensko a.s.",
+            "FV1",
+            2_399,
+        )],
+    );
+    let typed_by_hand = create_taxable_event_inner(
+        &conn,
+        CreateTaxableEventInput {
+            person_id: books.person_id,
+            event_type: "expense".to_owned(),
+            amount_minor: 2_399,
+            event_date: "2026-10-20".to_owned(),
+            note: Some("Orange".to_owned()),
+            vat_rate_bps: Some(2300),
+            vat_reclaimable_pct_bps: Some(10000),
+            expense_deductible_pct_bps: Some(10000),
+            prepaid_until: None,
+            reclaimed_vat: Some(true),
+            source_ref: None,
+        },
+    )
+    .unwrap();
+    record(
+        &conn,
+        vec![
+            revenue(&books, "2026001", 2_399),
+            with(
+                single_expense(&books, "35697270", "FV0", 2_399),
+                "issueDate",
+                json!("2026-09-20"),
+            ),
+            single_expense(&books, "35697270", "FV2", 2_400),
+        ],
+    );
+
+    let receipt = run_batch(
+        &conn,
+        batch(vec![single_expense(&books, "35697270", "FV1", 2_399)], true),
+    )
+    .unwrap();
+
+    assert_eq!(
+        receipt.documents[0].warnings,
+        [
+            Warning::SimilarDocument {
+                event_id: typed_by_hand,
+                source_ref: None,
+                date: "2026-10-20".to_owned(),
+            },
+            Warning::SimilarDocument {
+                event_id: single_event_id(&keyed_by_name.documents[0]),
+                source_ref: Some("invoice:ORANGESLOVENSKOA.S./FV1".to_owned()),
+                date: "2026-10-12".to_owned(),
+            },
+        ]
+    );
+}
+
 #[test]
 fn a_payment_of_another_person_is_refused() {
     let conn = initialize_in_memory().unwrap();

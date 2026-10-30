@@ -21,13 +21,12 @@ use crate::features::transactions::commands::{
     delete_split_group_inner, CreateTaxableEventInput, CreateTaxableSplitGroupInput,
     SplitTaxableLegInput,
 };
-use crate::features::transactions::models::{Payment, RecordedSource};
+use crate::features::transactions::models::{Payment, RecordedSource, TaxableKind};
 use crate::features::transactions::repository::{
     find_document_entries, find_payments, find_recorded_source, link_cashflows_to_split_group,
     link_cashflows_to_taxable, FindDocumentEntriesParams, FindPaymentsParams, LinkCashflowsParams,
     LinkCashflowsToSplitGroupParams,
 };
-use crate::features::transactions::source_ref::invoice_issuer_prefix;
 use crate::features::transactions::SourceRef;
 use crate::shared::{with_savepoint_app, Finish, WriteTxn};
 use derive::{Derived, EntryShape};
@@ -243,6 +242,16 @@ fn record_item(
                 document_total_minor: total_gross_minor,
             });
         }
+    }
+    let payment_sign = expected_payment_sign(&item.content, total_gross_minor);
+    for payment in payments
+        .iter()
+        .filter(|p| payment_sign != 0 && p.amount_minor.signum() == -payment_sign)
+    {
+        warnings.push(Warning::PaymentDirectionDiffers {
+            payment_id: payment.event_id,
+            amount_minor: payment.amount_minor,
+        });
     }
     for payment in payments.iter().filter(|p| !p.linked_entry_ids.is_empty()) {
         warnings.push(Warning::PaymentAlreadyLinked {
@@ -495,15 +504,33 @@ fn load_payments(conn: &Connection, payment_ids: &[i64]) -> Result<Vec<Payment>,
     )
 }
 
+/// An expense is paid out and revenue comes in; a credit note (a negative total) turns both
+/// around.
+fn expected_payment_sign(content: &DocumentContent, total_gross_minor: i64) -> i64 {
+    let incoming = matches!(content, DocumentContent::Revenue(_));
+    total_gross_minor.signum() * if incoming { 1 } else { -1 }
+}
+
+/// Any live entry of the same person and kind with the same total near the entry date, so the
+/// same invoice keyed by IČO once and by name once, or typed in by hand, shows up. An entry
+/// with this document's reference never gets here: it was refused as already recorded.
 fn similar_documents(
     conn: &Connection,
     item: &DocumentItem,
     derived: &Derived,
 ) -> Result<Vec<Warning>, AppError> {
-    let entries_total: i64 = match &item.content {
-        DocumentContent::Revenue(revenue) => revenue.lines.iter().map(|l| l.gross_minor).sum(),
-        DocumentContent::Expense(expense) => expense.lines.iter().map(|l| l.gross_minor).sum(),
-        DocumentContent::PrepaidExpense(prepaid) => prepaid.line.gross_minor,
+    let (kind, entries_total) = match &item.content {
+        DocumentContent::Revenue(revenue) => (
+            TaxableKind::Revenue,
+            revenue.lines.iter().map(|l| l.gross_minor).sum(),
+        ),
+        DocumentContent::Expense(expense) => (
+            TaxableKind::Expense,
+            expense.lines.iter().map(|l| l.gross_minor).sum(),
+        ),
+        DocumentContent::PrepaidExpense(prepaid) => {
+            (TaxableKind::PrepaidExpense, prepaid.line.gross_minor)
+        }
     };
     let Ok(date) = NaiveDate::parse_from_str(&derived.entry_date, "%Y-%m-%d") else {
         return Ok(Vec::new());
@@ -519,7 +546,7 @@ fn similar_documents(
             from_date: Some((date - window).format("%Y-%m-%d").to_string()),
             to_date: Some((date + window).format("%Y-%m-%d").to_string()),
             total_gross_minor: Some(entries_total),
-            source_ref_prefix: Some(invoice_issuer_prefix(&item.document.issuer)?),
+            kinds: vec![kind],
             limit: 5,
             ..Default::default()
         },
@@ -528,7 +555,8 @@ fn similar_documents(
         .into_iter()
         .filter_map(|doc| {
             Some(Warning::SimilarDocument {
-                source_ref: doc.source_ref?,
+                event_id: doc.lines.first()?.event_id,
+                source_ref: doc.source_ref,
                 date: doc.date,
             })
         })
