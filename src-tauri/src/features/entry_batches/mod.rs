@@ -362,8 +362,14 @@ fn write_plan(conn: &Connection, ctx: &ItemContext, plan: &Plan) -> Result<Writt
                     event_date: plan.entry_date.clone(),
                     note: leg.note.clone(),
                     vat_rate_bps: Some(leg.vat_rate_bps),
-                    vat_reclaimable_pct_bps: leg.shares.map(|s| s.vat_reclaimable_pct_bps),
-                    expense_deductible_pct_bps: leg.shares.map(|s| s.deductible_pct_bps),
+                    vat_reclaimable_pct_bps: leg
+                        .shares
+                        .as_ref()
+                        .map(|s| s.shares.vat_reclaimable_pct_bps),
+                    expense_deductible_pct_bps: leg
+                        .shares
+                        .as_ref()
+                        .map(|s| s.shares.deductible_pct_bps),
                     prepaid_until: plan.prepaid_until.clone(),
                     reclaimed_vat: plan.reclaimed_vat,
                     source_ref: Some(plan.source_ref.clone()),
@@ -396,8 +402,14 @@ fn write_plan(conn: &Connection, ctx: &ItemContext, plan: &Plan) -> Result<Writt
                             event_date: plan.entry_date.clone(),
                             note: leg.note.clone(),
                             vat_rate_bps: Some(leg.vat_rate_bps),
-                            vat_reclaimable_pct_bps: leg.shares.map(|s| s.vat_reclaimable_pct_bps),
-                            expense_deductible_pct_bps: leg.shares.map(|s| s.deductible_pct_bps),
+                            vat_reclaimable_pct_bps: leg
+                                .shares
+                                .as_ref()
+                                .map(|s| s.shares.vat_reclaimable_pct_bps),
+                            expense_deductible_pct_bps: leg
+                                .shares
+                                .as_ref()
+                                .map(|s| s.shares.deductible_pct_bps),
                             prepaid_until: None,
                             reclaimed_vat: plan.reclaimed_vat,
                         })
@@ -479,26 +491,30 @@ fn write_plan(conn: &Connection, ctx: &ItemContext, plan: &Plan) -> Result<Writt
 
     Ok(Written {
         shape,
-        lines: plan.legs.iter().map(recorded_line).collect(),
+        lines: plan
+            .legs
+            .iter()
+            .map(|leg| recorded_line(leg, plan.reports_lines))
+            .collect(),
         assets,
     })
 }
 
-fn recorded_line(leg: &Leg) -> RecordedLine {
+fn recorded_line(leg: &Leg, reported: bool) -> RecordedLine {
     let shares = leg
-        .source
+        .shares
         .as_ref()
-        .zip(leg.shares)
-        .map(|(source, shares)| RecordedShares {
-            deductible_pct_bps: shares.deductible_pct_bps,
-            vat_reclaimable_pct_bps: shares.vat_reclaimable_pct_bps,
-            source: source.clone(),
+        .filter(|_| reported)
+        .map(|leg_shares| RecordedShares {
+            deductible_pct_bps: leg_shares.shares.deductible_pct_bps,
+            vat_reclaimable_pct_bps: leg_shares.shares.vat_reclaimable_pct_bps,
+            source: leg_shares.source.clone(),
         });
     RecordedLine {
         gross_minor: leg.gross_minor,
         net_minor: calculate_net_amount(leg.gross_minor, leg.vat_rate_bps),
         vat_rate_bps: leg.vat_rate_bps,
-        note: shares.as_ref().and(leg.note.clone()),
+        note: leg.note.clone().filter(|_| reported),
         shares,
     }
 }

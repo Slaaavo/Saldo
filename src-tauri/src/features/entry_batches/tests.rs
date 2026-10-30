@@ -409,7 +409,11 @@ fn a_dry_run_reports_the_documents_and_keeps_nothing() {
             split_group_id: None
         }
     );
-    assert_eq!(receipt.documents[0].lines[0].net_minor, 10_000);
+    assert_eq!(
+        serde_json::to_value(&receipt.documents[0].lines[0]).unwrap(),
+        json!({ "grossMinor": 12_300, "netMinor": 10_000, "vatRateBps": 2300 }),
+        "an invoice line reports neither the document's note nor its shares"
+    );
     assert_eq!(receipt.documents[1].assets[0].account_id, None);
     assert_eq!(receipt.documents[1].assets[0].purchase_price_minor, 292_601);
     assert!(documents(&conn, &books).is_empty());

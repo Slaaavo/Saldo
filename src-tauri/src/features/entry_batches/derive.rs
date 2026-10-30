@@ -29,6 +29,9 @@ pub(super) struct Plan {
     pub reclaimed_vat: Option<bool>,
     pub assets: Vec<AssetPlan>,
     pub payment_ids: Vec<i64>,
+    /// A receipt's result shows each line's note and shares, because its lines are the
+    /// receipt's items. An invoice's lines are its VAT rates and all carry the document's note.
+    pub reports_lines: bool,
 }
 
 #[derive(Debug, Hash)]
@@ -36,8 +39,14 @@ pub(super) struct Leg {
     pub gross_minor: i64,
     pub vat_rate_bps: i64,
     pub note: Option<String>,
-    pub shares: Option<Shares>,
-    pub source: Option<ShareSource>,
+    /// None for a revenue line.
+    pub shares: Option<LegShares>,
+}
+
+#[derive(Debug, Hash)]
+pub(super) struct LegShares {
+    pub shares: Shares,
+    pub source: ShareSource,
 }
 
 #[derive(Debug, Hash)]
@@ -94,20 +103,22 @@ impl Plan {
 pub(super) fn document(item: &DocumentItem, default_reclaims_vat: bool) -> Result<Plan, AppError> {
     let source_ref = SourceRef::invoice(&item.document.issuer, &item.document.number)?;
     let (entry_date, date_source) = entry_date(&item.issue_date, item.delivery_date.as_deref())?;
-    let leg = |gross_minor: i64, vat_rate_bps: i64, shares: Option<Shares>| Leg {
+    let leg = |gross_minor: i64, vat_rate_bps: i64, shares: Option<LegShares>| Leg {
         gross_minor,
         vat_rate_bps,
         note: item.note.clone(),
         shares,
-        source: None,
     };
     let expense_leg = |line: &ExpenseLine| {
         leg(
             line.gross_minor,
             line.vat_rate_bps.get(),
-            Some(Shares {
-                deductible_pct_bps: line.deductible_pct_bps.get(),
-                vat_reclaimable_pct_bps: line.vat_reclaimable_pct_bps.get(),
+            Some(LegShares {
+                shares: Shares {
+                    deductible_pct_bps: line.deductible_pct_bps.get(),
+                    vat_reclaimable_pct_bps: line.vat_reclaimable_pct_bps.get(),
+                },
+                source: ShareSource::Invoice,
             }),
         )
     };
@@ -159,6 +170,7 @@ pub(super) fn document(item: &DocumentItem, default_reclaims_vat: bool) -> Resul
         reclaimed_vat,
         assets,
         payment_ids: item.payment_ids.clone(),
+        reports_lines: false,
     }
     .check_entries()
 }
@@ -216,12 +228,11 @@ pub(super) fn receipt(
             continue;
         }
         match line_shares(line, rules) {
-            Some((shares, source)) => legs.push(Leg {
+            Some(shares) => legs.push(Leg {
                 gross_minor: line.gross_minor,
                 vat_rate_bps: line.vat_rate_bps.get(),
                 note: Some(line.name.clone()),
                 shares: Some(shares),
-                source: Some(source),
             }),
             None => missing.push(format!("lines[{index}] '{}'", line.name)),
         }
@@ -250,11 +261,12 @@ pub(super) fn receipt(
         reclaimed_vat: Some(reclaims),
         assets,
         payment_ids: item.payment_ids.clone(),
+        reports_lines: true,
     }
     .check_entries()
 }
 
-fn line_shares(line: &ReceiptLine, rules: Option<&ShareRules>) -> Option<(Shares, ShareSource)> {
+fn line_shares(line: &ReceiptLine, rules: Option<&ShareRules>) -> Option<LegShares> {
     let rule = rules
         .and_then(|rules| rules.shares_for(&line.name))
         .cloned();
@@ -265,18 +277,19 @@ fn line_shares(line: &ReceiptLine, rules: Option<&ShareRules>) -> Option<(Shares
         };
         (shares, given.by)
     });
-    match (given, rule) {
-        (Some((shares, ShareBy::User)), rule) => Some((shares, ShareSource::User { rule })),
-        (claude, Some(rule)) => Some((
+    let (shares, source) = match (given, rule) {
+        (Some((shares, ShareBy::User)), rule) => (shares, ShareSource::User { rule }),
+        (claude, Some(rule)) => (
             rule.shares,
             ShareSource::Rule {
                 claude: claude.map(|(shares, _)| shares),
                 rule,
             },
-        )),
-        (Some((shares, ShareBy::Claude)), None) => Some((shares, ShareSource::Claude)),
-        (None, None) => None,
-    }
+        ),
+        (Some((shares, ShareBy::Claude)), None) => (shares, ShareSource::Claude),
+        (None, None) => return None,
+    };
+    Some(LegShares { shares, source })
 }
 
 fn asset_plan(part: &AssetPart, reclaims_vat: bool) -> Result<AssetPlan, AppError> {
@@ -517,7 +530,8 @@ mod tests {
         assert!(plan
             .legs
             .iter()
-            .all(|leg| leg.note.as_deref() == Some("Alza FA20261187") && leg.source.is_none()));
+            .all(|leg| leg.note.as_deref() == Some("Alza FA20261187")));
+        assert!(!plan.reports_lines);
     }
 
     const BILLA: &str = "O-7A3F0C1E9B2D4C58A6E1F0D3B5C7A9E2";
@@ -570,10 +584,8 @@ mod tests {
         plan.legs
             .iter()
             .map(|leg| {
-                (
-                    leg.shares.unwrap().deductible_pct_bps,
-                    leg.source.as_ref().unwrap(),
-                )
+                let shares = leg.shares.as_ref().unwrap();
+                (shares.shares.deductible_pct_bps, &shares.source)
             })
             .collect()
     }

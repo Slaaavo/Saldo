@@ -441,10 +441,12 @@ pub struct RecordedShares {
     pub source: ShareSource,
 }
 
-/// Where a receipt line's shares came from, tagged by `from`.
+/// Where a line's shares came from, tagged by `from`. Only a receipt's result reports it.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
 #[serde(tag = "from", rename_all = "snake_case")]
 pub enum ShareSource {
+    /// An invoice line's own shares.
+    Invoice,
     /// The user dictated them. `rule` is the person's eKasa rule they won over.
     User {
         #[serde(skip_serializing_if = "Option::is_none")]
