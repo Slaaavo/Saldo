@@ -41,7 +41,9 @@ Take these from every document. Amounts are integer cents (minor units), VAT inc
 
 - Call `read_receipt` with the file's absolute path. Saldo decodes the QR code. HEIC photos do not decode: convert one first with `sips -s format png <photo> --out <photo>.png`.
   - `QR_NOT_FOUND`: if the paper shows an online receipt id (`O-` or `V-` and 32 hex digits, printed as the receipt's id), call `read_receipt` again with that id as `code`, typed as printed. Saldo still reads the QR code first and uses the id only when the QR code does not decode. An id that names another receipt than the QR code is refused (`VALIDATION`): check the id against the paper. Without a printed id, ask the user for a sharper photo or the PDF. An offline receipt can only be read from its QR code.
+  - `QR_NOT_EKASA`: the QR code is not an eKasa code, for example an invoice's PAY by square code. Record the document as an invoice.
   - `RECEIPT_NOT_FOUND`: the id is mistyped, or Finančná správa does not have the receipt yet. `NETWORK_ERROR`, `EKASA_API_ERROR`: leave the receipt out and list it as waiting.
+  - `UNSUPPORTED_FILE`, `IMAGE_ERROR`, `PDF_ERROR`, `PARSE_ERROR`, `PDFIUM_NOT_FOUND`: Saldo could not open the file or read Finančná správa's answer. Tell the user Saldo's message and leave the receipt out.
   - `alreadyRecorded` set: the receipt is in Saldo already (imported in the app or recorded earlier). Drop it and tell the user.
 - An **online** receipt (`kind` `online`) comes with its date, shop and lines from Finančná správa. Copy `receipt`, `date` and every line's `name`, `grossMinor` and `vatRateBps` exactly as returned, and the shop as `vendor`. Never retype, merge, split or reorder lines: Saldo seals what it read and refuses any change (`RECEIPT_CHANGED`).
   - `lines_differ_from_total` in `warnings`: Finančná správa's lines do not add up to the receipt's total. Record the lines as listed and show the gap in the table.
@@ -71,7 +73,7 @@ Take these from every document. Amounts are integer cents (minor units), VAT inc
 
    List the documents waiting for a payment below the table.
 5. Wait for the user's yes.
-6. Call `record_batch` with the identical label and documents, `dryRun` false and the dry run's `reviewToken`. Keep the `batchId`. Saldo refuses with `REVIEW_TOKEN_MISMATCH` when anything differs from the reviewed dry run, `file` and `note` included, or when the user changed the person's eKasa rules or VAT-payer flag in Saldo since. After a correction, run the dry run again and show the user the new table before you write.
+6. Call `record_batch` with the identical label and documents, `dryRun` false and the dry run's `reviewToken`. Keep the `batchId`. Saldo refuses with `REVIEW_TOKEN_MISMATCH` when anything differs from the reviewed dry run, `file` and `note` included, or when the user changed the person's eKasa rules or VAT-payer flag in Saldo since. The write answers `BATCH_REFUSED` when a document got into Saldo after the dry run, for example a receipt imported in the app (`ALREADY_RECORDED`). Nothing was recorded then: drop that document and tell the user. After a correction, run the dry run again and show the user the new table before you write.
 7. Call `get_forecast` for each id in `affectedTaxModelIds`, and tell the user which forecast lines moved and by how much. The ids include later years that a prepaid expense or an asset's depreciation reaches.
 
 A forecast line counts entries only for the months the model marks as actual, and only while the user has not typed that line's year-so-far value. If a line did not move, check those two causes first and name the one that applies.
