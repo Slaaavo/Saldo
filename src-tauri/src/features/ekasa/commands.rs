@@ -1,7 +1,5 @@
 use crate::error::AppError;
-use crate::features::ekasa::models::{
-    EkasaImportProfileRow, EkasaRuleInput, OfflineReceiptData, ProcessReceiptResult, ProcessedItem,
-};
+use crate::features::ekasa::models::{EkasaImportProfileRow, EkasaRuleInput};
 use crate::features::transactions::repository::find_recorded_source;
 use crate::features::transactions::SourceRef;
 use crate::AppState;
@@ -9,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use tauri::{Manager, State};
 
 use super::ekasa_api::LiveEkasaApi;
-use super::reading::{read_receipt_file, ReceiptKind, ReceiptReading};
+use super::reading::{read_receipt_file, ReceiptReading};
 use super::repository;
 use super::rules::{self, RuleMatch, RuleProblem, RuleSource, ShareRules, Shares};
 
@@ -111,6 +109,15 @@ fn is_already_imported(state: &AppState, source_ref: &SourceRef) -> Result<bool,
     Ok(find_recorded_source(&conn, source_ref)?.is_some())
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProcessReceiptResult {
+    #[serde(flatten)]
+    pub reading: ReceiptReading,
+    /// Whether a live entry already carries this receipt's reference.
+    pub already_imported: bool,
+}
+
 #[tauri::command]
 pub async fn process_receipt_file(
     app: tauri::AppHandle,
@@ -127,36 +134,10 @@ pub async fn process_receipt_file(
         code: "TASK_ERROR".into(),
         message: format!("Reading the receipt failed: {}", e),
     })??;
-    let already_imported = is_already_imported(&state, &reading.source_ref)?;
-    Ok(wizard_result(reading, already_imported))
-}
-
-fn wizard_result(reading: ReceiptReading, already_imported: bool) -> ProcessReceiptResult {
-    let offline_fallback = match reading.kind {
-        ReceiptKind::Online => None,
-        ReceiptKind::Offline => Some(OfflineReceiptData {
-            event_date: reading.date.clone(),
-            total_amount_minor: reading.total_minor,
-        }),
-    };
-    ProcessReceiptResult {
-        receipt_data: reading.api_receipt,
-        processed_items: reading
-            .lines
-            .unwrap_or_default()
-            .into_iter()
-            .map(|line| ProcessedItem {
-                name: line.name,
-                amount_minor: line.gross_minor,
-                vat_rate_bps: line.vat_rate_bps,
-            })
-            .collect(),
-        qr_content: reading.receipt.code,
-        offline_fallback,
-        receipt_date: reading.date,
-        source_ref: reading.source_ref,
-        already_imported,
-    }
+    Ok(ProcessReceiptResult {
+        already_imported: is_already_imported(&state, &reading.source_ref)?,
+        reading,
+    })
 }
 
 #[derive(Debug, Deserialize)]
@@ -367,22 +348,24 @@ mod tests {
     }
 
     #[test]
-    fn the_wizard_gets_an_offline_receipt_in_its_own_shape() {
+    fn the_wizard_gets_the_reading_with_whether_it_was_imported() {
         let fixture = concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/tests/fixtures/ekasa/offline-receipt.png"
         );
         let reading = read_receipt_file(fixture, None, None, &NoService).unwrap();
 
-        let result = serde_json::to_value(wizard_result(reading, true)).unwrap();
+        let result = serde_json::to_value(ProcessReceiptResult {
+            reading,
+            already_imported: true,
+        })
+        .unwrap();
 
-        assert_eq!(
-            result["offlineFallback"],
-            serde_json::json!({ "eventDate": "2018-02-13", "totalAmountMinor": 23723 })
-        );
-        assert_eq!(result["receiptDate"], "2018-02-13");
-        assert_eq!(result["processedItems"], serde_json::json!([]));
-        assert_eq!(result["receiptData"], serde_json::Value::Null);
+        assert_eq!(result["kind"], "offline");
+        assert_eq!(result["date"], "2018-02-13");
+        assert_eq!(result["totalMinor"], 23723);
+        assert_eq!(result["lines"], serde_json::Value::Null);
+        assert_eq!(result["vendor"], serde_json::Value::Null);
         assert!(result["sourceRef"]
             .as_str()
             .is_some_and(|r| r.starts_with("offline:C44B3977-")));

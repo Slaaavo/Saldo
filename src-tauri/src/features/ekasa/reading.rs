@@ -63,8 +63,6 @@ pub struct ReceiptReading {
     /// None for an offline receipt, whose code holds only its date and total.
     pub lines: Option<Vec<ReceiptReadLine>>,
     pub warnings: Vec<ReadingWarning>,
-    #[serde(skip)]
-    pub api_receipt: Option<EkasaReceiptData>,
 }
 
 pub trait EkasaApi {
@@ -128,12 +126,11 @@ fn online_reading(
         kind: ReceiptKind::Online,
         source_ref: code.source_ref(),
         date,
-        vendor: Some(data.organization.name.clone()),
-        vendor_ico: Some(data.organization.ico.clone()),
+        vendor: Some(data.organization.name),
+        vendor_ico: Some(data.organization.ico),
         total_minor,
         lines: Some(lines),
         warnings,
-        api_receipt: Some(data),
     })
 }
 
@@ -152,7 +149,6 @@ fn offline_reading(file: &str, code: &ReceiptCode, receipt: &OfflineReceiptData)
         total_minor: receipt.total_amount_minor,
         lines: None,
         warnings: Vec::new(),
-        api_receipt: None,
     }
 }
 
@@ -303,7 +299,6 @@ mod tests {
     fn item(name: &str, price: f64, vat_rate: f64) -> EkasaReceiptItem {
         EkasaReceiptItem {
             name: name.to_owned(),
-            quantity: 1.0,
             price,
             vat_rate,
         }
@@ -311,7 +306,6 @@ mod tests {
 
     fn billa(total_price: f64) -> EkasaReceiptData {
         EkasaReceiptData {
-            receipt_id: ONLINE_ID.to_owned(),
             issue_date: "12.10.2026 14:03:11".to_owned(),
             total_price,
             organization: EkasaReceiptOrganization {
@@ -323,7 +317,6 @@ mod tests {
                 item("MLIEKO 1L", 1.29, 5.0),
                 item("KAVA LAVAZZA", -2.00, 23.0),
             ],
-            vat_summary: vec![],
         }
     }
 
@@ -641,7 +634,6 @@ pub(crate) mod fake {
     impl EkasaApi for FakeEkasaApi {
         fn fetch(&self, receipt_id: &str) -> Result<Option<EkasaReceiptData>, AppError> {
             Ok((receipt_id == self.receipt_id).then(|| EkasaReceiptData {
-                receipt_id: receipt_id.to_owned(),
                 issue_date: "12.10.2026 14:03:11".to_owned(),
                 total_price: self.lines.iter().map(|line| line.1).sum::<i64>() as f64 / 100.0,
                 organization: EkasaReceiptOrganization {
@@ -653,12 +645,10 @@ pub(crate) mod fake {
                     .iter()
                     .map(|&(name, gross_minor, vat_rate_bps)| EkasaReceiptItem {
                         name: name.to_owned(),
-                        quantity: 1.0,
                         price: gross_minor as f64 / 100.0,
                         vat_rate: vat_rate_bps as f64 / 100.0,
                     })
                     .collect(),
-                vat_summary: vec![],
             }))
         }
     }

@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import type { EkasaWizardState, EkasaRuleDraft, EkasaProcessedItem, EkasaRuleMatches, MatchEkasaRulesPayload, OfflineReceiptData, ProcessReceiptResult } from './types'
+import type { EkasaWizardState, EkasaRuleDraft, EkasaRuleMatches, MatchEkasaRulesPayload, ProcessReceiptResult, ReceiptReadLine } from './types'
 import { makeEmptyLeg } from '../transactions/splitLegDraft'
 import type { SplitLegDraft } from '../transactions/splitLegDraft'
 import { fromMinorUnits, bpsToPct, pctToBps } from '../../shared/utils/format'
@@ -11,8 +11,6 @@ import { getEkasaProfile, upsertEkasaProfile, processReceiptFile, matchEkasaRule
 const INITIAL_STATE: EkasaWizardState = {
   step: 'upload',
   filePath: null,
-  receiptData: null,
-  processedItems: [],
   processedLegs: [],
   receiptError: null,
   rules: [],
@@ -21,13 +19,12 @@ const INITIAL_STATE: EkasaWizardState = {
   isProcessing: false,
   vendorName: '',
   receiptDate: '',
-  offlineFallback: null,
   sourceRef: null,
   alreadyImported: false,
 }
 
-const matchPayload = (items: EkasaProcessedItem[], rules: EkasaRuleDraft[]): MatchEkasaRulesPayload => ({
-  itemNames: items.map((item) => item.name),
+const matchPayload = (lines: ReceiptReadLine[], rules: EkasaRuleDraft[]): MatchEkasaRulesPayload => ({
+  itemNames: lines.map((line) => line.name),
   rules: rules.map((rule) => ({
     namePattern: rule.namePattern,
     deductiblePctBps: pctToBps(rule.deductiblePct) ?? 0,
@@ -35,14 +32,14 @@ const matchPayload = (items: EkasaProcessedItem[], rules: EkasaRuleDraft[]): Mat
   })),
 })
 
-const legsFromMatches = (items: EkasaProcessedItem[], matches: EkasaRuleMatches, defaultDeductiblePct: string, defaultVatReclaimablePct: string, date: string): SplitLegDraft[] =>
-  items.map((item, index) => {
+const legsFromMatches = (lines: ReceiptReadLine[], matches: EkasaRuleMatches, defaultDeductiblePct: string, defaultVatReclaimablePct: string, date: string): SplitLegDraft[] =>
+  lines.map((line, index) => {
     const rule = matches.items[index]?.matchedRule ?? null
     return {
       ...makeEmptyLeg(date),
-      amount: fromMinorUnits(item.amountMinor, 2),
-      vatRate: bpsToPct(item.vatRateBps),
-      note: item.name,
+      amount: fromMinorUnits(line.grossMinor, 2),
+      vatRate: bpsToPct(line.vatRateBps),
+      note: line.name,
       expenseDeductiblePct: rule ? bpsToPct(rule.deductiblePctBps) : defaultDeductiblePct,
       vatReclaimablePct: rule ? bpsToPct(rule.vatReclaimablePctBps) : defaultVatReclaimablePct,
     }
@@ -55,21 +52,18 @@ interface ProfileSnapshot {
 }
 
 // Offline receipts carry no item detail, so the review step gets a single leg for the total.
-const reviewOfflineReceipt = (prev: EkasaWizardState, result: ProcessReceiptResult, offline: OfflineReceiptData): EkasaWizardState => {
+const reviewOfflineReceipt = (prev: EkasaWizardState, result: ProcessReceiptResult): EkasaWizardState => {
   const leg: SplitLegDraft = {
-    ...makeEmptyLeg(offline.eventDate),
-    amount: fromMinorUnits(offline.totalAmountMinor, 2),
+    ...makeEmptyLeg(result.date),
+    amount: fromMinorUnits(result.totalMinor, 2),
     expenseDeductiblePct: prev.defaultDeductiblePct,
     vatReclaimablePct: prev.defaultVatReclaimablePct,
   }
   return {
     ...prev,
-    receiptData: null,
-    processedItems: [],
     processedLegs: [leg],
-    receiptDate: offline.eventDate,
+    receiptDate: result.date,
     vendorName: '',
-    offlineFallback: offline,
     sourceRef: result.sourceRef,
     alreadyImported: result.alreadyImported,
     isProcessing: false,
@@ -96,7 +90,6 @@ export const useEkasaImportWizard = () => {
       ...prev,
       filePath,
       isProcessing: true,
-      offlineFallback: null,
       step: 'rules',
     }))
     promise
@@ -128,15 +121,15 @@ export const useEkasaImportWizard = () => {
     }
     if (processingRef.current !== promise) return
 
-    if (result.offlineFallback && result.processedItems.length === 0) {
-      const offline = result.offlineFallback
-      setState((prev) => reviewOfflineReceipt(prev, result, offline))
+    if (result.kind === 'offline') {
+      setState((prev) => reviewOfflineReceipt(prev, result))
       return
     }
+    const { lines, vendor } = result
 
     let matches: EkasaRuleMatches
     try {
-      matches = await matchEkasaRules(matchPayload(result.processedItems, state.rules))
+      matches = await matchEkasaRules(matchPayload(lines, state.rules))
     } catch (err) {
       if (processingRef.current !== promise) return
       toast.error(extractErrorMessage(err))
@@ -149,12 +142,9 @@ export const useEkasaImportWizard = () => {
 
     setState((prev) => ({
       ...prev,
-      receiptData: result.receiptData,
-      processedItems: result.processedItems,
-      processedLegs: legsFromMatches(result.processedItems, matches, prev.defaultDeductiblePct, prev.defaultVatReclaimablePct, result.receiptDate),
-      receiptDate: result.receiptDate,
-      vendorName: result.receiptData?.organization.name ?? '',
-      offlineFallback: result.offlineFallback,
+      processedLegs: legsFromMatches(lines, matches, prev.defaultDeductiblePct, prev.defaultVatReclaimablePct, result.date),
+      receiptDate: result.date,
+      vendorName: vendor,
       sourceRef: result.sourceRef,
       alreadyImported: result.alreadyImported,
       isProcessing: false,
@@ -177,7 +167,6 @@ export const useEkasaImportWizard = () => {
       step: 'upload',
       filePath: null,
       receiptError: null,
-      offlineFallback: null,
       isProcessing: false,
     }))
   }, [])

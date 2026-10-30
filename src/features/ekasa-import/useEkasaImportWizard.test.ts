@@ -28,29 +28,21 @@ import { toast } from 'sonner'
 import { matchEkasaRules, processReceiptFile, upsertEkasaProfile } from '../../shared/api'
 
 const OFFLINE_RESULT: ProcessReceiptResult = {
-  receiptData: null,
-  processedItems: [],
-  qrContent: 'O-ABC:1:2:3',
-  offlineFallback: { eventDate: '2025-04-12T10:30:00', totalAmountMinor: 1250 },
-  receiptDate: '2025-04-12',
-  sourceRef: 'offline:O-ABC:1:2:3',
+  kind: 'offline',
+  date: '2025-04-12',
+  vendor: null,
+  totalMinor: 1250,
+  lines: null,
+  sourceRef: 'offline:ABC:1:250412103000:3:12.50',
   alreadyImported: false,
 }
 
 const ONLINE_RESULT: ProcessReceiptResult = {
-  receiptData: {
-    id: 'r1',
-    receiptId: 'r1',
-    issueDate: '03.05.2025 14:20:00',
-    totalPrice: 5,
-    organization: { name: 'Shop', ico: '123' },
-    items: [],
-    vatSummary: [],
-  },
-  processedItems: [{ name: 'Milk', amountMinor: 500, vatRateBps: 2000 }],
-  qrContent: 'abc',
-  offlineFallback: null,
-  receiptDate: '2025-05-03',
+  kind: 'online',
+  date: '2025-05-03',
+  vendor: 'Shop',
+  totalMinor: 500,
+  lines: [{ name: 'Milk', grossMinor: 500, vatRateBps: 2000 }],
   sourceRef: 'online:abc',
   alreadyImported: false,
 }
@@ -85,16 +77,17 @@ describe('useEkasaImportWizard', () => {
 
     expect(result.current.state.step).toBe('review')
     expect(result.current.state.processedLegs).toHaveLength(1)
-    expect(result.current.state.processedLegs[0]).toMatchObject({ amount: '12.50', eventDate: '2025-04-12T10:30:00' })
-    expect(result.current.state.receiptDate).toBe('2025-04-12T10:30:00')
+    expect(result.current.state.processedLegs[0]).toMatchObject({ amount: '12.50', eventDate: '2025-04-12', expenseDeductiblePct: '100', vatReclaimablePct: '100' })
+    expect(result.current.state.receiptDate).toBe('2025-04-12')
+    expect(result.current.state.vendorName).toBe('')
     expect(matchEkasaRules).not.toHaveBeenCalled()
   })
 
   const MULTI_ITEM_RESULT: ProcessReceiptResult = {
     ...ONLINE_RESULT,
-    processedItems: [
-      { name: 'KÁVA', amountMinor: 1599, vatRateBps: 2300 },
-      { name: 'MLIEKO', amountMinor: 129, vatRateBps: 500 },
+    lines: [
+      { name: 'KÁVA', grossMinor: 1599, vatRateBps: 2300 },
+      { name: 'MLIEKO', grossMinor: 129, vatRateBps: 500 },
     ],
   }
 
@@ -165,9 +158,9 @@ describe('useEkasaImportWizard', () => {
 
     expect(result.current.state.step).toBe('review')
     expect(result.current.state.processedLegs).toHaveLength(1)
-    expect(result.current.state.processedLegs[0]).toMatchObject({ amount: '5.00', note: 'Milk', eventDate: '2025-05-03' })
+    expect(result.current.state.processedLegs[0]).toMatchObject({ amount: '5.00', vatRate: '20', note: 'Milk', eventDate: '2025-05-03' })
+    expect(result.current.state.receiptDate).toBe('2025-05-03')
     expect(result.current.state.vendorName).toBe('Shop')
-    expect(result.current.state.offlineFallback).toBeNull()
   })
 
   it.each([
@@ -195,32 +188,20 @@ describe('useEkasaImportWizard', () => {
     expect(result.current.state.alreadyImported).toBe(false)
   })
 
-  it('does not reuse an earlier offline receipt when the next file fails', async () => {
+  it('shows the error of the next file after an offline receipt', async () => {
     ;(processReceiptFile as Mock).mockResolvedValueOnce(OFFLINE_RESULT).mockRejectedValueOnce({ code: 'EKASA', message: 'Receipt not found' })
     const { result } = renderHook(() => useEkasaImportWizard())
 
     act(() => result.current.handleFileSelect('/offline.png'))
     await act(() => result.current.handleRulesConfirm())
-    expect(result.current.state.offlineFallback).not.toBeNull()
+    expect(result.current.state.step).toBe('review')
 
     act(() => result.current.handleBack())
     act(() => result.current.handleBack())
     await act(async () => result.current.handleFileSelect('/broken.png'))
 
     expect(result.current.state.step).toBe('error')
-    expect(result.current.state.offlineFallback).toBeNull()
-  })
-
-  it('clears the offline receipt on try again', async () => {
-    ;(processReceiptFile as Mock).mockResolvedValue(OFFLINE_RESULT)
-    const { result } = renderHook(() => useEkasaImportWizard())
-
-    act(() => result.current.handleFileSelect('/offline.png'))
-    await act(() => result.current.handleRulesConfirm())
-    act(() => result.current.handleTryAgain())
-
-    expect(result.current.state.step).toBe('upload')
-    expect(result.current.state.offlineFallback).toBeNull()
+    expect(result.current.state.receiptError).toBe('Receipt not found')
   })
 
   it('reports the message of a structured backend error', async () => {

@@ -1,7 +1,5 @@
 use serde::{Deserialize, Serialize};
 
-use crate::features::transactions::SourceRef;
-
 // ---------------------------------------------------------------------------
 // Profile structs — serialized and sent to the frontend
 // ---------------------------------------------------------------------------
@@ -43,8 +41,8 @@ pub struct EkasaRuleInput {
 // ---------------------------------------------------------------------------
 // eKasa API response structs — deserialized from the eKasa API JSON response.
 // The API uses camelCase field names; `rename_all` is applied where the Rust
-// field names match the API names exactly (all camelCase).
-// EkasaReceiptData is also Serialize so it can be forwarded to the frontend.
+// field names match the API names exactly (all camelCase). Only the fields the
+// reader uses are declared; serde skips the rest.
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Deserialize)]
@@ -53,57 +51,28 @@ pub struct EkasaReceiptResponse {
     pub receipt: Option<EkasaReceiptData>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EkasaReceiptData {
-    pub receipt_id: String,
     pub issue_date: String,
     pub total_price: f64,
     pub organization: EkasaReceiptOrganization,
     pub items: Vec<EkasaReceiptItem>,
-    pub vat_summary: Vec<EkasaVatSummary>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EkasaReceiptOrganization {
     pub name: String,
     pub ico: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EkasaReceiptItem {
     pub name: String,
-    pub quantity: f64,
     pub price: f64,
     pub vat_rate: f64,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct EkasaVatSummaryVat {
-    pub vat_rate: f64,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct EkasaVatSummary {
-    pub vat: EkasaVatSummaryVat,
-    pub vat_base: f64,
-    pub vat_amount: f64,
-}
-
-// ---------------------------------------------------------------------------
-// Processed / result structs — serialized and sent to the frontend
-// ---------------------------------------------------------------------------
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ProcessedItem {
-    pub name: String,
-    pub amount_minor: i64,
-    pub vat_rate_bps: i64,
 }
 
 /// One line of a receipt as Saldo read it. The field names are those of a receipt line in
@@ -117,23 +86,8 @@ pub struct ReceiptReadLine {
     pub vat_rate_bps: i64,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OfflineReceiptData {
     pub event_date: String,
     pub total_amount_minor: i64,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ProcessReceiptResult {
-    pub receipt_data: Option<EkasaReceiptData>,
-    pub processed_items: Vec<ProcessedItem>,
-    pub qr_content: String,
-    pub offline_fallback: Option<OfflineReceiptData>,
-    /// YYYY-MM-DD.
-    pub receipt_date: String,
-    /// Identifies the receipt; the create commands store it with the imported entries.
-    pub source_ref: SourceRef,
-    pub already_imported: bool,
 }

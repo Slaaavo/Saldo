@@ -9,41 +9,19 @@ export interface EkasaRuleDraft {
   vatReclaimablePct: string
 }
 
-export interface EkasaProcessedItem {
+export interface ReceiptReadLine {
   name: string
-  amountMinor: number
+  grossMinor: number
   vatRateBps: number
 }
 
-export interface EkasaReceiptOrganization {
-  name: string
-  ico: string
-}
-
-export interface EkasaReceiptData {
-  id: string
-  receiptId: string
-  issueDate: string
-  totalPrice: number
-  organization: EkasaReceiptOrganization
-  items: Array<{ name: string; quantity: number; price: number; vatRate: string }>
-  vatSummary: Array<{ vatRate: string; vatBase: number; vatAmount: number }>
-}
-
-export interface OfflineReceiptData {
-  eventDate: string
-  totalAmountMinor: number
-}
-
-export interface ProcessReceiptResult {
-  receiptData: EkasaReceiptData | null
-  processedItems: EkasaProcessedItem[]
-  qrContent: string
-  offlineFallback: OfflineReceiptData | null
-  receiptDate: string
+// An offline receipt's QR code holds only its date and total, so it has no shop and no lines.
+export type ProcessReceiptResult = {
+  date: string
+  totalMinor: number
   sourceRef: string
   alreadyImported: boolean
-}
+} & ({ kind: 'online'; vendor: string; lines: ReceiptReadLine[] } | { kind: 'offline'; vendor: null; lines: null })
 
 export interface MatchEkasaRulesPayload {
   itemNames: string[]
@@ -65,8 +43,6 @@ export interface EkasaRuleMatches {
 export interface EkasaWizardState {
   step: EkasaWizardStep
   filePath: string | null
-  receiptData: EkasaReceiptData | null
-  processedItems: EkasaProcessedItem[]
   processedLegs: SplitLegDraft[]
   receiptError: string | null
   rules: EkasaRuleDraft[]
@@ -75,7 +51,6 @@ export interface EkasaWizardState {
   isProcessing: boolean
   vendorName: string
   receiptDate: string
-  offlineFallback: OfflineReceiptData | null
   sourceRef: string | null
   alreadyImported: boolean
 }

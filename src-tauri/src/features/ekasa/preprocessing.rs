@@ -179,7 +179,6 @@ mod tests {
     fn item(name: &str, price: f64, vat_rate: f64) -> EkasaReceiptItem {
         EkasaReceiptItem {
             name: name.to_string(),
-            quantity: 1.0,
             price,
             vat_rate,
         }

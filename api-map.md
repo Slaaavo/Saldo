@@ -736,7 +736,7 @@ Replaces a tax model's forecast figures: the month the actual figures cover, the
 
 ### `processReceiptFile`
 
-Decodes the QR code from a receipt file (PDF or image), looks an online receipt up with the eKasa service and returns its items grouped by name and VAT rate, and `receiptDate` (YYYY-MM-DD). Also returns `sourceRef` (identifies the receipt) and `alreadyImported` (whether a live entry already carries that reference). An online receipt the service does not know is the error `RECEIPT_NOT_FOUND`.
+Reads a receipt file (PDF or image) with Saldo's eKasa reader, the one `saldo mcp`'s `read_receipt` uses, and returns its reading: `kind` (`online` or `offline`), `date` (YYYY-MM-DD), `vendor`, `totalMinor`, `lines` grouped by name and VAT rate, and `sourceRef` (identifies the receipt). An offline receipt has no `vendor` and no `lines`. Also returns `alreadyImported` (whether a live entry already carries that reference). An online receipt the service does not know is the error `RECEIPT_NOT_FOUND`.
 
 - **BE command:** `process_receipt_file` → `src-tauri/src/features/ekasa/commands.rs`
 - **Used in:**
