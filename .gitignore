@@ -30,6 +30,7 @@ src-tauri/target/
 *.csv
 !.claude/skills/verify-saldo/fixtures/*.csv
 *.pdf
+!.claude/skills/verify-saldo/fixtures/receipts/*.pdf
 
 # Test outputs
 test-results/
