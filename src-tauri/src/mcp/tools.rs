@@ -97,7 +97,9 @@ fn tools() -> Vec<Tool> {
             "undo_batch",
             "Remove everything one batch recorded: entries, their prepaid shares and split \
              legs, assets and their depreciation, payment links. Undoing twice changes nothing. \
-             When rows were changed in Saldo since, it refuses and lists them.",
+             When something was changed in Saldo since (an entry edited, a leg or an asset value \
+             added, an asset edited, a payment link added or removed), it refuses and lists the \
+             changes.",
             undo_batch,
         ),
     ]
