@@ -1,6 +1,3 @@
-/// Removes combining marks and the diacritics of Latin letters and keeps each letter's case, so
-/// `ŠKODA Káva` becomes `SKODA Kava`. SQL search and eKasa rule matching both fold accents with
-/// it, so the two agree on what "ignoring accents" means.
 pub fn strip_accents(text: &str) -> String {
     let mut stripped = String::with_capacity(text.len());
     for c in text.chars() {
@@ -21,7 +18,6 @@ pub fn strip_accents(text: &str) -> String {
     stripped
 }
 
-/// The base letters of an accented lower-case Latin letter; None for any other character.
 fn latin_base(c: char) -> Option<&'static str> {
     Some(match c {
         'à'..='å' | 'ā' | 'ă' | 'ą' => "a",

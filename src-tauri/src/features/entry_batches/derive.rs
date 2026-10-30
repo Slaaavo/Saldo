@@ -15,9 +15,6 @@ use crate::shared::{major_units, validate_iso_date};
 const ASSET_MIN_PRICE_EXCLUSIVE_MINOR: i64 = 170_000;
 const ASSET_MIN_MONTHS_EXCLUSIVE: i64 = 12;
 
-/// Everything one item writes, whether it was an invoice or a receipt. The writer reads only
-/// this. It is part of the review token, so what Saldo took from the database (eKasa rule
-/// shares, the VAT-payer default) is part of what the user approved.
 #[derive(Debug, Hash)]
 pub(super) struct Plan {
     pub source_ref: SourceRef,
@@ -26,11 +23,9 @@ pub(super) struct Plan {
     pub kind: TaxableKind,
     pub entry_date: String,
     pub date_source: DateSource,
-    /// Written only on a split group.
     pub group_note: Option<String>,
     pub legs: Vec<Leg>,
     pub prepaid_until: Option<String>,
-    /// For expense kinds: whether the VAT is reclaimed. None for revenue.
     pub reclaimed_vat: Option<bool>,
     pub assets: Vec<AssetPlan>,
     pub payment_ids: Vec<i64>,
@@ -41,9 +36,7 @@ pub(super) struct Leg {
     pub gross_minor: i64,
     pub vat_rate_bps: i64,
     pub note: Option<String>,
-    /// None for revenue.
     pub shares: Option<Shares>,
-    /// For a receipt line: where its shares came from.
     pub source: Option<ShareSource>,
 }
 
@@ -78,7 +71,6 @@ impl Plan {
         self.legs.iter().map(|leg| leg.gross_minor).sum()
     }
 
-    /// Legs and assets, VAT included.
     pub fn total_gross_minor(&self) -> i64 {
         self.legs_total_minor() + self.assets.iter().map(|a| a.gross_minor).sum::<i64>()
     }
@@ -99,7 +91,6 @@ impl Plan {
     }
 }
 
-/// An invoice or credit note: every leg and the split group carry the document's note.
 pub(super) fn document(item: &DocumentItem, default_reclaims_vat: bool) -> Result<Plan, AppError> {
     let source_ref = SourceRef::invoice(&item.document.issuer, &item.document.number)?;
     let (entry_date, date_source) = entry_date(&item.issue_date, item.delivery_date.as_deref())?;
@@ -172,9 +163,6 @@ pub(super) fn document(item: &DocumentItem, default_reclaims_vat: bool) -> Resul
     .check_entries()
 }
 
-/// An eKasa receipt: one expense dated by the receipt, a leg per line named after it, the shop
-/// as the split group's note, and an asset for each line marked as one. `rules` is the person's
-/// eKasa profile, None when the person has none.
 pub(super) fn receipt(
     item: &ReceiptItem,
     default_reclaims_vat: bool,
@@ -266,7 +254,6 @@ pub(super) fn receipt(
     .check_entries()
 }
 
-/// A share the user dictated wins, then the matching rule, then Claude's judgment.
 fn line_shares(line: &ReceiptLine, rules: Option<&ShareRules>) -> Option<(Shares, ShareSource)> {
     let rule = rules
         .and_then(|rules| rules.shares_for(&line.name))
@@ -543,7 +530,6 @@ mod tests {
         }
     }
 
-    /// A receipt read online with these lines (name, gross, VAT bps), each sent with its shares.
     fn receipt_item(lines: &[(&'static str, i64, i64, Option<LineShares>)]) -> ReceiptItem {
         let reading = FakeEkasaApi {
             receipt_id: BILLA,

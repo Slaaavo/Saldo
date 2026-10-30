@@ -40,7 +40,6 @@ export interface ProcessReceiptResult {
   processedItems: EkasaProcessedItem[]
   qrContent: string
   offlineFallback: OfflineReceiptData | null
-  /** YYYY-MM-DD. */
   receiptDate: string
   sourceRef: string
   alreadyImported: boolean
@@ -48,12 +47,10 @@ export interface ProcessReceiptResult {
 
 export interface MatchEkasaRulesPayload {
   itemNames: string[]
-  /** Every rule row as edited, blank ones too, so a match's position names its row. */
   rules: Array<{ namePattern: string; deductiblePctBps: number; vatReclaimablePctBps: number }>
 }
 
 export interface EkasaRuleMatch {
-  /** 1-based row of the rule. */
   position: number
   pattern: string
   deductiblePctBps: number
@@ -61,7 +58,6 @@ export interface EkasaRuleMatch {
 }
 
 export interface EkasaRuleMatches {
-  /** One per item name, in order. */
   items: Array<{ matchedRule: EkasaRuleMatch | null }>
   invalidRules: Array<{ position: number; pattern: string; message: string }>
 }

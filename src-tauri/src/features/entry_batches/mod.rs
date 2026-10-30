@@ -37,9 +37,6 @@ use repository::{Root, StampParams};
 
 const SIMILAR_DOCUMENT_WINDOW_DAYS: i64 = 14;
 
-/// One pass in the write transaction: each item is planned, checked and written in its own
-/// savepoint, so a later item's checks see the earlier ones. A real write is then refused unless
-/// its token equals its dry run's, before any item error, and the transaction rolls back.
 pub fn record_batch(
     txn: WriteTxn<'_>,
     input: RecordBatchInput,
@@ -202,9 +199,6 @@ fn record_items(
     })
 }
 
-/// Ties a real write to the dry run the user reviewed: a hash of the batch as sent and of what
-/// each item became, its plan or its error. `DefaultHasher::new` is the same SipHash with the
-/// same keys in every run of one build, which is all a dry run and its write need.
 struct Review(DefaultHasher);
 
 impl Review {
@@ -227,7 +221,6 @@ impl Review {
     }
 }
 
-/// The plan, and facts for the review table that do not change what is written.
 fn plan_item(conn: &Connection, item: &BatchItem) -> Result<(Plan, Vec<Warning>), AppError> {
     let vat_payer = get_person_vat_payer(conn, item.person_id())?;
     match item {
@@ -358,7 +351,6 @@ struct Written {
     assets: Vec<RecordedAsset>,
 }
 
-/// Knows nothing of invoices or receipts: everything comes from the plan.
 fn write_plan(conn: &Connection, ctx: &ItemContext, plan: &Plan) -> Result<Written, AppError> {
     let event_type = plan.kind.event_type();
     let shape = match plan.entries() {
@@ -496,8 +488,6 @@ fn write_plan(conn: &Connection, ctx: &ItemContext, plan: &Plan) -> Result<Writt
     })
 }
 
-/// A receipt line also reports its note and where its shares came from; an invoice line
-/// reports only its amounts, as before receipts existed.
 fn recorded_line(leg: &Leg) -> RecordedLine {
     let shares = leg
         .source

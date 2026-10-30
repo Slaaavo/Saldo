@@ -389,7 +389,6 @@ impl RecordedDocument {
     }
 }
 
-// Each name is the date field it comes from, as the dry run reports it.
 #[allow(clippy::enum_variant_names)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
 #[serde(rename_all = "snake_case")]

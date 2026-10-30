@@ -4,7 +4,6 @@ use serde::Serialize;
 use super::models::EkasaRuleRow;
 use crate::shared::text::strip_accents;
 
-/// A deductible share and a VAT-reclaimable share, in basis points.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Shares {
@@ -12,14 +11,11 @@ pub struct Shares {
     pub vat_reclaimable_pct_bps: i64,
 }
 
-/// One rule as a stored profile or the wizard's draft gives it.
 pub struct RuleSource<'a> {
     pub pattern: &'a str,
     pub shares: Shares,
 }
 
-/// The rule that matched an item name: its 1-based position among the rules, its pattern and
-/// its shares.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RuleMatch {
@@ -29,7 +25,6 @@ pub struct RuleMatch {
     pub shares: Shares,
 }
 
-/// A rule the matcher skips because its pattern does not compile.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RuleProblem {
@@ -80,7 +75,6 @@ impl ShareRules {
         }
     }
 
-    /// A stored profile's rules, which come in their `sort_order`.
     pub fn from_profile(rules: &[EkasaRuleRow]) -> Self {
         Self::compile(rules.iter().map(|rule| RuleSource {
             pattern: &rule.name_pattern,
@@ -104,7 +98,6 @@ impl ShareRules {
     }
 }
 
-/// None when the matcher can use `pattern`; otherwise why not, in one line.
 pub fn pattern_problem(pattern: &str) -> Option<String> {
     compile_pattern(pattern).err().map(|e| one_line(&e))
 }

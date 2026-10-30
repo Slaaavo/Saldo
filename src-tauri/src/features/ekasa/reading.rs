@@ -63,21 +63,14 @@ pub struct ReceiptReading {
     /// None for an offline receipt, whose code holds only its date and total.
     pub lines: Option<Vec<ReceiptReadLine>>,
     pub warnings: Vec<ReadingWarning>,
-    /// The eKasa service's answer as it came, which the wizard still receives.
     #[serde(skip)]
     pub api_receipt: Option<EkasaReceiptData>,
 }
 
-/// The eKasa service of Finančná správa, behind a trait so tests never reach the network.
 pub trait EkasaApi {
-    /// The receipt, or None when the service does not know the id.
     fn fetch(&self, receipt_id: &str) -> Result<Option<EkasaReceiptData>, AppError>;
 }
 
-/// File to receipt, for the app and for `saldo mcp`. Synchronous: QR decoding is CPU heavy and
-/// an online receipt waits for the eKasa service, so an async caller runs it on a blocking
-/// thread. It touches no database.
-///
 /// `code` is the online receipt id typed from the printed receipt when the QR code does not
 /// decode; the file is then not decoded. An offline code must come from the QR code itself.
 pub fn read_receipt_file(
@@ -97,7 +90,7 @@ pub fn read_receipt_file(
         }
     };
     match &code {
-        ReceiptCode::Online { receipt_id } => {
+        ReceiptCode::Online { receipt_id, .. } => {
             let data = api
                 .fetch(receipt_id)?
                 .ok_or_else(|| receipt_not_found(receipt_id))?;
@@ -162,7 +155,6 @@ fn offline_reading(file: &str, code: &ReceiptCode, receipt: &OfflineReceiptData)
     }
 }
 
-/// One receipt line's facts, from a reading or from a batch line.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct LineFacts<'a> {
     pub name: &'a str,
@@ -180,9 +172,6 @@ impl<'a> From<&'a ReceiptReadLine> for LineFacts<'a> {
     }
 }
 
-/// Checks what a batch item says about a receipt against its code and seal, with no network:
-/// the code is an eKasa code, the seal matches, and for an offline receipt the date and the
-/// lines' total are the QR code's.
 pub fn check_receipt(
     receipt: &ReceiptId,
     date: &str,
@@ -230,10 +219,7 @@ pub fn check_receipt(
     Ok(code)
 }
 
-/// 16 hex digits over the code and, for an online receipt, its date and its lines in any
-/// order. An offline code already holds its date and total. The vendor is not sealed: it is
-/// only a note. `DefaultHasher::new` gives the same digits in every run of one build, as the
-/// review token relies on too.
+/// DefaultHasher::new gives the same digits in every run of one build, so a reading taken by an older build must be read again.
 fn seal<'a>(code: &ReceiptCode, date: &str, lines: impl Iterator<Item = LineFacts<'a>>) -> String {
     let mut hasher = DefaultHasher::new();
     ("ekasa-receipt-v1", code.text()).hash(&mut hasher);
@@ -329,7 +315,6 @@ mod tests {
         }
     }
 
-    /// Answers every id with `receipt` and remembers the ids it was asked for.
     struct FakeApi {
         receipt: fn() -> Option<EkasaReceiptData>,
         asked: RefCell<Vec<String>>,
@@ -575,14 +560,11 @@ mod tests {
     }
 }
 
-/// Readings for the tests of the code that records receipts, with no network.
 #[cfg(test)]
 pub(crate) mod fake {
     use super::*;
     use crate::features::ekasa::models::{EkasaReceiptItem, EkasaReceiptOrganization};
 
-    /// An eKasa service that knows one receipt, from BILLA on 12 October 2026, with these
-    /// lines (name, gross minor units, VAT bps). It does not know any other id.
     pub(crate) struct FakeEkasaApi {
         pub receipt_id: &'static str,
         pub lines: Vec<(&'static str, i64, i64)>,
@@ -614,13 +596,11 @@ pub(crate) mod fake {
     }
 
     impl FakeEkasaApi {
-        /// What read_receipt returns for the receipt this service knows.
         pub(crate) fn read(&self) -> ReceiptReading {
             read_receipt_file("/r/billa.jpg", Some(self.receipt_id), None, self).unwrap()
         }
     }
 
-    /// What read_receipt returns for a file whose QR code holds this offline code.
     pub(crate) fn read_offline(code: &str) -> ReceiptReading {
         let code = ReceiptCode::parse(code).unwrap();
         let ReceiptCode::Offline { receipt, .. } = &code else {

@@ -3,8 +3,6 @@ use chrono::NaiveDateTime;
 use super::models::{EkasaReceiptItem, OfflineReceiptData, ReceiptReadLine};
 use crate::features::transactions::SourceRef;
 
-/// Groups receipt items by name and VAT rate, sums their prices, converts to minor units, and
-/// drops zero-amount groups. Order matches the first occurrence of each group.
 pub fn preprocess_receipt_items(items: &[EkasaReceiptItem]) -> Vec<ReceiptReadLine> {
     let mut groups: Vec<(&str, i64, f64)> = Vec::new();
     for item in items {
@@ -31,17 +29,19 @@ pub fn preprocess_receipt_items(items: &[EkasaReceiptItem]) -> Vec<ReceiptReadLi
         .collect()
 }
 
-/// A decoded QR text that is an eKasa code. `parse` is the only constructor, and the reader and
-/// the batch build an eKasa reference only through `source_ref`, so it always names a parsed
-/// code.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Parsed(());
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ReceiptCode {
-    /// `[VO]-` and 32 hex digits. Only this may be sent to the eKasa API.
-    Online { receipt_id: String },
-    /// `OKP:KP:YYMMDDHHMISS:number:total`, trimmed, with its date and total.
+    Online {
+        receipt_id: String,
+        parsed: Parsed,
+    },
     Offline {
         code: String,
         receipt: OfflineReceiptData,
+        parsed: Parsed,
     },
 }
 
@@ -51,30 +51,34 @@ impl ReceiptCode {
     pub fn parse(text: &str) -> Option<Self> {
         let text = text.trim();
         if let Some(receipt_id) = extract_receipt_id_from_url(text) {
-            return Some(Self::Online { receipt_id });
+            return Some(Self::Online {
+                receipt_id,
+                parsed: Parsed(()),
+            });
         }
         if is_online_receipt_id(text) {
             return Some(Self::Online {
                 receipt_id: text.to_owned(),
+                parsed: Parsed(()),
             });
         }
         parse_offline_qr(text).map(|receipt| Self::Offline {
             code: text.to_owned(),
             receipt,
+            parsed: Parsed(()),
         })
     }
 
-    /// The bare online id or the trimmed offline code: `parse(code.text())` gives `code` back.
     pub fn text(&self) -> &str {
         match self {
-            Self::Online { receipt_id } => receipt_id,
+            Self::Online { receipt_id, .. } => receipt_id,
             Self::Offline { code, .. } => code,
         }
     }
 
     pub fn source_ref(&self) -> SourceRef {
         match self {
-            Self::Online { receipt_id } => SourceRef::ekasa_online(receipt_id),
+            Self::Online { receipt_id, .. } => SourceRef::ekasa_online(receipt_id),
             Self::Offline { code, .. } => SourceRef::ekasa_offline(code),
         }
     }
@@ -192,7 +196,7 @@ mod tests {
         let result = preprocess_receipt_items(&items);
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].name, "Coffee");
-        assert_eq!(result[0].gross_minor, 430); // 4.30 EUR = 430 cents
+        assert_eq!(result[0].gross_minor, 430);
         assert_eq!(result[0].vat_rate_bps, 2000);
     }
 
@@ -222,9 +226,9 @@ mod tests {
         let result = preprocess_receipt_items(&items);
         assert_eq!(result.len(), 2);
         assert_eq!(result[0].name, "Apple");
-        assert_eq!(result[0].gross_minor, 150); // 1.50 EUR
+        assert_eq!(result[0].gross_minor, 150);
         assert_eq!(result[1].name, "Banana");
-        assert_eq!(result[1].gross_minor, 200); // 2.00 EUR
+        assert_eq!(result[1].gross_minor, 200);
     }
 
     #[test]
@@ -437,17 +441,13 @@ mod tests {
         assert!(parse_offline_qr(qr).is_none());
     }
 
-    // -----------------------------------------------------------------------
-    // ReceiptCode
-    // -----------------------------------------------------------------------
-
     const ONLINE_ID: &str = "O-7DBCDA8A56EE426DBCDA8A56EE426D1A";
     const OFFLINE_CODE: &str =
         "C44B3977-0E415CC6-EE663AA1-776C973A-A143B660:99920045678900001:180213093414:23:237.23";
 
     fn online_id_of(qr: &str) -> Option<String> {
         match ReceiptCode::parse(qr) {
-            Some(ReceiptCode::Online { receipt_id }) => Some(receipt_id),
+            Some(ReceiptCode::Online { receipt_id, .. }) => Some(receipt_id),
             _ => None,
         }
     }
@@ -474,7 +474,7 @@ mod tests {
     #[test]
     fn test_parse_offline_code() {
         match ReceiptCode::parse(&format!(" {OFFLINE_CODE}\n")) {
-            Some(ReceiptCode::Offline { code, receipt }) => {
+            Some(ReceiptCode::Offline { code, receipt, .. }) => {
                 assert_eq!(code, OFFLINE_CODE);
                 assert_eq!(receipt.event_date, "2018-02-13");
                 assert_eq!(receipt.total_amount_minor, 23723);

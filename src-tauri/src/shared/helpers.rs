@@ -179,7 +179,6 @@ pub fn div_round(numerator: i64, denominator: i64) -> i64 {
     (numerator + numerator.signum() * (denominator.abs() / 2)) / denominator
 }
 
-/// An amount of a two-decimal currency for a message, such as `-12.05`.
 pub fn major_units(minor: i64) -> String {
     let sign = if minor < 0 { "-" } else { "" };
     format!("{sign}{}.{:02}", minor.abs() / 100, minor.abs() % 100)

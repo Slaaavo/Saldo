@@ -169,7 +169,6 @@ fn laptop_and_sleeve(books: &Books) -> Value {
     )
 }
 
-/// Stands for the token of this batch's dry run; `run_batch` puts the real one in its place.
 const REVIEWED: &str = "the reviewToken of this batch's dry run";
 
 fn batch(items: Vec<Value>, dry_run: bool) -> RecordBatchInput {
@@ -183,8 +182,6 @@ fn batch(items: Vec<Value>, dry_run: bool) -> RecordBatchInput {
     input
 }
 
-/// A real write carries the token of its dry run, which
-/// `a_write_needs_the_token_its_dry_run_returned` shows `record_items` to compute.
 fn run_batch(
     conn: &Connection,
     mut input: RecordBatchInput,
@@ -1281,8 +1278,6 @@ fn by(who: &str, deductible: i64, vat_reclaimable: i64) -> Value {
     json!({ "deductiblePctBps": deductible, "vatReclaimablePctBps": vat_reclaimable, "by": who })
 }
 
-/// What Claude sends for a receipt read_receipt read: its lines as read, each with the given
-/// shares (null for none).
 fn receipt_item(books: &Books, reading: &ReceiptReading, shares: &[Value]) -> Value {
     let lines: Vec<Value> = reading
         .lines
@@ -1332,7 +1327,6 @@ fn ekasa_profile(conn: &Connection, books: &Books, rules: &[(&str, i64, i64)]) {
     .unwrap();
 }
 
-/// Each live entry carrying the reference: its note and its two shares.
 fn legs_with_ref(conn: &Connection, source_ref: &str) -> Vec<(Option<String>, i64, i64)> {
     let mut statement = conn
         .prepare(

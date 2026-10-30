@@ -119,8 +119,6 @@ pub async fn process_receipt_file(
 ) -> Result<ProcessReceiptResult, AppError> {
     // A resolution failure only drops this directory from the PDFium search.
     let resource_dir = app.path().resource_dir().ok();
-    // PDF rendering is CPU heavy and the live eKasa service waits on the runtime, so the
-    // whole read runs on a blocking thread.
     let reading = tauri::async_runtime::spawn_blocking(move || {
         read_receipt_file(&file_path, None, resource_dir.as_deref(), &LiveEkasaApi)
     })
@@ -133,7 +131,6 @@ pub async fn process_receipt_file(
     Ok(wizard_result(reading, already_imported))
 }
 
-/// The wizard keeps its own shape of a reading.
 fn wizard_result(reading: ReceiptReading, already_imported: bool) -> ProcessReceiptResult {
     let offline_fallback = match reading.kind {
         ReceiptKind::Online => None,
@@ -166,8 +163,6 @@ fn wizard_result(reading: ReceiptReading, already_imported: bool) -> ProcessRece
 #[serde(rename_all = "camelCase")]
 pub struct MatchEkasaRulesInput {
     pub item_names: Vec<String>,
-    /// The wizard's rule rows as edited, saved or not, blank ones too, so a match's position
-    /// names its row.
     pub rules: Vec<RuleDraftInput>,
 }
 
@@ -182,7 +177,6 @@ pub struct RuleDraftInput {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EkasaRuleMatches {
-    /// One per item name, in order.
     pub items: Vec<ItemRuleMatch>,
     pub invalid_rules: Vec<RuleProblem>,
 }
@@ -190,11 +184,9 @@ pub struct EkasaRuleMatches {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ItemRuleMatch {
-    /// None when no rule matches; the wizard then uses its default shares.
     pub matched_rule: Option<RuleMatch>,
 }
 
-/// Pure: the wizard matches the rules the user is editing, which may not be saved yet.
 #[tauri::command]
 pub fn match_ekasa_rules(input: MatchEkasaRulesInput) -> Result<EkasaRuleMatches, AppError> {
     for rule in &input.rules {

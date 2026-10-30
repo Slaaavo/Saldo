@@ -43,11 +43,7 @@ impl Server {
     }
 }
 
-/// What a tool may reach outside Saldo's database: files and the eKasa service. Only the step a
-/// read tool runs before its transaction gets it, and that step gets no connection, so no file
-/// is decoded and no request waits while a transaction or the write lock is held.
 pub(super) struct Outside {
-    /// The bundle's resources folder, where PDFium is looked up first.
     pub resource_dir: Option<PathBuf>,
     pub ekasa: Box<dyn EkasaApi>,
 }
@@ -157,8 +153,6 @@ where
     }
 }
 
-/// A read tool that first reaches outside Saldo, then reads the database. `outside` gets no
-/// connection, so it runs before any transaction begins.
 fn read_tool_after_outside<I, P, O>(
     name: &'static str,
     description: &'static str,
@@ -757,7 +751,6 @@ mod tests {
 
     const BILLA: &str = "O-7A3F0C1E9B2D4C58A6E1F0D3B5C7A9E2";
 
-    /// No test reaches the network: the eKasa service knows one BILLA receipt and nothing else.
     fn outside() -> Outside {
         Outside {
             resource_dir: None,
