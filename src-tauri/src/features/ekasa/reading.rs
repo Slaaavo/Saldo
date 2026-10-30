@@ -80,24 +80,21 @@ pub fn read_receipt_file(
     api: &dyn EkasaApi,
 ) -> Result<ReceiptReading, AppError> {
     let code = match code {
-        Some(typed) => match ReceiptCode::parse(typed) {
-            Some(online @ ReceiptCode::Online { .. }) => online,
-            _ => return Err(not_an_online_id()),
-        },
+        Some(typed) => ReceiptCode::parse(typed)
+            .filter(|code| code.offline().is_none())
+            .ok_or_else(not_an_online_id)?,
         None => {
             let text = decode_qr_from_file(file, resource_dir)?;
             ReceiptCode::parse(&text).ok_or_else(not_ekasa)?
         }
     };
-    match &code {
-        ReceiptCode::Online { receipt_id, .. } => {
-            let data = api
-                .fetch(receipt_id)?
-                .ok_or_else(|| receipt_not_found(receipt_id))?;
-            online_reading(file, &code, data)
-        }
-        ReceiptCode::Offline { receipt, .. } => Ok(offline_reading(file, &code, receipt)),
+    if let Some(receipt) = code.offline() {
+        return Ok(offline_reading(file, &code, receipt));
     }
+    let data = api
+        .fetch(code.text())?
+        .ok_or_else(|| receipt_not_found(code.text()))?;
+    online_reading(file, &code, data)
 }
 
 fn online_reading(
@@ -192,7 +189,7 @@ pub fn check_receipt(
                 .into(),
         });
     }
-    if let ReceiptCode::Offline { receipt, .. } = &code {
+    if let Some(receipt) = code.offline() {
         if date != receipt.event_date {
             return Err(AppError {
                 code: "RECEIPT_DATE_DIFFERS".into(),
@@ -223,7 +220,7 @@ pub fn check_receipt(
 fn seal<'a>(code: &ReceiptCode, date: &str, lines: impl Iterator<Item = LineFacts<'a>>) -> String {
     let mut hasher = DefaultHasher::new();
     ("ekasa-receipt-v1", code.text()).hash(&mut hasher);
-    if let ReceiptCode::Online { .. } = code {
+    if code.offline().is_none() {
         let mut lines: Vec<LineFacts> = lines.collect();
         lines.sort_unstable();
         (date, lines).hash(&mut hasher);
@@ -389,6 +386,23 @@ mod tests {
             }]
         );
         assert_eq!(reading.lines.unwrap().len(), 2);
+    }
+
+    #[test]
+    fn a_typed_id_in_lower_case_reads_as_the_printed_id() {
+        let api = FakeApi::new(|| Some(billa(15.28)));
+
+        let reading = read_receipt_file(
+            "/r/billa.jpg",
+            Some(&ONLINE_ID.to_ascii_lowercase()),
+            None,
+            &api,
+        )
+        .unwrap();
+
+        assert_eq!(*api.asked.borrow(), [ONLINE_ID]);
+        assert_eq!(reading.receipt.code, ONLINE_ID);
+        assert_eq!(reading.source_ref.as_str(), format!("online:{ONLINE_ID}"));
     }
 
     #[test]
@@ -603,9 +617,7 @@ pub(crate) mod fake {
 
     pub(crate) fn read_offline(code: &str) -> ReceiptReading {
         let code = ReceiptCode::parse(code).unwrap();
-        let ReceiptCode::Offline { receipt, .. } = &code else {
-            panic!("an offline code")
-        };
+        let receipt = code.offline().expect("an offline code");
         offline_reading("/r/offline.png", &code, receipt)
     }
 }

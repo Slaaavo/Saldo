@@ -29,73 +29,62 @@ pub fn preprocess_receipt_items(items: &[EkasaReceiptItem]) -> Vec<ReceiptReadLi
         .collect()
 }
 
+/// An eKasa receipt code. Only `parse` builds one, so its text always has an eKasa code's shape
+/// before it reaches a reference, a stored row or a message.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Parsed(());
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ReceiptCode {
-    Online {
-        receipt_id: String,
-        parsed: Parsed,
-    },
-    Offline {
-        code: String,
-        receipt: OfflineReceiptData,
-        parsed: Parsed,
-    },
+pub struct ReceiptCode {
+    text: String,
+    offline: Option<OfflineReceiptData>,
 }
 
 impl ReceiptCode {
     /// An online receipt id (bare, or in a `receiptId=` URL) or an offline receipt code; None
-    /// for any other text.
+    /// for any other text. An online id is kept in upper case, so the QR code's id and the same
+    /// id typed in lower case give one reference.
     pub fn parse(text: &str) -> Option<Self> {
         let text = text.trim();
-        if let Some(receipt_id) = extract_receipt_id_from_url(text) {
-            return Some(Self::Online {
-                receipt_id,
-                parsed: Parsed(()),
-            });
+        if let Some(receipt_id) = receipt_id_in_url(text) {
+            return Self::online(receipt_id);
         }
-        if is_online_receipt_id(text) {
-            return Some(Self::Online {
-                receipt_id: text.to_owned(),
-                parsed: Parsed(()),
-            });
-        }
-        parse_offline_qr(text).map(|receipt| Self::Offline {
-            code: text.to_owned(),
-            receipt,
-            parsed: Parsed(()),
+        Self::online(text).or_else(|| {
+            parse_offline_qr(text).map(|receipt| Self {
+                text: text.to_owned(),
+                offline: Some(receipt),
+            })
         })
     }
 
+    fn online(receipt_id: &str) -> Option<Self> {
+        let receipt_id = receipt_id.to_ascii_uppercase();
+        is_online_receipt_id(&receipt_id).then_some(Self {
+            text: receipt_id,
+            offline: None,
+        })
+    }
+
+    /// The online receipt id, or the offline receipt's whole code.
     pub fn text(&self) -> &str {
-        match self {
-            Self::Online { receipt_id, .. } => receipt_id,
-            Self::Offline { code, .. } => code,
-        }
+        &self.text
+    }
+
+    /// The date and total an offline code holds; None for an online receipt id.
+    pub fn offline(&self) -> Option<&OfflineReceiptData> {
+        self.offline.as_ref()
     }
 
     pub fn source_ref(&self) -> SourceRef {
-        match self {
-            Self::Online { receipt_id, .. } => SourceRef::ekasa_online(receipt_id),
-            Self::Offline { code, .. } => SourceRef::ekasa_offline(code),
+        match self.offline {
+            None => SourceRef::ekasa_online(&self.text),
+            Some(_) => SourceRef::ekasa_offline(&self.text),
         }
     }
 }
 
-/// Extracts the id from the `receiptId=` query parameter of a QR code URL.
-fn extract_receipt_id_from_url(qr_content: &str) -> Option<String> {
-    // URL format: ...?receiptId=XXXX[&...]
-    let pos = qr_content.find("receiptId=")?;
-    let after = &qr_content[pos + "receiptId=".len()..];
+/// The value of the `receiptId=` query parameter of a QR code URL.
+fn receipt_id_in_url(qr_content: &str) -> Option<&str> {
+    let (_, after) = qr_content.split_once("receiptId=")?;
     let end = after.find('&').unwrap_or(after.len());
-    let id = after[..end].trim();
-    if id.is_empty() {
-        None
-    } else {
-        Some(id.to_string())
-    }
+    Some(after[..end].trim())
 }
 
 /// Online receipt id per spec section 3.4.4.4: `[VO]-` followed by 32 hex digits.
@@ -109,17 +98,27 @@ fn is_online_receipt_id(text: &str) -> bool {
 
 /// Parses an offline eKasa QR code string.
 ///
-/// Expected format (spec section 2.9): `{OKP}:{KP}:{YYMMDDHHMISS}:{sequence}:{total}`
+/// Expected format (spec section 2.9): `{OKP}:{KP}:{YYMMDDHHMISS}:{sequence}:{total}`. The OKP
+/// is hex digits and dashes, the cash register code (KP) letters and digits, and the sequence
+/// number digits.
 ///
 /// Returns `None` if the format is unrecognised or any field fails to parse.
 pub fn parse_offline_qr(qr_content: &str) -> Option<OfflineReceiptData> {
     let parts: Vec<&str> = qr_content.split(':').collect();
-    if parts.len() != 5 {
+    let [okp, cash_register, issued_at, sequence, total] = parts[..] else {
+        return None;
+    };
+    let made_of =
+        |part: &str, allowed: fn(u8) -> bool| !part.is_empty() && part.bytes().all(allowed);
+    if !made_of(okp, |b| b.is_ascii_hexdigit() || b == b'-')
+        || !made_of(cash_register, |b| b.is_ascii_alphanumeric())
+        || !made_of(sequence, |b| b.is_ascii_digit())
+    {
         return None;
     }
 
-    let event_date = parse_dt_yymmddhhmiss(parts[2])?;
-    let total_amount_minor = parse_total_to_minor(parts[4])?;
+    let event_date = parse_dt_yymmddhhmiss(issued_at)?;
+    let total_amount_minor = parse_total_to_minor(total)?;
 
     Some(OfflineReceiptData {
         event_date,
@@ -446,17 +445,30 @@ mod tests {
         "C44B3977-0E415CC6-EE663AA1-776C973A-A143B660:99920045678900001:180213093414:23:237.23";
 
     fn online_id_of(qr: &str) -> Option<String> {
-        match ReceiptCode::parse(qr) {
-            Some(ReceiptCode::Online { receipt_id, .. }) => Some(receipt_id),
-            _ => None,
-        }
+        ReceiptCode::parse(qr)
+            .filter(|code| code.offline().is_none())
+            .map(|code| code.text().to_owned())
     }
 
     #[test]
     fn test_parse_bare_online_receipt_id() {
         assert_eq!(online_id_of(ONLINE_ID).as_deref(), Some(ONLINE_ID));
-        let lower = "V-7dbcda8a56ee426dbcda8a56ee426d1a";
-        assert_eq!(online_id_of(lower).as_deref(), Some(lower));
+    }
+
+    #[test]
+    fn test_an_online_id_in_lower_case_is_the_same_receipt() {
+        let lower = ONLINE_ID.to_ascii_lowercase();
+        let url = format!("https://ekasa.financnasprava.sk/receipt?receiptId={lower}");
+
+        for qr in [lower.as_str(), url.as_str()] {
+            let code = ReceiptCode::parse(qr).unwrap();
+            assert_eq!(code.text(), ONLINE_ID, "{qr}");
+            assert_eq!(
+                code.source_ref(),
+                SourceRef::ekasa_online(ONLINE_ID),
+                "{qr}"
+            );
+        }
     }
 
     #[test]
@@ -472,15 +484,50 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_offline_code() {
-        match ReceiptCode::parse(&format!(" {OFFLINE_CODE}\n")) {
-            Some(ReceiptCode::Offline { code, receipt, .. }) => {
-                assert_eq!(code, OFFLINE_CODE);
-                assert_eq!(receipt.event_date, "2018-02-13");
-                assert_eq!(receipt.total_amount_minor, 23723);
-            }
-            other => panic!("expected an offline code, got {other:?}"),
+    fn test_a_receipt_id_url_must_carry_an_online_receipt_id() {
+        for id in [
+            "hello",
+            "O-7DBCDA8A56EE426DBCDA8A56EE4-TEST",
+            "O-7DBCDA8A56EE426DBCDA8A56EE426D1A<script>",
+            OFFLINE_CODE,
+        ] {
+            let qr = format!("https://ekasa.financnasprava.sk/receipt?receiptId={id}&lang=sk");
+            assert_eq!(ReceiptCode::parse(&qr), None, "{qr:?}");
         }
+    }
+
+    #[test]
+    fn test_parse_offline_code() {
+        let code = ReceiptCode::parse(&format!(" {OFFLINE_CODE}\n")).unwrap();
+        let receipt = code.offline().expect("an offline code");
+
+        assert_eq!(code.text(), OFFLINE_CODE);
+        assert_eq!(receipt.event_date, "2018-02-13");
+        assert_eq!(receipt.total_amount_minor, 23723);
+    }
+
+    #[test]
+    fn test_an_offline_code_is_made_of_ekasa_fields_only() {
+        for (okp, cash_register, sequence) in [
+            ("Free text", "99920045678900001", "23"),
+            (
+                "C44B3977-0E415CC6-EE663AA1-776C973G",
+                "99920045678900001",
+                "23",
+            ),
+            ("", "99920045678900001", "23"),
+            ("C44B3977-0E415CC6", "9992 0045", "23"),
+            ("C44B3977-0E415CC6", "Kasa-1", "23"),
+            ("C44B3977-0E415CC6", "", "23"),
+            ("C44B3977-0E415CC6", "99920045678900001", "2a"),
+            ("C44B3977-0E415CC6", "99920045678900001", "-1"),
+            ("C44B3977-0E415CC6", "99920045678900001", ""),
+        ] {
+            let qr = format!("{okp}:{cash_register}:180213093414:{sequence}:237.23");
+            assert_eq!(ReceiptCode::parse(&qr), None, "{qr:?}");
+        }
+        let lower_okp = "c44b3977-0e415cc6:Kasa01:180213093414:23:237.23";
+        assert!(ReceiptCode::parse(lower_okp).is_some());
     }
 
     #[test]
