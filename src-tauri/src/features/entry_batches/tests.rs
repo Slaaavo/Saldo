@@ -2,7 +2,9 @@ use serde_json::{json, Value};
 
 use super::*;
 use crate::db::initialize_in_memory;
-use crate::features::accounts::repository::{create_account, CreateAccountParams};
+use crate::features::accounts::repository::{
+    create_account, update_account, CreateAccountParams, UpdateAccountParams,
+};
 use crate::features::persons::repository::{create_person, CreatePersonParams};
 use crate::features::tax_models::models::ActualMonths;
 use crate::features::tax_models::repository::{
@@ -10,7 +12,8 @@ use crate::features::tax_models::repository::{
 };
 use crate::features::transactions::models::DocumentEntry;
 use crate::features::transactions::repository::{
-    create_balance_update, create_cashflow, generate_depreciation_events, update_taxable_event,
+    create_balance_update, create_cashflow, generate_depreciation_events,
+    recalculate_depreciation_for_asset, unlink_cashflow_from_taxable, update_taxable_event,
     update_taxable_split_group, CashflowEntry, CreateBalanceUpdateParams, NewSplitLeg,
     UpdateTaxableEventParams, UpdateTaxableSplitGroupParams,
 };
@@ -42,11 +45,19 @@ fn books(conn: &Connection) -> Books {
         },
     )
     .unwrap();
-    let tax_model_id = create_tax_model(
+    Books {
+        person_id,
+        bank_account_id,
+        tax_model_id: tax_model(conn, person_id, 2026),
+    }
+}
+
+fn tax_model(conn: &Connection, person_id: i64, calendar_year: i64) -> i64 {
+    create_tax_model(
         conn,
         CreateTaxModelParams {
-            name: "2026".to_owned(),
-            calendar_year: 2026,
+            name: calendar_year.to_string(),
+            calendar_year,
             person_id,
             vat_status: "all_year".to_owned(),
             vat_from_date: None,
@@ -65,12 +76,7 @@ fn books(conn: &Connection) -> Books {
             actuals_through_month: ActualMonths::new(9).unwrap(),
         },
     )
-    .unwrap();
-    Books {
-        person_id,
-        bank_account_id,
-        tax_model_id,
-    }
+    .unwrap()
 }
 
 fn payment(conn: &Connection, books: &Books, amount_minor: i64) -> i64 {
@@ -921,7 +927,7 @@ fn undo_stops_at_rows_changed_in_saldo_until_told_to_remove_them_too() {
         },
     )
     .unwrap();
-    create_balance_update(
+    let revalued = create_balance_update(
         &conn,
         CreateBalanceUpdateParams {
             account_id: asset_id,
@@ -936,15 +942,22 @@ fn undo_stops_at_rows_changed_in_saldo_until_told_to_remove_them_too() {
         panic!("the undo must stop")
     };
 
-    let reasons: Vec<ChangeReason> = rows.iter().map(|row| row.reason).collect();
-    assert_eq!(rows[0].event_id, single_id);
+    let [edited, leg_added, event_added] = &rows[..] else {
+        panic!("three changes: {rows:?}")
+    };
     assert_eq!(
-        reasons,
-        [
-            ChangeReason::EditedInSaldo,
-            ChangeReason::LegAddedInSaldo,
-            ChangeReason::EventAddedToAsset
-        ]
+        *edited,
+        ChangedRow::EditedInSaldo {
+            event_id: single_id
+        }
+    );
+    assert!(matches!(leg_added, ChangedRow::LegAddedInSaldo { .. }));
+    assert_eq!(
+        *event_added,
+        ChangedRow::EventAddedToAsset {
+            event_id: revalued,
+            account_id: asset_id
+        }
     );
     assert_eq!(documents(&conn, &books).len(), 3, "nothing was removed");
 
@@ -980,6 +993,146 @@ fn depreciation_saldo_writes_later_is_not_a_change() {
 
     assert_eq!(undone.removed_asset_account_ids, [asset_id]);
     assert_eq!(depreciation_rows(&conn, asset_id), 0);
+}
+
+/// Saves the laptop the way the asset form does, after `edit`, and lets Saldo regenerate its
+/// depreciation.
+fn save_laptop(
+    conn: &Connection,
+    books: &Books,
+    asset_id: i64,
+    edit: fn(&mut UpdateAccountParams),
+) {
+    let mut params = UpdateAccountParams {
+        account_id: asset_id,
+        name: "MacBook Pro 16".to_owned(),
+        iban: None,
+        person_id: Some(books.person_id),
+        purchase_price_minor: Some(292_601),
+        purchase_date: Some("2026-10-12".to_owned()),
+        depreciation_period_months: Some(48),
+    };
+    edit(&mut params);
+    update_account(conn, params).unwrap();
+    recalculate_depreciation_for_asset(conn, asset_id).unwrap();
+}
+
+#[test]
+fn undo_stops_at_an_asset_edited_in_saldo() {
+    let edits: [(&str, fn(&mut UpdateAccountParams)); 4] = [
+        ("name", |p| p.name = "MacBook Pro 14".to_owned()),
+        ("purchase price", |p| p.purchase_price_minor = Some(300_000)),
+        ("purchase date", |p| {
+            p.purchase_date = Some("2026-11-02".to_owned())
+        }),
+        ("depreciation months", |p| {
+            p.depreciation_period_months = Some(36)
+        }),
+    ];
+    for (field, edit) in edits {
+        let conn = initialize_in_memory().unwrap();
+        let books = books(&conn);
+        let receipt = record(&conn, vec![laptop_and_sleeve(&books)]);
+        let asset_id = receipt.documents[0].assets[0].account_id.unwrap();
+        save_laptop(&conn, &books, asset_id, edit);
+
+        let Err(UndoBatchError::Changed { rows, .. }) =
+            undo(&conn, receipt.batch_id.unwrap(), false)
+        else {
+            panic!("an edited {field} must stop the undo")
+        };
+
+        assert_eq!(
+            rows,
+            [ChangedRow::AssetEditedInSaldo {
+                account_id: asset_id
+            }],
+            "{field}"
+        );
+    }
+}
+
+#[test]
+fn saving_an_asset_unchanged_is_not_a_change() {
+    let conn = initialize_in_memory().unwrap();
+    let books = books(&conn);
+    let receipt = record(&conn, vec![laptop_and_sleeve(&books)]);
+    let asset_id = receipt.documents[0].assets[0].account_id.unwrap();
+    save_laptop(&conn, &books, asset_id, |_| {});
+
+    let undone = undo(&conn, receipt.batch_id.unwrap(), false).unwrap();
+
+    assert_eq!(undone.removed_asset_account_ids, [asset_id]);
+}
+
+#[test]
+fn undo_stops_at_payment_links_added_or_removed_in_saldo() {
+    let conn = initialize_in_memory().unwrap();
+    let books = books(&conn);
+    let paid = payment(&conn, &books, -2_399);
+    let fee = payment(&conn, &books, -100);
+    let receipt = record(
+        &conn,
+        vec![
+            with(
+                single_expense(&books, "35697270", "FV1", 2_399),
+                "paymentIds",
+                json!([paid]),
+            ),
+            split_expense(&books),
+        ],
+    );
+    let batch_id = receipt.batch_id.unwrap();
+    let entry = single_event_id(&receipt.documents[0]);
+    link_cashflows_to_taxable(
+        &conn,
+        LinkCashflowsParams {
+            taxable_event_id: entry,
+            cashflow_event_ids: vec![fee],
+        },
+    )
+    .unwrap();
+    unlink_cashflow_from_taxable(&conn, entry, paid).unwrap();
+
+    let Err(UndoBatchError::Changed { rows, .. }) = undo(&conn, batch_id, false) else {
+        panic!("the undo must stop")
+    };
+
+    assert_eq!(
+        rows,
+        [
+            ChangedRow::PaymentLinkAddedInSaldo {
+                event_id: entry,
+                payment_id: fee
+            },
+            ChangedRow::PaymentLinkRemovedInSaldo {
+                event_id: entry,
+                payment_id: paid
+            },
+        ]
+    );
+    undo(&conn, batch_id, true).unwrap();
+    assert!(documents(&conn, &books).is_empty());
+}
+
+#[test]
+fn affected_tax_models_follow_prepaid_shares_and_depreciation_into_later_years() {
+    let conn = initialize_in_memory().unwrap();
+    let books = books(&conn);
+    let next_year = tax_model(&conn, books.person_id, 2027);
+    tax_model(&conn, books.person_id, 2031);
+    let documents: [fn(&Books) -> Value; 2] = [prepaid_expense, laptop_and_sleeve];
+
+    for document in documents {
+        let reviewed = run_batch(&conn, batch(vec![document(&books)], true)).unwrap();
+        let receipt = record(&conn, vec![document(&books)]);
+        let undone = undo(&conn, receipt.batch_id.unwrap(), false).unwrap();
+
+        let shares_into_2027 = [books.tax_model_id, next_year];
+        assert_eq!(reviewed.affected_tax_model_ids, shares_into_2027);
+        assert_eq!(receipt.affected_tax_model_ids, shares_into_2027);
+        assert_eq!(undone.affected_tax_model_ids, shares_into_2027);
+    }
 }
 
 #[test]

@@ -25,3 +25,23 @@ ALTER TABLE account ADD COLUMN source_ref TEXT    NULL;
 CREATE INDEX idx_event_batch_id     ON event   (batch_id)   WHERE batch_id   IS NOT NULL;
 CREATE INDEX idx_account_batch_id   ON account (batch_id)   WHERE batch_id   IS NOT NULL;
 CREATE INDEX idx_account_source_ref ON account (source_ref) WHERE source_ref IS NOT NULL;
+
+-- Accounts and payment links keep no edit history, so undo compares them with what the batch
+-- made, recorded here. Deleting the account or the event in Saldo removes the row with it.
+
+CREATE TABLE entry_batch_asset (
+  account_id                 INTEGER PRIMARY KEY REFERENCES account (id) ON DELETE CASCADE,
+  name                       TEXT    NOT NULL,
+  purchase_price_minor       INTEGER NOT NULL,
+  purchase_date              TEXT    NOT NULL,
+  depreciation_period_months INTEGER NOT NULL
+);
+
+CREATE TABLE entry_batch_link (
+  batch_id          INTEGER NOT NULL REFERENCES entry_batch (id),
+  taxable_event_id  INTEGER NOT NULL REFERENCES event (id) ON DELETE CASCADE,
+  cashflow_event_id INTEGER NOT NULL REFERENCES event (id) ON DELETE CASCADE,
+  PRIMARY KEY (taxable_event_id, cashflow_event_id)
+);
+
+CREATE INDEX idx_entry_batch_link_batch_id ON entry_batch_link (batch_id);

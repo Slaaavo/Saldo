@@ -78,11 +78,9 @@ pub fn record_batch(
             passed: documents,
         });
     }
-    let person_dates = documents
-        .iter()
-        .map(|doc| (doc.person_id, doc.entry_date.clone()))
-        .collect::<Vec<_>>();
-    let affected_tax_model_ids = affected_tax_models(conn, &person_dates)?;
+    repository::record_what_the_batch_made(conn, batch_id)?;
+    let affected_tax_model_ids =
+        affected_tax_models(conn, &repository::list_person_years(conn, batch_id)?)?;
     if input.dry_run {
         txn.finish(Finish::Rollback)?;
         documents.iter_mut().for_each(RecordedDocument::forget_ids);
@@ -121,16 +119,8 @@ pub fn undo_batch(txn: WriteTxn<'_>, input: UndoBatchInput) -> Result<UndoReceip
         });
     }
     let entries = repository::list_root_entries(conn, batch_id)?;
-    let assets = repository::list_batch_assets(conn, batch_id)?;
-    let person_dates = entries
-        .iter()
-        .map(|entry| (entry.person_id, entry.date.clone()))
-        .chain(
-            assets
-                .iter()
-                .filter_map(|asset| Some((asset.person_id, asset.purchase_date.clone()?))),
-        )
-        .collect::<Vec<_>>();
+    let asset_ids = repository::list_batch_asset_ids(conn, batch_id)?;
+    let person_years = repository::list_person_years(conn, batch_id)?;
 
     let mut removed_event_ids = Vec::new();
     let mut skipped_already_deleted = Vec::new();
@@ -151,20 +141,18 @@ pub fn undo_batch(txn: WriteTxn<'_>, input: UndoBatchInput) -> Result<UndoReceip
         txn.ensure_open()?;
         removed_event_ids.push(entry.event_id);
     }
-    let mut removed_asset_account_ids = Vec::new();
-    for asset in assets {
-        crate::features::accounts::repository::delete_account(conn, asset.account_id)?;
+    for &account_id in &asset_ids {
+        crate::features::accounts::repository::delete_account(conn, account_id)?;
         txn.ensure_open()?;
-        removed_asset_account_ids.push(asset.account_id);
     }
     repository::mark_undone(conn, batch_id)?;
-    let affected_tax_model_ids = affected_tax_models(conn, &person_dates)?;
+    let affected_tax_model_ids = affected_tax_models(conn, &person_years)?;
     txn.finish(Finish::Commit)?;
     Ok(UndoReceipt {
         batch_id,
         already_undone: false,
         removed_event_ids,
-        removed_asset_account_ids,
+        removed_asset_account_ids: asset_ids,
         skipped_already_deleted,
         affected_tax_model_ids,
     })
@@ -565,12 +553,8 @@ fn similar_documents(
 
 fn affected_tax_models(
     conn: &Connection,
-    person_dates: &[(i64, String)],
+    person_years: &BTreeSet<(i64, i64)>,
 ) -> Result<Vec<i64>, AppError> {
-    let person_years: BTreeSet<(i64, i64)> = person_dates
-        .iter()
-        .filter_map(|(person_id, date)| Some((*person_id, date.get(..4)?.parse().ok()?)))
-        .collect();
     let mut ids: Vec<i64> = list_tax_models(conn)?
         .into_iter()
         .filter(|model| person_years.contains(&(model.person_id, model.calendar_year)))

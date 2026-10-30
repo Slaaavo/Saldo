@@ -420,19 +420,37 @@ impl From<rusqlite::Error> for UndoBatchError {
     }
 }
 
+/// What changed in Saldo since the batch, tagged by `reason`. `payment_id` is the cash flow of
+/// the link.
 #[derive(Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ChangedRow {
-    pub event_id: i64,
-    pub reason: ChangeReason,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ChangeReason {
-    EditedInSaldo,
-    LegAddedInSaldo,
-    EventAddedToAsset,
+#[serde(
+    tag = "reason",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase"
+)]
+pub enum ChangedRow {
+    EditedInSaldo {
+        event_id: i64,
+    },
+    LegAddedInSaldo {
+        event_id: i64,
+    },
+    EventAddedToAsset {
+        event_id: i64,
+        account_id: i64,
+    },
+    /// Its name, purchase price, purchase date or depreciation months.
+    AssetEditedInSaldo {
+        account_id: i64,
+    },
+    PaymentLinkAddedInSaldo {
+        event_id: i64,
+        payment_id: i64,
+    },
+    PaymentLinkRemovedInSaldo {
+        event_id: i64,
+        payment_id: i64,
+    },
 }
 
 #[derive(Debug, Serialize)]
