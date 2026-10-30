@@ -3,13 +3,14 @@ use schemars::JsonSchema;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use super::open::{open_saldo_db, OpenRefusal, SaldoDb};
 use super::protocol::{ToolHost, ToolOutcome};
 use crate::error::AppError;
 use crate::features::accounts::repository::get_account_currency_id;
 use crate::features::currency::repository::{get_consolidation_currency, list_currencies};
+use crate::features::ekasa::reading::{read_receipt_file, EkasaApi, ReceiptReading};
 use crate::features::entry_batches::models::{
     BatchReceipt, BatchSummary, RecordBatchError, RecordBatchInput, UndoBatchError, UndoBatchInput,
     UndoReceipt,
@@ -19,9 +20,10 @@ use crate::features::persons::repository::list_persons;
 use crate::features::tax_models::commands::calculate_tax_model_inner;
 use crate::features::tax_models::models::TaxCalculationResult;
 use crate::features::tax_models::repository::list_tax_models;
-use crate::features::transactions::models::{DocumentEntry, Payment, TaxableKind};
+use crate::features::transactions::models::{DocumentEntry, Payment, RecordedSource, TaxableKind};
 use crate::features::transactions::repository::{
-    find_document_entries, find_payments, FindDocumentEntriesParams, FindPaymentsParams,
+    find_document_entries, find_payments, find_recorded_source, FindDocumentEntriesParams,
+    FindPaymentsParams,
 };
 use crate::features::transactions::source_ref::invoice_issuer_prefix;
 use crate::features::transactions::SourceRef;
@@ -29,12 +31,25 @@ use crate::shared::{validate_iso_date, with_read_txn, WriteTxn};
 
 pub(super) struct Server {
     app_data_dir: PathBuf,
+    outside: Outside,
 }
 
 impl Server {
-    pub(super) fn new(app_data_dir: PathBuf) -> Self {
-        Self { app_data_dir }
+    pub(super) fn new(app_data_dir: PathBuf, outside: Outside) -> Self {
+        Self {
+            app_data_dir,
+            outside,
+        }
     }
+}
+
+/// What a tool may reach outside Saldo's database: files and the eKasa service. Only the step a
+/// read tool runs before its transaction gets it, and that step gets no connection, so no file
+/// is decoded and no request waits while a transaction or the write lock is held.
+pub(super) struct Outside {
+    /// The bundle's resources folder, where PDFium is looked up first.
+    pub resource_dir: Option<PathBuf>,
+    pub ekasa: Box<dyn EkasaApi>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -43,7 +58,7 @@ enum Access {
     Write,
 }
 
-type Run = Box<dyn Fn(&SaldoDb, Value) -> Result<Value, ToolFailure>>;
+type Run = Box<dyn Fn(&Outside, &SaldoDb, Value) -> Result<Value, ToolFailure>>;
 
 struct Tool {
     name: &'static str,
@@ -81,16 +96,32 @@ fn tools() -> Vec<Tool> {
             "The tax forecast of a tax model, as Saldo's tax model page shows it.",
             get_forecast,
         ),
+        read_tool_after_outside(
+            "read_receipt",
+            "Read a Slovak eKasa receipt from a photo, screenshot or PDF of its QR code (png, \
+             jpg, jpeg or pdf, by absolute path). Saldo decodes the QR code. For an online \
+             receipt it asks Finančná správa's eKasa service and returns the date, the shop and \
+             the lines. An offline receipt's code holds only its date and total: read the shop \
+             and every line (name as printed, gross amount, VAT rate) from the receipt yourself. \
+             When Saldo finds no QR code, pass the online receipt id printed on the receipt as \
+             code. Put receipt into record_batch unchanged, with date and an online receipt's \
+             lines as returned. alreadyRecorded names what already carries this receipt.",
+            read_receipt_outside,
+            read_receipt_recorded,
+        ),
         write_tool(
             "record_batch",
-            "Record documents (invoices, credit notes) as revenue, expense and prepaid expense \
-             entries and assets, all of them or none. Saldo dates each entry by the delivery \
-             date (else the issue date), makes a split group of two or more lines, prices an \
-             asset without VAT when the VAT is reclaimed, and links the given payments. A \
-             document already in Saldo is refused. Call it with dryRun true first and show the \
-             user the table. Only after the user approved it, call it again with the same \
-             batch, dryRun false and the reviewToken the dry run returned. A batch that differs \
-             from the reviewed one in any field is refused.",
+            "Record documents (invoices, credit notes) and eKasa receipts as revenue, expense \
+             and prepaid expense entries and assets, all of them or none. Saldo dates an \
+             invoice by its delivery date (else the issue date) and a receipt by its own date, \
+             makes a split group of two or more lines, prices an asset without VAT when the VAT \
+             is reclaimed, and links the given payments. A receipt line's shares: the user's \
+             win, then the person's eKasa rule that matches the line, then yours; the dry run \
+             says where each came from. A document or receipt already in Saldo is refused. Call \
+             it with dryRun true first and show the user the table. Only after the user \
+             approved it, call it again with the same batch, dryRun false and the reviewToken \
+             the dry run returned. A batch that differs from the reviewed one in any field, or \
+             whose eKasa rules or VAT-payer flag changed in Saldo since, is refused.",
             record_batch,
         ),
         write_tool(
@@ -119,9 +150,34 @@ where
         description,
         access: Access::Read,
         input_schema: input_schema::<I>,
-        run: Box::new(move |db, arguments| {
+        run: Box::new(move |_, db, arguments| {
             let input = parse_arguments(arguments)?;
             output_value(with_read_txn(&db.conn, || handler(db, input))?)
+        }),
+    }
+}
+
+/// A read tool that first reaches outside Saldo, then reads the database. `outside` gets no
+/// connection, so it runs before any transaction begins.
+fn read_tool_after_outside<I, P, O>(
+    name: &'static str,
+    description: &'static str,
+    outside: fn(&Outside, I) -> Result<P, ToolFailure>,
+    handler: fn(&SaldoDb, P) -> Result<O, ToolFailure>,
+) -> Tool
+where
+    I: DeserializeOwned + JsonSchema + 'static,
+    P: 'static,
+    O: Serialize + 'static,
+{
+    Tool {
+        name,
+        description,
+        access: Access::Read,
+        input_schema: input_schema::<I>,
+        run: Box::new(move |env, db, arguments| {
+            let prepared = outside(env, parse_arguments(arguments)?)?;
+            output_value(with_read_txn(&db.conn, || handler(db, prepared))?)
         }),
     }
 }
@@ -142,7 +198,7 @@ where
         description,
         access: Access::Write,
         input_schema: input_schema::<I>,
-        run: Box::new(move |db, arguments| {
+        run: Box::new(move |_, db, arguments| {
             let input = parse_arguments(arguments)?;
             let txn = db.begin_write().map_err(ToolFailure::Unavailable)?;
             output_value(handler(txn, input)?)
@@ -194,7 +250,7 @@ impl ToolHost for Server {
         };
         let outcome = open_saldo_db(&self.app_data_dir)
             .map_err(ToolFailure::Unavailable)
-            .and_then(|db| (tool.run)(&db, arguments));
+            .and_then(|db| (tool.run)(&self.outside, &db, arguments));
         match outcome {
             Ok(value) => ToolOutcome::Done(value),
             Err(failure) => ToolOutcome::Refused(failure.into_json()),
@@ -256,10 +312,11 @@ impl ToolFailure {
             ToolFailure::Batch(RecordBatchError::ReviewTokenMismatch) => json!({
                 "code": "REVIEW_TOKEN_MISMATCH",
                 "message": "Nothing was recorded: a real write needs the reviewToken of a dry \
-                            run of this exact batch, and this one is missing or belongs to a \
-                            different batch. Run record_batch with dryRun true again, show the \
-                            user the new table, and after their yes send that same batch with \
-                            dryRun false and the new reviewToken.",
+                            run of this exact batch, and this one is missing, belongs to a \
+                            different batch, or Saldo's eKasa rules or VAT-payer flag changed \
+                            since. Run record_batch with dryRun true again, show the user the \
+                            new table, and after their yes send that same batch with dryRun \
+                            false and the new reviewToken.",
             }),
             ToolFailure::Undo(UndoBatchError::NotFound { batch_id }) => json!({
                 "code": "NOT_FOUND",
@@ -521,6 +578,54 @@ fn get_forecast(
     Ok(calculate_tax_model_inner(&db.conn, input.tax_model_id)?)
 }
 
+#[derive(Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ReadReceiptInput {
+    /// The receipt file's absolute path.
+    file: String,
+    /// Only when Saldo found no QR code in the file: the online receipt id printed on the
+    /// receipt, O- or V- and 32 hex digits. An offline receipt cannot be read this way.
+    code: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ReadReceiptOutput {
+    #[serde(flatten)]
+    reading: ReceiptReading,
+    /// The live entry or asset that already carries this receipt. record_batch would refuse
+    /// it as ALREADY_RECORDED.
+    already_recorded: Option<RecordedSource>,
+}
+
+fn read_receipt_outside(
+    outside: &Outside,
+    input: ReadReceiptInput,
+) -> Result<ReceiptReading, ToolFailure> {
+    if !Path::new(&input.file).is_absolute() {
+        return Err(ToolFailure::InvalidArguments {
+            path: "file".into(),
+            message: "must be an absolute path: saldo mcp does not run in the user's folder".into(),
+        });
+    }
+    Ok(read_receipt_file(
+        &input.file,
+        input.code.as_deref(),
+        outside.resource_dir.as_deref(),
+        outside.ekasa.as_ref(),
+    )?)
+}
+
+fn read_receipt_recorded(
+    db: &SaldoDb,
+    reading: ReceiptReading,
+) -> Result<ReadReceiptOutput, ToolFailure> {
+    Ok(ReadReceiptOutput {
+        already_recorded: find_recorded_source(&db.conn, &reading.source_ref)?,
+        reading,
+    })
+}
+
 fn record_batch(txn: WriteTxn<'_>, input: RecordBatchInput) -> Result<BatchReceipt, ToolFailure> {
     entry_batches::record_batch(txn, input).map_err(ToolFailure::Batch)
 }
@@ -534,6 +639,7 @@ mod tests {
     use super::*;
     use crate::config::DB_FILENAME;
     use crate::features::accounts::repository::{create_account, CreateAccountParams};
+    use crate::features::ekasa::reading::fake::FakeEkasaApi;
     use crate::features::persons::repository::get_default_expense_account_id;
     use crate::features::tax_models::models::ActualMonths;
     use crate::features::tax_models::repository::{
@@ -649,8 +755,21 @@ mod tests {
         .unwrap()
     }
 
+    const BILLA: &str = "O-7A3F0C1E9B2D4C58A6E1F0D3B5C7A9E2";
+
+    /// No test reaches the network: the eKasa service knows one BILLA receipt and nothing else.
+    fn outside() -> Outside {
+        Outside {
+            resource_dir: None,
+            ekasa: Box::new(FakeEkasaApi {
+                receipt_id: BILLA,
+                lines: vec![("KÁVA LAVAZZA 1KG", 1599, 2300), ("MLIEKO 1L", 129, 500)],
+            }),
+        }
+    }
+
     fn call(dir: &tempfile::TempDir, name: &str, arguments: Value) -> (bool, Value) {
-        match Server::new(dir.path().to_path_buf()).call(name, arguments) {
+        match Server::new(dir.path().to_path_buf(), outside()).call(name, arguments) {
             ToolOutcome::Done(value) => (true, value),
             ToolOutcome::Refused(value) => (false, value),
             ToolOutcome::UnknownTool => panic!("unknown tool {name}"),
@@ -663,6 +782,7 @@ mod tests {
             "find_entries" => json!({ "issuer": "35697270", "kinds": ["expense"] }),
             "find_payments" => json!({ "personId": seeded.person_id, "unlinkedOnly": true }),
             "get_forecast" => json!({ "taxModelId": seeded.tax_model_id }),
+            "read_receipt" => json!({ "file": "/r/billa.jpg", "code": BILLA }),
             other => panic!("give the read tool {other} sample arguments here"),
         }
     }
@@ -673,7 +793,7 @@ mod tests {
         for tool in tools().iter().filter(|tool| tool.access == Access::Read) {
             let db = open_saldo_db(seeded.dir.path()).unwrap();
 
-            let result = (tool.run)(&db, sample_arguments(tool.name, &seeded));
+            let result = (tool.run)(&outside(), &db, sample_arguments(tool.name, &seeded));
 
             assert!(result.is_ok(), "{} failed", tool.name);
             let total_changes: i64 = db
@@ -686,7 +806,7 @@ mod tests {
 
     #[test]
     fn tools_list_carries_each_schema_and_whether_the_tool_only_reads() {
-        let listed = Server::new(PathBuf::new()).list();
+        let listed = Server::new(PathBuf::new(), outside()).list();
 
         let read_only: Vec<(&str, bool)> = listed
             .iter()
@@ -704,6 +824,7 @@ mod tests {
                 ("find_entries", true),
                 ("find_payments", true),
                 ("get_forecast", true),
+                ("read_receipt", true),
                 ("record_batch", false),
                 ("undo_batch", false),
             ]
@@ -716,8 +837,10 @@ mod tests {
         assert!(find_entries["properties"]["issuer"].is_object());
         assert_eq!(find_entries["additionalProperties"], false);
         assert_eq!(listed[3]["inputSchema"]["required"], json!(["taxModelId"]));
-        let record_batch = listed[4]["inputSchema"].to_string();
-        let required = listed[4]["inputSchema"]["required"].as_array().unwrap();
+        assert_eq!(listed[4]["inputSchema"]["required"], json!(["file"]));
+        assert!(listed[4]["inputSchema"]["properties"]["code"].is_object());
+        let record_batch = listed[5]["inputSchema"].to_string();
+        let required = listed[5]["inputSchema"]["required"].as_array().unwrap();
         assert!(required.contains(&json!("dryRun")), "{required:?}");
         for field in [
             "reviewToken",
@@ -725,6 +848,10 @@ mod tests {
             "deductiblePctBps",
             "prepaidUntil",
             "depreciationMonths",
+            "readToken",
+            "vendor",
+            "asset",
+            "\"by\"",
         ] {
             assert!(
                 record_batch.contains(field),
@@ -739,7 +866,7 @@ mod tests {
 
     #[test]
     fn the_limit_text_in_the_schema_names_the_page_size_constants() {
-        let listed = Server::new(PathBuf::new()).list();
+        let listed = Server::new(PathBuf::new(), outside()).list();
         let named = format!("Default {DEFAULT_PAGE_SIZE}, at most {MAX_PAGE_SIZE}");
 
         for tool in [&listed[1], &listed[2]] {
@@ -828,13 +955,13 @@ mod tests {
             .find(|tool| tool.name == "record_batch")
             .unwrap();
         let batch = orange_invoice(&seeded, "FV2");
-        let reviewed = (record.run)(&db, batch.clone()).ok().unwrap();
+        let reviewed = (record.run)(&outside(), &db, batch.clone()).ok().unwrap();
         let folder = seeded.dir.path().join("cloud");
         std::fs::create_dir_all(&folder).unwrap();
         let switched_to = crate::db::initialize_db(&folder.join(DB_FILENAME)).unwrap();
         crate::config::write_db_location(seeded.dir.path(), &folder).unwrap();
 
-        let refusal = (record.run)(&db, approved(batch, &reviewed))
+        let refusal = (record.run)(&outside(), &db, approved(batch, &reviewed))
             .unwrap_err()
             .into_json();
 
@@ -976,5 +1103,121 @@ mod tests {
             .iter()
             .any(|entry| entry["eventId"] == seeded.entry_id);
         assert!(counted, "{forecast}");
+    }
+
+    /// The batch Claude builds from read_receipt's answer: the receipt, its date and vendor, and
+    /// its lines as read, each with Claude's judgment of its shares.
+    fn receipt_batch(seeded: &Seeded, read: &Value) -> Value {
+        let lines: Vec<Value> = read["lines"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|line| {
+                let mut line = line.clone();
+                line["shares"] = json!({ "deductiblePctBps": 10000,
+                                         "vatReclaimablePctBps": 10000, "by": "claude" });
+                line
+            })
+            .collect();
+        json!({
+            "label": "Receipts 2026-10",
+            "dryRun": true,
+            "items": [{
+                "receipt": read["receipt"],
+                "personId": seeded.person_id,
+                "date": read["date"],
+                "vendor": read["vendor"],
+                "lines": lines,
+            }],
+        })
+    }
+
+    #[test]
+    fn a_receipt_read_then_recorded_is_already_recorded_when_read_again() {
+        let seeded = seeded();
+        let receipt = json!({ "file": "/Users/me/Receipts/billa.jpg", "code": BILLA });
+
+        let (ok, read) = call(&seeded.dir, "read_receipt", receipt.clone());
+        let batch = receipt_batch(&seeded, &read);
+        let (_, reviewed) = call(&seeded.dir, "record_batch", batch.clone());
+        let (written, recorded) = call(&seeded.dir, "record_batch", approved(batch, &reviewed));
+        let (_, read_again) = call(&seeded.dir, "read_receipt", receipt);
+
+        assert!(ok, "{read}");
+        assert_eq!(read["kind"], "online");
+        assert_eq!(read["sourceRef"], format!("online:{BILLA}"));
+        assert_eq!(read["receipt"]["file"], "/Users/me/Receipts/billa.jpg");
+        assert_eq!(read["receipt"]["code"], BILLA);
+        assert_eq!(read["date"], "2026-10-12");
+        assert_eq!(read["vendor"], "BILLA s.r.o.");
+        assert_eq!(read["totalMinor"], 1728);
+        assert_eq!(
+            read["lines"],
+            json!([{ "name": "KÁVA LAVAZZA 1KG", "grossMinor": 1599, "vatRateBps": 2300 },
+                   { "name": "MLIEKO 1L", "grossMinor": 129, "vatRateBps": 500 }])
+        );
+        assert_eq!(read["warnings"], json!([]));
+        assert_eq!(read["alreadyRecorded"], Value::Null);
+        assert_eq!(
+            reviewed["documents"][0]["dateSource"], "receipt_date",
+            "{reviewed}"
+        );
+        assert_eq!(
+            reviewed["documents"][0]["lines"][1]["shares"]["from"],
+            "claude"
+        );
+        assert!(written, "{recorded}");
+        assert_eq!(read_again["alreadyRecorded"]["kind"], "entry");
+        assert_eq!(
+            read_again["alreadyRecorded"]["batchId"],
+            recorded["batchId"]
+        );
+    }
+
+    #[test]
+    fn read_receipt_reads_the_qr_code_of_an_offline_receipt_file() {
+        let seeded = seeded();
+        let file = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/ekasa/offline-receipt.png"
+        );
+
+        let (ok, read) = call(&seeded.dir, "read_receipt", json!({ "file": file }));
+
+        assert!(ok, "{read}");
+        assert_eq!(read["kind"], "offline");
+        assert_eq!(read["date"], "2018-02-13");
+        assert_eq!(read["totalMinor"], 23723);
+        assert_eq!(read["lines"], Value::Null);
+        assert_eq!(read["vendor"], Value::Null);
+    }
+
+    #[test]
+    fn read_receipt_refuses_a_relative_path() {
+        let seeded = seeded();
+
+        let (ok, refusal) = call(
+            &seeded.dir,
+            "read_receipt",
+            json!({ "file": "billa.jpg", "code": BILLA }),
+        );
+
+        assert!(!ok);
+        assert_eq!(refusal["code"], "INVALID_ARGUMENTS");
+        assert_eq!(refusal["path"], "file");
+    }
+
+    #[test]
+    fn read_receipt_says_when_the_ekasa_service_does_not_know_the_receipt() {
+        let seeded = seeded();
+
+        let (ok, refusal) = call(
+            &seeded.dir,
+            "read_receipt",
+            json!({ "file": "/r/a.jpg", "code": "O-00000000000000000000000000000000" }),
+        );
+
+        assert!(!ok);
+        assert_eq!(refusal["code"], "RECEIPT_NOT_FOUND");
     }
 }

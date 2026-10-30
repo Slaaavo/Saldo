@@ -324,7 +324,12 @@ fn tauri_context() -> tauri::Context<tauri::Wry> {
 }
 
 pub fn run_mcp() -> i32 {
-    mcp::serve_stdio(&tauri_context().config().identifier)
+    let context = tauri_context();
+    // Tauri finds the resources from the executable's path, so PDFium loads from the bundle
+    // whatever working directory the MCP client started saldo in.
+    let resource_dir =
+        tauri::utils::platform::resource_dir(context.package_info(), &tauri::Env::default()).ok();
+    mcp::serve_stdio(&context.config().identifier, resource_dir)
 }
 
 /// Background task: fetch missing FX rates on startup without blocking the UI.
