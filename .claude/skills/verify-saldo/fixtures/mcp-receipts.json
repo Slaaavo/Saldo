@@ -3,6 +3,7 @@
   {"call": "read_receipt", "args": {"file": "receipts/offline-receipt.png"}},
   {"call": "read_receipt", "args": {"file": "${FIXTURES}/receipts/offline-receipt.png"}},
   {"call": "read_receipt", "args": {"file": "${FIXTURES}/receipts/offline-receipt.pdf"}, "save": "pdf"},
+  {"call": "read_receipt", "args": {"file": "${FIXTURES}/receipts/not-ekasa.png", "code": "O-00000000000000000000000000000000"}},
   {"call": "read_receipt", "args": {"file": "${FIXTURES}/receipts/offline-receipt.pdf", "code": "O-00000000000000000000000000000000"}},
   {"call": "record_batch", "args": {"label": "verify-saldo receipts", "dryRun": true, "items": [
     {"receipt": "$pdf.receipt", "personId": 1, "date": "$pdf.date", "vendor": "VERIFY POTRAVINY s.r.o.", "lines": [

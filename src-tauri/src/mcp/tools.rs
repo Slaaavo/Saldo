@@ -99,9 +99,10 @@ fn tools() -> Vec<Tool> {
              receipt it asks Finančná správa's eKasa service and returns the date, the shop and \
              the lines. An offline receipt's code holds only its date and total: read the shop \
              and every line (name as printed, gross amount, VAT rate) from the receipt yourself. \
-             When Saldo finds no QR code, pass the online receipt id printed on the receipt as \
-             code. Put receipt into record_batch unchanged, with date and an online receipt's \
-             lines as returned. alreadyRecorded names what already carries this receipt.",
+             When the QR code does not decode, call it again with the online receipt id printed \
+             on the receipt as code; Saldo still reads the QR code first. Put receipt into \
+             record_batch unchanged, with date and an online receipt's lines as returned. \
+             alreadyRecorded names what already carries this receipt.",
             read_receipt_outside,
             read_receipt_recorded,
         ),
@@ -577,8 +578,9 @@ fn get_forecast(
 struct ReadReceiptInput {
     /// The receipt file's absolute path.
     file: String,
-    /// Only when Saldo found no QR code in the file: the online receipt id printed on the
-    /// receipt, O- or V- and 32 hex digits. An offline receipt cannot be read this way.
+    /// The online receipt id printed on the receipt, O- or V- and 32 hex digits. Saldo reads the
+    /// QR code first and uses this id only when the QR code does not decode. It refuses an id
+    /// that names another receipt than the QR code. An offline receipt cannot be read this way.
     code: Option<String>,
 }
 

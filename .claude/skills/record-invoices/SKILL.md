@@ -40,7 +40,7 @@ Take these from every document. Amounts are integer cents (minor units), VAT inc
 ## Read each eKasa receipt
 
 - Call `read_receipt` with the file's absolute path. Saldo decodes the QR code. HEIC photos do not decode: convert one first with `sips -s format png <photo> --out <photo>.png`.
-  - `QR_NOT_FOUND`: if the paper shows an online receipt id (`O-` or `V-` and 32 hex digits, printed as the receipt's id), call `read_receipt` again with that id as `code`, typed exactly as printed. Otherwise ask the user for a sharper photo or the PDF. An offline receipt can only be read from its QR code.
+  - `QR_NOT_FOUND`: if the paper shows an online receipt id (`O-` or `V-` and 32 hex digits, printed as the receipt's id), call `read_receipt` again with that id as `code`, typed as printed. Saldo still reads the QR code first and uses the id only when the QR code does not decode. An id that names another receipt than the QR code is refused (`VALIDATION`): check the id against the paper. Without a printed id, ask the user for a sharper photo or the PDF. An offline receipt can only be read from its QR code.
   - `RECEIPT_NOT_FOUND`: the id is mistyped, or Finančná správa does not have the receipt yet. `NETWORK_ERROR`, `EKASA_API_ERROR`: leave the receipt out and list it as waiting.
   - `alreadyRecorded` set: the receipt is in Saldo already (imported in the app or recorded earlier). Drop it and tell the user.
 - An **online** receipt (`kind` `online`) comes with its date, shop and lines from Finančná správa. Copy `receipt`, `date` and every line's `name`, `grossMinor` and `vatRateBps` exactly as returned, and the shop as `vendor`. Never retype, merge, split or reorder lines: Saldo seals what it read and refuses any change (`RECEIPT_CHANGED`).

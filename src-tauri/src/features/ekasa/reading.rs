@@ -71,22 +71,26 @@ pub trait EkasaApi {
     fn fetch(&self, receipt_id: &str) -> Result<Option<EkasaReceiptData>, AppError>;
 }
 
-/// `code` is the online receipt id typed from the printed receipt when the QR code does not
-/// decode; the file is then not decoded. An offline code must come from the QR code itself.
+/// The file's QR code is read first. `code`, the online receipt id typed from the printed
+/// receipt, counts only when the file does not decode to an eKasa code, and must name the QR
+/// code's receipt when it does. An offline code must come from the QR code itself.
 pub fn read_receipt_file(
     file: &str,
     code: Option<&str>,
     resource_dir: Option<&Path>,
     api: &dyn EkasaApi,
 ) -> Result<ReceiptReading, AppError> {
-    let code = match code {
-        Some(typed) => ReceiptCode::parse(typed)
+    let decoded = decode_qr_from_file(file, resource_dir)
+        .and_then(|text| ReceiptCode::parse(&text).ok_or_else(not_ekasa));
+    let code = match (decoded, code) {
+        (Ok(decoded), Some(typed)) if ReceiptCode::parse(typed).as_ref() != Some(&decoded) => {
+            return Err(typed_code_differs(&decoded));
+        }
+        (Ok(decoded), _) => decoded,
+        (Err(_), Some(typed)) => ReceiptCode::parse(typed)
             .filter(|code| code.offline().is_none())
             .ok_or_else(not_an_online_id)?,
-        None => {
-            let text = decode_qr_from_file(file, resource_dir)?;
-            ReceiptCode::parse(&text).ok_or_else(not_ekasa)?
-        }
+        (Err(e), None) => return Err(e),
     };
     if let Some(receipt) = code.offline() {
         return Ok(offline_reading(file, &code, receipt));
@@ -257,6 +261,17 @@ fn not_an_online_id() -> AppError {
         message: "A typed code must be the online receipt id printed on the receipt: O- or V- \
                   and 32 hex digits. An offline receipt's code can only come from its QR code."
             .into(),
+    }
+}
+
+fn typed_code_differs(decoded: &ReceiptCode) -> AppError {
+    AppError {
+        code: "VALIDATION".into(),
+        message: format!(
+            "The file's QR code is the receipt {}, and code names another one. Leave code out, \
+             or check which receipt the file shows.",
+            decoded.text()
+        ),
     }
 }
 
@@ -455,6 +470,45 @@ mod tests {
         assert_eq!(reading.total_minor, 23723);
         assert_eq!(reading.lines, None);
         assert_eq!(reading.vendor, None);
+    }
+
+    #[test]
+    fn a_typed_code_that_names_the_qr_codes_receipt_reads_the_qr_code() {
+        let api = FakeApi::new(|| panic!("an offline code never goes to the eKasa service"));
+
+        let reading = read_receipt_file(OFFLINE_FIXTURE, Some(OFFLINE_CODE), None, &api).unwrap();
+
+        assert_eq!(reading.kind, ReceiptKind::Offline);
+        assert_eq!(reading.receipt.code, OFFLINE_CODE);
+    }
+
+    #[test]
+    fn a_typed_code_that_names_another_receipt_than_the_qr_code_is_refused() {
+        let api = FakeApi::new(|| Some(billa(15.28)));
+
+        let err = read_receipt_file(OFFLINE_FIXTURE, Some(ONLINE_ID), None, &api).unwrap_err();
+
+        assert_eq!(err.code, "VALIDATION");
+        assert!(err.message.contains(OFFLINE_CODE), "{}", err.message);
+        assert!(api.asked.borrow().is_empty());
+    }
+
+    #[test]
+    fn a_typed_id_is_looked_up_when_the_file_holds_no_qr_code() {
+        let no_qr_code = concat!(env!("CARGO_MANIFEST_DIR"), "/icons/32x32.png");
+        let api = FakeApi::new(|| Some(billa(15.28)));
+
+        assert_eq!(
+            read_receipt_file(no_qr_code, None, None, &api)
+                .unwrap_err()
+                .code,
+            "QR_NOT_FOUND"
+        );
+        let reading = read_receipt_file(no_qr_code, Some(ONLINE_ID), None, &api).unwrap();
+
+        assert_eq!(*api.asked.borrow(), [ONLINE_ID]);
+        assert_eq!(reading.kind, ReceiptKind::Online);
+        assert_eq!(reading.receipt.file, no_qr_code);
     }
 
     #[test]

@@ -11,7 +11,7 @@
 - `mcp-review` refuses a write that does not carry the `reviewToken` of a dry run of the identical batch.
 - `mcp-undo` removes a batch's entries and assets. A second undo changes nothing.
 - `mcp-refresh` refreshes the open app after an MCP write when its window regains focus, and shows the toast.
-- `mcp-receipt-read` reads an offline receipt from a PNG and from a PDF (PDFium from the bundle's `Contents/Resources`, working directory `/`), refuses a non-eKasa QR code and a relative path, and looks up a typed online id at Finančná správa.
+- `mcp-receipt-read` reads an offline receipt from a PNG and from a PDF (PDFium from the bundle's `Contents/Resources`, working directory `/`), refuses a non-eKasa QR code and a relative path, and looks up a typed online id at Finančná správa when the file's QR code does not decode. A typed id that names another receipt than a decoded QR code is refused.
 - `mcp-receipt-record` records a receipt as one leg per item with the item names as notes and the shop as the group note. Each line's shares come from the user, else the person's eKasa rule (accents ignored), else Claude, and the dry run names the source. It refuses missing shares, an offline receipt whose lines or date do not match its QR code, a changed reading, and a receipt already in Saldo.
 
 ## How to get to it (user POV)
@@ -46,7 +46,7 @@ Preconditions:
   Run `scripts/mcp.sh 30-mcp-receipts .claude/skills/verify-saldo/fixtures/mcp-receipts.json` with the sandbox disabled. It needs the network for one lookup. In order:
   - `not-ekasa.png` gives `QR_NOT_EKASA`, and a relative path gives `INVALID_ARGUMENTS`.
   - The PNG and the PDF read as `kind: offline`, date `2026-10-15`, `totalMinor` 2340.
-  - The typed id `O-000…0` gives `RECEIPT_NOT_FOUND` from Finančná správa.
+  - The typed id `O-000…0` with `not-ekasa.png` gives `RECEIPT_NOT_FOUND` from Finančná správa. The same id with the offline PDF gives `VALIDATION`, because the PDF's QR code names another receipt.
   - A dry run without shares gives `SHARES_NEEDED` naming the milk and paper lines, which no rule matches.
   - Beer misread as 2.05 gives `RECEIPT_TOTAL_DIFFERS` (22.95 against 23.40).
   - Date 2026-10-16 gives `RECEIPT_DATE_DIFFERS`.
@@ -58,7 +58,7 @@ Preconditions:
 
 ## Gotchas
 
-- Receipts were last driven on 2026-10-30 in run `20261030-171812-feat-mcp-ekasa-receipts`: `mcp-receipt-read` and `mcp-receipt-record` as above, plus `mcp-undo` and a rerun of `mcp-batch.json` (invoices unchanged, same forecast). An online receipt with real items was not driven, because no real receipt id was at hand; the typed-id lookup proved only the network path. The wizard's rules step was not driven either (no display-scope control).
+- Receipts were last driven on 2026-10-30 in run `20261030-171812-feat-mcp-ekasa-receipts`: `mcp-receipt-read` and `mcp-receipt-record` as above, plus `mcp-undo` and a rerun of `mcp-batch.json` (invoices unchanged, same forecast). An online receipt with real items was not driven, because no real receipt id was at hand; the typed-id lookup proved only the network path. The wizard's rules step was not driven either (no display-scope control). Since then the typed id is used only when the QR code does not decode: the fixture's two typed-id steps for that rule have not been driven yet, and cargo tests cover them.
 - `read_receipt` takes absolute paths only, so a steps file names its receipts as `${FIXTURES}/receipts/...`. A `read_receipt` step with `"save": "pdf"` lets a later step pass `"$pdf.receipt"` and `"$pdf.date"` (see `mcp-drive.py`).
 - Last driven end to end on 2026-10-30, on the dev DB. Run `20261029-212440-saldo-mcp` drove `mcp-context`, `mcp-dry-run`, `mcp-record`, `mcp-duplicate` and `mcp-undo` through the stdio client. Run `20261030-071022-saldo-mcp` drove `mcp-review`, `mcp-record`, `mcp-duplicate`, `mcp-refresh` (through the `visibilitychange` path; the focus path needs full-screen control) and `mcp-undo` stopping at an edit made in the window. A real Claude Code client was not tried, because the bundled `claude` CLI was not signed in.
 - The duplicate check counts live rows only. An undone batch's documents can be recorded again, which is how the fixture reruns.
