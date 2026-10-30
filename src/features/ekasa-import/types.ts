@@ -25,18 +25,13 @@ export type ProcessReceiptResult = {
 
 export interface MatchEkasaRulesPayload {
   itemNames: string[]
-  rules: Array<{ namePattern: string; deductiblePctBps: number; vatReclaimablePctBps: number }>
-}
-
-export interface EkasaRuleMatch {
-  position: number
-  pattern: string
-  deductiblePctBps: number
-  vatReclaimablePctBps: number
+  // The rules step's patterns in row order, blank rows included.
+  patterns: string[]
 }
 
 export interface EkasaRuleMatches {
-  items: Array<{ matchedRule: EkasaRuleMatch | null }>
+  // Per item name, the row of the first rule that matches it, numbered from 1 as in invalidRules.
+  matchedRows: Array<number | null>
   invalidRules: Array<{ position: number; pattern: string; message: string }>
 }
 

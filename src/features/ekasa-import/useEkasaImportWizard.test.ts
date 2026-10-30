@@ -48,7 +48,7 @@ const ONLINE_RESULT: ProcessReceiptResult = {
 }
 
 const noRuleMatches = (payload: MatchEkasaRulesPayload): EkasaRuleMatches => ({
-  items: payload.itemNames.map(() => ({ matchedRule: null })),
+  matchedRows: payload.itemNames.map(() => null),
   invalidRules: [],
 })
 
@@ -91,17 +91,14 @@ describe('useEkasaImportWizard', () => {
     ],
   }
 
-  it('takes each item’s shares from the rule Saldo matched, and the defaults when none matched', async () => {
+  it('takes each item’s shares from the rule row Saldo matched, and the defaults when none matched', async () => {
     ;(processReceiptFile as Mock).mockResolvedValue(MULTI_ITEM_RESULT)
-    ;(matchEkasaRules as Mock).mockResolvedValue({
-      items: [{ matchedRule: { position: 2, pattern: 'kava', deductiblePctBps: 5000, vatReclaimablePctBps: 0 } }, { matchedRule: null }],
-      invalidRules: [],
-    })
+    ;(matchEkasaRules as Mock).mockResolvedValue({ matchedRows: [2, null], invalidRules: [] })
     const { result } = renderHook(() => useEkasaImportWizard())
     act(() => {
       result.current.setRules([
-        { id: 'a', namePattern: '', deductiblePct: '100', vatReclaimablePct: '100' },
-        { id: 'b', namePattern: 'kava', deductiblePct: '50', vatReclaimablePct: '0' },
+        { id: 'a', namePattern: '', deductiblePct: '150', vatReclaimablePct: '' },
+        { id: 'b', namePattern: 'kava', deductiblePct: '', vatReclaimablePct: '7.5' },
       ])
       result.current.setDefaultDeductiblePct('80')
     })
@@ -109,15 +106,10 @@ describe('useEkasaImportWizard', () => {
     act(() => result.current.handleFileSelect('/receipt.png'))
     await act(() => result.current.handleRulesConfirm())
 
-    expect(matchEkasaRules).toHaveBeenCalledWith({
-      itemNames: ['KÁVA', 'MLIEKO'],
-      rules: [
-        { namePattern: '', deductiblePctBps: 10000, vatReclaimablePctBps: 10000 },
-        { namePattern: 'kava', deductiblePctBps: 5000, vatReclaimablePctBps: 0 },
-      ],
-    })
+    expect(matchEkasaRules).toHaveBeenCalledWith({ itemNames: ['KÁVA', 'MLIEKO'], patterns: ['', 'kava'] })
+    expect(result.current.state.step).toBe('review')
     expect(result.current.state.processedLegs.map((leg) => [leg.note, leg.expenseDeductiblePct, leg.vatReclaimablePct])).toEqual([
-      ['KÁVA', '50', '0'],
+      ['KÁVA', '', '7.5'],
       ['MLIEKO', '80', '100'],
     ])
   })
@@ -125,7 +117,7 @@ describe('useEkasaImportWizard', () => {
   it('warns about a rule Saldo could not use', async () => {
     ;(processReceiptFile as Mock).mockResolvedValue(ONLINE_RESULT)
     ;(matchEkasaRules as Mock).mockResolvedValue({
-      items: [{ matchedRule: null }],
+      matchedRows: [null],
       invalidRules: [{ position: 1, pattern: 'ka(va', message: 'unclosed group' }],
     })
     const { result } = renderHook(() => useEkasaImportWizard())
@@ -137,15 +129,15 @@ describe('useEkasaImportWizard', () => {
     expect(result.current.state.step).toBe('review')
   })
 
-  it('stays on the rules step when Saldo refuses the rules', async () => {
+  it('stays on the rules step when matching the rules fails', async () => {
     ;(processReceiptFile as Mock).mockResolvedValue(ONLINE_RESULT)
-    ;(matchEkasaRules as Mock).mockRejectedValue({ code: 'VALIDATION', message: 'deductible_pct_bps must be in range [0, 10000] bps' })
+    ;(matchEkasaRules as Mock).mockRejectedValue({ code: 'INTERNAL', message: 'The rules could not be matched' })
     const { result } = renderHook(() => useEkasaImportWizard())
 
     act(() => result.current.handleFileSelect('/receipt.png'))
     await act(() => result.current.handleRulesConfirm())
 
-    expect(toast.error).toHaveBeenCalledWith('deductible_pct_bps must be in range [0, 10000] bps')
+    expect(toast.error).toHaveBeenCalledWith('The rules could not be matched')
     expect(result.current.state.step).toBe('rules')
   })
 

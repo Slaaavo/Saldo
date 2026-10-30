@@ -38,40 +38,70 @@ pub struct RuleProblem {
 /// accents count for nothing on either side, so `kava` matches `KÁVA` and `káva` matches `KAVA`.
 /// A blank pattern is skipped. A pattern that does not compile is skipped and reported, never an
 /// error, so one bad rule of a stored profile does not stop the others.
-pub struct ShareRules {
-    rules: Vec<(RuleMatch, Regex)>,
+pub struct RuleMatcher {
+    patterns: Vec<(usize, Regex)>,
     problems: Vec<RuleProblem>,
 }
 
-impl ShareRules {
-    /// Positions count every rule given, blank ones too, so they name the wizard's rows.
-    pub fn compile<'a>(rules: impl IntoIterator<Item = RuleSource<'a>>) -> Self {
+impl RuleMatcher {
+    /// Positions count every pattern given, blank ones too, so they name the wizard's rows.
+    pub fn compile<'a>(patterns: impl IntoIterator<Item = &'a str>) -> Self {
         let mut compiled = Vec::new();
         let mut problems = Vec::new();
-        for (index, rule) in rules.into_iter().enumerate() {
-            if rule.pattern.trim().is_empty() {
+        for (index, pattern) in patterns.into_iter().enumerate() {
+            if pattern.trim().is_empty() {
                 continue;
             }
             let position = index + 1;
-            match compile_pattern(rule.pattern) {
-                Ok(regex) => compiled.push((
-                    RuleMatch {
-                        position,
-                        pattern: rule.pattern.to_owned(),
-                        shares: rule.shares,
-                    },
-                    regex,
-                )),
+            match compile_pattern(pattern) {
+                Ok(regex) => compiled.push((position, regex)),
                 Err(e) => problems.push(RuleProblem {
                     position,
-                    pattern: rule.pattern.to_owned(),
+                    pattern: pattern.to_owned(),
                     message: one_line(&e),
                 }),
             }
         }
         Self {
-            rules: compiled,
+            patterns: compiled,
             problems,
+        }
+    }
+
+    /// The position of the first rule whose pattern matches the item name.
+    pub fn position_for(&self, item_name: &str) -> Option<usize> {
+        let name = strip_accents(item_name);
+        self.patterns
+            .iter()
+            .find(|(_, regex)| regex.is_match(&name))
+            .map(|&(position, _)| position)
+    }
+
+    pub fn problems(&self) -> &[RuleProblem] {
+        &self.problems
+    }
+}
+
+/// A person's eKasa rules with the shares each one gives, as `saldo mcp` applies them.
+pub struct ShareRules {
+    matcher: RuleMatcher,
+    rules: Vec<RuleMatch>,
+}
+
+impl ShareRules {
+    pub fn compile<'a>(rules: impl IntoIterator<Item = RuleSource<'a>>) -> Self {
+        let rules: Vec<RuleMatch> = rules
+            .into_iter()
+            .enumerate()
+            .map(|(index, rule)| RuleMatch {
+                position: index + 1,
+                pattern: rule.pattern.to_owned(),
+                shares: rule.shares,
+            })
+            .collect();
+        Self {
+            matcher: RuleMatcher::compile(rules.iter().map(|rule| rule.pattern.as_str())),
+            rules,
         }
     }
 
@@ -86,15 +116,13 @@ impl ShareRules {
     }
 
     pub fn shares_for(&self, item_name: &str) -> Option<&RuleMatch> {
-        let name = strip_accents(item_name);
-        self.rules
-            .iter()
-            .find(|(_, regex)| regex.is_match(&name))
-            .map(|(rule, _)| rule)
+        self.matcher
+            .position_for(item_name)
+            .map(|position| &self.rules[position - 1])
     }
 
     pub fn problems(&self) -> &[RuleProblem] {
-        &self.problems
+        self.matcher.problems()
     }
 }
 

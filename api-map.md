@@ -744,7 +744,7 @@ Reads a receipt file (PDF or image) with Saldo's eKasa reader, the one `saldo mc
 
 ### `matchEkasaRules`
 
-Matches the wizard's rules, saved or not, against a receipt's item names with Saldo's one rule matcher (case- and accent-insensitive regular expressions, first rule wins). Returns the matched rule of each item (`null` when none matched; the wizard then uses its default row) and the rules whose pattern does not compile. Pure: no database.
+Matches the wizard's rule patterns, saved or not, against a receipt's item names with Saldo's one rule matcher (case- and accent-insensitive regular expressions, first rule wins). Takes `itemNames` and `patterns` (the rows in order, blank ones included) and returns `matchedRows`, each item's matched row numbered from 1 (`null` when none matched; the wizard then uses its default row), and `invalidRules`, the rows whose pattern does not compile. The wizard copies the matched row's own percentages into the leg. Pure: no database.
 
 - **BE command:** `match_ekasa_rules` → `src-tauri/src/features/ekasa/commands.rs`
 - **Used in:**
@@ -768,7 +768,7 @@ Gets the eKasa import profile of a person.
 
 ### `upsertEkasaProfile`
 
-Creates or replaces a person's eKasa import profile (default percentages and name-pattern rules). A pattern the rule matcher cannot compile is refused (`VALIDATION`).
+Creates or replaces a person's eKasa import profile (default percentages and name-pattern rules). A pattern the rule matcher cannot compile is refused (`VALIDATION`, naming the pattern).
 
 - **BE command:** `upsert_ekasa_profile` → `src-tauri/src/features/ekasa/commands.rs`
 - **Used in:**

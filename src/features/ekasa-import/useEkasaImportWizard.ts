@@ -25,23 +25,28 @@ const INITIAL_STATE: EkasaWizardState = {
 
 const matchPayload = (lines: ReceiptReadLine[], rules: EkasaRuleDraft[]): MatchEkasaRulesPayload => ({
   itemNames: lines.map((line) => line.name),
-  rules: rules.map((rule) => ({
-    namePattern: rule.namePattern,
-    deductiblePctBps: pctToBps(rule.deductiblePct) ?? 0,
-    vatReclaimablePctBps: pctToBps(rule.vatReclaimablePct) ?? 0,
-  })),
+  patterns: rules.map((rule) => rule.namePattern),
 })
 
-const legsFromMatches = (lines: ReceiptReadLine[], matches: EkasaRuleMatches, defaultDeductiblePct: string, defaultVatReclaimablePct: string, date: string): SplitLegDraft[] =>
+// A matched leg takes its rule row's percentages as typed, so a cleared one stays blank.
+const legsFromMatches = (
+  lines: ReceiptReadLine[],
+  rules: EkasaRuleDraft[],
+  matches: EkasaRuleMatches,
+  defaultDeductiblePct: string,
+  defaultVatReclaimablePct: string,
+  date: string,
+): SplitLegDraft[] =>
   lines.map((line, index) => {
-    const rule = matches.items[index]?.matchedRule ?? null
+    const row = matches.matchedRows[index] ?? null
+    const rule = row === null ? undefined : rules[row - 1]
     return {
       ...makeEmptyLeg(date),
       amount: fromMinorUnits(line.grossMinor, 2),
       vatRate: bpsToPct(line.vatRateBps),
       note: line.name,
-      expenseDeductiblePct: rule ? bpsToPct(rule.deductiblePctBps) : defaultDeductiblePct,
-      vatReclaimablePct: rule ? bpsToPct(rule.vatReclaimablePctBps) : defaultVatReclaimablePct,
+      expenseDeductiblePct: rule ? rule.deductiblePct : defaultDeductiblePct,
+      vatReclaimablePct: rule ? rule.vatReclaimablePct : defaultVatReclaimablePct,
     }
   })
 
@@ -126,10 +131,11 @@ export const useEkasaImportWizard = () => {
       return
     }
     const { lines, vendor } = result
+    const rules = state.rules
 
     let matches: EkasaRuleMatches
     try {
-      matches = await matchEkasaRules(matchPayload(lines, state.rules))
+      matches = await matchEkasaRules(matchPayload(lines, rules))
     } catch (err) {
       if (processingRef.current !== promise) return
       toast.error(extractErrorMessage(err))
@@ -142,7 +148,7 @@ export const useEkasaImportWizard = () => {
 
     setState((prev) => ({
       ...prev,
-      processedLegs: legsFromMatches(lines, matches, prev.defaultDeductiblePct, prev.defaultVatReclaimablePct, result.date),
+      processedLegs: legsFromMatches(lines, rules, matches, prev.defaultDeductiblePct, prev.defaultVatReclaimablePct, result.date),
       receiptDate: result.date,
       vendorName: vendor,
       sourceRef: result.sourceRef,

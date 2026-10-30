@@ -9,7 +9,7 @@ The user imports a Slovak eKasa receipt from a photo, a PDF or a screenshot of i
 - `ekasa-duplicate` warns in the review step when a live entry already carries the receipt, and still allows the import.
 - `ekasa-online` fetches an online receipt id from the government API.
 - `ekasa-pdf` decodes the QR from a PDF through PDFium.
-- `ekasa-rules` matches an online receipt's items to the rules step's rules through Saldo's matcher (`match_ekasa_rules`): case and accents ignored, the first match wins, an unmatched item takes the Default row, and a pattern that does not compile is skipped with a warning toast. Saving a profile with such a pattern is refused.
+- `ekasa-rules` matches an online receipt's items to the rules step's patterns through Saldo's matcher (`match_ekasa_rules`): case and accents ignored, the first match wins, a matched item takes its row's percentages exactly as typed (a cleared one stays blank), an unmatched item takes the Default row, and a pattern that does not compile is skipped with a warning toast naming its row. A percentage never blocks the step. Saving a profile with an uncompilable pattern is refused with a message naming the pattern.
 
 ## How to get to it (user POV)
 

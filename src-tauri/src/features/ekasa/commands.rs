@@ -9,7 +9,7 @@ use tauri::{Manager, State};
 use super::ekasa_api::LiveEkasaApi;
 use super::reading::{read_receipt_file, ReceiptReading};
 use super::repository;
-use super::rules::{self, RuleMatch, RuleProblem, RuleSource, ShareRules, Shares};
+use super::rules::{self, RuleMatcher, RuleProblem};
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -59,8 +59,7 @@ fn validate_upsert_profile_input(input: &UpsertEkasaProfileInput) -> Result<(), 
             return Err(AppError {
                 code: "VALIDATION".into(),
                 message: format!(
-                    "Rule {}: the pattern '{}' is not valid: {problem}.",
-                    index + 1,
+                    "The pattern '{}' is not valid: {problem}.",
                     rule.name_pattern
                 ),
             });
@@ -140,57 +139,36 @@ pub async fn process_receipt_file(
     })
 }
 
+/// The wizard keeps each rule's percentages as the user typed them, so it sends only the
+/// patterns and copies the matched row's own percentages into the leg.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MatchEkasaRulesInput {
     pub item_names: Vec<String>,
-    pub rules: Vec<RuleDraftInput>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuleDraftInput {
-    pub name_pattern: String,
-    pub deductible_pct_bps: i64,
-    pub vat_reclaimable_pct_bps: i64,
+    /// The rules step's patterns in row order, blank rows included.
+    pub patterns: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EkasaRuleMatches {
-    pub items: Vec<ItemRuleMatch>,
+    /// Per item name, the row of the first rule that matches it, numbered from 1 as in
+    /// `invalid_rules`; None when no rule matches.
+    pub matched_rows: Vec<Option<usize>>,
     pub invalid_rules: Vec<RuleProblem>,
 }
 
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ItemRuleMatch {
-    pub matched_rule: Option<RuleMatch>,
-}
-
 #[tauri::command]
-pub fn match_ekasa_rules(input: MatchEkasaRulesInput) -> Result<EkasaRuleMatches, AppError> {
-    for rule in &input.rules {
-        validate_bps("deductible_pct_bps", rule.deductible_pct_bps)?;
-        validate_bps("vat_reclaimable_pct_bps", rule.vat_reclaimable_pct_bps)?;
-    }
-    let rules = ShareRules::compile(input.rules.iter().map(|rule| RuleSource {
-        pattern: &rule.name_pattern,
-        shares: Shares {
-            deductible_pct_bps: rule.deductible_pct_bps,
-            vat_reclaimable_pct_bps: rule.vat_reclaimable_pct_bps,
-        },
-    }));
-    Ok(EkasaRuleMatches {
-        items: input
+pub fn match_ekasa_rules(input: MatchEkasaRulesInput) -> EkasaRuleMatches {
+    let matcher = RuleMatcher::compile(input.patterns.iter().map(String::as_str));
+    EkasaRuleMatches {
+        matched_rows: input
             .item_names
             .iter()
-            .map(|name| ItemRuleMatch {
-                matched_rule: rules.shares_for(name).cloned(),
-            })
+            .map(|name| matcher.position_for(name))
             .collect(),
-        invalid_rules: rules.problems().to_vec(),
-    })
+        invalid_rules: matcher.problems().to_vec(),
+    }
 }
 
 #[cfg(test)]
@@ -258,7 +236,11 @@ mod tests {
         .unwrap_err();
 
         assert_eq!(err.code, "VALIDATION");
-        assert!(err.message.starts_with("Rule 2: "), "{}", err.message);
+        assert!(
+            err.message.starts_with("The pattern 'kava(?=1kg)' "),
+            "{}",
+            err.message
+        );
         assert!(
             validate_upsert_profile_input(&input(10000, 10000, vec![rule("káva|čaj", 0, 0)]))
                 .is_ok()
@@ -276,67 +258,34 @@ mod tests {
         }
     }
 
-    fn draft(name_pattern: &str, deductible_pct_bps: i64) -> RuleDraftInput {
-        RuleDraftInput {
-            name_pattern: name_pattern.to_owned(),
-            deductible_pct_bps,
-            vat_reclaimable_pct_bps: 0,
-        }
-    }
-
-    fn match_rules(
-        item_names: &[&str],
-        rules: Vec<RuleDraftInput>,
-    ) -> Result<EkasaRuleMatches, AppError> {
-        match_ekasa_rules(MatchEkasaRulesInput {
+    fn match_rules(item_names: &[&str], patterns: &[&str]) -> serde_json::Value {
+        serde_json::to_value(match_ekasa_rules(MatchEkasaRulesInput {
             item_names: item_names.iter().map(|name| name.to_string()).collect(),
-            rules,
-        })
+            patterns: patterns.iter().map(|pattern| pattern.to_string()).collect(),
+        }))
+        .unwrap()
     }
 
     #[test]
     fn the_wizard_gets_the_matching_row_of_each_item() {
         let matches = match_rules(
-            &["KÁVA ZRNKOVÁ", "MLIEKO 1L", "ROZOK"],
-            vec![draft("", 0), draft("kava", 10000), draft("mlieko|rozok", 0)],
-        )
-        .unwrap();
+            &["KÁVA ZRNKOVÁ", "MLIEKO 1L", "ROZOK", "PAPIER A4"],
+            &["", "kava", "mlieko|rozok"],
+        );
 
-        let positions: Vec<Option<(usize, i64)>> = matches
-            .items
-            .iter()
-            .map(|item| {
-                item.matched_rule
-                    .as_ref()
-                    .map(|rule| (rule.position, rule.shares.deductible_pct_bps))
-            })
-            .collect();
-        assert_eq!(positions, [Some((2, 10000)), Some((3, 0)), Some((3, 0))]);
-        assert!(matches.invalid_rules.is_empty());
-    }
-
-    #[test]
-    fn an_item_no_rule_matches_has_no_rule() {
-        let matches = match_rules(&["PAPIER A4"], vec![draft("kava", 10000)]).unwrap();
-
-        assert_eq!(matches.items[0].matched_rule, None);
+        assert_eq!(
+            matches,
+            serde_json::json!({ "matchedRows": [2, 3, 3, null], "invalidRules": [] })
+        );
     }
 
     #[test]
     fn the_wizard_hears_of_a_rule_that_does_not_compile() {
-        let matches =
-            match_rules(&["KAVA"], vec![draft("ka(va", 0), draft("kava", 10000)]).unwrap();
+        let matches = match_rules(&["KAVA"], &["ka(va", "kava"]);
 
-        assert_eq!(matches.items[0].matched_rule.as_ref().unwrap().position, 2);
-        assert_eq!(matches.invalid_rules[0].position, 1);
-        assert_eq!(matches.invalid_rules[0].pattern, "ka(va");
-    }
-
-    #[test]
-    fn match_rules_refuses_shares_out_of_range() {
-        let err = match_rules(&["KAVA"], vec![draft("kava", 10001)]).unwrap_err();
-
-        assert_eq!(err.code, "VALIDATION");
+        assert_eq!(matches["matchedRows"], serde_json::json!([2]));
+        assert_eq!(matches["invalidRules"][0]["position"], 1);
+        assert_eq!(matches["invalidRules"][0]["pattern"], "ka(va");
     }
 
     struct NoService;
