@@ -324,7 +324,7 @@ pub struct CreateSplitGroupInput {
 }
 
 /// The kinds of taxable entry a document can become.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum TaxableKind {
     Revenue,

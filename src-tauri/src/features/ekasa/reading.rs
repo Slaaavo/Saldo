@@ -10,6 +10,7 @@ use super::preprocessing::{preprocess_receipt_items, ReceiptCode};
 use super::qr_decoder::decode_qr_from_file;
 use crate::error::AppError;
 use crate::features::transactions::SourceRef;
+use crate::shared::major_units;
 
 /// The receipt as read_receipt read it. Put it into record_batch unchanged.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
@@ -177,6 +178,56 @@ impl<'a> From<&'a ReceiptReadLine> for LineFacts<'a> {
             vat_rate_bps: line.vat_rate_bps,
         }
     }
+}
+
+/// Checks what a batch item says about a receipt against its code and seal, with no network:
+/// the code is an eKasa code, the seal matches, and for an offline receipt the date and the
+/// lines' total are the QR code's.
+pub fn check_receipt(
+    receipt: &ReceiptId,
+    date: &str,
+    lines: &[LineFacts<'_>],
+) -> Result<ReceiptCode, AppError> {
+    let code = ReceiptCode::parse(&receipt.code).ok_or_else(|| AppError {
+        code: "QR_NOT_EKASA".into(),
+        message: "receipt.code is not an eKasa receipt code. Copy receipt exactly as \
+                  read_receipt returned it."
+            .into(),
+    })?;
+    if seal(&code, date, lines.iter().copied()) != receipt.read_token {
+        return Err(AppError {
+            code: "RECEIPT_CHANGED".into(),
+            message: "The receipt differs from what read_receipt read. Copy receipt, date and \
+                      each line's name, grossMinor and vatRateBps exactly as read_receipt \
+                      returned them, or call read_receipt again."
+                .into(),
+        });
+    }
+    if let ReceiptCode::Offline { receipt, .. } = &code {
+        if date != receipt.event_date {
+            return Err(AppError {
+                code: "RECEIPT_DATE_DIFFERS".into(),
+                message: format!(
+                    "The date is {date}, but the receipt's QR code says {}. Use the date \
+                     read_receipt returned.",
+                    receipt.event_date
+                ),
+            });
+        }
+        let lines_total_minor: i64 = lines.iter().map(|line| line.gross_minor).sum();
+        if lines_total_minor != receipt.total_amount_minor {
+            return Err(AppError {
+                code: "RECEIPT_TOTAL_DIFFERS".into(),
+                message: format!(
+                    "The lines add up to {}, but the receipt's QR code says {}. Read the lines \
+                     again: a line, a discount or a deposit is missing or misread.",
+                    major_units(lines_total_minor),
+                    major_units(receipt.total_amount_minor)
+                ),
+            });
+        }
+    }
+    Ok(code)
 }
 
 /// 16 hex digits over the code and, for an online receipt, its date and its lines in any
@@ -408,6 +459,101 @@ mod tests {
     }
 
     #[test]
+    fn a_faithful_copy_passes_the_check_in_any_line_order() {
+        let reading = read_online(&FakeApi::new(|| Some(billa(15.28))));
+        let mut lines = facts(&reading);
+        lines.reverse();
+
+        let code = check_receipt(&reading.receipt, &reading.date, &lines).unwrap();
+
+        assert_eq!(code.source_ref(), reading.source_ref);
+    }
+
+    #[test]
+    fn a_changed_online_receipt_fails_the_check() {
+        let reading = read_online(&FakeApi::new(|| Some(billa(15.28))));
+        let lines = facts(&reading);
+        let renamed = [
+            LineFacts {
+                name: "KAVA",
+                ..lines[0]
+            },
+            lines[1],
+        ];
+        let repriced = [
+            LineFacts {
+                gross_minor: 1400,
+                ..lines[0]
+            },
+            lines[1],
+        ];
+        let other_vat = [
+            LineFacts {
+                vat_rate_bps: 1900,
+                ..lines[0]
+            },
+            lines[1],
+        ];
+        let other_code = ReceiptId {
+            code: "O-7DBCDA8A56EE426DBCDA8A56EE426D1B".to_owned(),
+            ..reading.receipt.clone()
+        };
+
+        for changed in [&renamed[..], &repriced[..], &other_vat[..], &lines[..1]] {
+            let err = check_receipt(&reading.receipt, &reading.date, changed).unwrap_err();
+            assert_eq!(err.code, "RECEIPT_CHANGED", "{changed:?}");
+        }
+        let err = check_receipt(&reading.receipt, "2026-10-13", &lines).unwrap_err();
+        assert_eq!(err.code, "RECEIPT_CHANGED");
+        let err = check_receipt(&other_code, &reading.date, &lines).unwrap_err();
+        assert_eq!(err.code, "RECEIPT_CHANGED");
+    }
+
+    fn line(name: &str, gross_minor: i64) -> LineFacts<'_> {
+        LineFacts {
+            name,
+            gross_minor,
+            vat_rate_bps: 2000,
+        }
+    }
+
+    #[test]
+    fn offline_lines_must_add_up_to_the_qr_total_on_the_qr_date() {
+        let receipt = fake::read_offline(OFFLINE_CODE).receipt;
+        let lines = [line("Notebook", 20000), line("Mys", 3723)];
+
+        assert!(check_receipt(&receipt, "2018-02-13", &lines).is_ok());
+
+        let short = check_receipt(&receipt, "2018-02-13", &lines[..1]).unwrap_err();
+        assert_eq!(short.code, "RECEIPT_TOTAL_DIFFERS");
+        assert!(
+            short.message.contains("200.00") && short.message.contains("237.23"),
+            "{}",
+            short.message
+        );
+        let wrong_day = check_receipt(&receipt, "2018-02-14", &lines).unwrap_err();
+        assert_eq!(wrong_day.code, "RECEIPT_DATE_DIFFERS");
+    }
+
+    #[test]
+    fn an_offline_code_without_its_seal_fails_the_check() {
+        let typed = ReceiptId {
+            read_token: "0000000000000000".to_owned(),
+            ..fake::read_offline(OFFLINE_CODE).receipt
+        };
+        let not_ekasa = ReceiptId {
+            code: "hello".to_owned(),
+            ..fake::read_offline(OFFLINE_CODE).receipt
+        };
+        let lines = [line("Notebook", 23723)];
+
+        let err = check_receipt(&typed, "2018-02-13", &lines).unwrap_err();
+        assert_eq!(err.code, "RECEIPT_CHANGED");
+        let err = check_receipt(&not_ekasa, "2018-02-13", &lines).unwrap_err();
+        assert_eq!(err.code, "QR_NOT_EKASA");
+    }
+
+    #[test]
     fn the_live_fetch_can_wait_on_the_runtime_inside_the_apps_blocking_task() {
         struct BlockingApi;
         impl EkasaApi for BlockingApi {
@@ -426,5 +572,60 @@ mod tests {
         .unwrap();
 
         assert_eq!(reading.total_minor, 1528);
+    }
+}
+
+/// Readings for the tests of the code that records receipts, with no network.
+#[cfg(test)]
+pub(crate) mod fake {
+    use super::*;
+    use crate::features::ekasa::models::{EkasaReceiptItem, EkasaReceiptOrganization};
+
+    /// An eKasa service that knows one receipt, from BILLA on 12 October 2026, with these
+    /// lines (name, gross minor units, VAT bps). It does not know any other id.
+    pub(crate) struct FakeEkasaApi {
+        pub receipt_id: &'static str,
+        pub lines: Vec<(&'static str, i64, i64)>,
+    }
+
+    impl EkasaApi for FakeEkasaApi {
+        fn fetch(&self, receipt_id: &str) -> Result<Option<EkasaReceiptData>, AppError> {
+            Ok((receipt_id == self.receipt_id).then(|| EkasaReceiptData {
+                receipt_id: receipt_id.to_owned(),
+                issue_date: "12.10.2026 14:03:11".to_owned(),
+                total_price: self.lines.iter().map(|line| line.1).sum::<i64>() as f64 / 100.0,
+                organization: EkasaReceiptOrganization {
+                    name: "BILLA s.r.o.".to_owned(),
+                    ico: "31347037".to_owned(),
+                },
+                items: self
+                    .lines
+                    .iter()
+                    .map(|&(name, gross_minor, vat_rate_bps)| EkasaReceiptItem {
+                        name: name.to_owned(),
+                        quantity: 1.0,
+                        price: gross_minor as f64 / 100.0,
+                        vat_rate: vat_rate_bps as f64 / 100.0,
+                    })
+                    .collect(),
+                vat_summary: vec![],
+            }))
+        }
+    }
+
+    impl FakeEkasaApi {
+        /// What read_receipt returns for the receipt this service knows.
+        pub(crate) fn read(&self) -> ReceiptReading {
+            read_receipt_file("/r/billa.jpg", Some(self.receipt_id), None, self).unwrap()
+        }
+    }
+
+    /// What read_receipt returns for a file whose QR code holds this offline code.
+    pub(crate) fn read_offline(code: &str) -> ReceiptReading {
+        let code = ReceiptCode::parse(code).unwrap();
+        let ReceiptCode::Offline { receipt, .. } = &code else {
+            panic!("an offline code")
+        };
+        offline_reading("/r/offline.png", &code, receipt)
     }
 }

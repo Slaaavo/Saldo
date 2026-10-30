@@ -13,6 +13,8 @@ use rusqlite::Connection;
 use crate::error::AppError;
 use crate::features::accounts::commands::{create_account_with_conn, CreateAccountInput};
 use crate::features::currency::repository::get_consolidation_currency;
+use crate::features::ekasa::repository::get_ekasa_profile_for_person;
+use crate::features::ekasa::rules::ShareRules;
 use crate::features::persons::repository::get_person_vat_payer;
 use crate::features::tax_models::calculation::calculate_net_amount;
 use crate::features::tax_models::repository::list_tax_models;
@@ -29,46 +31,31 @@ use crate::features::transactions::repository::{
 };
 use crate::features::transactions::SourceRef;
 use crate::shared::{with_savepoint_app, Finish, WriteTxn};
-use derive::{Derived, EntryShape};
+use derive::{EntryShape, Leg, Plan};
 use models::*;
 use repository::{Root, StampParams};
 
 const SIMILAR_DOCUMENT_WINDOW_DAYS: i64 = 14;
 
+/// One pass in the write transaction: each item is planned, checked and written in its own
+/// savepoint, so a later item's checks see the earlier ones. A real write is then refused unless
+/// its token equals its dry run's, before any item error, and the transaction rolls back.
 pub fn record_batch(
     txn: WriteTxn<'_>,
     input: RecordBatchInput,
 ) -> Result<BatchReceipt, RecordBatchError> {
-    let conn = txn.conn();
-    let label = input.label.trim().to_owned();
+    let label = input.label.trim();
     if label.is_empty() || input.items.is_empty() {
         return Err(invalid("A batch needs a label and at least one document").into());
     }
-    let review_token = review_token(&label, &input.items);
+    let Recorded {
+        batch_id,
+        mut documents,
+        errors,
+        review_token,
+    } = record_items(&txn, label, &input.items)?;
     if !input.dry_run && input.review_token.as_deref() != Some(review_token.as_str()) {
         return Err(RecordBatchError::ReviewTokenMismatch);
-    }
-    let batch_id = repository::create_batch(
-        conn,
-        repository::CreateBatchParams {
-            label,
-            document_count: input.items.len() as i64,
-        },
-    )?;
-    let ctx = ItemContext {
-        batch_id,
-        asset_currency_id: get_consolidation_currency(conn)?.id,
-    };
-    let mut documents = Vec::new();
-    let mut errors = Vec::new();
-    let mut seen: HashMap<String, usize> = HashMap::new();
-    for (index, item) in input.items.into_iter().enumerate() {
-        let recorded = record_item(conn, &ctx, &mut seen, index, item);
-        txn.ensure_open()?;
-        match recorded {
-            Ok(document) => documents.push(document),
-            Err(error) => errors.push(*error),
-        }
     }
     if !errors.is_empty() {
         documents.iter_mut().for_each(RecordedDocument::forget_ids);
@@ -78,6 +65,7 @@ pub fn record_batch(
             passed: documents,
         });
     }
+    let conn = txn.conn();
     repository::record_what_the_batch_made(conn, batch_id)?;
     let affected_tax_model_ids =
         affected_tax_models(conn, &repository::list_person_years(conn, batch_id)?)?;
@@ -167,26 +155,124 @@ struct ItemContext {
     asset_currency_id: i64,
 }
 
+struct Recorded {
+    batch_id: i64,
+    documents: Vec<RecordedDocument>,
+    errors: Vec<ItemError>,
+    review_token: String,
+}
+
+fn record_items(
+    txn: &WriteTxn<'_>,
+    label: &str,
+    items: &[BatchItem],
+) -> Result<Recorded, RecordBatchError> {
+    let conn = txn.conn();
+    let batch_id = repository::create_batch(
+        conn,
+        repository::CreateBatchParams {
+            label: label.to_owned(),
+            document_count: items.len() as i64,
+        },
+    )?;
+    let ctx = ItemContext {
+        batch_id,
+        asset_currency_id: get_consolidation_currency(conn)?.id,
+    };
+    let mut review = Review::new(label, items);
+    let mut documents = Vec::new();
+    let mut errors = Vec::new();
+    let mut seen: HashMap<String, usize> = HashMap::new();
+    for (index, item) in items.iter().enumerate() {
+        let recorded = record_item(conn, &ctx, &mut seen, &mut review, index, item);
+        txn.ensure_open()?;
+        match recorded {
+            Ok(document) => documents.push(document),
+            Err(error) => {
+                review.failed(&error.code);
+                errors.push(*error);
+            }
+        }
+    }
+    Ok(Recorded {
+        batch_id,
+        documents,
+        errors,
+        review_token: review.token(),
+    })
+}
+
+/// Ties a real write to the dry run the user reviewed: a hash of the batch as sent and of what
+/// each item became, its plan or its error. `DefaultHasher::new` is the same SipHash with the
+/// same keys in every run of one build, which is all a dry run and its write need.
+struct Review(DefaultHasher);
+
+impl Review {
+    fn new(label: &str, items: &[BatchItem]) -> Self {
+        let mut hasher = DefaultHasher::new();
+        (label, items).hash(&mut hasher);
+        Self(hasher)
+    }
+
+    fn planned(&mut self, plan: &Plan) {
+        ("planned", plan).hash(&mut self.0);
+    }
+
+    fn failed(&mut self, code: &str) {
+        ("failed", code).hash(&mut self.0);
+    }
+
+    fn token(self) -> String {
+        format!("{:016x}", self.0.finish())
+    }
+}
+
+/// The plan, and facts for the review table that do not change what is written.
+fn plan_item(conn: &Connection, item: &BatchItem) -> Result<(Plan, Vec<Warning>), AppError> {
+    let vat_payer = get_person_vat_payer(conn, item.person_id())?;
+    match item {
+        BatchItem::Document(document) => Ok((derive::document(document, vat_payer)?, Vec::new())),
+        BatchItem::Receipt(receipt) => {
+            let rules = get_ekasa_profile_for_person(conn, receipt.person_id)?
+                .map(|profile| ShareRules::from_profile(&profile.rules));
+            let warnings = rules
+                .iter()
+                .flat_map(ShareRules::problems)
+                .map(|problem| Warning::InvalidEkasaRule {
+                    position: problem.position,
+                    pattern: problem.pattern.clone(),
+                    message: problem.message.clone(),
+                })
+                .collect();
+            Ok((
+                derive::receipt(receipt, vat_payer, rules.as_ref())?,
+                warnings,
+            ))
+        }
+    }
+}
+
 fn record_item(
     conn: &Connection,
     ctx: &ItemContext,
     seen: &mut HashMap<String, usize>,
+    review: &mut Review,
     index: usize,
-    item: DocumentItem,
+    item: &BatchItem,
 ) -> Result<RecordedDocument, Box<ItemError>> {
     let fail = |source_ref: Option<&SourceRef>, e: AppError| {
         Box::new(ItemError {
             index,
-            file: item.document.file.clone(),
+            file: item.file().to_owned(),
             source_ref: source_ref.cloned(),
             code: e.code,
             message: e.message,
             recorded: None,
         })
     };
-    let vat_payer = get_person_vat_payer(conn, item.person_id).map_err(|e| fail(None, e))?;
-    let derived = derive::document(&item, vat_payer).map_err(|e| fail(None, e))?;
-    let source_ref = &derived.source_ref;
+    let (plan, rule_warnings) = plan_item(conn, item).map_err(|e| fail(None, e))?;
+    review.planned(&plan);
+    let source_ref = &plan.source_ref;
     if let Some(&first) = seen.get(source_ref.as_str()) {
         return Err(fail(
             Some(source_ref),
@@ -210,17 +296,12 @@ fn record_item(
         error.recorded = Some(recorded);
         return Err(error);
     }
-    let payments = load_payments(conn, &item.payment_ids).map_err(|e| fail(Some(source_ref), e))?;
-    let similar =
-        similar_documents(conn, &item, &derived).map_err(|e| fail(Some(source_ref), e))?;
-    let written = with_savepoint_app(conn, || write_item(conn, ctx, &item, &derived))
+    let payments = load_payments(conn, &plan.payment_ids).map_err(|e| fail(Some(source_ref), e))?;
+    let similar = similar_documents(conn, &plan).map_err(|e| fail(Some(source_ref), e))?;
+    let written = with_savepoint_app(conn, || write_plan(conn, ctx, &plan))
         .map_err(|e| fail(Some(source_ref), e))?;
 
-    let total_gross_minor = written.lines.iter().map(|l| l.gross_minor).sum::<i64>()
-        + asset_parts(&item.content)
-            .iter()
-            .map(|a| a.gross_minor)
-            .sum::<i64>();
+    let total_gross_minor = plan.total_gross_minor();
     let mut warnings = Vec::new();
     if !payments.is_empty() {
         let payments_total_minor: i64 = payments.iter().map(|p| p.amount_minor).sum();
@@ -231,7 +312,7 @@ fn record_item(
             });
         }
     }
-    let payment_sign = expected_payment_sign(&item.content, total_gross_minor);
+    let payment_sign = expected_payment_sign(plan.kind, total_gross_minor);
     for payment in payments
         .iter()
         .filter(|p| payment_sign != 0 && p.amount_minor.signum() == -payment_sign)
@@ -248,19 +329,25 @@ fn record_item(
         });
     }
     warnings.extend(similar);
+    warnings.extend(rule_warnings);
 
+    let group_note = match written.shape {
+        RecordedShape::SplitGroup { .. } => plan.group_note,
+        _ => None,
+    };
     Ok(RecordedDocument {
         index,
-        file: item.document.file,
-        source_ref: derived.source_ref,
-        person_id: item.person_id,
-        entry_date: derived.entry_date,
-        date_source: derived.date_source,
+        file: plan.file,
+        source_ref: plan.source_ref,
+        person_id: plan.person_id,
+        entry_date: plan.entry_date,
+        date_source: plan.date_source,
         shape: written.shape,
+        group_note,
         total_gross_minor,
         lines: written.lines,
         assets: written.assets,
-        linked_payment_ids: item.payment_ids,
+        linked_payment_ids: plan.payment_ids,
         warnings,
     })
 }
@@ -271,68 +358,31 @@ struct Written {
     assets: Vec<RecordedAsset>,
 }
 
-struct Line {
-    gross_minor: i64,
-    vat_rate_bps: i64,
-    deductible_pct_bps: Option<i64>,
-    vat_reclaimable_pct_bps: Option<i64>,
-}
-
-fn write_item(
-    conn: &Connection,
-    ctx: &ItemContext,
-    item: &DocumentItem,
-    derived: &Derived,
-) -> Result<Written, AppError> {
-    let (event_type, lines, prepaid_until) = match &item.content {
-        DocumentContent::Revenue(revenue) => (
-            "revenue",
-            revenue
-                .lines
-                .iter()
-                .map(|l| Line {
-                    gross_minor: l.gross_minor,
-                    vat_rate_bps: l.vat_rate_bps.get(),
-                    deductible_pct_bps: None,
-                    vat_reclaimable_pct_bps: None,
-                })
-                .collect(),
-            None,
-        ),
-        DocumentContent::Expense(expense) => (
-            "expense",
-            expense.lines.iter().map(expense_line).collect(),
-            None,
-        ),
-        DocumentContent::PrepaidExpense(prepaid) => (
-            "prepaid_expense",
-            vec![expense_line(&prepaid.line)],
-            Some(prepaid.prepaid_until.clone()),
-        ),
-    };
-
-    let shape = match derived.entries {
+/// Knows nothing of invoices or receipts: everything comes from the plan.
+fn write_plan(conn: &Connection, ctx: &ItemContext, plan: &Plan) -> Result<Written, AppError> {
+    let event_type = plan.kind.event_type();
+    let shape = match plan.entries() {
         EntryShape::None => RecordedShape::AssetsOnly,
         EntryShape::Single => {
-            let line = &lines[0];
+            let leg = &plan.legs[0];
             let event_id = create_taxable_event_inner(
                 conn,
                 CreateTaxableEventInput {
-                    person_id: item.person_id,
+                    person_id: plan.person_id,
                     event_type: event_type.to_owned(),
-                    amount_minor: line.gross_minor,
-                    event_date: derived.entry_date.clone(),
-                    note: item.note.clone(),
-                    vat_rate_bps: Some(line.vat_rate_bps),
-                    vat_reclaimable_pct_bps: line.vat_reclaimable_pct_bps,
-                    expense_deductible_pct_bps: line.deductible_pct_bps,
-                    prepaid_until: prepaid_until.clone(),
-                    reclaimed_vat: derived.reclaimed_vat,
-                    source_ref: Some(derived.source_ref.clone()),
+                    amount_minor: leg.gross_minor,
+                    event_date: plan.entry_date.clone(),
+                    note: leg.note.clone(),
+                    vat_rate_bps: Some(leg.vat_rate_bps),
+                    vat_reclaimable_pct_bps: leg.shares.map(|s| s.vat_reclaimable_pct_bps),
+                    expense_deductible_pct_bps: leg.shares.map(|s| s.deductible_pct_bps),
+                    prepaid_until: plan.prepaid_until.clone(),
+                    reclaimed_vat: plan.reclaimed_vat,
+                    source_ref: Some(plan.source_ref.clone()),
                 },
             )?;
             stamp(conn, ctx, Root::Event(event_id))?;
-            if prepaid_until.is_some() {
+            if plan.prepaid_until.is_some() {
                 RecordedShape::Prepaid {
                     event_id: Some(event_id),
                     generated_shares: repository::count_prepaid_shares(conn, event_id)?,
@@ -347,23 +397,24 @@ fn write_item(
             let split_group_id = create_taxable_split_group_inner(
                 conn,
                 CreateTaxableSplitGroupInput {
-                    person_id: item.person_id,
+                    person_id: plan.person_id,
                     event_type: event_type.to_owned(),
-                    group_note: item.note.clone(),
-                    legs: lines
+                    group_note: plan.group_note.clone(),
+                    legs: plan
+                        .legs
                         .iter()
-                        .map(|line| SplitTaxableLegInput {
-                            amount_minor: line.gross_minor,
-                            event_date: derived.entry_date.clone(),
-                            note: item.note.clone(),
-                            vat_rate_bps: Some(line.vat_rate_bps),
-                            vat_reclaimable_pct_bps: line.vat_reclaimable_pct_bps,
-                            expense_deductible_pct_bps: line.deductible_pct_bps,
+                        .map(|leg| SplitTaxableLegInput {
+                            amount_minor: leg.gross_minor,
+                            event_date: plan.entry_date.clone(),
+                            note: leg.note.clone(),
+                            vat_rate_bps: Some(leg.vat_rate_bps),
+                            vat_reclaimable_pct_bps: leg.shares.map(|s| s.vat_reclaimable_pct_bps),
+                            expense_deductible_pct_bps: leg.shares.map(|s| s.deductible_pct_bps),
                             prepaid_until: None,
-                            reclaimed_vat: derived.reclaimed_vat,
+                            reclaimed_vat: plan.reclaimed_vat,
                         })
                         .collect(),
-                    source_ref: Some(derived.source_ref.clone()),
+                    source_ref: Some(plan.source_ref.clone()),
                 },
             )?;
             stamp(conn, ctx, Root::SplitGroup(split_group_id))?;
@@ -374,22 +425,22 @@ fn write_item(
     };
 
     let mut assets = Vec::new();
-    for (part, price) in asset_parts(&item.content).iter().zip(&derived.assets) {
+    for asset in &plan.assets {
         let account_id = create_account_with_conn(
             conn,
             CreateAccountInput {
-                name: part.name.trim().to_owned(),
+                name: asset.name.clone(),
                 currency_id: ctx.asset_currency_id,
                 account_type: Some("asset".to_owned()),
-                initial_balance_minor: Some(price.purchase_price_minor),
+                initial_balance_minor: Some(asset.purchase_price_minor),
                 price_per_unit: None,
                 linked_asset_ids: None,
                 iban: None,
-                person_id: Some(item.person_id),
-                purchase_price_minor: Some(price.purchase_price_minor),
-                purchase_date: Some(derived.entry_date.clone()),
-                depreciation_period_months: Some(part.depreciation_months),
-                initial_balance_date: Some(derived.entry_date.clone()),
+                person_id: Some(plan.person_id),
+                purchase_price_minor: Some(asset.purchase_price_minor),
+                purchase_date: Some(plan.entry_date.clone()),
+                depreciation_period_months: Some(asset.depreciation_months),
+                initial_balance_date: Some(plan.entry_date.clone()),
             },
         )?;
         stamp(
@@ -397,20 +448,20 @@ fn write_item(
             ctx,
             Root::AssetAccount {
                 account_id,
-                source_ref: derived.source_ref.clone(),
+                source_ref: plan.source_ref.clone(),
             },
         )?;
         assets.push(RecordedAsset {
             account_id: Some(account_id),
-            name: part.name.trim().to_owned(),
-            purchase_price_minor: price.purchase_price_minor,
-            price_basis: price.price_basis,
-            depreciation_months: part.depreciation_months,
+            name: asset.name.clone(),
+            purchase_price_minor: asset.purchase_price_minor,
+            price_basis: asset.price_basis,
+            depreciation_months: asset.depreciation_months,
         });
     }
 
-    if !item.payment_ids.is_empty() {
-        let cashflow_event_ids = item.payment_ids.clone();
+    if !plan.payment_ids.is_empty() {
+        let cashflow_event_ids = plan.payment_ids.clone();
         match shape {
             RecordedShape::Single {
                 event_id: Some(taxable_event_id),
@@ -440,31 +491,29 @@ fn write_item(
 
     Ok(Written {
         shape,
-        lines: lines
-            .iter()
-            .map(|line| RecordedLine {
-                gross_minor: line.gross_minor,
-                net_minor: calculate_net_amount(line.gross_minor, line.vat_rate_bps),
-                vat_rate_bps: line.vat_rate_bps,
-            })
-            .collect(),
+        lines: plan.legs.iter().map(recorded_line).collect(),
         assets,
     })
 }
 
-fn expense_line(line: &ExpenseLine) -> Line {
-    Line {
-        gross_minor: line.gross_minor,
-        vat_rate_bps: line.vat_rate_bps.get(),
-        deductible_pct_bps: Some(line.deductible_pct_bps.get()),
-        vat_reclaimable_pct_bps: Some(line.vat_reclaimable_pct_bps.get()),
-    }
-}
-
-fn asset_parts(content: &DocumentContent) -> &[AssetPart] {
-    match content {
-        DocumentContent::Expense(expense) => &expense.assets,
-        _ => &[],
+/// A receipt line also reports its note and where its shares came from; an invoice line
+/// reports only its amounts, as before receipts existed.
+fn recorded_line(leg: &Leg) -> RecordedLine {
+    let shares = leg
+        .source
+        .as_ref()
+        .zip(leg.shares)
+        .map(|(source, shares)| RecordedShares {
+            deductible_pct_bps: shares.deductible_pct_bps,
+            vat_reclaimable_pct_bps: shares.vat_reclaimable_pct_bps,
+            source: source.clone(),
+        });
+    RecordedLine {
+        gross_minor: leg.gross_minor,
+        net_minor: calculate_net_amount(leg.gross_minor, leg.vat_rate_bps),
+        vat_rate_bps: leg.vat_rate_bps,
+        note: shares.as_ref().and(leg.note.clone()),
+        shares,
     }
 }
 
@@ -494,47 +543,30 @@ fn load_payments(conn: &Connection, payment_ids: &[i64]) -> Result<Vec<Payment>,
 
 /// An expense is paid out and revenue comes in; a credit note (a negative total) turns both
 /// around.
-fn expected_payment_sign(content: &DocumentContent, total_gross_minor: i64) -> i64 {
-    let incoming = matches!(content, DocumentContent::Revenue(_));
+fn expected_payment_sign(kind: TaxableKind, total_gross_minor: i64) -> i64 {
+    let incoming = kind == TaxableKind::Revenue;
     total_gross_minor.signum() * if incoming { 1 } else { -1 }
 }
 
 /// Any live entry of the same person and kind with the same total near the entry date, so the
 /// same invoice keyed by IČO once and by name once, or typed in by hand, shows up. An entry
 /// with this document's reference never gets here: it was refused as already recorded.
-fn similar_documents(
-    conn: &Connection,
-    item: &DocumentItem,
-    derived: &Derived,
-) -> Result<Vec<Warning>, AppError> {
-    let (kind, entries_total) = match &item.content {
-        DocumentContent::Revenue(revenue) => (
-            TaxableKind::Revenue,
-            revenue.lines.iter().map(|l| l.gross_minor).sum(),
-        ),
-        DocumentContent::Expense(expense) => (
-            TaxableKind::Expense,
-            expense.lines.iter().map(|l| l.gross_minor).sum(),
-        ),
-        DocumentContent::PrepaidExpense(prepaid) => {
-            (TaxableKind::PrepaidExpense, prepaid.line.gross_minor)
-        }
-    };
-    let Ok(date) = NaiveDate::parse_from_str(&derived.entry_date, "%Y-%m-%d") else {
+fn similar_documents(conn: &Connection, plan: &Plan) -> Result<Vec<Warning>, AppError> {
+    let Ok(date) = NaiveDate::parse_from_str(&plan.entry_date, "%Y-%m-%d") else {
         return Ok(Vec::new());
     };
-    if derived.entries == EntryShape::None {
+    if plan.entries() == EntryShape::None {
         return Ok(Vec::new());
     }
     let window = Duration::days(SIMILAR_DOCUMENT_WINDOW_DAYS);
     let found = find_document_entries(
         conn,
         FindDocumentEntriesParams {
-            person_id: Some(item.person_id),
+            person_id: Some(plan.person_id),
             from_date: Some((date - window).format("%Y-%m-%d").to_string()),
             to_date: Some((date + window).format("%Y-%m-%d").to_string()),
-            total_gross_minor: Some(entries_total),
-            kinds: vec![kind],
+            total_gross_minor: Some(plan.legs_total_minor()),
+            kinds: vec![plan.kind],
             limit: 5,
             ..Default::default()
         },
@@ -562,15 +594,6 @@ fn affected_tax_models(
         .collect();
     ids.sort_unstable();
     Ok(ids)
-}
-
-/// Ties a real write to the dry run the user reviewed. `DefaultHasher::new` is the same
-/// SipHash with the same keys in every run of one build, which is all a dry run and its write
-/// need.
-fn review_token(label: &str, items: &[DocumentItem]) -> String {
-    let mut hasher = DefaultHasher::new();
-    (label, items).hash(&mut hasher);
-    format!("{:016x}", hasher.finish())
 }
 
 fn already_recorded_message(recorded: &RecordedSource) -> String {

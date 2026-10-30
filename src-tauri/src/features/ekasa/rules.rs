@@ -1,6 +1,7 @@
 use regex::{Regex, RegexBuilder};
 use serde::Serialize;
 
+use super::models::EkasaRuleRow;
 use crate::shared::text::strip_accents;
 
 /// A deductible share and a VAT-reclaimable share, in basis points.
@@ -77,6 +78,17 @@ impl ShareRules {
             rules: compiled,
             problems,
         }
+    }
+
+    /// A stored profile's rules, which come in their `sort_order`.
+    pub fn from_profile(rules: &[EkasaRuleRow]) -> Self {
+        Self::compile(rules.iter().map(|rule| RuleSource {
+            pattern: &rule.name_pattern,
+            shares: Shares {
+                deductible_pct_bps: rule.deductible_pct_bps,
+                vat_reclaimable_pct_bps: rule.vat_reclaimable_pct_bps,
+            },
+        }))
     }
 
     pub fn shares_for(&self, item_name: &str) -> Option<&RuleMatch> {
@@ -205,6 +217,22 @@ mod tests {
         assert_eq!(reported, [(1, "kava(?=1kg)"), (2, "caj(")]);
         assert!(rules.problems().iter().all(|p| !p.message.contains('\n')));
         assert!(rules.problems()[0].message.contains("look-around"));
+    }
+
+    #[test]
+    fn a_stored_profile_matches_in_its_order() {
+        let row = |sort_order: i64, pattern: &str, bps: i64| EkasaRuleRow {
+            id: sort_order,
+            profile_id: 1,
+            sort_order,
+            name_pattern: pattern.to_owned(),
+            deductible_pct_bps: bps,
+            vat_reclaimable_pct_bps: 0,
+        };
+        let rules = ShareRules::from_profile(&[row(0, "mlieko", 0), row(1, "mlieko|kava", 10000)]);
+
+        assert_eq!(matched(&rules, "MLIEKO"), Some((1, 0)));
+        assert_eq!(matched(&rules, "KAVA"), Some((2, 10000)));
     }
 
     #[test]

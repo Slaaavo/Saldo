@@ -5,7 +5,13 @@ use crate::db::initialize_in_memory;
 use crate::features::accounts::repository::{
     create_account, update_account, CreateAccountParams, UpdateAccountParams,
 };
-use crate::features::persons::repository::{create_person, CreatePersonParams};
+use crate::features::ekasa::models::EkasaRuleInput;
+use crate::features::ekasa::reading::fake::{read_offline, FakeEkasaApi};
+use crate::features::ekasa::reading::ReceiptReading;
+use crate::features::ekasa::repository::{upsert_ekasa_profile, UpsertEkasaProfileParams};
+use crate::features::persons::repository::{
+    create_person, update_person, CreatePersonParams, UpdatePersonParams,
+};
 use crate::features::tax_models::models::ActualMonths;
 use crate::features::tax_models::repository::{
     create_tax_model, BracketInput, CreateTaxModelParams,
@@ -163,20 +169,31 @@ fn laptop_and_sleeve(books: &Books) -> Value {
     )
 }
 
-/// A real write carries the token of its dry run, which
-/// `a_write_needs_the_token_its_dry_run_returned` shows `review_token` to be.
+/// Stands for the token of this batch's dry run; `run_batch` puts the real one in its place.
+const REVIEWED: &str = "the reviewToken of this batch's dry run";
+
 fn batch(items: Vec<Value>, dry_run: bool) -> RecordBatchInput {
     let mut input: RecordBatchInput = serde_json::from_value(
         json!({ "label": "Invoices 2026-10", "dryRun": dry_run, "items": items }),
     )
     .unwrap();
     if !dry_run {
-        input.review_token = Some(review_token(&input.label, &input.items));
+        input.review_token = Some(REVIEWED.to_owned());
     }
     input
 }
 
-fn run_batch(conn: &Connection, input: RecordBatchInput) -> Result<BatchReceipt, RecordBatchError> {
+/// A real write carries the token of its dry run, which
+/// `a_write_needs_the_token_its_dry_run_returned` shows `record_items` to compute.
+fn run_batch(
+    conn: &Connection,
+    mut input: RecordBatchInput,
+) -> Result<BatchReceipt, RecordBatchError> {
+    if input.review_token.as_deref() == Some(REVIEWED) {
+        let dry_run = WriteTxn::begin(conn).unwrap();
+        let recorded = record_items(&dry_run, input.label.trim(), &input.items).unwrap();
+        input.review_token = Some(recorded.review_token);
+    }
     record_batch(WriteTxn::begin(conn).unwrap(), input)
 }
 
@@ -1195,7 +1212,7 @@ fn a_share_out_of_range_is_refused_where_it_stands() {
     let err = parse(item_with(json!({ "kind": "expense", "lines": [line] }))).unwrap_err();
 
     assert!(
-        err.starts_with("items[0].content: lines[0].vatReclaimablePctBps: 12000 "),
+        err.starts_with("items[0]: content: lines[0].vatReclaimablePctBps: 12000 "),
         "{err}"
     );
 }
@@ -1204,7 +1221,7 @@ fn a_share_out_of_range_is_refused_where_it_stands() {
 fn an_unknown_kind_is_refused() {
     let err = parse(item_with(json!({ "kind": "invoice", "lines": [] }))).unwrap_err();
 
-    assert!(err.starts_with("items[0].content: "), "{err}");
+    assert!(err.starts_with("items[0]: content: "), "{err}");
 }
 
 #[test]
@@ -1242,4 +1259,480 @@ fn a_well_formed_item_parses() {
                           "prepaidUntil": "2027-09-30", "reclaimedVat": false });
 
     assert!(parse(item_with(content)).is_ok());
+}
+
+const BILLA: &str = "O-7A3F0C1E9B2D4C58A6E1F0D3B5C7A9E2";
+const DATART_OFFLINE: &str =
+    "C44B3977-0E415CC6-EE663AA1-776C973A-A143B660:99920045678900001:261020154211:118:2290.00";
+
+fn billa() -> ReceiptReading {
+    FakeEkasaApi {
+        receipt_id: BILLA,
+        lines: vec![
+            ("KÁVA LAVAZZA 1KG", 1599, 2300),
+            ("MLIEKO 1L", 129, 500),
+            ("PAPIER A4", 662, 2300),
+        ],
+    }
+    .read()
+}
+
+fn by(who: &str, deductible: i64, vat_reclaimable: i64) -> Value {
+    json!({ "deductiblePctBps": deductible, "vatReclaimablePctBps": vat_reclaimable, "by": who })
+}
+
+/// What Claude sends for a receipt read_receipt read: its lines as read, each with the given
+/// shares (null for none).
+fn receipt_item(books: &Books, reading: &ReceiptReading, shares: &[Value]) -> Value {
+    let lines: Vec<Value> = reading
+        .lines
+        .as_ref()
+        .expect("an online reading has lines")
+        .iter()
+        .zip(shares)
+        .map(|(line, shares)| {
+            let mut sent = json!({ "name": line.name, "grossMinor": line.gross_minor,
+                                   "vatRateBps": line.vat_rate_bps });
+            if !shares.is_null() {
+                sent["shares"] = shares.clone();
+            }
+            sent
+        })
+        .collect();
+    json!({
+        "receipt": reading.receipt,
+        "personId": books.person_id,
+        "date": reading.date,
+        "vendor": reading.vendor,
+        "lines": lines,
+    })
+}
+
+fn ekasa_profile(conn: &Connection, books: &Books, rules: &[(&str, i64, i64)]) {
+    upsert_ekasa_profile(
+        conn,
+        UpsertEkasaProfileParams {
+            person_id: books.person_id,
+            default_deductible_pct_bps: 10000,
+            default_vat_reclaimable_pct_bps: 10000,
+            rules: rules
+                .iter()
+                .enumerate()
+                .map(
+                    |(index, &(pattern, deductible, vat_reclaimable))| EkasaRuleInput {
+                        sort_order: index as i64,
+                        name_pattern: pattern.to_owned(),
+                        deductible_pct_bps: deductible,
+                        vat_reclaimable_pct_bps: vat_reclaimable,
+                    },
+                )
+                .collect(),
+        },
+    )
+    .unwrap();
+}
+
+/// Each live entry carrying the reference: its note and its two shares.
+fn legs_with_ref(conn: &Connection, source_ref: &str) -> Vec<(Option<String>, i64, i64)> {
+    let mut statement = conn
+        .prepare(
+            "SELECT ed.note, ed.expense_deductible_pct_bps, ed.vat_reclaimable_pct_bps
+             FROM event e JOIN event_data ed ON ed.id = e.latest_data_id
+             WHERE e.source_ref = ?1 AND e.deleted_at IS NULL ORDER BY e.id",
+        )
+        .unwrap();
+    statement
+        .query_map([source_ref], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })
+        .unwrap()
+        .collect::<rusqlite::Result<_>>()
+        .unwrap()
+}
+
+fn group_note_of(conn: &Connection, source_ref: &str) -> Option<String> {
+    conn.query_row(
+        "SELECT sg.note FROM event e JOIN split_group sg ON sg.id = e.split_group_id
+         WHERE e.source_ref = ?1 LIMIT 1",
+        [source_ref],
+        |row| row.get(0),
+    )
+    .unwrap()
+}
+
+#[test]
+fn a_receipt_records_a_leg_per_line_with_the_shares_that_win() {
+    let conn = initialize_in_memory().unwrap();
+    let books = books(&conn);
+    ekasa_profile(
+        &conn,
+        &books,
+        &[("kava", 10000, 10000), ("mlieko|rozok", 0, 0)],
+    );
+    let reading = billa();
+    let item = || {
+        receipt_item(
+            &books,
+            &reading,
+            &[
+                by("claude", 0, 0),
+                by("user", 10000, 5000),
+                by("claude", 5000, 0),
+            ],
+        )
+    };
+
+    let reviewed = run_batch(&conn, batch(vec![item()], true)).unwrap();
+    let written = record(&conn, vec![item()]);
+
+    let document = serde_json::to_value(&reviewed.documents[0]).unwrap();
+    assert_eq!(document["sourceRef"], format!("online:{BILLA}"));
+    assert_eq!(document["dateSource"], "receipt_date");
+    assert_eq!(document["entryDate"], "2026-10-12");
+    assert_eq!(document["groupNote"], "BILLA s.r.o.");
+    assert_eq!(document["shape"]["kind"], "split_group");
+    assert_eq!(document["totalGrossMinor"], 2390);
+    assert_eq!(
+        document["lines"][0],
+        json!({ "grossMinor": 1599, "netMinor": 1300, "vatRateBps": 2300,
+                "note": "KÁVA LAVAZZA 1KG",
+                "shares": { "deductiblePctBps": 10000, "vatReclaimablePctBps": 10000,
+                            "from": "rule",
+                            "rule": { "position": 1, "pattern": "kava",
+                                      "deductiblePctBps": 10000, "vatReclaimablePctBps": 10000 },
+                            "claude": { "deductiblePctBps": 0, "vatReclaimablePctBps": 0 } } })
+    );
+    assert_eq!(
+        document["lines"][1]["shares"],
+        json!({ "deductiblePctBps": 10000, "vatReclaimablePctBps": 5000, "from": "user",
+                "rule": { "position": 2, "pattern": "mlieko|rozok",
+                          "deductiblePctBps": 0, "vatReclaimablePctBps": 0 } })
+    );
+    assert_eq!(
+        document["lines"][2]["shares"],
+        json!({ "deductiblePctBps": 5000, "vatReclaimablePctBps": 0, "from": "claude" })
+    );
+
+    let source_ref = format!("online:{BILLA}");
+    assert_eq!(
+        legs_with_ref(&conn, &source_ref),
+        [
+            (Some("KÁVA LAVAZZA 1KG".to_owned()), 10000, 10000),
+            (Some("MLIEKO 1L".to_owned()), 10000, 5000),
+            (Some("PAPIER A4".to_owned()), 5000, 0),
+        ]
+    );
+    assert_eq!(
+        group_note_of(&conn, &source_ref).as_deref(),
+        Some("BILLA s.r.o.")
+    );
+    assert!(written.documents[0].warnings.is_empty());
+}
+
+#[test]
+fn a_one_line_receipt_is_a_single_entry_named_after_its_line() {
+    let conn = initialize_in_memory().unwrap();
+    let books = books(&conn);
+    let reading = FakeEkasaApi {
+        receipt_id: BILLA,
+        lines: vec![("PAPIER A4", 662, 2300)],
+    }
+    .read();
+
+    let receipt = record(
+        &conn,
+        vec![receipt_item(
+            &books,
+            &reading,
+            &[by("claude", 10000, 10000)],
+        )],
+    );
+
+    assert!(matches!(
+        receipt.documents[0].shape,
+        RecordedShape::Single { event_id: Some(_) }
+    ));
+    assert_eq!(receipt.documents[0].group_note, None);
+    assert_eq!(
+        legs_with_ref(&conn, &format!("online:{BILLA}")),
+        [(Some("PAPIER A4".to_owned()), 10000, 10000)]
+    );
+}
+
+#[test]
+fn a_line_without_shares_needs_a_rule_and_the_profile_default_does_not_count() {
+    let conn = initialize_in_memory().unwrap();
+    let books = books(&conn);
+    ekasa_profile(&conn, &books, &[("kava", 10000, 10000)]);
+    let reading = billa();
+
+    let (errors, _) = refused(run_batch(
+        &conn,
+        batch(
+            vec![receipt_item(
+                &books,
+                &reading,
+                &[Value::Null, Value::Null, Value::Null],
+            )],
+            true,
+        ),
+    ));
+
+    assert_eq!(errors[0].code, "SHARES_NEEDED");
+    let message = &errors[0].message;
+    assert!(
+        message.contains("lines[1] 'MLIEKO 1L'") && message.contains("lines[2] 'PAPIER A4'"),
+        "{message}"
+    );
+    assert!(!message.contains("lines[0]"), "{message}");
+}
+
+#[test]
+fn a_receipt_that_differs_from_its_reading_is_refused() {
+    let conn = initialize_in_memory().unwrap();
+    let books = books(&conn);
+    let mut item = receipt_item(
+        &books,
+        &billa(),
+        &[by("claude", 0, 0), by("claude", 0, 0), by("claude", 0, 0)],
+    );
+    item["lines"][2]["grossMinor"] = json!(626);
+
+    let (errors, _) = refused(run_batch(&conn, batch(vec![item], true)));
+
+    assert_eq!(errors[0].code, "RECEIPT_CHANGED");
+    assert_eq!(errors[0].file, "/r/billa.jpg");
+}
+
+#[test]
+fn a_receipt_the_app_imported_is_already_recorded_and_twice_in_a_batch_is_a_duplicate() {
+    let conn = initialize_in_memory().unwrap();
+    let books = books(&conn);
+    let item = || {
+        receipt_item(
+            &books,
+            &billa(),
+            &[by("claude", 0, 0), by("claude", 0, 0), by("claude", 0, 0)],
+        )
+    };
+    let (twice, _) = refused(run_batch(&conn, batch(vec![item(), item()], true)));
+    let imported = create_taxable_event_inner(
+        &conn,
+        CreateTaxableEventInput {
+            person_id: books.person_id,
+            event_type: "expense".to_owned(),
+            amount_minor: 2390,
+            event_date: "2026-10-12".to_owned(),
+            note: Some("BILLA".to_owned()),
+            vat_rate_bps: Some(2300),
+            vat_reclaimable_pct_bps: Some(10000),
+            expense_deductible_pct_bps: Some(10000),
+            prepaid_until: None,
+            reclaimed_vat: Some(true),
+            source_ref: Some(SourceRef::ekasa_online(BILLA)),
+        },
+    )
+    .unwrap();
+
+    let (recorded, _) = refused(run_batch(&conn, batch(vec![item()], true)));
+
+    assert_eq!(twice[0].index, 1);
+    assert_eq!(twice[0].code, "DUPLICATE_IN_BATCH");
+    assert_eq!(recorded[0].code, "ALREADY_RECORDED");
+    assert!(matches!(
+        recorded[0].recorded,
+        Some(RecordedSource::Entry { event_id, .. }) if event_id == imported
+    ));
+}
+
+#[test]
+fn an_invoice_and_a_receipt_record_together_and_undo_together() {
+    let conn = initialize_in_memory().unwrap();
+    let books = books(&conn);
+    let paid = payment(&conn, &books, -2_390);
+    let receipt = with(
+        receipt_item(
+            &books,
+            &billa(),
+            &[
+                by("claude", 10000, 10000),
+                by("claude", 0, 0),
+                by("claude", 10000, 10000),
+            ],
+        ),
+        "paymentIds",
+        json!([paid]),
+    );
+
+    let recorded = record(
+        &conn,
+        vec![single_expense(&books, "35697270", "FV1", 2_399), receipt],
+    );
+    let found = documents(&conn, &books);
+    let undone = undo(&conn, recorded.batch_id.unwrap(), false).unwrap();
+
+    assert_eq!(found.len(), 2);
+    let receipt = document(&found, &format!("online:{BILLA}"));
+    assert_eq!(receipt.linked_payment_ids, [paid]);
+    assert!(receipt.split_group_id.is_some());
+    assert!(found.iter().all(|doc| doc.batch_id == recorded.batch_id));
+    assert_eq!(
+        undone.removed_event_ids.len(),
+        4,
+        "the invoice and the receipt's three legs"
+    );
+    assert!(documents(&conn, &books).is_empty());
+    assert_eq!(unlinked_payments(&conn, &books), [paid]);
+}
+
+#[test]
+fn an_offline_receipt_with_equipment_records_an_asset_without_vat() {
+    let conn = initialize_in_memory().unwrap();
+    let books = books(&conn);
+    let reading = read_offline(DATART_OFFLINE);
+    let item = json!({
+        "receipt": reading.receipt,
+        "personId": books.person_id,
+        "date": reading.date,
+        "vendor": "DATART",
+        "lines": [
+            { "name": "Notebook Lenovo ThinkPad T14", "grossMinor": 219_900, "vatRateBps": 2300,
+              "asset": { "depreciationMonths": 48 } },
+            { "name": "Mys Logitech M185", "grossMinor": 2_900, "vatRateBps": 2300,
+              "shares": by("claude", 10000, 10000) },
+            { "name": "Taska na notebook", "grossMinor": 6_200, "vatRateBps": 2300,
+              "shares": by("claude", 10000, 10000) },
+        ],
+    });
+    let mut short = item.clone();
+    short["lines"][2]["grossMinor"] = json!(6_000);
+
+    let (errors, _) = refused(run_batch(&conn, batch(vec![short], true)));
+    let receipt = record(&conn, vec![item]);
+
+    assert_eq!(errors[0].code, "RECEIPT_TOTAL_DIFFERS");
+    let document = &receipt.documents[0];
+    assert_eq!(document.entry_date, "2026-10-20");
+    assert_eq!(document.total_gross_minor, 229_000);
+    assert_eq!(document.lines.len(), 2);
+    assert_eq!(document.assets[0].name, "Notebook Lenovo ThinkPad T14");
+    assert_eq!(document.assets[0].purchase_price_minor, 178_780);
+    assert_eq!(document.assets[0].price_basis, PriceBasis::NetVatReclaimed);
+    assert_eq!(document.group_note.as_deref(), Some("DATART"));
+}
+
+#[test]
+fn an_asset_line_takes_no_shares() {
+    let conn = initialize_in_memory().unwrap();
+    let books = books(&conn);
+    let reading = read_offline(DATART_OFFLINE);
+    let item = json!({
+        "receipt": reading.receipt, "personId": books.person_id, "date": reading.date,
+        "vendor": "DATART",
+        "lines": [{ "name": "Notebook", "grossMinor": 229_000, "vatRateBps": 2300,
+                    "asset": { "depreciationMonths": 48 }, "shares": by("user", 10000, 10000) }],
+    });
+
+    let (errors, _) = refused(run_batch(&conn, batch(vec![item], true)));
+
+    assert_eq!(errors[0].code, "VALIDATION");
+}
+
+#[test]
+fn a_write_after_the_rules_or_the_vat_payer_flag_changed_is_refused() {
+    let conn = initialize_in_memory().unwrap();
+    let books = books(&conn);
+    ekasa_profile(&conn, &books, &[("kava", 10000, 10000)]);
+    let items = || {
+        vec![receipt_item(
+            &books,
+            &billa(),
+            &[by("claude", 0, 0), by("claude", 0, 0), by("claude", 0, 0)],
+        )]
+    };
+    let reviewed = run_batch(&conn, batch(items(), true)).unwrap();
+    ekasa_profile(&conn, &books, &[("kava", 5000, 10000)]);
+    let after_rule_edit = run_batch(&conn, reviewed_write(items(), reviewed.review_token));
+    let reviewed = run_batch(&conn, batch(items(), true)).unwrap();
+    update_person(
+        &conn,
+        UpdatePersonParams {
+            person_id: books.person_id,
+            name: "Firma s.r.o.".to_owned(),
+            person_type: "legal".to_owned(),
+            vat_payer: false,
+        },
+    )
+    .unwrap();
+    let after_flag_edit = run_batch(&conn, reviewed_write(items(), reviewed.review_token));
+
+    assert!(matches!(
+        after_rule_edit,
+        Err(RecordBatchError::ReviewTokenMismatch)
+    ));
+    assert!(matches!(
+        after_flag_edit,
+        Err(RecordBatchError::ReviewTokenMismatch)
+    ));
+    assert!(documents(&conn, &books).is_empty());
+    assert!(list_recent_batches(&conn, 10).unwrap().is_empty());
+}
+
+#[test]
+fn a_stored_rule_that_does_not_compile_is_a_warning() {
+    let conn = initialize_in_memory().unwrap();
+    let books = books(&conn);
+    ekasa_profile(&conn, &books, &[("ka(va", 0, 0), ("kava", 10000, 10000)]);
+
+    let receipt = run_batch(
+        &conn,
+        batch(
+            vec![receipt_item(
+                &books,
+                &billa(),
+                &[Value::Null, by("claude", 0, 0), by("claude", 0, 0)],
+            )],
+            true,
+        ),
+    )
+    .unwrap();
+
+    let document = &receipt.documents[0];
+    assert!(matches!(
+        &document.warnings[..],
+        [Warning::InvalidEkasaRule { position: 1, pattern, .. }] if pattern == "ka(va"
+    ));
+    assert_eq!(
+        document.lines[0]
+            .shares
+            .as_ref()
+            .unwrap()
+            .deductible_pct_bps,
+        10000
+    );
+}
+
+#[test]
+fn an_item_needs_a_document_or_a_receipt() {
+    let err = parse(json!({ "personId": 1, "issueDate": "2026-10-12" })).unwrap_err();
+
+    assert!(
+        err.contains("`document`") && err.contains("`receipt`"),
+        "{err}"
+    );
+}
+
+#[test]
+fn an_error_inside_a_receipt_line_keeps_its_path() {
+    let item = json!({
+        "receipt": { "file": "a.jpg", "code": BILLA, "readToken": "0" },
+        "personId": 1, "date": "2026-10-12", "vendor": "BILLA",
+        "lines": [{ "name": "KAVA", "grossMinor": 100, "vatRateBps": 2300,
+                    "shares": { "deductiblePctBps": 0, "vatReclaimablePctBps": 0,
+                                "by": "profile" } }],
+    });
+
+    let err = parse(item).unwrap_err();
+
+    assert!(err.starts_with("items[0]: lines[0].shares.by: "), "{err}");
 }

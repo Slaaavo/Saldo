@@ -4,6 +4,8 @@ use schemars::{json_schema, JsonSchema, Schema, SchemaGenerator};
 use serde::{Deserialize, Serialize};
 
 use crate::error::AppError;
+use crate::features::ekasa::reading::ReceiptId;
+use crate::features::ekasa::rules::{RuleMatch, Shares};
 use crate::features::transactions::models::RecordedSource;
 use crate::features::transactions::SourceRef;
 
@@ -63,9 +65,129 @@ pub struct RecordBatchInput {
     /// nothing and returns a reviewToken. False records it.
     pub dry_run: bool,
     /// With dryRun false: the reviewToken of the dry run the user approved. Saldo refuses a
-    /// batch that differs from that dry run in any field.
+    /// batch that differs from that dry run in any field, or whose eKasa rules or VAT-payer
+    /// flag changed in Saldo since.
     pub review_token: Option<String>,
-    pub items: Vec<DocumentItem>,
+    pub items: Vec<BatchItem>,
+}
+
+/// One source file: an invoice or credit note (with `document`), or an eKasa receipt (with
+/// `receipt`).
+#[derive(Debug, Hash, JsonSchema)]
+#[serde(untagged)]
+pub enum BatchItem {
+    Document(DocumentItem),
+    Receipt(ReceiptItem),
+}
+
+/// Picked by which key is present, and the variant is parsed on its own so an error inside it
+/// keeps its path, as for `DocumentContent`.
+impl<'de> Deserialize<'de> for BatchItem {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        use serde::de::Error;
+
+        let fields = serde_json::Map::deserialize(deserializer)?;
+        let is_receipt = fields.contains_key("receipt");
+        if !is_receipt && !fields.contains_key("document") {
+            return Err(D::Error::custom(
+                "an item needs `document` (an invoice or credit note) or `receipt` (an eKasa \
+                 receipt from read_receipt)",
+            ));
+        }
+        let fields = serde_json::Value::Object(fields);
+        if is_receipt {
+            variant(fields).map(BatchItem::Receipt)
+        } else {
+            variant(fields).map(BatchItem::Document)
+        }
+        .map_err(D::Error::custom)
+    }
+}
+
+fn variant<T: serde::de::DeserializeOwned>(fields: serde_json::Value) -> Result<T, String> {
+    serde_path_to_error::deserialize(fields).map_err(|e| format!("{}: {}", e.path(), e.inner()))
+}
+
+impl BatchItem {
+    pub fn file(&self) -> &str {
+        match self {
+            BatchItem::Document(document) => &document.document.file,
+            BatchItem::Receipt(receipt) => &receipt.receipt.file,
+        }
+    }
+
+    pub fn person_id(&self) -> i64 {
+        match self {
+            BatchItem::Document(document) => document.person_id,
+            BatchItem::Receipt(receipt) => receipt.person_id,
+        }
+    }
+}
+
+/// An eKasa receipt, read with read_receipt. It becomes one expense dated by the receipt: a
+/// split group with an entry per line (the line's name as its note, the shop as the group's
+/// note), or a single entry named after its one line.
+#[derive(Debug, Hash, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ReceiptItem {
+    pub receipt: ReceiptId,
+    pub person_id: i64,
+    /// The receipt date read_receipt returned, YYYY-MM-DD.
+    pub date: String,
+    /// The shop: read_receipt's vendor, or the name printed on an offline receipt.
+    pub vendor: String,
+    /// Cash flow ids (from find_payments) that paid this receipt.
+    #[serde(default)]
+    pub payment_ids: Vec<i64>,
+    /// Whether the company reclaims this receipt's VAT; the person's VAT-payer flag when
+    /// missing. Also sets an asset's price: without VAT when reclaimed, with VAT otherwise.
+    pub reclaimed_vat: Option<bool>,
+    /// Every line of the receipt. Online: read_receipt's lines as returned. Offline: read from
+    /// the receipt, adding up to the QR code's total.
+    pub lines: Vec<ReceiptLine>,
+}
+
+#[derive(Debug, Hash, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ReceiptLine {
+    /// The item's name as printed.
+    pub name: String,
+    /// VAT included, in minor units.
+    pub gross_minor: i64,
+    /// 0 for no VAT.
+    pub vat_rate_bps: Bps,
+    /// Shares the user dictated win. Otherwise the person's eKasa rule that matches the line
+    /// wins, and only then your own judgment. Send your judgment for every line the user did
+    /// not dictate.
+    pub shares: Option<LineShares>,
+    /// Equipment over 1,700.00 € with a useful life over 12 months: the line becomes an asset
+    /// named after it. An asset line takes no shares.
+    pub asset: Option<ReceiptAsset>,
+}
+
+#[derive(Debug, Clone, Copy, Hash, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct LineShares {
+    /// The tax-deductible share of the cost.
+    pub deductible_pct_bps: Bps,
+    /// The share of the VAT that can be reclaimed.
+    pub vat_reclaimable_pct_bps: Bps,
+    /// user: the user dictated these shares. claude: your own judgment.
+    pub by: ShareBy,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ShareBy {
+    User,
+    Claude,
+}
+
+#[derive(Debug, Hash, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ReceiptAsset {
+    /// Useful life in months. Depreciation spreads the purchase price over it.
+    pub depreciation_months: i64,
 }
 
 /// One source document. Everything it produces (lines, assets, payment links) hangs off it.
@@ -156,11 +278,6 @@ impl<'de> Deserialize<'de> for DocumentContent {
             PrepaidExpense,
         }
 
-        fn variant<T: serde::de::DeserializeOwned>(fields: serde_json::Value) -> Result<T, String> {
-            serde_path_to_error::deserialize(fields)
-                .map_err(|e| format!("{}: {}", e.path(), e.inner()))
-        }
-
         let mut fields = serde_json::Map::deserialize(deserializer)?;
         let kind = fields
             .remove("kind")
@@ -240,6 +357,9 @@ pub struct RecordedDocument {
     pub entry_date: String,
     pub date_source: DateSource,
     pub shape: RecordedShape,
+    /// A split group's note: a receipt's shop, an invoice's note.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub group_note: Option<String>,
     /// Lines and assets together, VAT included.
     pub total_gross_minor: i64,
     pub lines: Vec<RecordedLine>,
@@ -269,11 +389,14 @@ impl RecordedDocument {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+// Each name is the date field it comes from, as the dry run reports it.
+#[allow(clippy::enum_variant_names)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DateSource {
     DeliveryDate,
     IssueDate,
+    ReceiptDate,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -302,6 +425,40 @@ pub struct RecordedLine {
     pub gross_minor: i64,
     pub net_minor: i64,
     pub vat_rate_bps: i64,
+    /// A receipt line's note: its name.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+    /// A receipt line's shares and where they came from.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub shares: Option<RecordedShares>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordedShares {
+    pub deductible_pct_bps: i64,
+    pub vat_reclaimable_pct_bps: i64,
+    #[serde(flatten)]
+    pub source: ShareSource,
+}
+
+/// Where a receipt line's shares came from, tagged by `from`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
+#[serde(tag = "from", rename_all = "snake_case")]
+pub enum ShareSource {
+    /// The user dictated them. `rule` is the person's eKasa rule they won over.
+    User {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        rule: Option<RuleMatch>,
+    },
+    /// The person's eKasa rule that matched the line. `claude` is Claude's share it replaced.
+    Rule {
+        rule: RuleMatch,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        claude: Option<Shares>,
+    },
+    /// Claude's judgment: no rule matched.
+    Claude,
 }
 
 #[derive(Debug, Serialize)]
@@ -314,7 +471,7 @@ pub struct RecordedAsset {
     pub depreciation_months: i64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PriceBasis {
     NetVatReclaimed,
@@ -344,6 +501,13 @@ pub enum Warning {
         event_id: i64,
         source_ref: Option<String>,
         date: String,
+    },
+    /// A rule of the person's eKasa profile was skipped because its pattern does not compile.
+    /// The user can fix it in Saldo's eKasa import.
+    InvalidEkasaRule {
+        position: usize,
+        pattern: String,
+        message: String,
     },
 }
 
