@@ -26,7 +26,7 @@ Read the [feature map](features/README.md) and pick the feature file that matche
 
 ## Launch
 
-**Set up a fresh worktree once.** Run `pnpm install --frozen-lockfile` with the sandbox disabled. Inside the sandbox, pnpm 12 rejects the proxy's TLS certificate (`OSStatus -26276`) and can leave `node_modules` empty. `launch.sh` copies the gitignored `src-tauri/libpdfium.dylib` from the main checkout when it is missing.
+**Set up a fresh worktree once.** Run `pnpm install --frozen-lockfile` with the sandbox disabled. Inside the sandbox, pnpm 12 rejects the proxy's TLS certificate (`OSStatus -26276`) and can leave `node_modules` empty. `launch.sh` copies the gitignored `src-tauri/libpdfium.dylib` from the main checkout when it is missing here and present there. Without it anywhere the app still starts, and only a PDF import fails.
 
 **Start the app.** Use the Bash tool with `run_in_background: true` and `dangerouslyDisableSandbox: true`. Keep the task id, because stopping that task stops the whole run.
 
@@ -51,7 +51,7 @@ Exit 0 prints `ready: Saldo Dev pid <pid>` and the evidence folder. Exit 1 means
 How it works: `launch.sh` runs `pnpm tauri dev --config src-tauri/tauri.dev.conf.json --runner scripts/runner.sh`.
 
 - `tauri.dev.conf.json` sets the identifier to `com.teamsumbal.saldo.dev`.
-- The plain debug binary has no bundle id, so computer use can't see its window. `runner.sh` therefore builds what `cargo run` would build, copies the binary and `libpdfium.dylib` into `.verify-saldo/Saldo Dev.app` (the library into `Contents/Resources/`, as in the installed app), and execs it from there with `src-tauri/` as the working directory. eKasa import and `saldo mcp` look for PDFium in that resource folder first, then fall back to `./libpdfium.dylib` in the working directory.
+- The plain debug binary has no bundle id, so computer use can't see its window. `runner.sh` therefore builds what `cargo run` would build, copies the binary and, when it exists, `libpdfium.dylib` into `.verify-saldo/Saldo Dev.app` (the library into `Contents/Resources/`, as in the installed app), and execs it from there with `src-tauri/` as the working directory. eKasa import and `saldo mcp` look for PDFium in that resource folder first, then fall back to `./libpdfium.dylib` in the working directory.
 - Vite and teardown on quit work as in normal `tauri dev`. Frontend edits hot-reload in the open window. A Rust edit should make `tauri dev` re-run the runner, which rebuilds and restarts the app; this hasn't been exercised yet. After one, run `wait-ready.sh` and take a fresh screenshot.
 
 **Grant computer use once per session.** Call `request_access` with `apps: ["com.teamsumbal.saldo.dev"]`. The user approves the dialog. The app is only listed while it runs, so launch it first.
