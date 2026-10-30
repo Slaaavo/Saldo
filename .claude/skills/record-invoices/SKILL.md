@@ -1,11 +1,13 @@
 ---
 name: record-invoices
-description: Record invoices, credit notes and equipment purchases in Saldo through the `saldo` MCP server, and undo a recorded batch. Use when the user hands over invoice PDFs, scans or photos to record, or asks to "record these invoices in Saldo", "add October's invoices", "book this credit note" or "undo that batch".
+description: Record invoices, credit notes, Slovak eKasa receipts and equipment purchases in Saldo through the `saldo` MCP server, and undo a recorded batch. Use when the user hands over invoice or receipt PDFs, scans or photos to record, or asks to "record these invoices in Saldo", "add January's expenses", "add these receipts", "book this credit note" or "undo that batch".
 ---
 
-# Record invoices in Saldo
+# Record invoices and receipts in Saldo
 
 You read the documents. Saldo validates them, stores them as entries and assets, and feeds them to the tax forecast. The `saldo` MCP server is a mode of the installed Saldo app (`saldo mcp`), so it always matches the app's database. Never record documents by driving the Saldo window with computer use.
+
+Invoices and eKasa receipts go into the same batch, one review table and one `batchId`. A document with an eKasa QR code (a cash register receipt) is a receipt; everything else is an invoice.
 
 ## Before you start
 
@@ -34,11 +36,23 @@ Take these from every document. Amounts are integer cents (minor units), VAT inc
   - Accessories under the threshold on the same invoice stay as expense lines of that document.
   - An asset takes no payment link. A document with only assets must have empty `paymentIds`.
 - **Shares.** Every expense line needs `deductiblePctBps` and `vatReclaimablePctBps` (10000 is 100 %). Look up the supplier's last entry with `find_entries` and its `issuer`, and reuse its shares. For a new supplier, propose 10000 deductible, and a VAT reclaim of 10000 when the person is a VAT payer or 0 when it is not. Mark proposed shares in the table. Set `reclaimedVat` only when a document differs from the person's VAT-payer flag.
-- **Receipts with an eKasa QR code** go through the eKasa import in the Saldo app, not through this skill. That import keeps the receipt's own reference.
+
+## Read each eKasa receipt
+
+- Call `read_receipt` with the file's absolute path. Saldo decodes the QR code. HEIC photos do not decode: convert one first with `sips -s format png <photo> --out <photo>.png`.
+  - `QR_NOT_FOUND`: if the paper shows an online receipt id (`O-` or `V-` and 32 hex digits, printed as the receipt's id), call `read_receipt` again with that id as `code`, typed exactly as printed. Otherwise ask the user for a sharper photo or the PDF. An offline receipt can only be read from its QR code.
+  - `RECEIPT_NOT_FOUND`: the id is mistyped, or Finančná správa does not have the receipt yet. `NETWORK_ERROR`, `EKASA_API_ERROR`: leave the receipt out and list it as waiting.
+  - `alreadyRecorded` set: the receipt is in Saldo already (imported in the app or recorded earlier). Drop it and tell the user.
+- An **online** receipt (`kind` `online`) comes with its date, shop and lines from Finančná správa. Copy `receipt`, `date` and every line's `name`, `grossMinor` and `vatRateBps` exactly as returned, and the shop as `vendor`. Never retype, merge, split or reorder lines: Saldo seals what it read and refuses any change (`RECEIPT_CHANGED`).
+  - `lines_differ_from_total` in `warnings`: Finančná správa's lines do not add up to the receipt's total. Record the lines as listed and show the gap in the table.
+- An **offline** receipt (`kind` `offline`) gives only its date and total. Read the shop and every line from the receipt yourself: the name as printed, the gross amount and the VAT rate. The lines must add up to `totalMinor` (`RECEIPT_TOTAL_DIFFERS` otherwise: read them again, a line, discount or deposit is missing or misread). Use the `date` read_receipt returned.
+- **The receipt item** in `record_batch` is `{"receipt": <as returned>, "personId", "date", "vendor", "paymentIds", "lines"}`, with `reclaimedVat` only when the receipt differs from the person's VAT-payer flag. Each line is `{"name", "grossMinor", "vatRateBps", "shares"}`.
+- **Shares.** Give every line `shares` with your judgment: `{"deductiblePctBps", "vatReclaimablePctBps", "by": "claude"}`, using the same reasoning as for an invoice line. The person's eKasa rules (set up in the app's eKasa import) win over your judgment when one matches the line, and the dry run says which rule. A share the user dictated is `"by": "user"` and wins over the rules: use it only on the user's word, never to undo a rule you disagree with. Tell the user instead.
+- **Equipment** on a receipt (the asset threshold above) is `"asset": {"depreciationMonths": n}` on its line, with no `shares`. The line stays in the list as read.
 
 ## Find each payment
 
-- Call `find_payments` with the person, a window from a few days before the issue date to a few weeks after the due date, `amountMinor` set to the document total (either sign matches), and `unlinkedOnly` true. `noteContains` ignores case and accents, so `cez` finds `ČEZ`.
+- Call `find_payments` with the person, a window from a few days before the issue date to a few weeks after the due date (for a receipt: its date to a few days after), `amountMinor` set to the document total (either sign matches), and `unlinkedOnly` true. `noteContains` ignores case and accents, so `cez` finds `ČEZ`.
 - Put the matching payment ids in the document's `paymentIds`. Saldo links them to the entry.
 - A foreign-currency document takes the euro amount of its payment, so its `grossMinor` values come from the payment, split by the document's VAT rates. Search with `originalCurrency` and the original amount. If the payment is not in Saldo yet, leave the document out of the batch and list it as waiting for its payment.
 
@@ -46,10 +60,18 @@ Take these from every document. Amounts are integer cents (minor units), VAT inc
 
 1. Call `get_forecast` for the person's tax model of that year, and keep the result.
 2. Call `record_batch` with all documents and `dryRun` true. Saldo runs the real write and rolls it back. The answer carries a `reviewToken`.
-3. If it refuses (`BATCH_REFUSED`), fix every listed item and run the dry run again. `ALREADY_RECORDED` means the document is in Saldo already. Drop it and tell the user.
-4. Show the user one table, built from the dry run's answer. Give one row per document: the file, issuer, number, the date Saldo used and its source, the kind and shape, the gross total, the VAT rates, the shares, the asset price and months, the linked payments and every warning. List the documents waiting for a payment below it.
+3. If it refuses (`BATCH_REFUSED`), fix every listed item and run the dry run again. `ALREADY_RECORDED` means the document is in Saldo already. Drop it and tell the user. For a receipt:
+   - `SHARES_NEEDED`: a line has no `shares` and no rule matches it. Add your judgment.
+   - `RECEIPT_CHANGED`: copy the receipt and its lines again exactly as `read_receipt` returned them. A reading taken before Saldo was updated must be read again.
+   - `RECEIPT_TOTAL_DIFFERS`, `RECEIPT_DATE_DIFFERS`: an offline receipt's lines or date do not match its QR code. Read them again.
+4. Show the user one table, built from the dry run's answer. Give one row per document: the file, issuer (a receipt: its shop), number (a receipt: its `sourceRef`), the date Saldo used and its source, the kind and shape, the gross total, the VAT rates, the shares, the asset price and months, the linked payments and every warning. Under a receipt, give one sub-row per line with its name, amount, VAT rate and shares, and where each share came from (the line's `shares.from`):
+   - `rule`: "rule <position> `<pattern>`". When it replaced your judgment, `shares.claude` holds what you proposed: show both.
+   - `user`: "you said". When a rule matched too, `shares.rule` holds what it gives: show it.
+   - `claude`: "proposed by Claude".
+
+   List the documents waiting for a payment below the table.
 5. Wait for the user's yes.
-6. Call `record_batch` with the identical label and documents, `dryRun` false and the dry run's `reviewToken`. Keep the `batchId`. Saldo refuses with `REVIEW_TOKEN_MISMATCH` when anything differs from the reviewed dry run, `file` and `note` included. After a correction, run the dry run again and show the user the new table before you write.
+6. Call `record_batch` with the identical label and documents, `dryRun` false and the dry run's `reviewToken`. Keep the `batchId`. Saldo refuses with `REVIEW_TOKEN_MISMATCH` when anything differs from the reviewed dry run, `file` and `note` included, or when the user changed the person's eKasa rules or VAT-payer flag in Saldo since. After a correction, run the dry run again and show the user the new table before you write.
 7. Call `get_forecast` for each id in `affectedTaxModelIds`, and tell the user which forecast lines moved and by how much. The ids include later years that a prepaid expense or an asset's depreciation reaches.
 
 A forecast line counts entries only for the months the model marks as actual, and only while the user has not typed that line's year-so-far value. If a line did not move, check those two causes first and name the one that applies.
@@ -66,3 +88,4 @@ A forecast line counts entries only for the months the model marks as actual, an
 - `payment_direction_differs`: a linked payment goes the wrong way, for example money coming in for an expense. Check that it is the right payment.
 - `payment_already_linked`: the payment is linked to another entry too. Check that this is intended.
 - `similar_document`: another entry of the same person and kind has the same total within two weeks, from any issuer or typed in by hand (`sourceRef` null). Check that it is not the same document under another key or number.
+- `invalid_ekasa_rule`: one of the person's eKasa rules has a pattern Saldo cannot use, so it was skipped. Name it, and tell the user to fix it in the app's eKasa import.
