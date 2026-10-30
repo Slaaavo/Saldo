@@ -25,7 +25,7 @@ use crate::features::transactions::repository::{
 };
 use crate::features::transactions::source_ref::invoice_issuer_prefix;
 use crate::features::transactions::SourceRef;
-use crate::shared::validate_iso_date;
+use crate::shared::{validate_iso_date, WriteTxn};
 
 pub(super) struct Server {
     app_data_dir: PathBuf,
@@ -55,37 +55,33 @@ struct Tool {
 
 fn tools() -> Vec<Tool> {
     vec![
-        tool(
+        read_tool(
             "saldo_context",
             "Persons with their VAT-payer flag and default revenue and expense accounts, the tax \
              models, the consolidation currency and the database path. Call this first.",
-            Access::Read,
             saldo_context,
         ),
-        tool(
+        read_tool(
             "find_entries",
             "Recorded revenue, expense and prepaid expense documents, newest first, with a split \
              group's lines grouped into one document. Use issuer and number to check whether a \
              document is already recorded, and issuer alone to reuse a supplier's earlier \
              deductible and VAT shares.",
-            Access::Read,
             find_entries,
         ),
-        tool(
+        read_tool(
             "find_payments",
             "Bank and card payments (cash flows), newest first. The note holds the bank text. A \
              foreign-currency payment carries its original amount and currency next to the \
              amount in the account's currency.",
-            Access::Read,
             find_payments_tool,
         ),
-        tool(
+        read_tool(
             "get_forecast",
             "The tax forecast of a tax model, as Saldo's tax model page shows it.",
-            Access::Read,
             get_forecast,
         ),
-        tool(
+        write_tool(
             "record_batch",
             "Record documents (invoices, credit notes) as revenue, expense and prepaid expense \
              entries and assets, all of them or none. Saldo dates each entry by the delivery \
@@ -93,24 +89,21 @@ fn tools() -> Vec<Tool> {
              asset without VAT when the VAT is reclaimed, and links the given payments. A \
              document already in Saldo is refused. Call it with dryRun true first, show the \
              user the table, and call it again without dryRun only after the user approved it.",
-            Access::Write,
             record_batch,
         ),
-        tool(
+        write_tool(
             "undo_batch",
             "Remove everything one batch recorded: entries, their prepaid shares and split \
              legs, assets and their depreciation, payment links. Undoing twice changes nothing. \
              When rows were changed in Saldo since, it refuses and lists them.",
-            Access::Write,
             undo_batch,
         ),
     ]
 }
 
-fn tool<I, O>(
+fn read_tool<I, O>(
     name: &'static str,
     description: &'static str,
-    access: Access,
     handler: fn(&SaldoDb, I) -> Result<O, ToolFailure>,
 ) -> Tool
 where
@@ -120,19 +113,48 @@ where
     Tool {
         name,
         description,
-        access,
+        access: Access::Read,
         input_schema: input_schema::<I>,
         run: Box::new(move |db, arguments| {
-            let input: I = serde_path_to_error::deserialize(arguments).map_err(|e| {
-                ToolFailure::InvalidArguments {
-                    path: e.path().to_string(),
-                    message: e.inner().to_string(),
-                }
-            })?;
-            let output = handler(db, input)?;
-            serde_json::to_value(output).map_err(|e| ToolFailure::App(e.to_string().into()))
+            let input = parse_arguments(arguments)?;
+            output_value(handler(db, input)?)
         }),
     }
+}
+
+/// A write tool gets its transaction from `begin_write`, which re-checks the database under
+/// the write lock.
+fn write_tool<I, O>(
+    name: &'static str,
+    description: &'static str,
+    handler: fn(WriteTxn<'_>, I) -> Result<O, ToolFailure>,
+) -> Tool
+where
+    I: DeserializeOwned + JsonSchema + 'static,
+    O: Serialize + 'static,
+{
+    Tool {
+        name,
+        description,
+        access: Access::Write,
+        input_schema: input_schema::<I>,
+        run: Box::new(move |db, arguments| {
+            let input = parse_arguments(arguments)?;
+            let txn = db.begin_write().map_err(ToolFailure::Unavailable)?;
+            output_value(handler(txn, input)?)
+        }),
+    }
+}
+
+fn parse_arguments<I: DeserializeOwned>(arguments: Value) -> Result<I, ToolFailure> {
+    serde_path_to_error::deserialize(arguments).map_err(|e| ToolFailure::InvalidArguments {
+        path: e.path().to_string(),
+        message: e.inner().to_string(),
+    })
+}
+
+fn output_value<O: Serialize>(output: O) -> Result<Value, ToolFailure> {
+    serde_json::to_value(output).map_err(|e| ToolFailure::App(e.to_string().into()))
 }
 
 fn input_schema<I: JsonSchema>() -> Value {
@@ -487,12 +509,12 @@ fn get_forecast(
     Ok(calculate_tax_model_inner(&db.conn, input.tax_model_id)?)
 }
 
-fn record_batch(db: &SaldoDb, input: RecordBatchInput) -> Result<BatchReceipt, ToolFailure> {
-    entry_batches::record_batch(&db.conn, input).map_err(ToolFailure::Batch)
+fn record_batch(txn: WriteTxn<'_>, input: RecordBatchInput) -> Result<BatchReceipt, ToolFailure> {
+    entry_batches::record_batch(txn, input).map_err(ToolFailure::Batch)
 }
 
-fn undo_batch(db: &SaldoDb, input: UndoBatchInput) -> Result<UndoReceipt, ToolFailure> {
-    entry_batches::undo_batch(&db.conn, input).map_err(ToolFailure::Undo)
+fn undo_batch(txn: WriteTxn<'_>, input: UndoBatchInput) -> Result<UndoReceipt, ToolFailure> {
+    entry_batches::undo_batch(txn, input).map_err(ToolFailure::Undo)
 }
 
 #[cfg(test)]
@@ -741,6 +763,38 @@ mod tests {
         assert_eq!(context["recentBatches"][0]["id"], batch_id);
         assert!(undone, "{undo}");
         assert_eq!(undo["alreadyUndone"], false);
+    }
+
+    fn entries_with_ref(conn: &Connection, source_ref: &str) -> i64 {
+        conn.query_row(
+            "SELECT COUNT(*) FROM event WHERE source_ref = ?1",
+            [source_ref],
+            |row| row.get(0),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn a_write_after_saldo_switched_its_database_is_refused_and_writes_nothing() {
+        let seeded = seeded();
+        let db = open_saldo_db(seeded.dir.path()).unwrap();
+        let folder = seeded.dir.path().join("cloud");
+        std::fs::create_dir_all(&folder).unwrap();
+        let switched_to = crate::db::initialize_db(&folder.join(DB_FILENAME)).unwrap();
+        crate::config::write_db_location(seeded.dir.path(), &folder).unwrap();
+        let record = tools()
+            .into_iter()
+            .find(|tool| tool.name == "record_batch")
+            .unwrap();
+
+        let refusal = (record.run)(&db, orange_invoice(&seeded, "FV2"))
+            .unwrap_err()
+            .into_json();
+
+        assert_eq!(refusal["code"], "DATABASE_CHANGED");
+        assert!(db.conn.is_autocommit());
+        assert_eq!(entries_with_ref(&db.conn, "invoice:35697270/FV2"), 0);
+        assert_eq!(entries_with_ref(&switched_to, "invoice:35697270/FV2"), 0);
     }
 
     #[test]

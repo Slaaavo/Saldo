@@ -4,16 +4,19 @@ use std::path::{Path, PathBuf};
 use crate::config::{self, DbLocation};
 use crate::error::AppError;
 use crate::migrations::{self, SchemaMismatch};
+use crate::shared::WriteTxn;
 
 pub(super) struct SaldoDb {
     pub conn: Connection,
     pub path: PathBuf,
+    app_data_dir: PathBuf,
 }
 
 #[derive(Debug)]
 pub(super) enum OpenRefusal {
     NoDatabase { expected: PathBuf },
     CustomFolderMissing { folder: PathBuf },
+    DatabaseChanged { opened: PathBuf },
     Schema(SchemaMismatch),
     Db(AppError),
 }
@@ -31,10 +34,39 @@ pub(super) fn open_saldo_db(app_data_dir: &Path) -> Result<SaldoDb, OpenRefusal>
         return Err(OpenRefusal::NoDatabase { expected: path });
     }
     let conn = crate::db::open_existing(&path).map_err(OpenRefusal::Db)?;
-    migrations::check_schema(&conn)
+    check_schema(&conn)?;
+    Ok(SaldoDb {
+        conn,
+        path,
+        app_data_dir: app_data_dir.to_path_buf(),
+    })
+}
+
+fn check_schema(conn: &Connection) -> Result<(), OpenRefusal> {
+    migrations::check_schema(conn)
         .map_err(OpenRefusal::Db)?
-        .map_err(OpenRefusal::Schema)?;
-    Ok(SaldoDb { conn, path })
+        .map_err(OpenRefusal::Schema)
+}
+
+impl SaldoDb {
+    /// Takes the write lock, then checks again what the open checked: since then the app may
+    /// have moved or switched its database, or an app update may have migrated it.
+    pub fn begin_write(&self) -> Result<WriteTxn<'_>, OpenRefusal> {
+        let txn = WriteTxn::begin(&self.conn).map_err(|e| OpenRefusal::Db(e.into()))?;
+        let still_used = match config::resolve_db_location(&self.app_data_dir) {
+            DbLocation::Default(path) | DbLocation::Custom(path) => {
+                path == self.path && path.exists()
+            }
+            DbLocation::CustomMissing { .. } => false,
+        };
+        if !still_used {
+            return Err(OpenRefusal::DatabaseChanged {
+                opened: self.path.clone(),
+            });
+        }
+        check_schema(&self.conn)?;
+        Ok(txn)
+    }
 }
 
 impl OpenRefusal {
@@ -42,6 +74,7 @@ impl OpenRefusal {
         match self {
             OpenRefusal::NoDatabase { .. } => "NO_DATABASE",
             OpenRefusal::CustomFolderMissing { .. } => "DATABASE_FOLDER_MISSING",
+            OpenRefusal::DatabaseChanged { .. } => "DATABASE_CHANGED",
             OpenRefusal::Schema(SchemaMismatch::NotInitialized) => "NOT_A_SALDO_DATABASE",
             OpenRefusal::Schema(SchemaMismatch::Behind { .. }) => "DATABASE_BEHIND",
             OpenRefusal::Schema(SchemaMismatch::Ahead { .. }) => "DATABASE_AHEAD",
@@ -60,6 +93,12 @@ impl OpenRefusal {
                  may be disconnected or the cloud file not downloaded). Make it available, open \
                  Saldo to check its database location, then try again.",
                 folder.display()
+            ),
+            OpenRefusal::DatabaseChanged { opened } => format!(
+                "Saldo moved its database or switched to another one while this call was on {}. \
+                 Nothing was written. Call saldo_context to see the database Saldo uses now, \
+                 then try again.",
+                opened.display()
             ),
             OpenRefusal::Schema(SchemaMismatch::NotInitialized) => {
                 "This file is not a Saldo database Saldo has opened. Open Saldo once, then try again."
@@ -164,6 +203,62 @@ mod tests {
             )
             .unwrap();
         assert_eq!(applied, 0, "MCP mode never migrates");
+    }
+
+    fn opened_default_database() -> (tempfile::TempDir, SaldoDb) {
+        let dir = app_data_dir();
+        drop(crate::db::initialize_db(&dir.path().join(config::DB_FILENAME)).unwrap());
+        let db = open_saldo_db(dir.path()).unwrap();
+        (dir, db)
+    }
+
+    fn assert_write_refused(db: &SaldoDb, code: &str) {
+        let refusal = db.begin_write().err().unwrap();
+
+        assert_eq!(refusal.code(), code, "{refusal:?}");
+        assert!(db.conn.is_autocommit(), "the write lock is released");
+    }
+
+    #[test]
+    fn a_write_takes_the_lock_while_the_database_is_unchanged() {
+        let (_dir, db) = opened_default_database();
+
+        let txn = db.begin_write().unwrap();
+
+        assert!(!txn.conn().is_autocommit());
+    }
+
+    #[test]
+    fn a_write_refuses_when_saldo_switched_its_database_after_the_open() {
+        let (dir, db) = opened_default_database();
+        let folder = dir.path().join("cloud");
+        std::fs::create_dir_all(&folder).unwrap();
+        drop(crate::db::initialize_db(&folder.join(config::DB_FILENAME)).unwrap());
+        config::write_db_location(dir.path(), &folder).unwrap();
+
+        assert_write_refused(&db, "DATABASE_CHANGED");
+    }
+
+    #[test]
+    fn a_write_refuses_when_the_opened_file_is_gone() {
+        let (_dir, db) = opened_default_database();
+        crate::db::remove_db_files(&db.path);
+
+        assert_write_refused(&db, "DATABASE_CHANGED");
+    }
+
+    #[test]
+    fn a_write_refuses_when_an_app_update_migrated_the_database_after_the_open() {
+        let (_dir, db) = opened_default_database();
+        Connection::open(&db.path)
+            .unwrap()
+            .execute(
+                "INSERT INTO _migrations (filename) VALUES ('999_from_the_future.sql')",
+                [],
+            )
+            .unwrap();
+
+        assert_write_refused(&db, "DATABASE_AHEAD");
     }
 
     #[test]

@@ -236,14 +236,27 @@ fn relocate_db(
 
     let new_db_path = target_folder.join(crate::config::DB_FILENAME);
     let creates_file = !new_db_path.exists();
-    let prepared = if action == "move" {
+    let copying = action == "move";
+    // `saldo mcp` writes from another process, which the mutex above does not stop.
+    let version_before_copy = crate::db::data_version(&db)?;
+    let prepared = if copying {
         crate::db::copy_db(&db, &new_db_path)
     } else {
         Ok(())
     }
     .and_then(|()| open_checked(&new_db_path))
     .and_then(|conn| {
-        write_config(&state.app_data_dir, target_folder, config_action)?;
+        crate::db::lock_until_closed(&db, || {
+            if copying && crate::db::data_version(&db)? != version_before_copy {
+                return Err(AppError {
+                    code: "DB_WRITTEN_DURING_MOVE".into(),
+                    message: "Another program wrote to the database while Saldo was moving it, \
+                              so nothing was moved. Try again."
+                        .into(),
+                });
+            }
+            write_config(&state.app_data_dir, target_folder, config_action)
+        })?;
         Ok(conn)
     });
     let new_conn = match prepared {
@@ -262,7 +275,7 @@ fn relocate_db(
     drop(db);
     state.fallback_warning.store(false, Ordering::SeqCst);
 
-    if action == "move" {
+    if copying {
         // Windows refuses to delete a file that is still open.
         drop(old_conn);
         // The move itself succeeded and the app now runs on the new file, so a leftover old
@@ -294,7 +307,8 @@ fn write_config(
 /// Changes the active database to the given folder using the specified action:
 /// - `"switch"` — open an existing DB at the target location
 /// - `"move"`   — copy the live DB into the target → open and integrity-check the copy →
-///   write the config → swap → delete the old files
+///   lock the old DB and check that no other program wrote to it since the copy → write the
+///   config → swap → delete the old files
 /// - `"fresh"`  — create a brand-new DB at the target location (migrations applied)
 ///
 /// Returns an error if demo mode is active, the folder is not writable, or the
@@ -436,6 +450,38 @@ mod tests {
         assert_eq!(*state.db_path.lock().unwrap(), old_path);
         assert_eq!(config::read_db_location(&state.app_data_dir), None);
         assert_app_writes_to(&state, &old_path, "after-failed-copy");
+    }
+
+    #[test]
+    fn a_commit_from_another_process_during_a_move_fails_the_move_and_keeps_the_old_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_state(dir.path());
+        let old_path = state.db_path.lock().unwrap().clone();
+        let target = dir.path().join("custom");
+        std::fs::create_dir_all(&target).unwrap();
+        let mcp = crate::db::open_existing(&old_path).unwrap();
+        mcp.execute_batch("BEGIN IMMEDIATE").unwrap();
+        repository::set_app_setting(&mcp, "theme", "written-by-mcp").unwrap();
+        let mcp_commits_later = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            mcp.execute_batch("COMMIT").unwrap();
+        });
+
+        let result = relocate_db(&state, &target, "move", ConfigAction::WriteCustom);
+        mcp_commits_later.join().unwrap();
+
+        assert_eq!(result.unwrap_err().code, "DB_WRITTEN_DURING_MOVE");
+        assert_eq!(*state.db_path.lock().unwrap(), old_path);
+        assert_eq!(config::read_db_location(&state.app_data_dir), None);
+        assert!(file_names(&target).is_empty(), "the copy is removed");
+        let direct = rusqlite::Connection::open(&old_path).unwrap();
+        assert_eq!(
+            repository::get_app_setting(&direct, "theme")
+                .unwrap()
+                .as_deref(),
+            Some("written-by-mcp")
+        );
+        assert_app_writes_to(&state, &old_path, "after-refused-move");
     }
 
     #[test]

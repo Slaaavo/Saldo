@@ -25,6 +25,21 @@ pub fn data_version(conn: &Connection) -> Result<i64, AppError> {
     Ok(conn.query_row("PRAGMA data_version", [], |row| row.get(0))?)
 }
 
+/// Takes the write lock and runs `f` under it. When `f` fails the lock is released; when it
+/// succeeds the lock stays until `conn` is closed, so no other process commits to the file in
+/// between.
+pub fn lock_until_closed(
+    conn: &Connection,
+    f: impl FnOnce() -> Result<(), AppError>,
+) -> Result<(), AppError> {
+    conn.execute_batch("BEGIN IMMEDIATE")?;
+    let result = f();
+    if result.is_err() {
+        let _ = conn.execute_batch("ROLLBACK");
+    }
+    result
+}
+
 /// Pragmas that return a row run through `query_row`: `execute_batch` discards the row, so a
 /// result reporting failure would pass silently.
 fn set_pragmas(conn: &Connection) -> Result<(), AppError> {

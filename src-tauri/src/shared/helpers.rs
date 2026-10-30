@@ -73,6 +73,10 @@ impl<'c> WriteTxn<'c> {
         Ok(Self { conn, open: true })
     }
 
+    pub fn conn(&self) -> &'c Connection {
+        self.conn
+    }
+
     /// `event.latest_data_id` is a deferred key, so a broken one would fail the COMMIT with no
     /// row named. The check names it first.
     pub fn commit(mut self) -> Result<(), AppError> {

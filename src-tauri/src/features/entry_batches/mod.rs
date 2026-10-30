@@ -36,14 +36,14 @@ use repository::{Root, StampParams};
 const SIMILAR_DOCUMENT_WINDOW_DAYS: i64 = 14;
 
 pub fn record_batch(
-    conn: &Connection,
+    txn: WriteTxn<'_>,
     input: RecordBatchInput,
 ) -> Result<BatchReceipt, RecordBatchError> {
+    let conn = txn.conn();
     let label = input.label.trim().to_owned();
     if label.is_empty() || input.items.is_empty() {
         return Err(invalid("A batch needs a label and at least one document").into());
     }
-    let txn = WriteTxn::begin(conn)?;
     let batch_id = repository::create_batch(
         conn,
         repository::CreateBatchParams {
@@ -91,9 +91,9 @@ pub fn record_batch(
     })
 }
 
-pub fn undo_batch(conn: &Connection, input: UndoBatchInput) -> Result<UndoReceipt, UndoBatchError> {
+pub fn undo_batch(txn: WriteTxn<'_>, input: UndoBatchInput) -> Result<UndoReceipt, UndoBatchError> {
+    let conn = txn.conn();
     let batch_id = input.batch_id;
-    let txn = WriteTxn::begin(conn)?;
     let already_undone = repository::find_batch_undone(conn, batch_id)?
         .ok_or(UndoBatchError::NotFound { batch_id })?;
     if already_undone {

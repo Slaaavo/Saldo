@@ -164,6 +164,10 @@ fn batch(items: Vec<Value>, dry_run: bool) -> RecordBatchInput {
     .unwrap()
 }
 
+fn run_batch(conn: &Connection, input: RecordBatchInput) -> Result<BatchReceipt, RecordBatchError> {
+    record_batch(WriteTxn::begin(conn).unwrap(), input)
+}
+
 fn documents(conn: &Connection, books: &Books) -> Vec<DocumentEntry> {
     find_document_entries(
         conn,
@@ -254,7 +258,7 @@ fn records_every_kind_of_document_and_links_its_payments() {
     );
     let credit_note = single_expense(&books, "35697270", "DB2026000311", -615);
 
-    let receipt = record_batch(
+    let receipt = run_batch(
         &conn,
         batch(
             vec![
@@ -354,7 +358,7 @@ fn a_dry_run_reports_the_documents_and_keeps_nothing() {
     let books = books(&conn);
     let paid = payment(&conn, &books, -14_440);
 
-    let receipt = record_batch(
+    let receipt = run_batch(
         &conn,
         batch(
             vec![
@@ -388,7 +392,7 @@ fn a_dry_run_reports_the_documents_and_keeps_nothing() {
 fn a_document_already_in_saldo_is_refused_and_nothing_of_the_batch_is_written() {
     let conn = initialize_in_memory().unwrap();
     let books = books(&conn);
-    let first = record_batch(
+    let first = run_batch(
         &conn,
         batch(
             vec![single_expense(&books, "35697270", "FV1", 2_399)],
@@ -397,7 +401,7 @@ fn a_document_already_in_saldo_is_refused_and_nothing_of_the_batch_is_written() 
     )
     .unwrap();
 
-    let (errors, passed) = refused(record_batch(
+    let (errors, passed) = refused(run_batch(
         &conn,
         batch(
             vec![
@@ -425,7 +429,7 @@ fn the_same_document_twice_in_one_batch_is_refused() {
     let conn = initialize_in_memory().unwrap();
     let books = books(&conn);
 
-    let (errors, _) = refused(record_batch(
+    let (errors, _) = refused(run_batch(
         &conn,
         batch(
             vec![
@@ -462,7 +466,7 @@ fn every_failing_document_is_reported_and_nothing_is_written() {
                 "prepaidUntil": "2026-12-31" }),
     );
 
-    let (errors, passed) = refused(record_batch(
+    let (errors, passed) = refused(run_batch(
         &conn,
         batch(
             vec![
@@ -492,7 +496,7 @@ fn payments_that_do_not_add_up_or_are_already_linked_are_warnings() {
     let conn = initialize_in_memory().unwrap();
     let books = books(&conn);
     let short = payment(&conn, &books, -2_000);
-    let first = record_batch(
+    let first = run_batch(
         &conn,
         batch(
             vec![with(
@@ -505,7 +509,7 @@ fn payments_that_do_not_add_up_or_are_already_linked_are_warnings() {
     )
     .unwrap();
 
-    let second = record_batch(
+    let second = run_batch(
         &conn,
         batch(
             vec![with(
@@ -548,7 +552,7 @@ fn a_payment_of_another_person_is_refused() {
     };
     let not_ours = payment(&conn, &other, -2_399);
 
-    let (errors, _) = refused(record_batch(
+    let (errors, _) = refused(run_batch(
         &conn,
         batch(
             vec![with(
@@ -564,7 +568,7 @@ fn a_payment_of_another_person_is_refused() {
 }
 
 fn record(conn: &Connection, items: Vec<Value>) -> BatchReceipt {
-    record_batch(conn, batch(items, false)).unwrap()
+    run_batch(conn, batch(items, false)).unwrap()
 }
 
 fn undo(
@@ -573,7 +577,7 @@ fn undo(
     include_changed: bool,
 ) -> Result<UndoReceipt, UndoBatchError> {
     undo_batch(
-        conn,
+        WriteTxn::begin(conn).unwrap(),
         UndoBatchInput {
             batch_id,
             include_changed,
