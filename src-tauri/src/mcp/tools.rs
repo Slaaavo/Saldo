@@ -60,6 +60,9 @@ struct Tool {
     name: &'static str,
     description: &'static str,
     access: Access,
+    /// Reads files or calls a service outside Saldo: true only for a tool built with
+    /// `read_tool_after_outside`.
+    open_world: bool,
     input_schema: fn() -> Value,
     run: Run,
 }
@@ -146,6 +149,7 @@ where
         name,
         description,
         access: Access::Read,
+        open_world: false,
         input_schema: input_schema::<I>,
         run: Box::new(move |_, db, arguments| {
             let input = parse_arguments(arguments)?;
@@ -169,6 +173,7 @@ where
         name,
         description,
         access: Access::Read,
+        open_world: true,
         input_schema: input_schema::<I>,
         run: Box::new(move |env, db, arguments| {
             let prepared = outside(env, parse_arguments(arguments)?)?;
@@ -192,6 +197,7 @@ where
         name,
         description,
         access: Access::Write,
+        open_world: false,
         input_schema: input_schema::<I>,
         run: Box::new(move |_, db, arguments| {
             let input = parse_arguments(arguments)?;
@@ -228,11 +234,15 @@ impl ToolHost for Server {
         tools()
             .iter()
             .map(|tool| {
+                let mut annotations = json!({ "readOnlyHint": tool.access == Access::Read });
+                if tool.open_world {
+                    annotations["openWorldHint"] = json!(true);
+                }
                 json!({
                     "name": tool.name,
                     "description": tool.description,
                     "inputSchema": (tool.input_schema)(),
-                    "annotations": { "readOnlyHint": tool.access == Access::Read },
+                    "annotations": annotations,
                 })
             })
             .collect()

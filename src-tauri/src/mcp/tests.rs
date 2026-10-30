@@ -166,28 +166,30 @@ fn every_read_tool_leaves_the_database_unchanged() {
 }
 
 #[test]
-fn tools_list_carries_each_schema_and_whether_the_tool_only_reads() {
+fn tools_list_carries_each_schema_whether_the_tool_only_reads_and_whether_it_reaches_outside() {
     let listed = Server::new(PathBuf::new(), outside()).list();
 
-    let read_only: Vec<(&str, bool)> = listed
+    let hints: Vec<(&str, &Value, &Value)> = listed
         .iter()
         .map(|t| {
             (
                 t["name"].as_str().unwrap(),
-                t["annotations"]["readOnlyHint"] == true,
+                &t["annotations"]["readOnlyHint"],
+                &t["annotations"]["openWorldHint"],
             )
         })
         .collect();
+    let (yes, no, unset) = (&json!(true), &json!(false), &Value::Null);
     assert_eq!(
-        read_only,
+        hints,
         [
-            ("saldo_context", true),
-            ("find_entries", true),
-            ("find_payments", true),
-            ("get_forecast", true),
-            ("read_receipt", true),
-            ("record_batch", false),
-            ("undo_batch", false),
+            ("saldo_context", yes, unset),
+            ("find_entries", yes, unset),
+            ("find_payments", yes, unset),
+            ("get_forecast", yes, unset),
+            ("read_receipt", yes, yes),
+            ("record_batch", no, unset),
+            ("undo_batch", no, unset),
         ]
     );
     for tool in &listed {
