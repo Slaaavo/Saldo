@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
-import type { ProcessReceiptResult } from '../../features/ekasa-import/types'
+import type { EkasaRuleMatches, MatchEkasaRulesPayload, ProcessReceiptResult } from '../../features/ekasa-import/types'
 import type {
   AsOf,
   Snapshot,
@@ -652,4 +652,8 @@ export const saveTaxForecastFigures = (input: SaveTaxForecastFiguresInput): Prom
 
 export const processReceiptFile = (filePath: string): Promise<ProcessReceiptResult> => {
   return invoke('process_receipt_file', { filePath })
+}
+
+export const matchEkasaRules = (payload: MatchEkasaRulesPayload): Promise<EkasaRuleMatches> => {
+  return invoke('match_ekasa_rules', { input: payload })
 }

@@ -1,11 +1,12 @@
 import { useState, useCallback, useRef } from 'react'
+import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import type { EkasaWizardState, EkasaRuleDraft, EkasaProcessedItem, OfflineReceiptData, ProcessReceiptResult } from './types'
+import type { EkasaWizardState, EkasaRuleDraft, EkasaProcessedItem, EkasaRuleMatches, MatchEkasaRulesPayload, OfflineReceiptData, ProcessReceiptResult } from './types'
 import { makeEmptyLeg } from '../transactions/splitLegDraft'
 import type { SplitLegDraft } from '../transactions/splitLegDraft'
 import { fromMinorUnits, bpsToPct, pctToBps } from '../../shared/utils/format'
 import { extractErrorMessage } from '../../shared/utils/errors'
-import { getEkasaProfile, upsertEkasaProfile, processReceiptFile } from '../../shared/api'
+import { getEkasaProfile, upsertEkasaProfile, processReceiptFile, matchEkasaRules } from '../../shared/api'
 
 const INITIAL_STATE: EkasaWizardState = {
   step: 'upload',
@@ -25,42 +26,27 @@ const INITIAL_STATE: EkasaWizardState = {
   alreadyImported: false,
 }
 
-// Parses the eKasa issueDate format "DD.MM.YYYY HH:mm:ss" to an ISO date "YYYY-MM-DD".
-const parseReceiptDate = (dateStr: string): string => {
-  const [datePart] = dateStr.split(' ')
-  const [day, month, year] = datePart.split('.')
-  return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`
-}
+const matchPayload = (items: EkasaProcessedItem[], rules: EkasaRuleDraft[]): MatchEkasaRulesPayload => ({
+  itemNames: items.map((item) => item.name),
+  rules: rules.map((rule) => ({
+    namePattern: rule.namePattern,
+    deductiblePctBps: pctToBps(rule.deductiblePct) ?? 0,
+    vatReclaimablePctBps: pctToBps(rule.vatReclaimablePct) ?? 0,
+  })),
+})
 
-const applyRulesToItems = (items: EkasaProcessedItem[], rules: EkasaRuleDraft[], defaultDeductiblePct: string, defaultVatReclaimablePct: string, date: string): SplitLegDraft[] => {
-  return items.map((item) => {
-    let deductiblePct = defaultDeductiblePct
-    let vatReclaimablePct = defaultVatReclaimablePct
-
-    for (const rule of rules) {
-      if (!rule.namePattern) continue
-      try {
-        const regex = new RegExp(rule.namePattern, 'i')
-        if (regex.test(item.name)) {
-          deductiblePct = rule.deductiblePct
-          vatReclaimablePct = rule.vatReclaimablePct
-          break
-        }
-      } catch {
-        // invalid regex pattern — skip this rule
-      }
-    }
-
+const legsFromMatches = (items: EkasaProcessedItem[], matches: EkasaRuleMatches, defaultDeductiblePct: string, defaultVatReclaimablePct: string, date: string): SplitLegDraft[] =>
+  items.map((item, index) => {
+    const rule = matches.items[index]?.matchedRule ?? null
     return {
       ...makeEmptyLeg(date),
       amount: fromMinorUnits(item.amountMinor, 2),
       vatRate: bpsToPct(item.vatRateBps),
       note: item.name,
-      expenseDeductiblePct: deductiblePct,
-      vatReclaimablePct,
+      expenseDeductiblePct: rule ? bpsToPct(rule.deductiblePctBps) : defaultDeductiblePct,
+      vatReclaimablePct: rule ? bpsToPct(rule.vatReclaimablePctBps) : defaultVatReclaimablePct,
     }
   })
-}
 
 interface ProfileSnapshot {
   rules: Array<{ namePattern: string; deductiblePct: string; vatReclaimablePct: string }>
@@ -98,6 +84,7 @@ const snapshotFromState = (s: EkasaWizardState): ProfileSnapshot => ({
 })
 
 export const useEkasaImportWizard = () => {
+  const { t } = useTranslation()
   const [state, setState] = useState<EkasaWizardState>(INITIAL_STATE)
   const processingRef = useRef<Promise<ProcessReceiptResult> | null>(null)
   const originalProfileRef = useRef<ProfileSnapshot>(snapshotFromState(INITIAL_STATE))
@@ -147,25 +134,33 @@ export const useEkasaImportWizard = () => {
       return
     }
 
-    setState((prev) => {
-      const date = result.receiptData ? parseReceiptDate(result.receiptData.issueDate) : ''
-      const vendorName = result.receiptData?.organization.name ?? ''
-      const legs = applyRulesToItems(result.processedItems, prev.rules, prev.defaultDeductiblePct, prev.defaultVatReclaimablePct, date)
-      return {
-        ...prev,
-        receiptData: result.receiptData,
-        processedItems: result.processedItems,
-        processedLegs: legs,
-        receiptDate: date,
-        vendorName,
-        offlineFallback: result.offlineFallback,
-        sourceRef: result.sourceRef,
-        alreadyImported: result.alreadyImported,
-        isProcessing: false,
-        step: 'review',
-      }
-    })
-  }, [])
+    let matches: EkasaRuleMatches
+    try {
+      matches = await matchEkasaRules(matchPayload(result.processedItems, state.rules))
+    } catch (err) {
+      if (processingRef.current !== promise) return
+      toast.error(extractErrorMessage(err))
+      return
+    }
+    if (processingRef.current !== promise) return
+    for (const problem of matches.invalidRules) {
+      toast.warning(t('ekasaImport.rulesStep.invalidRule', problem))
+    }
+
+    setState((prev) => ({
+      ...prev,
+      receiptData: result.receiptData,
+      processedItems: result.processedItems,
+      processedLegs: legsFromMatches(result.processedItems, matches, prev.defaultDeductiblePct, prev.defaultVatReclaimablePct, result.receiptDate),
+      receiptDate: result.receiptDate,
+      vendorName: result.receiptData?.organization.name ?? '',
+      offlineFallback: result.offlineFallback,
+      sourceRef: result.sourceRef,
+      alreadyImported: result.alreadyImported,
+      isProcessing: false,
+      step: 'review',
+    }))
+  }, [state.rules, t])
 
   const handleBack = useCallback(() => {
     setState((prev) => {

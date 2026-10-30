@@ -760,6 +760,7 @@ ekasaImport:
     default: "Default"
     back: "Back"
     next: "Next"
+    invalidRule: "Rule {{position}} ({{pattern}}) was skipped: {{message}}"
   title:
     upload: "eKasa Receipt Import — Upload"
     rules: "eKasa Receipt Import — Rules"

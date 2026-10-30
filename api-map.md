@@ -736,9 +736,17 @@ Replaces a tax model's forecast figures: the month the actual figures cover, the
 
 ### `processReceiptFile`
 
-Decodes the QR code from a receipt file (PDF or image), looks the receipt up and returns its items with matching rules applied. Also returns `sourceRef` (identifies the receipt) and `alreadyImported` (whether a live entry already carries that reference).
+Decodes the QR code from a receipt file (PDF or image), looks an online receipt up with the eKasa service and returns its items grouped by name and VAT rate, and `receiptDate` (YYYY-MM-DD). Also returns `sourceRef` (identifies the receipt) and `alreadyImported` (whether a live entry already carries that reference). An online receipt the service does not know is the error `RECEIPT_NOT_FOUND`.
 
 - **BE command:** `process_receipt_file` → `src-tauri/src/features/ekasa/commands.rs`
+- **Used in:**
+  - `src/features/ekasa-import/useEkasaImportWizard.ts` (useEkasaImportWizard hook → EkasaImportModal)
+
+### `matchEkasaRules`
+
+Matches the wizard's rules, saved or not, against a receipt's item names with Saldo's one rule matcher (case- and accent-insensitive regular expressions, first rule wins). Returns the matched rule of each item (`null` when none matched; the wizard then uses its default row) and the rules whose pattern does not compile. Pure: no database.
+
+- **BE command:** `match_ekasa_rules` → `src-tauri/src/features/ekasa/commands.rs`
 - **Used in:**
   - `src/features/ekasa-import/useEkasaImportWizard.ts` (useEkasaImportWizard hook → EkasaImportModal)
 
@@ -760,7 +768,7 @@ Gets the eKasa import profile of a person.
 
 ### `upsertEkasaProfile`
 
-Creates or replaces a person's eKasa import profile (default percentages and name-pattern rules).
+Creates or replaces a person's eKasa import profile (default percentages and name-pattern rules). A pattern the rule matcher cannot compile is refused (`VALIDATION`).
 
 - **BE command:** `upsert_ekasa_profile` → `src-tauri/src/features/ekasa/commands.rs`
 - **Used in:**

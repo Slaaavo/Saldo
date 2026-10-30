@@ -741,6 +741,7 @@ ekasaImport:
     default: "Predvolené"
     back: "Späť"
     next: "Ďalej"
+    invalidRule: "Pravidlo {{position}} ({{pattern}}) bolo preskočené: {{message}}"
   title:
     upload: "Import eKasa dokladu — Nahranie"
     rules: "Import eKasa dokladu — Pravidlá"
