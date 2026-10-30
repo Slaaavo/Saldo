@@ -157,11 +157,17 @@ fn laptop_and_sleeve(books: &Books) -> Value {
     )
 }
 
+/// A real write carries the token of its dry run, which
+/// `a_write_needs_the_token_its_dry_run_returned` shows `review_token` to be.
 fn batch(items: Vec<Value>, dry_run: bool) -> RecordBatchInput {
-    serde_json::from_value(
+    let mut input: RecordBatchInput = serde_json::from_value(
         json!({ "label": "Invoices 2026-10", "dryRun": dry_run, "items": items }),
     )
-    .unwrap()
+    .unwrap();
+    if !dry_run {
+        input.review_token = Some(review_token(&input.label, &input.items));
+    }
+    input
 }
 
 fn run_batch(conn: &Connection, input: RecordBatchInput) -> Result<BatchReceipt, RecordBatchError> {
@@ -386,6 +392,60 @@ fn a_dry_run_reports_the_documents_and_keeps_nothing() {
     let asset_ref = SourceRef::invoice("36562939", "FA20261187").unwrap();
     assert_eq!(find_recorded_source(&conn, &asset_ref).unwrap(), None);
     assert_eq!(unlinked_payments(&conn, &books), [paid]);
+}
+
+fn reviewed_write(items: Vec<Value>, review_token: Option<String>) -> RecordBatchInput {
+    let mut input = batch(items, false);
+    input.review_token = review_token;
+    input
+}
+
+#[test]
+fn a_write_needs_the_token_its_dry_run_returned() {
+    let conn = initialize_in_memory().unwrap();
+    let books = books(&conn);
+    let items = || vec![split_expense(&books), laptop_and_sleeve(&books)];
+    let reviewed = run_batch(&conn, batch(items(), true)).unwrap();
+
+    let written = run_batch(&conn, reviewed_write(items(), reviewed.review_token)).unwrap();
+
+    assert!(written.batch_id.is_some());
+    assert_eq!(written.review_token, None);
+    assert_eq!(documents(&conn, &books).len(), 2);
+}
+
+#[test]
+fn a_write_without_the_reviewed_token_is_refused_and_writes_nothing() {
+    let conn = initialize_in_memory().unwrap();
+    let books = books(&conn);
+    let reviewed = run_batch(
+        &conn,
+        batch(vec![single_expense(&books, "35697270", "FV1", 2_399)], true),
+    )
+    .unwrap();
+
+    let missing = run_batch(
+        &conn,
+        reviewed_write(vec![single_expense(&books, "35697270", "FV1", 2_399)], None),
+    );
+    let other_amount = run_batch(
+        &conn,
+        reviewed_write(
+            vec![single_expense(&books, "35697270", "FV1", 2_400)],
+            reviewed.review_token,
+        ),
+    );
+
+    assert!(matches!(
+        missing,
+        Err(RecordBatchError::ReviewTokenMismatch)
+    ));
+    assert!(matches!(
+        other_amount,
+        Err(RecordBatchError::ReviewTokenMismatch)
+    ));
+    assert!(documents(&conn, &books).is_empty());
+    assert!(list_recent_batches(&conn, 10).unwrap().is_empty());
 }
 
 #[test]
@@ -809,10 +869,20 @@ fn undo_skips_entries_the_user_already_deleted() {
     assert_eq!(undone.removed_event_ids, [ids[1]]);
 }
 
-fn parse(items: Value) -> Result<RecordBatchInput, String> {
-    let input = json!({ "label": "x", "items": [items] });
+fn parse_batch(input: Value) -> Result<RecordBatchInput, String> {
     serde_path_to_error::deserialize::<_, RecordBatchInput>(input)
         .map_err(|e| format!("{}: {}", e.path(), e.inner()))
+}
+
+fn parse(items: Value) -> Result<RecordBatchInput, String> {
+    parse_batch(json!({ "label": "x", "dryRun": true, "items": [items] }))
+}
+
+#[test]
+fn a_batch_must_say_whether_it_is_a_dry_run() {
+    let err = parse_batch(json!({ "label": "x", "items": [] })).unwrap_err();
+
+    assert!(err.contains("dryRun"), "{err}");
 }
 
 fn item_with(content: Value) -> Value {

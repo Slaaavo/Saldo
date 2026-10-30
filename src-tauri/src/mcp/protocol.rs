@@ -11,8 +11,9 @@ const PROTOCOL_VERSIONS: &[&str] = &[
 ];
 
 const INSTRUCTIONS: &str = "Saldo is the user's offline finance app. Call saldo_context first. \
-Record documents with record_batch and dryRun true, show the user the resulting table, and call \
-it again without dryRun only after the user approved that table.";
+Record documents with record_batch and dryRun true, and show the user the resulting table. Only \
+after the user approved that table, call record_batch again with the same batch, dryRun false \
+and the reviewToken the dry run returned.";
 
 pub(super) trait ToolHost {
     fn list(&self) -> Vec<Value>;

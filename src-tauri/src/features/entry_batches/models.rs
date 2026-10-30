@@ -7,7 +7,7 @@ use crate::error::AppError;
 use crate::features::transactions::models::RecordedSource;
 use crate::features::transactions::SourceRef;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
 #[serde(try_from = "i64")]
 pub struct Bps(i64);
 
@@ -51,22 +51,25 @@ impl JsonSchema for Bps {
 }
 
 // Every input struct denies unknown fields: a misspelt optional field must fail, never default.
-// The shares the user approves in the review table are required.
+// The shares the user approves in the review table are required. The documents derive `Hash`
+// for the review token.
 
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RecordBatchInput {
     /// Shown in saldo_context's recent batches, such as "Invoices 2026-10".
     pub label: String,
-    /// Runs the whole batch through Saldo's checks, reports what it would record, and keeps
-    /// nothing.
-    #[serde(default)]
+    /// True runs the whole batch through Saldo's checks, reports what it would record, keeps
+    /// nothing and returns a reviewToken. False records it.
     pub dry_run: bool,
+    /// With dryRun false: the reviewToken of the dry run the user approved. Saldo refuses a
+    /// batch that differs from that dry run in any field.
+    pub review_token: Option<String>,
     pub items: Vec<DocumentItem>,
 }
 
 /// One source document. Everything it produces (lines, assets, payment links) hangs off it.
-#[derive(Debug, Deserialize, JsonSchema)]
+#[derive(Debug, Hash, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DocumentItem {
     pub document: DocumentId,
@@ -83,7 +86,7 @@ pub struct DocumentItem {
     pub content: DocumentContent,
 }
 
-#[derive(Debug, Deserialize, JsonSchema)]
+#[derive(Debug, Hash, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DocumentId {
     /// IČO when printed, else IČ DPH, else the issuer's name. For revenue, the company itself.
@@ -95,7 +98,7 @@ pub struct DocumentId {
 }
 
 /// What the document becomes, tagged by `kind`.
-#[derive(Debug, JsonSchema)]
+#[derive(Debug, Hash, JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum DocumentContent {
     /// One line per VAT rate. One line becomes one entry, two or more a split group. Negative
@@ -108,13 +111,13 @@ pub enum DocumentContent {
     PrepaidExpense(PrepaidContent),
 }
 
-#[derive(Debug, Deserialize, JsonSchema)]
+#[derive(Debug, Hash, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RevenueContent {
     pub lines: Vec<RevenueLine>,
 }
 
-#[derive(Debug, Deserialize, JsonSchema)]
+#[derive(Debug, Hash, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ExpenseContent {
     #[serde(default)]
@@ -128,7 +131,7 @@ pub struct ExpenseContent {
     pub reclaimed_vat: Option<bool>,
 }
 
-#[derive(Debug, Deserialize, JsonSchema)]
+#[derive(Debug, Hash, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PrepaidContent {
     pub line: ExpenseLine,
@@ -173,7 +176,7 @@ impl<'de> Deserialize<'de> for DocumentContent {
     }
 }
 
-#[derive(Debug, Deserialize, JsonSchema)]
+#[derive(Debug, Hash, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RevenueLine {
     /// VAT included, in minor units of the person's revenue account currency.
@@ -182,7 +185,7 @@ pub struct RevenueLine {
     pub vat_rate_bps: Bps,
 }
 
-#[derive(Debug, Deserialize, JsonSchema)]
+#[derive(Debug, Hash, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ExpenseLine {
     /// VAT included, in minor units of the person's expense account currency.
@@ -195,7 +198,7 @@ pub struct ExpenseLine {
     pub vat_reclaimable_pct_bps: Bps,
 }
 
-#[derive(Debug, Deserialize, JsonSchema)]
+#[derive(Debug, Hash, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AssetPart {
     pub name: String,
@@ -220,6 +223,8 @@ pub struct UndoBatchInput {
 #[serde(rename_all = "camelCase")]
 pub struct BatchReceipt {
     pub dry_run: bool,
+    /// Only a dry run returns one.
+    pub review_token: Option<String>,
     pub batch_id: Option<i64>,
     pub documents: Vec<RecordedDocument>,
     pub affected_tax_model_ids: Vec<i64>,
@@ -346,6 +351,8 @@ pub enum RecordBatchError {
         errors: Vec<ItemError>,
         passed: Vec<RecordedDocument>,
     },
+    /// A real write without the review token of a dry run of this exact batch.
+    ReviewTokenMismatch,
     App(AppError),
 }
 

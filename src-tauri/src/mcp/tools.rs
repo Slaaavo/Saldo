@@ -25,7 +25,7 @@ use crate::features::transactions::repository::{
 };
 use crate::features::transactions::source_ref::invoice_issuer_prefix;
 use crate::features::transactions::SourceRef;
-use crate::shared::{validate_iso_date, WriteTxn};
+use crate::shared::{validate_iso_date, with_read_txn, WriteTxn};
 
 pub(super) struct Server {
     app_data_dir: PathBuf,
@@ -87,8 +87,10 @@ fn tools() -> Vec<Tool> {
              entries and assets, all of them or none. Saldo dates each entry by the delivery \
              date (else the issue date), makes a split group of two or more lines, prices an \
              asset without VAT when the VAT is reclaimed, and links the given payments. A \
-             document already in Saldo is refused. Call it with dryRun true first, show the \
-             user the table, and call it again without dryRun only after the user approved it.",
+             document already in Saldo is refused. Call it with dryRun true first and show the \
+             user the table. Only after the user approved it, call it again with the same \
+             batch, dryRun false and the reviewToken the dry run returned. A batch that differs \
+             from the reviewed one in any field is refused.",
             record_batch,
         ),
         write_tool(
@@ -117,7 +119,7 @@ where
         input_schema: input_schema::<I>,
         run: Box::new(move |db, arguments| {
             let input = parse_arguments(arguments)?;
-            output_value(handler(db, input)?)
+            output_value(with_read_txn(&db.conn, || handler(db, input))?)
         }),
     }
 }
@@ -248,6 +250,14 @@ impl ToolFailure {
                 "dryRun": dry_run,
                 "errors": errors,
                 "passed": passed,
+            }),
+            ToolFailure::Batch(RecordBatchError::ReviewTokenMismatch) => json!({
+                "code": "REVIEW_TOKEN_MISMATCH",
+                "message": "Nothing was recorded: a real write needs the reviewToken of a dry \
+                            run of this exact batch, and this one is missing or belongs to a \
+                            different batch. Run record_batch with dryRun true again, show the \
+                            user the new table, and after their yes send that same batch with \
+                            dryRun false and the new reviewToken.",
             }),
             ToolFailure::Undo(UndoBatchError::NotFound { batch_id }) => json!({
                 "code": "NOT_FOUND",
@@ -705,8 +715,10 @@ mod tests {
         assert_eq!(find_entries["additionalProperties"], false);
         assert_eq!(listed[3]["inputSchema"]["required"], json!(["taxModelId"]));
         let record_batch = listed[4]["inputSchema"].to_string();
+        let required = listed[4]["inputSchema"]["required"].as_array().unwrap();
+        assert!(required.contains(&json!("dryRun")), "{required:?}");
         for field in [
-            "dryRun",
+            "reviewToken",
             "deliveryDate",
             "deductiblePctBps",
             "prepaidUntil",
@@ -734,9 +746,11 @@ mod tests {
         }
     }
 
+    /// A dry run of one Orange invoice.
     fn orange_invoice(seeded: &Seeded, number: &str) -> Value {
         json!({
             "label": "Invoices 2026-10",
+            "dryRun": true,
             "items": [{
                 "document": { "issuer": "35697270", "number": number, "file": "orange.pdf" },
                 "personId": seeded.person_id,
@@ -748,11 +762,20 @@ mod tests {
         })
     }
 
+    /// The same batch as a real write, carrying the token its dry run returned.
+    fn approved(mut dry_run: Value, receipt: &Value) -> Value {
+        dry_run["dryRun"] = json!(false);
+        dry_run["reviewToken"] = receipt["reviewToken"].clone();
+        dry_run
+    }
+
     #[test]
     fn a_recorded_batch_shows_in_the_context_and_undoes() {
         let seeded = seeded();
+        let batch = orange_invoice(&seeded, "FV2");
+        let (_, reviewed) = call(&seeded.dir, "record_batch", batch.clone());
 
-        let (ok, receipt) = call(&seeded.dir, "record_batch", orange_invoice(&seeded, "FV2"));
+        let (ok, receipt) = call(&seeded.dir, "record_batch", approved(batch, &reviewed));
         let (_, context) = call(&seeded.dir, "saldo_context", json!({}));
         let batch_id = receipt["batchId"].clone();
         let (undone, undo) = call(&seeded.dir, "undo_batch", json!({ "batchId": batch_id }));
@@ -775,19 +798,41 @@ mod tests {
     }
 
     #[test]
+    fn a_write_without_the_reviewed_token_is_refused_and_writes_nothing() {
+        let seeded = seeded();
+        let batch = orange_invoice(&seeded, "FV2");
+        let (_, reviewed) = call(&seeded.dir, "record_batch", batch.clone());
+        let mut changed = approved(batch, &reviewed);
+        changed["items"][0]["content"]["lines"][0]["grossMinor"] = json!(2400);
+
+        let (ok, refusal) = call(&seeded.dir, "record_batch", changed);
+        let (_, found) = call(
+            &seeded.dir,
+            "find_entries",
+            json!({ "issuer": "35697270", "number": "FV2" }),
+        );
+
+        assert!(!ok);
+        assert_eq!(refusal["code"], "REVIEW_TOKEN_MISMATCH");
+        assert_eq!(found["entries"], json!([]));
+    }
+
+    #[test]
     fn a_write_after_saldo_switched_its_database_is_refused_and_writes_nothing() {
         let seeded = seeded();
         let db = open_saldo_db(seeded.dir.path()).unwrap();
-        let folder = seeded.dir.path().join("cloud");
-        std::fs::create_dir_all(&folder).unwrap();
-        let switched_to = crate::db::initialize_db(&folder.join(DB_FILENAME)).unwrap();
-        crate::config::write_db_location(seeded.dir.path(), &folder).unwrap();
         let record = tools()
             .into_iter()
             .find(|tool| tool.name == "record_batch")
             .unwrap();
+        let batch = orange_invoice(&seeded, "FV2");
+        let reviewed = (record.run)(&db, batch.clone()).ok().unwrap();
+        let folder = seeded.dir.path().join("cloud");
+        std::fs::create_dir_all(&folder).unwrap();
+        let switched_to = crate::db::initialize_db(&folder.join(DB_FILENAME)).unwrap();
+        crate::config::write_db_location(seeded.dir.path(), &folder).unwrap();
 
-        let refusal = (record.run)(&db, orange_invoice(&seeded, "FV2"))
+        let refusal = (record.run)(&db, approved(batch, &reviewed))
             .unwrap_err()
             .into_json();
 

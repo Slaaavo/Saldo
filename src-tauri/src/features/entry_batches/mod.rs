@@ -5,6 +5,7 @@ mod repository;
 mod tests;
 
 use std::collections::{BTreeSet, HashMap};
+use std::hash::{DefaultHasher, Hash, Hasher};
 
 use chrono::{Duration, NaiveDate};
 use rusqlite::Connection;
@@ -28,7 +29,7 @@ use crate::features::transactions::repository::{
 };
 use crate::features::transactions::source_ref::invoice_issuer_prefix;
 use crate::features::transactions::SourceRef;
-use crate::shared::{with_savepoint_app, WriteTxn};
+use crate::shared::{with_savepoint_app, Finish, WriteTxn};
 use derive::{Derived, EntryShape};
 use models::*;
 use repository::{Root, StampParams};
@@ -43,6 +44,10 @@ pub fn record_batch(
     let label = input.label.trim().to_owned();
     if label.is_empty() || input.items.is_empty() {
         return Err(invalid("A batch needs a label and at least one document").into());
+    }
+    let review_token = review_token(&label, &input.items);
+    if !input.dry_run && input.review_token.as_deref() != Some(review_token.as_str()) {
+        return Err(RecordBatchError::ReviewTokenMismatch);
     }
     let batch_id = repository::create_batch(
         conn,
@@ -59,7 +64,9 @@ pub fn record_batch(
     let mut errors = Vec::new();
     let mut seen: HashMap<String, usize> = HashMap::new();
     for (index, item) in input.items.into_iter().enumerate() {
-        match record_item(conn, &ctx, &mut seen, index, item) {
+        let recorded = record_item(conn, &ctx, &mut seen, index, item);
+        txn.ensure_open()?;
+        match recorded {
             Ok(document) => documents.push(document),
             Err(error) => errors.push(*error),
         }
@@ -78,13 +85,14 @@ pub fn record_batch(
         .collect::<Vec<_>>();
     let affected_tax_model_ids = affected_tax_models(conn, &person_dates)?;
     if input.dry_run {
-        drop(txn);
+        txn.finish(Finish::Rollback)?;
         documents.iter_mut().for_each(RecordedDocument::forget_ids);
     } else {
-        txn.commit()?;
+        txn.finish(Finish::Commit)?;
     }
     Ok(BatchReceipt {
         dry_run: input.dry_run,
+        review_token: input.dry_run.then_some(review_token),
         batch_id: (!input.dry_run).then_some(batch_id),
         documents,
         affected_tax_model_ids,
@@ -141,16 +149,18 @@ pub fn undo_batch(txn: WriteTxn<'_>, input: UndoBatchInput) -> Result<UndoReceip
             }
             None => delete_event_inner(conn, entry.event_id)?,
         }
+        txn.ensure_open()?;
         removed_event_ids.push(entry.event_id);
     }
     let mut removed_asset_account_ids = Vec::new();
     for asset in assets {
         crate::features::accounts::repository::delete_account(conn, asset.account_id)?;
+        txn.ensure_open()?;
         removed_asset_account_ids.push(asset.account_id);
     }
     repository::mark_undone(conn, batch_id)?;
     let affected_tax_model_ids = affected_tax_models(conn, &person_dates)?;
-    txn.commit()?;
+    txn.finish(Finish::Commit)?;
     Ok(UndoReceipt {
         batch_id,
         already_undone: false,
@@ -540,6 +550,15 @@ fn affected_tax_models(
         .collect();
     ids.sort_unstable();
     Ok(ids)
+}
+
+/// Ties a real write to the dry run the user reviewed. `DefaultHasher::new` is the same
+/// SipHash with the same keys in every run of one build, which is all a dry run and its write
+/// need.
+fn review_token(label: &str, items: &[DocumentItem]) -> String {
+    let mut hasher = DefaultHasher::new();
+    (label, items).hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
 }
 
 fn already_recorded_message(recorded: &RecordedSource) -> String {

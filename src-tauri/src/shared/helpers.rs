@@ -62,9 +62,33 @@ where
     result
 }
 
+/// Runs `f` in one deferred transaction, so all of its queries read the same snapshot.
+pub fn with_read_txn<T, E, F>(conn: &Connection, f: F) -> Result<T, E>
+where
+    E: From<rusqlite::Error>,
+    F: FnOnce() -> Result<T, E>,
+{
+    conn.execute_batch("BEGIN")?;
+    let result = f();
+    let ended = if conn.is_autocommit() {
+        Ok(())
+    } else {
+        conn.execute_batch("COMMIT")
+    };
+    let value = result?;
+    ended?;
+    Ok(value)
+}
+
 pub struct WriteTxn<'c> {
     conn: &'c Connection,
     open: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Finish {
+    Commit,
+    Rollback,
 }
 
 impl<'c> WriteTxn<'c> {
@@ -77,9 +101,26 @@ impl<'c> WriteTxn<'c> {
         self.conn
     }
 
+    /// SQLite rolls a whole transaction back on its own after some errors, such as a full disk.
+    /// A savepoint taken after that opens and commits a transaction of its own, so a caller that
+    /// carries on past a failed step checks this first.
+    pub fn ensure_open(&self) -> Result<(), AppError> {
+        if self.conn.is_autocommit() {
+            return Err(AppError {
+                code: "INTERNAL".into(),
+                message: "SQLite ended the transaction after an error (such as a full disk or \
+                          an I/O error). Nothing was written."
+                    .into(),
+            });
+        }
+        Ok(())
+    }
+
     /// `event.latest_data_id` is a deferred key, so a broken one would fail the COMMIT with no
-    /// row named. The check names it first.
-    pub fn commit(mut self) -> Result<(), AppError> {
+    /// row named. The check names it first, and runs before a rollback too, so a dry run fails
+    /// wherever its write would.
+    pub fn finish(mut self, finish: Finish) -> Result<(), AppError> {
+        self.ensure_open()?;
         let violation: Option<i64> = self
             .conn
             .query_row("PRAGMA foreign_key_check(event)", [], |row| row.get(1))
@@ -90,7 +131,10 @@ impl<'c> WriteTxn<'c> {
                 message: format!("Event {event_id} references a row that does not exist"),
             });
         }
-        self.conn.execute_batch("COMMIT")?;
+        self.conn.execute_batch(match finish {
+            Finish::Commit => "COMMIT",
+            Finish::Rollback => "ROLLBACK",
+        })?;
         self.open = false;
         Ok(())
     }
@@ -232,7 +276,7 @@ pub fn convert_balance(
 
 #[cfg(test)]
 mod savepoint_tests {
-    use super::{with_savepoint, with_savepoint_app, WriteTxn};
+    use super::{with_read_txn, with_savepoint, with_savepoint_app, Finish, WriteTxn};
     use crate::error::AppError;
     use rusqlite::Connection;
 
@@ -394,30 +438,72 @@ mod savepoint_tests {
 
         let txn = WriteTxn::begin(&conn).unwrap();
         insert_parent(&conn).unwrap();
-        txn.commit().unwrap();
+        txn.finish(Finish::Commit).unwrap();
 
         assert!(conn.is_autocommit());
         assert_eq!(count(&conn, "parent"), 1);
     }
 
     #[test]
-    fn write_txn_names_a_broken_event_reference_and_writes_nothing() {
-        let conn = crate::db::initialize_in_memory().unwrap();
-        let account_id: i64 = conn
-            .query_row("SELECT MIN(id) FROM account", [], |row| row.get(0))
-            .unwrap();
+    fn write_txn_rolls_back_when_told_to() {
+        let conn = saldo_conn();
 
         let txn = WriteTxn::begin(&conn).unwrap();
-        conn.execute(
-            "INSERT INTO event (account_id, event_type, latest_data_id) VALUES (?1, 'expense', 999)",
-            [account_id],
-        )
-        .unwrap();
-        let err = txn.commit().unwrap_err();
+        insert_parent(&conn).unwrap();
+        txn.finish(Finish::Rollback).unwrap();
 
-        assert_eq!(err.code, "FOREIGN_KEY_VIOLATION");
         assert!(conn.is_autocommit());
-        assert_eq!(count(&conn, "event"), 0);
+        assert_eq!(count(&conn, "parent"), 0);
+    }
+
+    #[test]
+    fn write_txn_names_a_broken_event_reference_on_commit_and_on_rollback() {
+        for finish in [Finish::Commit, Finish::Rollback] {
+            let conn = crate::db::initialize_in_memory().unwrap();
+            let account_id: i64 = conn
+                .query_row("SELECT MIN(id) FROM account", [], |row| row.get(0))
+                .unwrap();
+
+            let txn = WriteTxn::begin(&conn).unwrap();
+            conn.execute(
+                "INSERT INTO event (account_id, event_type, latest_data_id) VALUES (?1, 'expense', 999)",
+                [account_id],
+            )
+            .unwrap();
+            let err = txn.finish(finish).unwrap_err();
+
+            assert_eq!(err.code, "FOREIGN_KEY_VIOLATION", "{finish:?}");
+            assert!(conn.is_autocommit());
+            assert_eq!(count(&conn, "event"), 0);
+        }
+    }
+
+    #[test]
+    fn write_txn_reports_a_transaction_sqlite_ended_and_never_commits_after_it() {
+        let conn = saldo_conn();
+        let txn = WriteTxn::begin(&conn).unwrap();
+        insert_parent(&conn).unwrap();
+        conn.execute_batch("ROLLBACK").unwrap();
+
+        assert_eq!(txn.ensure_open().unwrap_err().code, "INTERNAL");
+        assert_eq!(txn.finish(Finish::Commit).unwrap_err().code, "INTERNAL");
+        assert_eq!(count(&conn, "parent"), 0);
+    }
+
+    #[test]
+    fn with_read_txn_reads_one_snapshot() {
+        let (_dir, reader, writer) = two_connections();
+
+        let (before, during) = with_read_txn(&reader, || {
+            let before = count(&reader, "parent");
+            insert_parent(&writer)?;
+            Ok::<_, rusqlite::Error>((before, count(&reader, "parent")))
+        })
+        .unwrap();
+
+        assert_eq!((before, during), (0, 0));
+        assert!(reader.is_autocommit());
+        assert_eq!(count(&reader, "parent"), 1);
     }
 }
 
