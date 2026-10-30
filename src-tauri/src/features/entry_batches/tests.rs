@@ -169,29 +169,34 @@ fn laptop_and_sleeve(books: &Books) -> Value {
     )
 }
 
-const REVIEWED: &str = "the reviewToken of this batch's dry run";
-
-fn batch(items: Vec<Value>, dry_run: bool) -> RecordBatchInput {
-    let mut input: RecordBatchInput = serde_json::from_value(
-        json!({ "label": "Invoices 2026-10", "dryRun": dry_run, "items": items }),
-    )
-    .unwrap();
-    if !dry_run {
-        input.review_token = Some(REVIEWED.to_owned());
-    }
-    input
+struct Batch {
+    items: Vec<Value>,
+    dry_run: bool,
 }
 
-fn run_batch(
-    conn: &Connection,
-    mut input: RecordBatchInput,
-) -> Result<BatchReceipt, RecordBatchError> {
-    if input.review_token.as_deref() == Some(REVIEWED) {
-        let dry_run = WriteTxn::begin(conn).unwrap();
-        let recorded = record_items(&dry_run, input.label.trim(), &input.items).unwrap();
-        input.review_token = Some(recorded.review_token);
-    }
+fn batch(items: Vec<Value>, dry_run: bool) -> Batch {
+    Batch { items, dry_run }
+}
+
+fn input(items: &[Value], dry_run: bool, review_token: Option<String>) -> RecordBatchInput {
+    serde_json::from_value(json!({ "label": "Invoices 2026-10", "dryRun": dry_run,
+                                   "reviewToken": review_token, "items": items }))
+    .unwrap()
+}
+
+fn submit(conn: &Connection, input: RecordBatchInput) -> Result<BatchReceipt, RecordBatchError> {
     record_batch(WriteTxn::begin(conn).unwrap(), input)
+}
+
+/// A real write carries the reviewToken of its own dry run, as Claude sends it after the
+/// user's yes.
+fn run_batch(conn: &Connection, batch: Batch) -> Result<BatchReceipt, RecordBatchError> {
+    let dry_run = submit(conn, input(&batch.items, true, None));
+    if batch.dry_run {
+        return dry_run;
+    }
+    let reviewed = dry_run.expect("the dry run before a write passes");
+    submit(conn, input(&batch.items, false, reviewed.review_token))
 }
 
 fn documents(conn: &Connection, books: &Books) -> Vec<DocumentEntry> {
@@ -415,9 +420,7 @@ fn a_dry_run_reports_the_documents_and_keeps_nothing() {
 }
 
 fn reviewed_write(items: Vec<Value>, review_token: Option<String>) -> RecordBatchInput {
-    let mut input = batch(items, false);
-    input.review_token = review_token;
-    input
+    input(&items, false, review_token)
 }
 
 #[test]
@@ -427,7 +430,7 @@ fn a_write_needs_the_token_its_dry_run_returned() {
     let items = || vec![split_expense(&books), laptop_and_sleeve(&books)];
     let reviewed = run_batch(&conn, batch(items(), true)).unwrap();
 
-    let written = run_batch(&conn, reviewed_write(items(), reviewed.review_token)).unwrap();
+    let written = submit(&conn, reviewed_write(items(), reviewed.review_token)).unwrap();
 
     assert!(written.batch_id.is_some());
     assert_eq!(written.review_token, None);
@@ -444,11 +447,11 @@ fn a_write_without_the_reviewed_token_is_refused_and_writes_nothing() {
     )
     .unwrap();
 
-    let missing = run_batch(
+    let missing = submit(
         &conn,
         reviewed_write(vec![single_expense(&books, "35697270", "FV1", 2_399)], None),
     );
-    let other_amount = run_batch(
+    let other_amount = submit(
         &conn,
         reviewed_write(
             vec![single_expense(&books, "35697270", "FV1", 2_400)],
@@ -469,39 +472,51 @@ fn a_write_without_the_reviewed_token_is_refused_and_writes_nothing() {
 }
 
 #[test]
-fn a_document_already_in_saldo_is_refused_and_nothing_of_the_batch_is_written() {
-    let conn = initialize_in_memory().unwrap();
-    let books = books(&conn);
-    let first = run_batch(
-        &conn,
-        batch(
-            vec![single_expense(&books, "35697270", "FV1", 2_399)],
-            false,
-        ),
-    )
-    .unwrap();
-
-    let (errors, passed) = refused(run_batch(
-        &conn,
-        batch(
+fn a_document_recorded_after_its_dry_run_is_refused_at_the_write_and_nothing_is_written() {
+    for receipt in [false, true] {
+        let conn = initialize_in_memory().unwrap();
+        let books = books(&conn);
+        let late = if receipt {
+            receipt_item(
+                &books,
+                &billa(),
+                &[by("claude", 0, 0), by("claude", 0, 0), by("claude", 0, 0)],
+            )
+        } else {
+            single_expense(&books, "35697270", " fv 1", 2_399)
+        };
+        let items = || {
             vec![
                 single_expense(&books, "35697270", "FV2", 2_399),
-                single_expense(&books, "35697270", " fv 1", 2_399),
-            ],
-            false,
-        ),
-    ));
+                late.clone(),
+            ]
+        };
+        let reviewed = run_batch(&conn, batch(items(), true)).unwrap();
+        let first = record(&conn, vec![late.clone()]);
 
-    assert_eq!(errors.len(), 1);
-    assert_eq!(errors[0].index, 1);
-    assert_eq!(errors[0].code, "ALREADY_RECORDED");
-    let Some(RecordedSource::Entry { batch_id, .. }) = &errors[0].recorded else {
-        panic!("the earlier document is an entry");
-    };
-    assert_eq!(*batch_id, first.batch_id);
-    assert_eq!(passed[0].index, 0);
-    assert_eq!(documents(&conn, &books).len(), 1);
-    assert_eq!(list_recent_batches(&conn, 10).unwrap().len(), 1);
+        let refusal = submit(&conn, reviewed_write(items(), reviewed.review_token));
+
+        let Err(RecordBatchError::Items {
+            dry_run: false,
+            errors,
+            passed,
+        }) = refusal
+        else {
+            panic!("expected the write's item errors, got {refusal:?}");
+        };
+        let failed: Vec<(usize, &str)> =
+            errors.iter().map(|e| (e.index, e.code.as_str())).collect();
+        assert_eq!(failed, [(1, "ALREADY_RECORDED")], "receipt: {receipt}");
+        assert!(matches!(
+            &errors[0].recorded,
+            Some(RecordedSource::Entry { batch_id, .. }) if *batch_id == first.batch_id
+        ));
+        let passed: Vec<usize> = passed.iter().map(|doc| doc.index).collect();
+        assert_eq!(passed, [0]);
+        let fv2 = SourceRef::invoice("35697270", "FV2").unwrap();
+        assert_eq!(find_recorded_source(&conn, &fv2).unwrap(), None);
+        assert_eq!(list_recent_batches(&conn, 10).unwrap().len(), 1);
+    }
 }
 
 #[test]
@@ -555,7 +570,7 @@ fn every_failing_document_is_reported_and_nothing_is_written() {
                 split_expense(&books),
                 prepaid_within_the_year,
             ],
-            false,
+            true,
         ),
     ));
 
@@ -1646,7 +1661,7 @@ fn a_write_after_the_rules_or_the_vat_payer_flag_changed_is_refused() {
     };
     let reviewed = run_batch(&conn, batch(items(), true)).unwrap();
     ekasa_profile(&conn, &books, &[("kava", 5000, 10000)]);
-    let after_rule_edit = run_batch(&conn, reviewed_write(items(), reviewed.review_token));
+    let after_rule_edit = submit(&conn, reviewed_write(items(), reviewed.review_token));
     let reviewed = run_batch(&conn, batch(items(), true)).unwrap();
     update_person(
         &conn,
@@ -1658,7 +1673,7 @@ fn a_write_after_the_rules_or_the_vat_payer_flag_changed_is_refused() {
         },
     )
     .unwrap();
-    let after_flag_edit = run_batch(&conn, reviewed_write(items(), reviewed.review_token));
+    let after_flag_edit = submit(&conn, reviewed_write(items(), reviewed.review_token));
 
     assert!(matches!(
         after_rule_edit,

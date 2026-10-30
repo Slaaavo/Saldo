@@ -45,15 +45,20 @@ pub fn record_batch(
     if label.is_empty() || input.items.is_empty() {
         return Err(invalid("A batch needs a label and at least one document").into());
     }
+    let plans: Vec<Planned> = input
+        .items
+        .iter()
+        .map(|item| plan_item(txn.conn(), item))
+        .collect();
+    let review_token = review_token(label, &input.items, &plans);
+    if !input.dry_run && input.review_token.as_deref() != Some(review_token.as_str()) {
+        return Err(RecordBatchError::ReviewTokenMismatch);
+    }
     let Recorded {
         batch_id,
         mut documents,
         errors,
-        review_token,
-    } = record_items(&txn, label, &input.items)?;
-    if !input.dry_run && input.review_token.as_deref() != Some(review_token.as_str()) {
-        return Err(RecordBatchError::ReviewTokenMismatch);
-    }
+    } = record_items(&txn, label, &input.items, plans)?;
     if !errors.is_empty() {
         documents.iter_mut().for_each(RecordedDocument::forget_ids);
         return Err(RecordBatchError::Items {
@@ -156,13 +161,32 @@ struct Recorded {
     batch_id: i64,
     documents: Vec<RecordedDocument>,
     errors: Vec<ItemError>,
-    review_token: String,
+}
+
+/// An item's plan with the rule warnings it carries, or why it could not be planned.
+type Planned = Result<(Plan, Vec<Warning>), AppError>;
+
+/// The token covers what the batch would write, so a changed batch, VAT-payer flag or eKasa
+/// rule refuses the write. What the checks against recorded entries find later is an item
+/// error, never a mismatch.
+fn review_token(label: &str, items: &[BatchItem], plans: &[Planned]) -> String {
+    let mut hasher = DefaultHasher::new();
+    (label, items).hash(&mut hasher);
+    for planned in plans {
+        planned
+            .as_ref()
+            .ok()
+            .map(|(plan, _)| plan)
+            .hash(&mut hasher);
+    }
+    format!("{:016x}", hasher.finish())
 }
 
 fn record_items(
     txn: &WriteTxn<'_>,
     label: &str,
     items: &[BatchItem],
+    plans: Vec<Planned>,
 ) -> Result<Recorded, RecordBatchError> {
     let conn = txn.conn();
     let batch_id = repository::create_batch(
@@ -176,52 +200,25 @@ fn record_items(
         batch_id,
         asset_currency_id: get_consolidation_currency(conn)?.id,
     };
-    let mut review = Review::new(label, items);
     let mut documents = Vec::new();
     let mut errors = Vec::new();
     let mut seen: HashMap<String, usize> = HashMap::new();
-    for (index, item) in items.iter().enumerate() {
-        let recorded = record_item(conn, &ctx, &mut seen, &mut review, index, item);
+    for (index, (item, planned)) in items.iter().zip(plans).enumerate() {
+        let recorded = record_item(conn, &ctx, &mut seen, index, item, planned);
         txn.ensure_open()?;
         match recorded {
             Ok(document) => documents.push(document),
-            Err(error) => {
-                review.failed(&error.code);
-                errors.push(*error);
-            }
+            Err(error) => errors.push(*error),
         }
     }
     Ok(Recorded {
         batch_id,
         documents,
         errors,
-        review_token: review.token(),
     })
 }
 
-struct Review(DefaultHasher);
-
-impl Review {
-    fn new(label: &str, items: &[BatchItem]) -> Self {
-        let mut hasher = DefaultHasher::new();
-        (label, items).hash(&mut hasher);
-        Self(hasher)
-    }
-
-    fn planned(&mut self, plan: &Plan) {
-        ("planned", plan).hash(&mut self.0);
-    }
-
-    fn failed(&mut self, code: &str) {
-        ("failed", code).hash(&mut self.0);
-    }
-
-    fn token(self) -> String {
-        format!("{:016x}", self.0.finish())
-    }
-}
-
-fn plan_item(conn: &Connection, item: &BatchItem) -> Result<(Plan, Vec<Warning>), AppError> {
+fn plan_item(conn: &Connection, item: &BatchItem) -> Planned {
     let vat_payer = get_person_vat_payer(conn, item.person_id())?;
     match item {
         BatchItem::Document(document) => Ok((derive::document(document, vat_payer)?, Vec::new())),
@@ -249,9 +246,9 @@ fn record_item(
     conn: &Connection,
     ctx: &ItemContext,
     seen: &mut HashMap<String, usize>,
-    review: &mut Review,
     index: usize,
     item: &BatchItem,
+    planned: Planned,
 ) -> Result<RecordedDocument, Box<ItemError>> {
     let fail = |source_ref: Option<&SourceRef>, e: AppError| {
         Box::new(ItemError {
@@ -263,8 +260,7 @@ fn record_item(
             recorded: None,
         })
     };
-    let (plan, rule_warnings) = plan_item(conn, item).map_err(|e| fail(None, e))?;
-    review.planned(&plan);
+    let (plan, rule_warnings) = planned.map_err(|e| fail(None, e))?;
     let source_ref = &plan.source_ref;
     if let Some(&first) = seen.get(source_ref.as_str()) {
         return Err(fail(
