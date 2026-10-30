@@ -27,14 +27,20 @@ pub(super) enum ToolOutcome {
 }
 
 /// Serves newline-delimited JSON-RPC 2.0 until `input` ends. One line in, at most one line out.
+/// Lines are read as bytes, so a line that is not UTF-8 gets a parse error like any other bad
+/// line instead of ending the server.
 pub(super) fn serve<R: BufRead, W: Write>(
-    input: R,
+    mut input: R,
     mut output: W,
     host: &dyn ToolHost,
 ) -> std::io::Result<()> {
-    for line in input.lines() {
-        let line = line?;
-        if line.trim().is_empty() {
+    let mut line = Vec::new();
+    loop {
+        line.clear();
+        if input.read_until(b'\n', &mut line)? == 0 {
+            return Ok(());
+        }
+        if line.trim_ascii().is_empty() {
             continue;
         }
         if let Some(response) = respond(&line, host) {
@@ -43,11 +49,10 @@ pub(super) fn serve<R: BufRead, W: Write>(
             output.flush()?;
         }
     }
-    Ok(())
 }
 
-fn respond(line: &str, host: &dyn ToolHost) -> Option<Value> {
-    let Ok(message) = serde_json::from_str::<Value>(line) else {
+fn respond(line: &[u8], host: &dyn ToolHost) -> Option<Value> {
+    let Ok(message) = serde_json::from_slice::<Value>(line) else {
         return Some(error(Value::Null, -32700, "Parse error"));
     };
     let Some(method) = message.get("method").and_then(Value::as_str) else {
@@ -222,6 +227,25 @@ mod tests {
         assert_eq!(replies[0]["error"]["code"], -32700);
         assert_eq!(replies[0]["id"], Value::Null);
         assert_eq!(replies[1]["id"], 4);
+    }
+
+    #[test]
+    fn a_line_that_is_not_utf8_is_a_parse_error_and_the_loop_goes_on() {
+        let mut input =
+            b"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\",\"x\":\"\xff\xfe\"}\n".to_vec();
+        input.extend_from_slice(request(2, "ping", json!({})).as_bytes());
+        let mut output = Vec::new();
+
+        serve(input.as_slice(), &mut output, &FakeHost).expect("serve ends cleanly at EOF");
+
+        let replies: Vec<Value> = String::from_utf8(output)
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        assert_eq!(replies.len(), 2);
+        assert_eq!(replies[0]["error"]["code"], -32700);
+        assert_eq!(replies[1]["id"], 2);
     }
 
     #[test]
