@@ -106,7 +106,18 @@ pub struct ProcessedItem {
     pub vat_rate_bps: i64,
 }
 
-#[derive(Debug, Serialize)]
+/// One line of a receipt as Saldo read it. The field names are those of a receipt line in
+/// `record_batch`, so Claude copies a line and only adds to it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReceiptReadLine {
+    pub name: String,
+    /// VAT included, in minor units.
+    pub gross_minor: i64,
+    pub vat_rate_bps: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OfflineReceiptData {
     pub event_date: String,
@@ -120,6 +131,8 @@ pub struct ProcessReceiptResult {
     pub processed_items: Vec<ProcessedItem>,
     pub qr_content: String,
     pub offline_fallback: Option<OfflineReceiptData>,
+    /// YYYY-MM-DD.
+    pub receipt_date: String,
     /// Identifies the receipt; the create commands store it with the imported entries.
     pub source_ref: SourceRef,
     pub already_imported: bool,

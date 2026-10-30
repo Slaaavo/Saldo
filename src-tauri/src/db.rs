@@ -3,6 +3,7 @@ use rusqlite::{Connection, OpenFlags};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use crate::shared::text::strip_accents;
 use crate::{error::AppError, migrations};
 
 const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
@@ -77,45 +78,9 @@ fn register_fold(conn: &Connection) -> Result<(), AppError> {
     Ok(())
 }
 
-/// Lowercases, then drops combining marks and the diacritics of Latin letters, so `ŠKODA`
-/// folds to `skoda`.
+/// Lowercases, then drops the accents, so `ŠKODA` folds to `skoda`.
 fn fold(text: &str) -> String {
-    let mut folded = String::with_capacity(text.len());
-    for c in text.chars().flat_map(char::to_lowercase) {
-        match c {
-            '\u{0300}'..='\u{036f}' => {}
-            'ß' => folded.push_str("ss"),
-            'æ' => folded.push_str("ae"),
-            'œ' => folded.push_str("oe"),
-            _ => folded.push(latin_base_letter(c)),
-        }
-    }
-    folded
-}
-
-fn latin_base_letter(c: char) -> char {
-    match c {
-        'à'..='å' | 'ā' | 'ă' | 'ą' => 'a',
-        'ç' | 'ć' | 'ĉ' | 'ċ' | 'č' => 'c',
-        'ď' | 'đ' => 'd',
-        'è'..='ë' | 'ē' | 'ĕ' | 'ė' | 'ę' | 'ě' => 'e',
-        'ĝ' | 'ğ' | 'ġ' | 'ģ' => 'g',
-        'ĥ' | 'ħ' => 'h',
-        'ì'..='ï' | 'ĩ' | 'ī' | 'ĭ' | 'į' | 'ı' => 'i',
-        'ĵ' => 'j',
-        'ķ' => 'k',
-        'ĺ' | 'ļ' | 'ľ' | 'ŀ' | 'ł' => 'l',
-        'ñ' | 'ń' | 'ņ' | 'ň' => 'n',
-        'ò'..='ö' | 'ø' | 'ō' | 'ŏ' | 'ő' => 'o',
-        'ŕ' | 'ŗ' | 'ř' => 'r',
-        'ś' | 'ŝ' | 'ş' | 'š' => 's',
-        'ţ' | 'ť' | 'ŧ' => 't',
-        'ù'..='ü' | 'ũ' | 'ū' | 'ŭ' | 'ů' | 'ű' | 'ų' => 'u',
-        'ŵ' => 'w',
-        'ý' | 'ÿ' | 'ŷ' => 'y',
-        'ź' | 'ż' | 'ž' => 'z',
-        _ => c,
-    }
+    strip_accents(&text.to_lowercase())
 }
 
 pub fn initialize_in_memory() -> Result<Connection, AppError> {

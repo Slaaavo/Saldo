@@ -307,6 +307,7 @@ pub fn run() {
             features::list_ekasa_profiles,
             features::upsert_ekasa_profile,
             features::process_receipt_file,
+            features::match_ekasa_rules,
         ])
         .run(tauri_context())
         .expect("error while running tauri application");

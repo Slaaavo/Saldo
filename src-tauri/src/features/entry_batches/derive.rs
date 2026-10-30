@@ -2,7 +2,7 @@ use super::models::{AssetPart, DateSource, DocumentContent, DocumentItem, PriceB
 use crate::error::AppError;
 use crate::features::tax_models::calculation::calculate_net_amount;
 use crate::features::transactions::SourceRef;
-use crate::shared::validate_iso_date;
+use crate::shared::{major_units, validate_iso_date};
 
 /// The Slovak threshold for depreciable assets: a purchase price over 1,700.00 € and a useful
 /// life over one year.
@@ -126,11 +126,6 @@ pub(super) fn asset_price(part: &AssetPart, reclaims_vat: bool) -> Result<Derive
         purchase_price_minor,
         price_basis,
     })
-}
-
-fn major_units(minor: i64) -> String {
-    let sign = if minor < 0 { "-" } else { "" };
-    format!("{sign}{}.{:02}", minor.abs() / 100, minor.abs() % 100)
 }
 
 fn invalid(message: &str) -> AppError {

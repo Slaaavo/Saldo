@@ -1,8 +1,20 @@
 use crate::error::AppError;
-use crate::features::ekasa::models::EkasaReceiptResponse;
+use crate::features::ekasa::models::{EkasaReceiptData, EkasaReceiptResponse};
+use crate::features::ekasa::reading::EkasaApi;
 use serde_json::json;
 
 const EKASA_API_URL: &str = "https://ekasa.financnasprava.sk/mdu/api/v1/opd/receipt/find";
+
+/// The real service. It waits on Tauri's async runtime, so the app calls it from a blocking
+/// thread, never from an async task.
+pub struct LiveEkasaApi;
+
+impl EkasaApi for LiveEkasaApi {
+    fn fetch(&self, receipt_id: &str) -> Result<Option<EkasaReceiptData>, AppError> {
+        tauri::async_runtime::block_on(fetch_ekasa_receipt(receipt_id))
+            .map(|response| response.receipt)
+    }
+}
 
 pub async fn fetch_ekasa_receipt(receipt_id: &str) -> Result<EkasaReceiptResponse, AppError> {
     let client = reqwest::ClientBuilder::new()

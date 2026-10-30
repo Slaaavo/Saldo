@@ -1,69 +1,82 @@
-use std::collections::HashSet;
-
 use chrono::NaiveDateTime;
 
-use super::models::{EkasaReceiptItem, OfflineReceiptData, ProcessedItem};
+use super::models::{EkasaReceiptItem, OfflineReceiptData, ReceiptReadLine};
+use crate::features::transactions::SourceRef;
 
-/// Groups receipt items by name, sums their prices, converts to minor units,
-/// and drops zero-amount groups. Order matches first occurrence of each name.
-pub fn preprocess_receipt_items(items: &[EkasaReceiptItem]) -> Vec<ProcessedItem> {
-    // Collect unique names in first-occurrence order
-    let mut seen: HashSet<String> = HashSet::new();
-    let mut names: Vec<String> = Vec::new();
+/// Groups receipt items by name and VAT rate, sums their prices, converts to minor units, and
+/// drops zero-amount groups. Order matches the first occurrence of each group.
+pub fn preprocess_receipt_items(items: &[EkasaReceiptItem]) -> Vec<ReceiptReadLine> {
+    let mut groups: Vec<(&str, i64, f64)> = Vec::new();
     for item in items {
-        if seen.insert(item.name.clone()) {
-            names.push(item.name.clone());
+        // vat_rate is a percent: 20.0 is 2000 bps.
+        let vat_rate_bps = (item.vat_rate * 100.0_f64).round() as i64;
+        match groups
+            .iter_mut()
+            .find(|(name, rate, _)| *name == item.name && *rate == vat_rate_bps)
+        {
+            Some((_, _, total_eur)) => *total_eur += item.price,
+            None => groups.push((&item.name, vat_rate_bps, item.price)),
         }
     }
-
-    names
+    groups
         .into_iter()
-        .filter_map(|name| {
-            let total_eur: f64 = items
-                .iter()
-                .filter(|i| i.name == name)
-                .map(|i| i.price)
-                .sum();
-
-            let amount_minor = (total_eur * 100.0_f64).round() as i64;
-            if amount_minor == 0 {
-                return None;
-            }
-
-            // vat_rate is a percent (20.0 → 2000 bps), taken from the first item in the group
-            let first = items.iter().find(|i| i.name == name)?;
-            let vat_rate_bps = (first.vat_rate * 100.0_f64).round() as i64;
-
-            Some(ProcessedItem {
-                name,
-                amount_minor,
+        .filter_map(|(name, vat_rate_bps, total_eur)| {
+            let gross_minor = (total_eur * 100.0_f64).round() as i64;
+            (gross_minor != 0).then(|| ReceiptReadLine {
+                name: name.to_owned(),
+                gross_minor,
                 vat_rate_bps,
             })
         })
         .collect()
 }
 
-/// What a decoded QR text is. Only `OnlineReceiptId` may be sent to the eKasa API.
-#[derive(Debug)]
-pub enum QrContent {
-    OnlineReceiptId(String),
-    Offline(OfflineReceiptData),
-    NotEkasa,
+/// A decoded QR text that is an eKasa code. `parse` is the only constructor, and the reader and
+/// the batch build an eKasa reference only through `source_ref`, so it always names a parsed
+/// code.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReceiptCode {
+    /// `[VO]-` and 32 hex digits. Only this may be sent to the eKasa API.
+    Online { receipt_id: String },
+    /// `OKP:KP:YYMMDDHHMISS:number:total`, trimmed, with its date and total.
+    Offline {
+        code: String,
+        receipt: OfflineReceiptData,
+    },
 }
 
-/// Sorts decoded QR text into an online receipt id (bare, or in a `receiptId=` URL),
-/// an offline receipt code, or something that is not an eKasa code at all.
-pub fn classify_qr_content(qr_content: &str) -> QrContent {
-    let text = qr_content.trim();
-    if let Some(id) = extract_receipt_id_from_url(text) {
-        return QrContent::OnlineReceiptId(id);
+impl ReceiptCode {
+    /// An online receipt id (bare, or in a `receiptId=` URL) or an offline receipt code; None
+    /// for any other text.
+    pub fn parse(text: &str) -> Option<Self> {
+        let text = text.trim();
+        if let Some(receipt_id) = extract_receipt_id_from_url(text) {
+            return Some(Self::Online { receipt_id });
+        }
+        if is_online_receipt_id(text) {
+            return Some(Self::Online {
+                receipt_id: text.to_owned(),
+            });
+        }
+        parse_offline_qr(text).map(|receipt| Self::Offline {
+            code: text.to_owned(),
+            receipt,
+        })
     }
-    if is_online_receipt_id(text) {
-        return QrContent::OnlineReceiptId(text.to_string());
+
+    /// The bare online id or the trimmed offline code: `parse(code.text())` gives `code` back.
+    pub fn text(&self) -> &str {
+        match self {
+            Self::Online { receipt_id } => receipt_id,
+            Self::Offline { code, .. } => code,
+        }
     }
-    match parse_offline_qr(text) {
-        Some(offline) => QrContent::Offline(offline),
-        None => QrContent::NotEkasa,
+
+    pub fn source_ref(&self) -> SourceRef {
+        match self {
+            Self::Online { receipt_id } => SourceRef::ekasa_online(receipt_id),
+            Self::Offline { code, .. } => SourceRef::ekasa_offline(code),
+        }
     }
 }
 
@@ -159,7 +172,6 @@ fn parse_total_to_minor(total_str: &str) -> Option<i64> {
 mod tests {
     use super::*;
     use crate::features::ekasa::models::EkasaReceiptItem;
-    use crate::features::transactions::SourceRef;
 
     fn item(name: &str, price: f64, vat_rate: f64) -> EkasaReceiptItem {
         EkasaReceiptItem {
@@ -180,7 +192,7 @@ mod tests {
         let result = preprocess_receipt_items(&items);
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].name, "Coffee");
-        assert_eq!(result[0].amount_minor, 430); // 4.30 EUR = 430 cents
+        assert_eq!(result[0].gross_minor, 430); // 4.30 EUR = 430 cents
         assert_eq!(result[0].vat_rate_bps, 2000);
     }
 
@@ -210,16 +222,16 @@ mod tests {
         let result = preprocess_receipt_items(&items);
         assert_eq!(result.len(), 2);
         assert_eq!(result[0].name, "Apple");
-        assert_eq!(result[0].amount_minor, 150); // 1.50 EUR
+        assert_eq!(result[0].gross_minor, 150); // 1.50 EUR
         assert_eq!(result[1].name, "Banana");
-        assert_eq!(result[1].amount_minor, 200); // 2.00 EUR
+        assert_eq!(result[1].gross_minor, 200); // 2.00 EUR
     }
 
     #[test]
     fn test_decimal_to_minor_conversion() {
         let items = vec![item("Tea", 3.99, 20.0)];
         let result = preprocess_receipt_items(&items);
-        assert_eq!(result[0].amount_minor, 399);
+        assert_eq!(result[0].gross_minor, 399);
     }
 
     #[test]
@@ -233,11 +245,18 @@ mod tests {
     }
 
     #[test]
-    fn test_vat_rate_taken_from_first_item_in_group() {
-        // If a data anomaly causes mixed rates in the same group, the first item wins
-        let items = vec![item("Misc", 5.00, 10.0), item("Misc", 5.00, 20.0)];
+    fn test_one_name_at_two_vat_rates_is_two_lines() {
+        let items = vec![
+            item("Misc", 5.00, 10.0),
+            item("Misc", 4.00, 20.0),
+            item("Misc", 1.00, 10.0),
+        ];
         let result = preprocess_receipt_items(&items);
-        assert_eq!(result[0].vat_rate_bps, 1000);
+        let lines: Vec<(&str, i64, i64)> = result
+            .iter()
+            .map(|l| (l.name.as_str(), l.gross_minor, l.vat_rate_bps))
+            .collect();
+        assert_eq!(lines, [("Misc", 600, 1000), ("Misc", 400, 2000)]);
     }
 
     #[test]
@@ -419,7 +438,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // classify_qr_content
+    // ReceiptCode
     // -----------------------------------------------------------------------
 
     const ONLINE_ID: &str = "O-7DBCDA8A56EE426DBCDA8A56EE426D1A";
@@ -427,39 +446,49 @@ mod tests {
         "C44B3977-0E415CC6-EE663AA1-776C973A-A143B660:99920045678900001:180213093414:23:237.23";
 
     fn online_id_of(qr: &str) -> Option<String> {
-        match classify_qr_content(qr) {
-            QrContent::OnlineReceiptId(id) => Some(id),
+        match ReceiptCode::parse(qr) {
+            Some(ReceiptCode::Online { receipt_id }) => Some(receipt_id),
             _ => None,
         }
     }
 
     #[test]
-    fn test_classify_bare_online_receipt_id() {
+    fn test_parse_bare_online_receipt_id() {
         assert_eq!(online_id_of(ONLINE_ID).as_deref(), Some(ONLINE_ID));
         let lower = "V-7dbcda8a56ee426dbcda8a56ee426d1a";
         assert_eq!(online_id_of(lower).as_deref(), Some(lower));
     }
 
     #[test]
-    fn test_classify_trims_surrounding_whitespace() {
+    fn test_parse_trims_surrounding_whitespace() {
         let qr = format!("  {ONLINE_ID}\r\n");
         assert_eq!(online_id_of(&qr).as_deref(), Some(ONLINE_ID));
     }
 
     #[test]
-    fn test_classify_receipt_id_url() {
+    fn test_parse_receipt_id_url() {
         let qr = format!("https://ekasa.financnasprava.sk/receipt?receiptId={ONLINE_ID}&lang=sk");
         assert_eq!(online_id_of(&qr).as_deref(), Some(ONLINE_ID));
     }
 
     #[test]
-    fn test_classify_offline_code() {
-        match classify_qr_content(OFFLINE_CODE) {
-            QrContent::Offline(data) => {
-                assert_eq!(data.event_date, "2018-02-13");
-                assert_eq!(data.total_amount_minor, 23723);
+    fn test_parse_offline_code() {
+        match ReceiptCode::parse(&format!(" {OFFLINE_CODE}\n")) {
+            Some(ReceiptCode::Offline { code, receipt }) => {
+                assert_eq!(code, OFFLINE_CODE);
+                assert_eq!(receipt.event_date, "2018-02-13");
+                assert_eq!(receipt.total_amount_minor, 23723);
             }
             other => panic!("expected an offline code, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_a_code_parses_back_from_its_text() {
+        let url = format!("https://ekasa.financnasprava.sk/receipt?receiptId={ONLINE_ID}");
+        for qr in [url.as_str(), OFFLINE_CODE] {
+            let code = ReceiptCode::parse(qr).unwrap();
+            assert_eq!(ReceiptCode::parse(code.text()), Some(code));
         }
     }
 
@@ -469,7 +498,7 @@ mod tests {
         let padded = format!("  {ONLINE_ID}\r\n");
         let references: Vec<SourceRef> = [ONLINE_ID, url.as_str(), padded.as_str()]
             .iter()
-            .map(|qr| SourceRef::ekasa_online(&online_id_of(qr).unwrap()))
+            .map(|qr| ReceiptCode::parse(qr).unwrap().source_ref())
             .collect();
 
         assert_eq!(references[0].as_str(), format!("online:{ONLINE_ID}"));
@@ -479,6 +508,13 @@ mod tests {
 
     #[test]
     fn test_offline_reference_is_the_trimmed_code() {
+        assert_eq!(
+            ReceiptCode::parse(&format!("  {OFFLINE_CODE}\n"))
+                .unwrap()
+                .source_ref()
+                .as_str(),
+            format!("offline:{OFFLINE_CODE}")
+        );
         assert_eq!(
             SourceRef::ekasa_offline(&format!("  {OFFLINE_CODE}\n")).as_str(),
             format!("offline:{OFFLINE_CODE}")
@@ -505,7 +541,7 @@ mod tests {
     }
 
     #[test]
-    fn test_classify_other_text_is_not_ekasa() {
+    fn test_other_text_is_not_an_ekasa_code() {
         for qr in [
             "",
             "   ",
@@ -521,24 +557,18 @@ mod tests {
             "X-7DBCDA8A56EE426DBCDA8A56EE426D1A", // unknown prefix
             "7DBCDA8A56EE426DBCDA8A56EE426D1A",   // no prefix
         ] {
-            assert!(
-                matches!(classify_qr_content(qr), QrContent::NotEkasa),
-                "{qr:?}"
-            );
+            assert_eq!(ReceiptCode::parse(qr), None, "{qr:?}");
         }
     }
 
     #[test]
-    fn test_classify_malformed_offline_code_is_not_ekasa() {
+    fn test_a_malformed_offline_code_is_not_an_ekasa_code() {
         for qr in [
             "C44B3977-0E415CC6-EE663AA1-776C973A-A143B660:99920045678900001:180230093414:23:237.23",
             "C44B3977-0E415CC6-EE663AA1-776C973A-A143B660:99920045678900001:180213093414:23:23723",
             "C44B3977-0E415CC6-EE663AA1-776C973A-A143B660:99920045678900001:180213093414:23",
         ] {
-            assert!(
-                matches!(classify_qr_content(qr), QrContent::NotEkasa),
-                "{qr:?}"
-            );
+            assert_eq!(ReceiptCode::parse(qr), None, "{qr:?}");
         }
     }
 }

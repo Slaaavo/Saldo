@@ -1,13 +1,17 @@
 use crate::error::AppError;
-use crate::features::ekasa::models::{EkasaImportProfileRow, EkasaRuleInput, ProcessReceiptResult};
+use crate::features::ekasa::models::{
+    EkasaImportProfileRow, EkasaRuleInput, OfflineReceiptData, ProcessReceiptResult, ProcessedItem,
+};
 use crate::features::transactions::repository::find_recorded_source;
 use crate::features::transactions::SourceRef;
 use crate::AppState;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tauri::{Manager, State};
 
-use super::preprocessing::QrContent;
-use super::{ekasa_api, preprocessing, qr_decoder, repository};
+use super::ekasa_api::LiveEkasaApi;
+use super::reading::{read_receipt_file, ReceiptKind, ReceiptReading};
+use super::repository;
+use super::rules::{self, RuleMatch, RuleProblem, RuleSource, ShareRules, Shares};
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -51,6 +55,16 @@ fn validate_upsert_profile_input(input: &UpsertEkasaProfileInput) -> Result<(), 
             return Err(AppError {
                 code: "VALIDATION".into(),
                 message: format!("Rule {}: name pattern must not be blank.", index + 1),
+            });
+        }
+        if let Some(problem) = rules::pattern_problem(&rule.name_pattern) {
+            return Err(AppError {
+                code: "VALIDATION".into(),
+                message: format!(
+                    "Rule {}: the pattern '{}' is not valid: {problem}.",
+                    index + 1,
+                    rule.name_pattern
+                ),
             });
         }
         validate_bps("deductible_pct_bps", rule.deductible_pct_bps)?;
@@ -105,65 +119,112 @@ pub async fn process_receipt_file(
 ) -> Result<ProcessReceiptResult, AppError> {
     // A resolution failure only drops this directory from the PDFium search.
     let resource_dir = app.path().resource_dir().ok();
-
-    // QR decoding involves PDF rendering (PDFium) and image processing (rxing),
-    // both CPU-heavy synchronous operations. Must run on a blocking thread to
-    // avoid stalling Tauri's async executor.
-    let qr_string = tauri::async_runtime::spawn_blocking(move || {
-        qr_decoder::decode_qr_from_file(&file_path, resource_dir.as_deref())
+    // PDF rendering is CPU heavy and the live eKasa service waits on the runtime, so the
+    // whole read runs on a blocking thread.
+    let reading = tauri::async_runtime::spawn_blocking(move || {
+        read_receipt_file(&file_path, None, resource_dir.as_deref(), &LiveEkasaApi)
     })
     .await
     .map_err(|e| AppError {
         code: "TASK_ERROR".into(),
-        message: format!("QR decoding task failed: {}", e),
+        message: format!("Reading the receipt failed: {}", e),
     })??;
+    let already_imported = is_already_imported(&state, &reading.source_ref)?;
+    Ok(wizard_result(reading, already_imported))
+}
 
-    match preprocessing::classify_qr_content(&qr_string) {
-        QrContent::OnlineReceiptId(receipt_id) => {
-            let response = ekasa_api::fetch_ekasa_receipt(&receipt_id).await?;
-            let (receipt_data, processed_items) = match response.receipt {
-                Some(receipt_data) => {
-                    let processed_items =
-                        preprocessing::preprocess_receipt_items(&receipt_data.items);
-                    (Some(receipt_data), processed_items)
-                }
-                None => (None, vec![]),
-            };
-            let source_ref = SourceRef::ekasa_online(&receipt_id);
-            let already_imported = is_already_imported(&state, &source_ref)?;
-            Ok(ProcessReceiptResult {
-                receipt_data,
-                processed_items,
-                qr_content: qr_string,
-                offline_fallback: None,
-                source_ref,
-                already_imported,
-            })
-        }
-        QrContent::Offline(offline) => {
-            let source_ref = SourceRef::ekasa_offline(&qr_string);
-            let already_imported = is_already_imported(&state, &source_ref)?;
-            Ok(ProcessReceiptResult {
-                receipt_data: None,
-                processed_items: vec![],
-                qr_content: qr_string,
-                offline_fallback: Some(offline),
-                source_ref,
-                already_imported,
-            })
-        }
-        QrContent::NotEkasa => Err(AppError {
-            code: "QR_NOT_EKASA".into(),
-            message: "The QR code in this file is not an eKasa receipt code. \
-                      Choose a file that shows the QR code printed on the receipt."
-                .into(),
+/// The wizard keeps its own shape of a reading.
+fn wizard_result(reading: ReceiptReading, already_imported: bool) -> ProcessReceiptResult {
+    let offline_fallback = match reading.kind {
+        ReceiptKind::Online => None,
+        ReceiptKind::Offline => Some(OfflineReceiptData {
+            event_date: reading.date.clone(),
+            total_amount_minor: reading.total_minor,
         }),
+    };
+    ProcessReceiptResult {
+        receipt_data: reading.api_receipt,
+        processed_items: reading
+            .lines
+            .unwrap_or_default()
+            .into_iter()
+            .map(|line| ProcessedItem {
+                name: line.name,
+                amount_minor: line.gross_minor,
+                vat_rate_bps: line.vat_rate_bps,
+            })
+            .collect(),
+        qr_content: reading.receipt.code,
+        offline_fallback,
+        receipt_date: reading.date,
+        source_ref: reading.source_ref,
+        already_imported,
     }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatchEkasaRulesInput {
+    pub item_names: Vec<String>,
+    /// The wizard's rule rows as edited, saved or not, blank ones too, so a match's position
+    /// names its row.
+    pub rules: Vec<RuleDraftInput>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuleDraftInput {
+    pub name_pattern: String,
+    pub deductible_pct_bps: i64,
+    pub vat_reclaimable_pct_bps: i64,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EkasaRuleMatches {
+    /// One per item name, in order.
+    pub items: Vec<ItemRuleMatch>,
+    pub invalid_rules: Vec<RuleProblem>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ItemRuleMatch {
+    /// None when no rule matches; the wizard then uses its default shares.
+    pub matched_rule: Option<RuleMatch>,
+}
+
+/// Pure: the wizard matches the rules the user is editing, which may not be saved yet.
+#[tauri::command]
+pub fn match_ekasa_rules(input: MatchEkasaRulesInput) -> Result<EkasaRuleMatches, AppError> {
+    for rule in &input.rules {
+        validate_bps("deductible_pct_bps", rule.deductible_pct_bps)?;
+        validate_bps("vat_reclaimable_pct_bps", rule.vat_reclaimable_pct_bps)?;
+    }
+    let rules = ShareRules::compile(input.rules.iter().map(|rule| RuleSource {
+        pattern: &rule.name_pattern,
+        shares: Shares {
+            deductible_pct_bps: rule.deductible_pct_bps,
+            vat_reclaimable_pct_bps: rule.vat_reclaimable_pct_bps,
+        },
+    }));
+    Ok(EkasaRuleMatches {
+        items: input
+            .item_names
+            .iter()
+            .map(|name| ItemRuleMatch {
+                matched_rule: rules.shares_for(name).cloned(),
+            })
+            .collect(),
+        invalid_rules: rules.problems().to_vec(),
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::features::ekasa::models::EkasaReceiptData;
+    use crate::features::ekasa::reading::EkasaApi;
 
     fn rule(name_pattern: &str, deductible: i64, vat_reclaimable: i64) -> EkasaRuleInput {
         EkasaRuleInput {
@@ -215,6 +276,23 @@ mod tests {
     }
 
     #[test]
+    fn upsert_rejects_a_pattern_the_matcher_cannot_use() {
+        let err = validate_upsert_profile_input(&input(
+            10000,
+            10000,
+            vec![rule("coffee", 0, 0), rule("kava(?=1kg)", 0, 0)],
+        ))
+        .unwrap_err();
+
+        assert_eq!(err.code, "VALIDATION");
+        assert!(err.message.starts_with("Rule 2: "), "{}", err.message);
+        assert!(
+            validate_upsert_profile_input(&input(10000, 10000, vec![rule("káva|čaj", 0, 0)]))
+                .is_ok()
+        );
+    }
+
+    #[test]
     fn upsert_rejects_blank_and_whitespace_patterns() {
         for pattern in ["", " ", "\t\n"] {
             assert_validation_error(input(
@@ -223,5 +301,99 @@ mod tests {
                 vec![rule("coffee", 0, 0), rule(pattern, 0, 0)],
             ));
         }
+    }
+
+    fn draft(name_pattern: &str, deductible_pct_bps: i64) -> RuleDraftInput {
+        RuleDraftInput {
+            name_pattern: name_pattern.to_owned(),
+            deductible_pct_bps,
+            vat_reclaimable_pct_bps: 0,
+        }
+    }
+
+    fn match_rules(
+        item_names: &[&str],
+        rules: Vec<RuleDraftInput>,
+    ) -> Result<EkasaRuleMatches, AppError> {
+        match_ekasa_rules(MatchEkasaRulesInput {
+            item_names: item_names.iter().map(|name| name.to_string()).collect(),
+            rules,
+        })
+    }
+
+    #[test]
+    fn the_wizard_gets_the_matching_row_of_each_item() {
+        let matches = match_rules(
+            &["KÁVA ZRNKOVÁ", "MLIEKO 1L", "ROZOK"],
+            vec![draft("", 0), draft("kava", 10000), draft("mlieko|rozok", 0)],
+        )
+        .unwrap();
+
+        let positions: Vec<Option<(usize, i64)>> = matches
+            .items
+            .iter()
+            .map(|item| {
+                item.matched_rule
+                    .as_ref()
+                    .map(|rule| (rule.position, rule.shares.deductible_pct_bps))
+            })
+            .collect();
+        assert_eq!(positions, [Some((2, 10000)), Some((3, 0)), Some((3, 0))]);
+        assert!(matches.invalid_rules.is_empty());
+    }
+
+    #[test]
+    fn an_item_no_rule_matches_has_no_rule() {
+        let matches = match_rules(&["PAPIER A4"], vec![draft("kava", 10000)]).unwrap();
+
+        assert_eq!(matches.items[0].matched_rule, None);
+    }
+
+    #[test]
+    fn the_wizard_hears_of_a_rule_that_does_not_compile() {
+        let matches =
+            match_rules(&["KAVA"], vec![draft("ka(va", 0), draft("kava", 10000)]).unwrap();
+
+        assert_eq!(matches.items[0].matched_rule.as_ref().unwrap().position, 2);
+        assert_eq!(matches.invalid_rules[0].position, 1);
+        assert_eq!(matches.invalid_rules[0].pattern, "ka(va");
+    }
+
+    #[test]
+    fn match_rules_refuses_shares_out_of_range() {
+        let err = match_rules(&["KAVA"], vec![draft("kava", 10001)]).unwrap_err();
+
+        assert_eq!(err.code, "VALIDATION");
+    }
+
+    struct NoService;
+
+    impl EkasaApi for NoService {
+        fn fetch(&self, _: &str) -> Result<Option<EkasaReceiptData>, AppError> {
+            panic!("an offline receipt never asks the eKasa service")
+        }
+    }
+
+    #[test]
+    fn the_wizard_gets_an_offline_receipt_in_its_own_shape() {
+        let fixture = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/ekasa/offline-receipt.png"
+        );
+        let reading = read_receipt_file(fixture, None, None, &NoService).unwrap();
+
+        let result = serde_json::to_value(wizard_result(reading, true)).unwrap();
+
+        assert_eq!(
+            result["offlineFallback"],
+            serde_json::json!({ "eventDate": "2018-02-13", "totalAmountMinor": 23723 })
+        );
+        assert_eq!(result["receiptDate"], "2018-02-13");
+        assert_eq!(result["processedItems"], serde_json::json!([]));
+        assert_eq!(result["receiptData"], serde_json::Value::Null);
+        assert!(result["sourceRef"]
+            .as_str()
+            .is_some_and(|r| r.starts_with("offline:C44B3977-")));
+        assert_eq!(result["alreadyImported"], true);
     }
 }

@@ -32,6 +32,7 @@ pdfium-render = { version = "0.9", features = ["image_025", "thread_safe", "pdfi
 schemars = { version = "1.2.1", features = ["derive"] }
 serde_path_to_error = "0.1"
 dirs = "6"
+regex = "1.12"
 
 [dev-dependencies]
 tempfile = "3"
