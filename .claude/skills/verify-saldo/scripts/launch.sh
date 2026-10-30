@@ -18,7 +18,7 @@ running="$(app_pid || true)"
 [ ! -f "$RUN_ENV" ] || refuse "$RUN_ENV is left from an earlier run. Run cleanup.sh first."
 [ -d "$W/node_modules/.pnpm" ] || refuse "node_modules is missing. Run 'pnpm install --frozen-lockfile' in $W with the sandbox disabled."
 
-if [ ! -f "$W/src-tauri/libpdfium.dylib" ]; then
+if [ ! -f "$W/src-tauri/libpdfium.dylib" ] && [ -f "$MAIN_CHECKOUT/src-tauri/libpdfium.dylib" ]; then
   cp -p "$MAIN_CHECKOUT/src-tauri/libpdfium.dylib" "$W/src-tauri/libpdfium.dylib"
   echo "[verify-saldo] copied libpdfium.dylib from $MAIN_CHECKOUT"
 fi

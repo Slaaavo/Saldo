@@ -48,9 +48,12 @@ cat > "$BUNDLE/Contents/Info.plist" <<EOF
 EOF
 cp -f "${CARGO_TARGET_DIR:-$W/src-tauri/target}/$profile/saldo" "$APP_BIN"
 # The installed app carries PDFium in Contents/Resources, which `saldo mcp` finds from the
-# binary's path whatever its working directory.
+# binary's path whatever its working directory. The library is gitignored, so a fresh
+# worktree may lack it. The app still starts, and only a PDF import fails.
 mkdir -p "$BUNDLE/Contents/Resources"
-cp -f "$W/src-tauri/libpdfium.dylib" "$BUNDLE/Contents/Resources/libpdfium.dylib"
+if [ -f "$W/src-tauri/libpdfium.dylib" ]; then
+  cp -f "$W/src-tauri/libpdfium.dylib" "$BUNDLE/Contents/Resources/libpdfium.dylib"
+fi
 
 echo "[verify-saldo] starting Saldo Dev (pid $$, bundle id $DEV_ID)"
 cd "$W/src-tauri"
