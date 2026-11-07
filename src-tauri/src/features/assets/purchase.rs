@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
-use super::business_use::FULL_BUSINESS_USE_BPS;
+use super::business_use::{check_bps, FULL_BUSINESS_USE_BPS};
+use crate::error::AppError;
 use crate::features::tax_models::calculation::{
     calculate_net_amount, calculate_reclaimable_vat, calculate_vat_amount,
 };
@@ -11,6 +12,19 @@ pub struct PurchaseVat {
     pub gross_minor: i64,
     pub vat_rate_bps: i64,
     pub vat_reclaimable_pct_bps: i64,
+}
+
+impl PurchaseVat {
+    pub fn validate(&self) -> Result<(), AppError> {
+        if self.gross_minor <= 0 {
+            return Err(AppError {
+                code: "VALIDATION".into(),
+                message: "The price with VAT must be above zero".into(),
+            });
+        }
+        check_bps("The VAT rate", self.vat_rate_bps)?;
+        check_bps("VAT reclaimed", self.vat_reclaimable_pct_bps)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]

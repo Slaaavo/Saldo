@@ -266,6 +266,8 @@ pub fn run() {
             features::update_asset_value,
             features::list_account_asset_links,
             features::set_account_asset_links,
+            features::get_asset_use,
+            features::preview_asset_purchase,
             features::get_bulk_update_exclusions,
             features::set_bulk_update_exclusions,
             features::create_partner_account,

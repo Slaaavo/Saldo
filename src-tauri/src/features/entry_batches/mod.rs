@@ -441,6 +441,7 @@ fn write_plan(conn: &Connection, ctx: &ItemContext, plan: &Plan) -> Result<Writt
                 purchase_date: Some(plan.entry_date.clone()),
                 depreciation_period_months: Some(asset.depreciation_months),
                 initial_balance_date: Some(plan.entry_date.clone()),
+                asset_use: None,
             },
         )?;
         stamp(

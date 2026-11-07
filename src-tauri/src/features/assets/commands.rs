@@ -1,11 +1,33 @@
 use crate::error::AppError;
 use crate::AppState;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tauri::State;
 
+use super::business_use::{check_bps, AssetUseTerms};
 use super::models::AccountAssetLink;
+use super::purchase::{split_purchase, PurchaseSplit, PurchaseVat};
 use super::repository;
+use super::schedule::{asset_entries, AssetEntryKind, AssetFacts};
 use crate::features::currency::Currency;
+use crate::shared::{is_iso_date, local_now};
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PreviewAssetPurchaseInput {
+    pub purchase_vat: PurchaseVat,
+    pub business_use_pct_bps: i64,
+    pub purchase_date: Option<String>,
+    pub depreciation_period_months: Option<i64>,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AssetPurchasePreview {
+    #[serde(flatten)]
+    pub split: PurchaseSplit,
+    pub monthly_minor: Option<i64>,
+    pub monthly_deductible_minor: Option<i64>,
+}
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -36,6 +58,57 @@ pub struct UpdateAssetValueInput {
 pub struct SetAccountAssetLinksInput {
     pub account_id: i64,
     pub asset_ids: Vec<i64>,
+}
+
+#[tauri::command]
+pub fn get_asset_use(
+    state: State<'_, AppState>,
+    account_id: i64,
+) -> Result<AssetUseTerms, AppError> {
+    let conn = state.conn()?;
+    repository::get_use_terms(&conn, account_id)
+}
+
+/// The figures of the dialog's summary, from the same rules that write the entries.
+#[tauri::command]
+pub fn preview_asset_purchase(
+    input: PreviewAssetPurchaseInput,
+) -> Result<AssetPurchasePreview, AppError> {
+    input.purchase_vat.validate()?;
+    check_bps("Business use", input.business_use_pct_bps)?;
+    let split = split_purchase(&input.purchase_vat, input.business_use_pct_bps);
+
+    let period_months = input.depreciation_period_months.unwrap_or(0);
+    let purchase_date = input
+        .purchase_date
+        .filter(|date| is_iso_date(date))
+        .unwrap_or_else(|| local_now()[..10].to_owned());
+    let first_month = if period_months > 0 {
+        let facts = AssetFacts {
+            name: String::new(),
+            purchase_price_minor: split.depreciating_minor,
+            purchase_date,
+            depreciation_period_months: period_months,
+            use_terms: AssetUseTerms {
+                purchase_vat: Some(input.purchase_vat),
+                business_use_pct_bps: Some(input.business_use_pct_bps),
+                business_use_changes: Vec::new(),
+            },
+        };
+        asset_entries(&facts)?
+            .into_iter()
+            .find(|entry| entry.kind == AssetEntryKind::Depreciation)
+    } else {
+        None
+    };
+
+    Ok(AssetPurchasePreview {
+        split,
+        monthly_minor: first_month.as_ref().map(|entry| entry.amount_minor),
+        monthly_deductible_minor: first_month
+            .as_ref()
+            .map(|entry| entry.amount_minor * entry.expense_deductible_pct_bps / 10000),
+    })
 }
 
 #[tauri::command]
@@ -141,4 +214,53 @@ pub fn set_account_asset_links(
     let conn = state.conn()?;
     repository::set_account_asset_links(&conn, input.account_id, &input.asset_ids)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn kona_input(months: Option<i64>) -> PreviewAssetPurchaseInput {
+        PreviewAssetPurchaseInput {
+            purchase_vat: PurchaseVat {
+                gross_minor: 1_560_000,
+                vat_rate_bps: 2300,
+                vat_reclaimable_pct_bps: 5000,
+            },
+            business_use_pct_bps: 8000,
+            purchase_date: Some("2026-07-12".to_owned()),
+            depreciation_period_months: months,
+        }
+    }
+
+    #[test]
+    fn the_preview_shows_the_kona_summary() {
+        assert_eq!(
+            preview_asset_purchase(kona_input(Some(24))).unwrap(),
+            AssetPurchasePreview {
+                split: PurchaseSplit {
+                    depreciating_minor: 1_268_292,
+                    reclaimed_vat_minor: 145_854,
+                    lost_vat_entry_minor: 145_854,
+                    start_value_minor: 1_560_000,
+                },
+                monthly_minor: Some(52_846),
+                monthly_deductible_minor: Some(42_276),
+            }
+        );
+    }
+
+    #[test]
+    fn a_preview_with_no_period_has_no_monthly_amount() {
+        let preview = preview_asset_purchase(kona_input(None)).unwrap();
+        assert_eq!(preview.monthly_minor, None);
+        assert_eq!(preview.split.depreciating_minor, 1_268_292);
+    }
+
+    #[test]
+    fn a_preview_refuses_a_rate_outside_0_to_100_percent() {
+        let mut input = kona_input(Some(24));
+        input.purchase_vat.vat_rate_bps = -10000;
+        assert!(preview_asset_purchase(input).is_err());
+    }
 }

@@ -1,5 +1,9 @@
 use crate::error::AppError;
+use crate::features::assets::business_use::AssetUseTerms;
+use crate::features::assets::purchase::split_purchase;
+use crate::features::assets::repository::get_use_terms;
 use crate::features::currency::repository::get_consolidation_currency;
+use crate::features::persons::repository::get_person_vat_payer;
 use crate::shared::{is_iso_date, validate_event_date, with_savepoint_app};
 use crate::AppState;
 use rusqlite::Connection;
@@ -24,6 +28,8 @@ pub struct CreateAccountInput {
     pub depreciation_period_months: Option<i64>,
     #[serde(default)]
     pub initial_balance_date: Option<String>,
+    #[serde(default)]
+    pub asset_use: Option<AssetUseTerms>,
 }
 
 #[derive(Deserialize)]
@@ -36,6 +42,10 @@ pub struct UpdateAccountInput {
     pub purchase_price_minor: Option<i64>,
     pub purchase_date: Option<String>,
     pub depreciation_period_months: Option<i64>,
+    /// `None` leaves the stored terms alone, so a caller that knows nothing about them can
+    /// save an asset safely.
+    #[serde(default)]
+    pub asset_use: Option<AssetUseTerms>,
 }
 
 #[derive(Deserialize)]
@@ -91,11 +101,23 @@ pub(crate) fn create_account_with_conn(
         input.purchase_price_minor,
         input.purchase_date.as_deref(),
         input.depreciation_period_months,
+        input.asset_use.as_ref(),
+    )?;
+    let purchase = resolve_purchase(
+        conn,
+        PurchaseRequest {
+            person_id: input.person_id,
+            typed_price_minor: input.purchase_price_minor,
+            purchase_date: input.purchase_date.as_deref(),
+            depreciation_period_months: input.depreciation_period_months,
+            given_terms: input.asset_use.as_ref(),
+            stored_terms: &AssetUseTerms::default(),
+        },
     )?;
     // Normalize: treat Some(0) as no depreciation (None)
     let depreciation_period_months = validate_and_normalize_depreciation(
         input.depreciation_period_months,
-        input.purchase_price_minor,
+        purchase.price_minor,
         input.purchase_date.as_deref(),
         is_consolidation_currency(conn, input.currency_id)?,
     )?;
@@ -123,11 +145,11 @@ pub(crate) fn create_account_with_conn(
                 price_per_unit: input.price_per_unit.clone(),
                 iban: input.iban.clone(),
                 person_id: input.person_id,
-                purchase_price_minor: input.purchase_price_minor,
+                purchase_price_minor: purchase.price_minor,
                 purchase_date: input.purchase_date.clone(),
                 depreciation_period_months,
                 initial_balance_date: input.initial_balance_date.clone(),
-                ..Default::default()
+                use_terms: purchase.terms.clone(),
             },
         )?;
 
@@ -185,11 +207,23 @@ fn update_account_with_conn(conn: &Connection, input: UpdateAccountInput) -> Res
         input.purchase_price_minor,
         input.purchase_date.as_deref(),
         input.depreciation_period_months,
+        input.asset_use.as_ref(),
+    )?;
+    let purchase = resolve_purchase(
+        conn,
+        PurchaseRequest {
+            person_id: input.person_id,
+            typed_price_minor: input.purchase_price_minor,
+            purchase_date: input.purchase_date.as_deref(),
+            depreciation_period_months: input.depreciation_period_months,
+            given_terms: input.asset_use.as_ref(),
+            stored_terms: &get_use_terms(conn, input.account_id)?,
+        },
     )?;
     let account_currency_id = repository::get_account_currency_id(conn, input.account_id)?;
     let depreciation_period_months = validate_and_normalize_depreciation(
         input.depreciation_period_months,
-        input.purchase_price_minor,
+        purchase.price_minor,
         input.purchase_date.as_deref(),
         is_consolidation_currency(conn, account_currency_id)?,
     )?;
@@ -201,10 +235,10 @@ fn update_account_with_conn(conn: &Connection, input: UpdateAccountInput) -> Res
                 name: input.name.trim().to_owned(),
                 iban: input.iban.clone(),
                 person_id: input.person_id,
-                purchase_price_minor: input.purchase_price_minor,
+                purchase_price_minor: purchase.price_minor,
                 purchase_date: input.purchase_date.clone(),
                 depreciation_period_months,
-                ..Default::default()
+                use_terms: Some(purchase.terms.clone()),
             },
         )?;
 
@@ -257,16 +291,72 @@ fn is_consolidation_currency(conn: &Connection, currency_id: i64) -> Result<bool
     Ok(get_consolidation_currency(conn)?.id == currency_id)
 }
 
+struct PurchaseRequest<'a> {
+    person_id: Option<i64>,
+    typed_price_minor: Option<i64>,
+    purchase_date: Option<&'a str>,
+    depreciation_period_months: Option<i64>,
+    given_terms: Option<&'a AssetUseTerms>,
+    stored_terms: &'a AssetUseTerms,
+}
+
+struct ResolvedPurchase {
+    price_minor: Option<i64>,
+    terms: AssetUseTerms,
+}
+
+/// VAT facts own the depreciating price, so a typed price is ignored once they exist.
+/// A save that clears the price or the date clears the stored terms with it, so typing them
+/// back later starts from a plain asset.
+fn resolve_purchase(
+    conn: &Connection,
+    request: PurchaseRequest,
+) -> Result<ResolvedPurchase, AppError> {
+    let terms = match request.given_terms {
+        Some(given) => given.clone(),
+        None if request.typed_price_minor.is_none() || request.purchase_date.is_none() => {
+            AssetUseTerms::default()
+        }
+        None => request.stored_terms.clone(),
+    };
+    let price_minor = match &terms.purchase_vat {
+        Some(purchase_vat) => {
+            Some(split_purchase(purchase_vat, terms.pct_at_purchase()).depreciating_minor)
+        }
+        None => request.typed_price_minor,
+    };
+    let purchase_month = price_minor
+        .and(request.purchase_date)
+        .and_then(|date| date.get(..7));
+    let period_months = request.depreciation_period_months.filter(|&m| m != 0);
+    terms.validate(purchase_month, period_months)?;
+
+    // A person's VAT status can change later, so only new VAT facts are checked against it.
+    let vat_facts_are_new =
+        terms.purchase_vat.is_some() && terms.purchase_vat != request.stored_terms.purchase_vat;
+    if let (true, Some(person_id)) = (vat_facts_are_new, request.person_id) {
+        if !get_person_vat_payer(conn, person_id)? {
+            return Err(AppError {
+                code: "VALIDATION".into(),
+                message: "Only a VAT payer's asset can have a VAT split".into(),
+            });
+        }
+    }
+    Ok(ResolvedPurchase { price_minor, terms })
+}
+
 /// Depreciation fields only make sense on asset accounts.
 fn validate_depreciation_fields_only_on_assets(
     account_type: &str,
     purchase_price_minor: Option<i64>,
     purchase_date: Option<&str>,
     depreciation_period_months: Option<i64>,
+    asset_use: Option<&AssetUseTerms>,
 ) -> Result<(), AppError> {
     let has_depreciation = purchase_price_minor.is_some()
         || purchase_date.is_some()
-        || depreciation_period_months.is_some();
+        || depreciation_period_months.is_some()
+        || asset_use.is_some();
     if has_depreciation && account_type != "asset" {
         return Err(AppError {
             code: "VALIDATION".into(),
@@ -332,6 +422,8 @@ fn validate_and_normalize_depreciation(
 mod tests {
     use super::*;
     use crate::db::initialize_in_memory;
+    use crate::features::assets::business_use::BusinessUseChange;
+    use crate::features::assets::purchase::PurchaseVat;
     use crate::features::partner_accounts::repository::{
         create_partner_account, CreatePartnerAccountParams,
     };
@@ -451,6 +543,7 @@ mod tests {
             purchase_date: None,
             depreciation_period_months: None,
             initial_balance_date: None,
+            asset_use: None,
         }
     }
 
@@ -470,6 +563,7 @@ mod tests {
             purchase_price_minor: None,
             purchase_date: None,
             depreciation_period_months: None,
+            asset_use: None,
         }
     }
 
@@ -709,6 +803,206 @@ mod tests {
             |row| row.get(0),
         )
         .unwrap()
+    }
+
+    fn kona_terms() -> AssetUseTerms {
+        AssetUseTerms {
+            purchase_vat: Some(PurchaseVat {
+                gross_minor: 1_560_000,
+                vat_rate_bps: 2300,
+                vat_reclaimable_pct_bps: 5000,
+            }),
+            business_use_pct_bps: Some(8000),
+            business_use_changes: Vec::new(),
+        }
+    }
+
+    fn mk_vat_payer(conn: &Connection) -> i64 {
+        conn.execute("UPDATE person SET vat_payer = 1 WHERE is_default = 1", [])
+            .unwrap();
+        default_person_id(conn)
+    }
+
+    fn mk_kona(conn: &Connection) -> i64 {
+        mk_vat_payer(conn);
+        let input = CreateAccountInput {
+            purchase_price_minor: None,
+            purchase_date: Some("2026-07-12".to_owned()),
+            depreciation_period_months: Some(24),
+            asset_use: Some(kona_terms()),
+            ..create_input(conn, "asset", EUR_ID)
+        };
+        create_account_with_conn(conn, input).unwrap()
+    }
+
+    fn kona_update(conn: &Connection, account_id: i64) -> UpdateAccountInput {
+        UpdateAccountInput {
+            purchase_price_minor: Some(1_268_292),
+            purchase_date: Some("2026-07-12".to_owned()),
+            depreciation_period_months: Some(24),
+            ..update_input(conn, account_id)
+        }
+    }
+
+    fn stored_price(conn: &Connection, account_id: i64) -> Option<i64> {
+        conn.query_row(
+            "SELECT purchase_price_minor FROM account WHERE id = ?1",
+            [account_id],
+            |row| row.get(0),
+        )
+        .unwrap()
+    }
+
+    fn lost_vat_entries(conn: &Connection, account_id: i64) -> i64 {
+        conn.query_row(
+            "SELECT COUNT(*) FROM event WHERE linked_asset_id = ?1 AND asset_entry = 'lost_vat'",
+            [account_id],
+            |row| row.get(0),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn vat_facts_set_the_price_and_a_typed_price_is_ignored() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        mk_vat_payer(&conn);
+        let input = CreateAccountInput {
+            asset_use: Some(kona_terms()),
+            ..with_depreciation(create_input(&conn, "asset", EUR_ID))
+        };
+
+        let id = create_account_with_conn(&conn, input).unwrap();
+
+        assert_eq!(stored_price(&conn, id), Some(1_268_292));
+        assert_eq!(lost_vat_entries(&conn, id), 1);
+    }
+
+    #[test]
+    fn a_save_that_does_not_mention_the_terms_keeps_them() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let id = mk_kona(&conn);
+
+        update_account_with_conn(&conn, kona_update(&conn, id)).unwrap();
+
+        assert_eq!(get_use_terms(&conn, id).unwrap(), kona_terms());
+        assert_eq!(stored_price(&conn, id), Some(1_268_292));
+        assert_eq!(lost_vat_entries(&conn, id), 1);
+    }
+
+    #[test]
+    fn clearing_the_price_and_date_clears_the_terms_for_good() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let id = mk_kona(&conn);
+
+        update_account_with_conn(&conn, update_input(&conn, id)).unwrap();
+        assert_eq!(get_use_terms(&conn, id).unwrap(), AssetUseTerms::default());
+        assert_eq!(lost_vat_entries(&conn, id), 0);
+
+        update_account_with_conn(&conn, kona_update(&conn, id)).unwrap();
+        assert_eq!(get_use_terms(&conn, id).unwrap(), AssetUseTerms::default());
+        assert_eq!(lost_vat_entries(&conn, id), 0);
+    }
+
+    #[test]
+    fn terms_on_an_account_that_is_no_asset_are_refused() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let input = CreateAccountInput {
+            asset_use: Some(kona_terms()),
+            ..create_input(&conn, "account", EUR_ID)
+        };
+        let err = create_account_with_conn(&conn, input).unwrap_err();
+        assert!(err.message.contains("asset accounts"));
+    }
+
+    #[test]
+    fn vat_facts_on_an_asset_of_a_person_who_is_no_vat_payer_are_refused() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let input = CreateAccountInput {
+            purchase_date: Some("2026-07-12".to_owned()),
+            asset_use: Some(kona_terms()),
+            ..create_input(&conn, "asset", EUR_ID)
+        };
+        let err = create_account_with_conn(&conn, input).unwrap_err();
+        assert!(err.message.contains("VAT payer"));
+    }
+
+    #[test]
+    fn a_person_who_stops_paying_vat_can_still_edit_the_asset() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let id = mk_kona(&conn);
+        conn.execute("UPDATE person SET vat_payer = 0 WHERE is_default = 1", [])
+            .unwrap();
+
+        let input = UpdateAccountInput {
+            asset_use: Some(kona_terms()),
+            ..kona_update(&conn, id)
+        };
+
+        update_account_with_conn(&conn, input).unwrap();
+    }
+
+    #[test]
+    fn a_share_change_on_an_asset_written_off_at_once_is_refused() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let id = create_account_with_conn(
+            &conn,
+            CreateAccountInput {
+                purchase_price_minor: Some(100_000),
+                purchase_date: Some("2026-01-15".to_owned()),
+                ..create_input(&conn, "asset", EUR_ID)
+            },
+        )
+        .unwrap();
+
+        let err = update_account_with_conn(
+            &conn,
+            UpdateAccountInput {
+                purchase_price_minor: Some(100_000),
+                purchase_date: Some("2026-01-15".to_owned()),
+                asset_use: Some(AssetUseTerms {
+                    business_use_changes: vec![BusinessUseChange {
+                        from_month: "2026-07".to_owned(),
+                        business_use_pct_bps: 8000,
+                    }],
+                    ..Default::default()
+                }),
+                ..update_input(&conn, id)
+            },
+        )
+        .unwrap_err();
+
+        assert!(err.message.contains("depreciation period"));
+    }
+
+    #[test]
+    fn moving_the_purchase_date_past_a_change_names_the_change() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let terms = AssetUseTerms {
+            business_use_changes: vec![BusinessUseChange {
+                from_month: "2026-07".to_owned(),
+                business_use_pct_bps: 8000,
+            }],
+            ..Default::default()
+        };
+        let id = create_account_with_conn(
+            &conn,
+            CreateAccountInput {
+                asset_use: Some(terms),
+                ..with_depreciation(create_input(&conn, "asset", EUR_ID))
+            },
+        )
+        .unwrap();
+
+        let err = update_account_with_conn(
+            &conn,
+            UpdateAccountInput {
+                purchase_date: Some("2026-09-01".to_owned()),
+                ..with_update_depreciation(update_input(&conn, id))
+            },
+        )
+        .unwrap_err();
+
+        assert!(err.message.contains("2026-07"), "{}", err.message);
     }
 
     #[test]
