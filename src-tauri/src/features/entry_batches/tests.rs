@@ -1859,7 +1859,7 @@ fn saved_kona(asset_id: i64, books: &Books, use_terms: AssetUseTerms) -> UpdateA
         purchase_price_minor: Some(1_268_292),
         purchase_date: Some("2026-10-12".to_owned()),
         depreciation_period_months: Some(24),
-        use_terms: Some(use_terms),
+        use_terms,
         ..Default::default()
     }
 }
@@ -1913,10 +1913,10 @@ fn saving_a_laptop_at_full_business_use_is_not_a_change() {
     let receipt = record(&conn, vec![laptop_and_sleeve(&books)]);
     let asset_id = receipt.documents[0].assets[0].account_id.unwrap();
     save_laptop(&conn, &books, asset_id, |params| {
-        params.use_terms = Some(AssetUseTerms {
+        params.use_terms = AssetUseTerms {
             business_use_pct_bps: Some(10000),
             ..Default::default()
-        })
+        }
     });
 
     undo(&conn, receipt.batch_id.unwrap(), false).unwrap();

@@ -152,11 +152,6 @@ const RulesStep = ({
             onChange={(e) => onDefaultVatReclaimablePctChange(e.target.value)}
             aria-label={t('ekasaImport.rulesStep.vatReclaimablePctHeader')}
           />
-          {/* placeholder cells to maintain grid alignment with the switch and button columns */}
-          <span />
-          <span />
-          <span />
-          <span />
         </div>
       </div>
 

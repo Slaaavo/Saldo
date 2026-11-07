@@ -42,8 +42,6 @@ pub struct UpdateAccountInput {
     pub purchase_price_minor: Option<i64>,
     pub purchase_date: Option<String>,
     pub depreciation_period_months: Option<i64>,
-    /// `None` leaves the stored terms alone, so a caller that knows nothing about them can
-    /// save an asset safely.
     #[serde(default)]
     pub asset_use: Option<AssetUseTerms>,
 }
@@ -238,7 +236,7 @@ fn update_account_with_conn(conn: &Connection, input: UpdateAccountInput) -> Res
                 purchase_price_minor: purchase.price_minor,
                 purchase_date: input.purchase_date.clone(),
                 depreciation_period_months,
-                use_terms: Some(purchase.terms.clone()),
+                use_terms: purchase.terms.clone(),
             },
         )?;
 
@@ -305,33 +303,36 @@ struct ResolvedPurchase {
     terms: AssetUseTerms,
 }
 
-/// VAT facts own the depreciating price, so a typed price is ignored once they exist.
-/// A save that clears the price or the date clears the stored terms with it, so typing them
-/// back later starts from a plain asset.
+fn price_from_vat_facts_or_typed(
+    terms: &AssetUseTerms,
+    typed_price_minor: Option<i64>,
+) -> Option<i64> {
+    match &terms.purchase_vat {
+        Some(purchase_vat) => {
+            Some(split_purchase(purchase_vat, terms.pct_at_purchase()).depreciating_minor)
+        }
+        None => typed_price_minor,
+    }
+}
+
 fn resolve_purchase(
     conn: &Connection,
     request: PurchaseRequest,
 ) -> Result<ResolvedPurchase, AppError> {
+    let price_or_date_cleared =
+        request.typed_price_minor.is_none() || request.purchase_date.is_none();
     let terms = match request.given_terms {
         Some(given) => given.clone(),
-        None if request.typed_price_minor.is_none() || request.purchase_date.is_none() => {
-            AssetUseTerms::default()
-        }
+        None if price_or_date_cleared => AssetUseTerms::default(),
         None => request.stored_terms.clone(),
     };
-    let price_minor = match &terms.purchase_vat {
-        Some(purchase_vat) => {
-            Some(split_purchase(purchase_vat, terms.pct_at_purchase()).depreciating_minor)
-        }
-        None => request.typed_price_minor,
-    };
+    let price_minor = price_from_vat_facts_or_typed(&terms, request.typed_price_minor);
     let purchase_month = price_minor
         .and(request.purchase_date)
         .and_then(|date| date.get(..7));
     let period_months = request.depreciation_period_months.filter(|&m| m != 0);
     terms.validate(purchase_month, period_months)?;
 
-    // A person's VAT status can change later, so only new VAT facts are checked against it.
     let vat_facts_are_new =
         terms.purchase_vat.is_some() && terms.purchase_vat != request.stored_terms.purchase_vat;
     if let (true, Some(person_id)) = (vat_facts_are_new, request.person_id) {

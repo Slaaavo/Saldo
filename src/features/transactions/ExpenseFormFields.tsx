@@ -144,7 +144,6 @@ const ExpenseFormFields = ({
         </div>
       )}
 
-      {/* Also used privately */}
       {showsPrivateUse(vatRate, vatReclaimablePct, reclaimedVat) && (
         <div className="flex items-center gap-2">
           <Checkbox id={`${idPrefix}-private-use`} checked={privateUse} onCheckedChange={(v) => onPrivateUseChange(v === true)} />

@@ -5,6 +5,7 @@ import EditTaxableSplitGroupModal from './EditTaxableSplitGroupModal'
 import type { EventWithData } from '../../shared/types'
 
 vi.mock('../../shared/api', () => ({
+  listPersons: vi.fn(),
   updateTaxableSplitGroup: vi.fn(),
 }))
 
@@ -16,7 +17,7 @@ vi.mock('sonner', () => ({
   toast: { error: vi.fn(), success: vi.fn() },
 }))
 
-import { updateTaxableSplitGroup } from '../../shared/api'
+import { listPersons, updateTaxableSplitGroup } from '../../shared/api'
 
 const leg = (id: number, privateUse: boolean) =>
   ({
@@ -53,6 +54,7 @@ describe('EditTaxableSplitGroupModal private-use switch', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     ;(updateTaxableSplitGroup as Mock).mockResolvedValue(undefined)
+    ;(listPersons as Mock).mockResolvedValue([])
   })
 
   it('sends a leg whose only change is the switch', async () => {

@@ -1,10 +1,3 @@
--- Migration 038: The purchase split and dated business-use share of an asset, and the
--- switch that marks an expense as also used privately.
---
--- purchase_price_minor keeps its meaning, the amount that depreciates. The three purchase
--- columns are NULL together when the user gave no VAT split. A NULL business_use_pct_bps
--- reads as 100 %, so existing assets keep their numbers.
-
 ALTER TABLE account ADD COLUMN purchase_gross_minor INTEGER NULL;
 ALTER TABLE account ADD COLUMN purchase_vat_rate_bps INTEGER NULL
   CHECK (purchase_vat_rate_bps BETWEEN 0 AND 10000);
@@ -23,9 +16,6 @@ CREATE TABLE asset_business_use_change (
   business_use_pct_bps INTEGER NOT NULL CHECK (business_use_pct_bps BETWEEN 0 AND 10000),
   PRIMARY KEY (account_id, from_month)
 );
-
--- Which system entry of an asset this event is. A month can hold both kinds, so the
--- generator's "already exists" check must read this column.
 
 ALTER TABLE event ADD COLUMN asset_entry TEXT NULL
   CHECK (asset_entry IN ('depreciation', 'lost_vat'));

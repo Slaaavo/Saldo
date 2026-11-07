@@ -38,8 +38,7 @@ const CreatePrepaidExpenseModal = ({ onClose }: Props) => {
   const [privateUse, setPrivateUse] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [prepaidUntilError, setPrepaidUntilError] = useState<string | null>(null)
-  // A prepaid expense reclaims VAT by the person's flag, so the form has no field for it.
-  const reclaimsVat = persons.find((p) => p.id === personId)?.vatPayer ?? false
+  const personVatPayer = persons.find((p) => p.id === personId)?.vatPayer ?? false
 
   const handlePrepaidUntilChange = (value: string) => {
     setPrepaidUntil(value)
@@ -91,7 +90,7 @@ const CreatePrepaidExpenseModal = ({ onClose }: Props) => {
         expenseDeductiblePctBps: pctToBps(expenseDeductiblePct),
         prepaidUntil: prepaidUntil || null,
         reclaimedVat: null,
-        privateUse: privateUse && showsPrivateUse(vatRate, vatReclaimablePct, reclaimsVat),
+        privateUse: privateUse && showsPrivateUse(vatRate, vatReclaimablePct, personVatPayer),
       })
       toast.success(t('modals.createPrepaidExpense.success', 'Prepaid expense created'))
       await queryClient.invalidateQueries({ queryKey: ['events'] })
@@ -145,7 +144,7 @@ const CreatePrepaidExpenseModal = ({ onClose }: Props) => {
               onExpenseDeductiblePctChange={setExpenseDeductiblePct}
               note={note}
               onNoteChange={setNote}
-              reclaimedVat={reclaimsVat}
+              reclaimedVat={personVatPayer}
               onReclaimedVatChange={() => {}}
               privateUse={privateUse}
               onPrivateUseChange={setPrivateUse}

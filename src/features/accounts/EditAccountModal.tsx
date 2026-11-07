@@ -82,7 +82,6 @@ const EditAccountModal = ({
   const { data: storedUse } = useQuery({ queryKey: ['assetUse', accountId], queryFn: () => getAssetUse(accountId), enabled: accountType === 'asset' })
   const [editedUse, setEditedUse] = useState<AssetUseDraft | null>(null)
   const assetUse = editedUse ?? (storedUse ? draftFromTerms(storedUse, currencyMinorUnits) : EMPTY_ASSET_USE_DRAFT)
-  // A person who stopped paying VAT keeps the facts of a purchase made while they paid it.
   const showVatFields = selectedPerson?.vatPayer === true || !!storedUse?.purchaseVat
   const preview = useAssetPurchasePreview({ draft: assetUse, minorUnits: currencyMinorUnits, showVatFields: showVatFields && showDepreciation, purchaseDate, depreciationPeriod })
   const hasPeriod = parseInt(depreciationPeriod, 10) > 0

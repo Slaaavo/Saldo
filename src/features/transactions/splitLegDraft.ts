@@ -23,7 +23,8 @@ export const makeEmptyLeg = (date: string): SplitLegDraft => ({
   privateUse: false,
 })
 
-/** A leg with no flag of its own takes the person's, so it may reclaim VAT. */
-export const legShowsPrivateUse = (leg: SplitLegDraft): boolean => showsPrivateUse(leg.vatRate, leg.vatReclaimablePct, leg.reclaimedVat !== false)
+export const legReclaimsVat = (leg: SplitLegDraft, personVatPayer: boolean): boolean => leg.reclaimedVat ?? personVatPayer
 
-export const legPrivateUse = (leg: SplitLegDraft): boolean => leg.privateUse && legShowsPrivateUse(leg)
+export const legShowsPrivateUse = (leg: SplitLegDraft, personVatPayer: boolean): boolean => showsPrivateUse(leg.vatRate, leg.vatReclaimablePct, legReclaimsVat(leg, personVatPayer))
+
+export const legPrivateUse = (leg: SplitLegDraft, personVatPayer: boolean): boolean => leg.privateUse && legShowsPrivateUse(leg, personVatPayer)

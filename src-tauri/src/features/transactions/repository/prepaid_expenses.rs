@@ -162,8 +162,6 @@ fn insert_prepaid_child(
     .map_err(AppError::from)
 }
 
-/// Insert system-generated yearly child events for a prepaid expense, and one more child
-/// for lost VAT kept out of the deductible base.
 pub(crate) fn generate_prepaid_child_events(
     conn: &Connection,
     ctx: &PrepaidExpenseContext,

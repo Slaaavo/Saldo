@@ -31,8 +31,7 @@ pub struct UpdateAccountParams {
     pub purchase_price_minor: Option<i64>,
     pub purchase_date: Option<String>,
     pub depreciation_period_months: Option<i64>,
-    /// `None` leaves the stored terms alone.
-    pub use_terms: Option<AssetUseTerms>,
+    pub use_terms: AssetUseTerms,
 }
 
 pub struct UpdateSortOrderParams {
@@ -211,10 +210,7 @@ pub fn update_account(conn: &Connection, params: UpdateAccountParams) -> Result<
     if rows == 0 {
         return Err(account_not_found());
     }
-    match &params.use_terms {
-        Some(terms) => store_use_terms(conn, params.account_id, terms),
-        None => Ok(()),
-    }
+    store_use_terms(conn, params.account_id, &params.use_terms)
 }
 
 pub fn delete_account(conn: &Connection, account_id: i64) -> Result<(), AppError> {

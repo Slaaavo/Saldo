@@ -69,7 +69,6 @@ pub(super) struct AssetPlan {
     pub start_value_minor: i64,
     pub reclaimed_vat_minor: i64,
     pub lost_vat_entry_minor: i64,
-    /// Some only when the input gave `businessUse`, so a plain asset stores no terms.
     pub use_terms: Option<AssetUseTerms>,
 }
 

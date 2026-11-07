@@ -30,7 +30,7 @@ Preconditions:
 - `Verify Co` is a VAT payer, and tax model 2 has VAT `all_year` and actual figures through December. Otherwise the non-deductible part of depreciation is averaged, and the sheet shows a partial figure.
 - For `abu-mcp` and `abu-rule`, `Verify Co` needs an eKasa rule `kava` at 80/50 with the switch on. Seed it with the SQL in [Recording documents](./mcp-recording.md), using person 4 and adding `private_use` 1, or tick `Also private` in the wizard.
 
-- **Create (`abu-create`).** Open `Add Asset`. Type Asset name `Verify Kona`, choose `Verify Co`, click `2 yr (24)`, set Purchase date to 12 July 2026. Click `Also used privately`: Business use reads 80 and VAT reclaimed 50. Type Price with VAT `15600` and VAT rate `23`. The summary reads Depreciates `12 682.92`, a month `528.46`, deductible `422.76`, VAT reclaimed `1 458.54`, Lost VAT `1 458.54`. Purchase price is disabled and reads `12682.92`. Click `Create`. The dashboard card reads `15 600.00`.
+- **Create (`abu-create`).** Open `Add Asset`. Type Asset name `Verify Kona`, then press `tab`, `down`, `down`, `down`, `return` to choose `Verify Co`. Click `2 yr (24)`, set Purchase date to 12 July 2026 from its label. Click `Also used privately`: Business use reads 80 and VAT reclaimed 50. Type Price with VAT `15600` and VAT rate `23`. The summary reads Depreciates `12 682.92`, a month `528.46`, deductible `422.76`, VAT reclaimed `1 458.54`, Lost VAT `1 458.54`. Purchase price is disabled and reads `12682.92`. Click `Create`. The dashboard card reads `15 600.00`.
 - **Entries (`abu-entries`).** Run `evidence.sh db` on `event` joined to `event_data` where `linked_asset_id` is the asset: 24 rows with `asset_entry` `depreciation` at 8000, and one `lost_vat` row of 145854 at 0 dated 2026-07-12.
 - **Forecast (`abu-forecast`).** Open tax model 2. Depreciation gains 2 536.54. Non-deductible costs gains 634.19 and 1 458.54. Event Breakdown has a `Lost VAT on an asset` row.
 - **Restart (`abu-restart`).** Quit and relaunch. Counts by `asset_entry` stay the same.
@@ -41,7 +41,11 @@ Preconditions:
 
 ## Gotchas
 
-- Last driven on 2026-11-07 in runs `20261107-093754` and `20261107-094457`, through `saldo mcp` and the dev DB only: `abu-entries`, `abu-forecast` (from `get_forecast`), `abu-restart`, `abu-rule`, `abu-mcp` and `abu-undo-edited`, with the share edit stood in by a SQL insert. `abu-create`, `abu-change`, `abu-expense` and every window step are not verified yet, because computer-use access was declined.
-- Model 2 has typed figures, so Non-deductible costs shows the typed value. Read `untypedMinor` or clear the typed cell to see the entries' sum.
+- Last driven on 2026-11-07. Runs `20261107-093754` and `20261107-094457` drove `abu-mcp` and `abu-rule`'s match through `saldo mcp`. Runs `20261107-130541` and `20261107-131522` drove the rest in the window: `abu-create`, `abu-entries`, `abu-forecast`, `abu-restart`, `abu-change`, `abu-expense` (one entry, a prepaid expense and a split leg), the wizard's `Also private` column and review switch, `abu-undo-edited` with a real dialog edit, and the same asset in demo mode. An online receipt's line taking a rule's switch in the wizard was not driven, because no real receipt id was at hand.
+- Open a card's menu from the keyboard: click blank space on the Assets title row, press `tab` until the card's `⋮` has focus (two for the header buttons, then two per card), then `down`, `return`. Tabbing also scrolls the card into view.
+- The Event Breakdown scrolls sideways. Collapse the sidebar and drag the scrollbar under the table to read the Deductible and Non-deductible columns.
+- The receipt fixture records once. After a wizard import of `offline-receipt.png`, delete that entry before running `mcp-asset-use.json`, or it stops at `ALREADY_RECORDED`.
+- Demo mode has only a physical person. Add a legal VAT payer there to reach the Depreciation section and the VAT fields.
+- Model 2 has typed figures, so Non-deductible costs shows the typed value, and the lost VAT row in Event Breakdown reads `Replaced by a typed value`. Read `untypedMinor` or clear the typed cell to see the entries' sum.
 - A person who is not a VAT payer sees only Business use, not the VAT fields.
 - Change months are typed as `YYYY-MM`. The dialog takes no month picker, because `type="month"` is not available in the macOS web view.

@@ -179,7 +179,6 @@ export interface PurchaseVat {
 }
 
 export interface BusinessUseChange {
-  /** YYYY-MM */
   fromMonth: string
   businessUsePctBps: number
 }

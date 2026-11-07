@@ -172,8 +172,9 @@ pub struct LineShares {
     pub deductible_pct_bps: Bps,
     /// The share of the VAT that can be reclaimed.
     pub vat_reclaimable_pct_bps: Bps,
-    /// The cost is also used privately, so its lost VAT is not deductible. False keeps lost
-    /// VAT in the cost, as for fuel under the flat 80 % rule on a car used only for business.
+    /// The cost is also used privately. When some VAT is reclaimed, its lost VAT is not
+    /// deductible. With no VAT reclaimed this changes nothing. False keeps lost VAT in the
+    /// cost, as for fuel under the flat 80 % rule on a car used only for business.
     pub private_use: bool,
     /// user: the user dictated these shares. claude: your own judgment.
     pub by: ShareBy,
@@ -329,8 +330,9 @@ pub struct ExpenseLine {
     pub deductible_pct_bps: Bps,
     /// The share of the VAT that can be reclaimed.
     pub vat_reclaimable_pct_bps: Bps,
-    /// The cost is also used privately, so its lost VAT is not deductible. False keeps lost
-    /// VAT in the cost, as for fuel under the flat 80 % rule on a car used only for business.
+    /// The cost is also used privately. When some VAT is reclaimed, its lost VAT is not
+    /// deductible. With no VAT reclaimed this changes nothing. False keeps lost VAT in the
+    /// cost, as for fuel under the flat 80 % rule on a car used only for business.
     pub private_use: bool,
 }
 
@@ -450,7 +452,6 @@ pub struct RecordedLine {
     /// A receipt line's shares and where they came from.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub shares: Option<RecordedShares>,
-    /// Whether an expense line is also used privately. Revenue has none.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub private_use: Option<bool>,
 }
@@ -493,10 +494,8 @@ pub struct RecordedAsset {
     pub purchase_price_minor: i64,
     pub price_basis: PriceBasis,
     pub depreciation_months: i64,
-    /// The asset's balance on the dashboard when it is bought.
     pub start_value_minor: i64,
     pub reclaimed_vat_minor: i64,
-    /// One non-deductible entry in the purchase month. Zero when no such entry exists.
     pub lost_vat_entry_minor: i64,
     pub business_use_pct_bps: i64,
 }
@@ -506,9 +505,7 @@ pub struct RecordedAsset {
 pub enum PriceBasis {
     NetVatReclaimed,
     GrossVatNotReclaimed,
-    /// VAT is partly reclaimed on an asset used only for business, so lost VAT is in the price.
     NetPlusLostVat,
-    /// A mixed-use asset: the price without VAT, with lost VAT as its own entry.
     NetLostVatApart,
 }
 
@@ -627,28 +624,12 @@ impl From<rusqlite::Error> for UndoBatchError {
     rename_all_fields = "camelCase"
 )]
 pub enum ChangedRow {
-    EditedInSaldo {
-        event_id: i64,
-    },
-    LegAddedInSaldo {
-        event_id: i64,
-    },
-    EventAddedToAsset {
-        event_id: i64,
-        account_id: i64,
-    },
-    /// Its name, purchase price, purchase date, depreciation months, VAT facts or shares.
-    AssetEditedInSaldo {
-        account_id: i64,
-    },
-    PaymentLinkAddedInSaldo {
-        event_id: i64,
-        payment_id: i64,
-    },
-    PaymentLinkRemovedInSaldo {
-        event_id: i64,
-        payment_id: i64,
-    },
+    EditedInSaldo { event_id: i64 },
+    LegAddedInSaldo { event_id: i64 },
+    EventAddedToAsset { event_id: i64, account_id: i64 },
+    AssetEditedInSaldo { account_id: i64 },
+    PaymentLinkAddedInSaldo { event_id: i64, payment_id: i64 },
+    PaymentLinkRemovedInSaldo { event_id: i64, payment_id: i64 },
 }
 
 #[derive(Debug, Serialize)]

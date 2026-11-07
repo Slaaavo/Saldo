@@ -69,7 +69,6 @@ pub fn get_asset_use(
     repository::get_use_terms(&conn, account_id)
 }
 
-/// The figures of the dialog's summary, from the same rules that write the entries.
 #[tauri::command]
 pub fn preview_asset_purchase(
     input: PreviewAssetPurchaseInput,

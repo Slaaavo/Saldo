@@ -172,15 +172,10 @@ pub struct ExpenseCost {
     pub vat_minor: i64,
     pub reclaimable_vat_minor: i64,
     pub non_reclaimable_vat_minor: i64,
-    /// What the deductible % applies to.
     pub deductible_base_minor: i64,
-    /// Lost VAT kept out of that base. It is never deductible.
     pub lost_vat_apart_minor: i64,
 }
 
-/// VAT that cannot be reclaimed is part of what an expense costs. Only a private-use entry
-/// that really gets VAT back keeps the rest apart, because VAT stays in the cost when none of
-/// it can be reclaimed.
 pub fn split_expense_cost(
     amount_minor: i64,
     vat_rate_bps: i64,
@@ -193,7 +188,8 @@ pub fn split_expense_cost(
     let reclaimable_vat_minor =
         calculate_reclaimable_vat(vat_minor, vat_reclaimable_pct_bps, can_reclaim);
     let non_reclaimable_vat_minor = vat_minor - reclaimable_vat_minor;
-    let lost_vat_apart_minor = if private_use && reclaimable_vat_minor > 0 {
+    let some_vat_comes_back = reclaimable_vat_minor > 0;
+    let lost_vat_apart_minor = if private_use && some_vat_comes_back {
         non_reclaimable_vat_minor
     } else {
         0

@@ -96,8 +96,6 @@ pub struct UpdateTaxableSplitGroupParams {
     pub removed_leg_ids: Vec<i64>,
 }
 
-/// One version of a taxable event. It has no `Default`, so a writer cannot leave out
-/// `private_use` and silently reset it.
 pub(crate) struct TaxableEventRow<'a> {
     pub event_id: i64,
     pub amount_minor: i64,

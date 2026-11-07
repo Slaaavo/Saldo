@@ -125,7 +125,7 @@ const ReviewStep = ({ processedLegs, vendorName, receiptDate, sourceRef, already
             expenseDeductiblePctBps: pctToBps(leg.expenseDeductiblePct),
             prepaidUntil: null,
             reclaimedVat: leg.reclaimedVat,
-            privateUse: legPrivateUse(leg),
+            privateUse: legPrivateUse(leg, person?.vatPayer ?? false),
           })),
           sourceRef,
         })
@@ -244,6 +244,7 @@ const ReviewStep = ({ processedLegs, vendorName, receiptDate, sourceRef, already
               onLegsChange={setLegs}
               groupNote={groupNote}
               onGroupNoteChange={setGroupNote}
+              personVatPayer={person?.vatPayer ?? false}
             />
 
             {/* Cashflow picker */}

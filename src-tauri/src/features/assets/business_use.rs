@@ -25,12 +25,10 @@ pub(crate) fn check_bps(what: &str, bps: i64) -> Result<(), AppError> {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BusinessUseChange {
-    /// `YYYY-MM`, so months compare as strings.
     pub from_month: String,
     pub business_use_pct_bps: i64,
 }
 
-/// The default is a plain asset: no VAT split, used only for business.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AssetUseTerms {
@@ -51,7 +49,6 @@ impl AssetUseTerms {
             && self.business_use_changes.is_empty()
     }
 
-    /// Checks the terms against the asset's purchase month (`YYYY-MM`) and period.
     pub fn validate(
         &self,
         purchase_month: Option<&str>,

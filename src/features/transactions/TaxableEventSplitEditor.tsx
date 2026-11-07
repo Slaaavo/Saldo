@@ -8,7 +8,7 @@ import { Button } from '../../shared/ui/button'
 import NumberValue from '../../shared/ui/NumberValue'
 import { toMinorUnits, todayIso, getMinorUnitsStep } from '../../shared/utils/format'
 import { Trash2 } from 'lucide-react'
-import { SplitLegDraft, legShowsPrivateUse, makeEmptyLeg } from './splitLegDraft'
+import { SplitLegDraft, legReclaimsVat, legShowsPrivateUse, makeEmptyLeg } from './splitLegDraft'
 import { VAT_QUICK_FILLS } from './taxableEventForm'
 
 const VAT_DEDUCTIBLE_QUICK_FILLS = ['100', '50']
@@ -22,9 +22,10 @@ interface Props {
   onLegsChange: (legs: SplitLegDraft[]) => void
   groupNote: string
   onGroupNoteChange: (note: string) => void
+  personVatPayer?: boolean
 }
 
-const TaxableEventSplitEditor = ({ eventType, currencyCode, currencyMinorUnits, legs, onLegsChange, groupNote, onGroupNoteChange }: Props) => {
+const TaxableEventSplitEditor = ({ eventType, currencyCode, currencyMinorUnits, legs, onLegsChange, groupNote, onGroupNoteChange, personVatPayer = false }: Props) => {
   const { t } = useTranslation()
 
   const updateLeg = (index: number, patch: Partial<SplitLegDraft>) => {
@@ -149,14 +150,13 @@ const TaxableEventSplitEditor = ({ eventType, currencyCode, currencyMinorUnits, 
 
               {/* VAT reclaimed */}
               <div className="flex items-center gap-2">
-                <Checkbox id={`leg-reclaimed-vat-${index}`} checked={leg.reclaimedVat === true} onCheckedChange={(v) => updateLeg(index, { reclaimedVat: v === true })} />
+                <Checkbox id={`leg-reclaimed-vat-${index}`} checked={legReclaimsVat(leg, personVatPayer)} onCheckedChange={(v) => updateLeg(index, { reclaimedVat: v === true })} />
                 <Label htmlFor={`leg-reclaimed-vat-${index}`} className="text-xs">
                   {t('modals.createExpense.reclaimedVat')}
                 </Label>
               </div>
 
-              {/* Also used privately */}
-              {legShowsPrivateUse(leg) && (
+              {legShowsPrivateUse(leg, personVatPayer) && (
                 <div className="flex items-center gap-2">
                   <Checkbox id={`leg-private-use-${index}`} checked={leg.privateUse} onCheckedChange={(v) => updateLeg(index, { privateUse: v === true })} />
                   <Label htmlFor={`leg-private-use-${index}`} className="text-xs">

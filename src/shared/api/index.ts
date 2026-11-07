@@ -99,7 +99,6 @@ export const createAccount = (
   })
 }
 
-/** Leaving `assetUse` out keeps the asset's stored terms. */
 export const updateAccount = (
   accountId: number,
   name: string,

@@ -36,16 +36,15 @@ pub struct PurchaseSplit {
     pub start_value_minor: i64,
 }
 
-/// Lost VAT is part of the price unless the asset is mixed use and some VAT comes back.
-/// Then it stays out of depreciation and becomes one non-deductible entry, and the asset
-/// starts at the full price so that buying it never dips net worth.
 pub fn split_purchase(purchase: &PurchaseVat, business_use_pct_bps: i64) -> PurchaseSplit {
     let net_minor = calculate_net_amount(purchase.gross_minor, purchase.vat_rate_bps);
     let vat_minor = calculate_vat_amount(purchase.gross_minor, net_minor);
     let reclaimed_vat_minor =
         calculate_reclaimable_vat(vat_minor, purchase.vat_reclaimable_pct_bps, true);
+    let some_vat_comes_back = reclaimed_vat_minor > 0;
+    let mixed_use = business_use_pct_bps < FULL_BUSINESS_USE_BPS;
 
-    if reclaimed_vat_minor > 0 && business_use_pct_bps < FULL_BUSINESS_USE_BPS {
+    if some_vat_comes_back && mixed_use {
         return PurchaseSplit {
             depreciating_minor: net_minor,
             reclaimed_vat_minor,

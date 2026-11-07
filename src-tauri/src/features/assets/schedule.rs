@@ -22,7 +22,6 @@ pub struct AssetFacts {
     pub name: String,
     pub purchase_price_minor: i64,
     pub purchase_date: String,
-    /// Zero means the asset is written off at once.
     pub depreciation_period_months: i64,
     pub use_terms: AssetUseTerms,
 }
@@ -36,7 +35,6 @@ pub struct PlannedEntry {
     pub note: String,
 }
 
-/// Parse a `YYYY-MM-DD[...]` string into `(year, month, day)`.
 pub fn parse_ymd(date: &str) -> Result<(i32, i32, i32), AppError> {
     let invalid = |what: &str| AppError {
         code: "VALIDATION".into(),
@@ -53,7 +51,6 @@ pub fn parse_ymd(date: &str) -> Result<(i32, i32, i32), AppError> {
     Ok((year, month, day))
 }
 
-/// Add `offset` months to a (year, month) pair, returning the new (year, month).
 fn add_months(year: i32, month: i32, offset: i64) -> (i32, u32) {
     let total_months = (year as i64) * 12 + (month as i64 - 1) + offset;
     let new_year = (total_months / 12) as i32;
@@ -82,7 +79,6 @@ fn monthly_depreciation(facts: &AssetFacts) -> Result<Vec<PlannedEntry>, AppErro
     for offset in 0..=last_eligible_offset {
         let (event_year, event_month) = add_months(purchase_year, purchase_month, offset);
 
-        // At the start of each calendar year segment, compute the yearly target.
         if offset == 0 || event_month == 1 {
             let months_remaining_in_schedule = last_eligible_offset - offset + 1;
             let months_until_december = 13 - event_month as i64;
@@ -101,7 +97,6 @@ fn monthly_depreciation(facts: &AssetFacts) -> Result<Vec<PlannedEntry>, AppErro
             year_accumulated = 0;
         }
 
-        // Compute the depreciation amount for this month.
         let is_last_of_segment = event_month == 12 || offset == last_eligible_offset;
         let amount_minor = if is_last_of_segment {
             yearly_target - year_accumulated
@@ -127,7 +122,6 @@ fn monthly_depreciation(facts: &AssetFacts) -> Result<Vec<PlannedEntry>, AppErro
     Ok(entries)
 }
 
-/// Every system entry the asset should have, in the order they are written.
 pub fn asset_entries(facts: &AssetFacts) -> Result<Vec<PlannedEntry>, AppError> {
     let mut entries = if facts.depreciation_period_months > 0 {
         monthly_depreciation(facts)?
@@ -181,8 +175,7 @@ mod tests {
         }
     }
 
-    /// (depreciation, deductible part, non-deductible part) of the entries dated in 2026.
-    fn year_2026(entries: &[PlannedEntry]) -> (i64, i64, i64) {
+    fn depreciation_deductible_rest_in_2026(entries: &[PlannedEntry]) -> (i64, i64, i64) {
         let (depreciation, deductible) = entries
             .iter()
             .filter(|entry| entry.kind == AssetEntryKind::Depreciation)
@@ -201,7 +194,10 @@ mod tests {
         let entries = asset_entries(&vehicle(1_560_000, 1_268_292, 24)).unwrap();
 
         assert_eq!(entries[0].amount_minor, 52_846);
-        assert_eq!(year_2026(&entries), (317_073, 253_654, 63_419));
+        assert_eq!(
+            depreciation_deductible_rest_in_2026(&entries),
+            (317_073, 253_654, 63_419)
+        );
         assert_eq!(
             entries.last().unwrap(),
             &PlannedEntry {
@@ -219,7 +215,10 @@ mod tests {
         let entries = asset_entries(&vehicle(830_000, 674_796, 72)).unwrap();
 
         assert_eq!(entries[0].amount_minor, 9_372);
-        assert_eq!(year_2026(&entries), (56_233, 44_983, 11_250));
+        assert_eq!(
+            depreciation_deductible_rest_in_2026(&entries),
+            (56_233, 44_983, 11_250)
+        );
         assert_eq!(entries.last().unwrap().amount_minor, 77_602);
     }
 
@@ -241,7 +240,10 @@ mod tests {
 
         let entries = asset_entries(&peugeot).unwrap();
 
-        assert_eq!(year_2026(&entries), (425_000, 382_497, 42_503));
+        assert_eq!(
+            depreciation_deductible_rest_in_2026(&entries),
+            (425_000, 382_497, 42_503)
+        );
     }
 
     #[test]

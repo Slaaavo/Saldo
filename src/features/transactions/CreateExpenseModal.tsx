@@ -45,11 +45,11 @@ const CreateExpenseModal = ({ onClose }: Props) => {
   const [reclaimedVat, setReclaimedVat] = useState(() => persons.find((p) => p.id === personId)?.vatPayer ?? false)
   const [reclaimedVatPersonId, setReclaimedVatPersonId] = useState(personId)
   const [privateUse, setPrivateUse] = useState(false)
+  const personVatPayer = persons.find((p) => p.id === personId)?.vatPayer ?? false
 
   if (reclaimedVatPersonId !== personId) {
     setReclaimedVatPersonId(personId)
-    const person = persons.find((p) => p.id === personId)
-    setReclaimedVat(person?.vatPayer ?? false)
+    setReclaimedVat(personVatPayer)
   }
 
   const amountMinorForFilter = (() => {
@@ -91,7 +91,7 @@ const CreateExpenseModal = ({ onClose }: Props) => {
             expenseDeductiblePctBps: pctToBps(leg.expenseDeductiblePct),
             prepaidUntil: null,
             reclaimedVat: leg.reclaimedVat,
-            privateUse: legPrivateUse(leg),
+            privateUse: legPrivateUse(leg, personVatPayer),
           })),
         })
         if (selectedCashflowIds.length > 0) {
@@ -176,6 +176,7 @@ const CreateExpenseModal = ({ onClose }: Props) => {
                 onLegsChange={setLegs}
                 groupNote={groupNote}
                 onGroupNoteChange={setGroupNote}
+                personVatPayer={personVatPayer}
               />
             ) : (
               <ExpenseFormFields

@@ -1,11 +1,11 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { EventWithData } from '../../shared/types'
 import { fromMinorUnits, toMinorUnits, pctToBps, bpsToPct } from '../../shared/utils/format'
 import { extractErrorMessage } from '../../shared/utils/errors'
-import { updateTaxableSplitGroup } from '../../shared/api'
+import { listPersons, updateTaxableSplitGroup } from '../../shared/api'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogBody, DialogFooter } from '../../shared/ui/dialog'
 import { Button } from '../../shared/ui/button'
 import TaxableEventSplitEditor from './TaxableEventSplitEditor'
@@ -32,9 +32,12 @@ const legToSplitLegDraft = (leg: EventWithData): SplitLegDraft => ({
   privateUse: leg.privateUse,
 })
 
-const EditTaxableSplitGroupModal = ({ splitGroupId, eventType, legs: originalLegs, groupNote: initialGroupNote, onClose }: Props) => {
+const EditTaxableSplitGroupModal = ({ splitGroupId, eventType, legs: originalLegs, groupNote: initialGroupNote, accountId, onClose }: Props) => {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
+
+  const { data: persons = [] } = useQuery({ queryKey: ['persons'], queryFn: listPersons })
+  const personVatPayer = persons.find((p) => p.defaultExpenseAccountId === accountId)?.vatPayer ?? false
 
   const currencyCode = originalLegs[0]?.currencyCode ?? ''
   const currencyMinorUnits = originalLegs[0]?.currencyMinorUnits ?? 2
@@ -76,7 +79,7 @@ const EditTaxableSplitGroupModal = ({ splitGroupId, eventType, legs: originalLeg
           expenseDeductiblePctBps: eventType === 'expense' ? pctToBps(l.expenseDeductiblePct) : null,
           prepaidUntil: null as string | null,
           reclaimedVat: l.reclaimedVat ?? null,
-          privateUse: eventType === 'expense' && legPrivateUse(l),
+          privateUse: eventType === 'expense' && legPrivateUse(l, personVatPayer),
           _original: original,
         }
       })
@@ -117,7 +120,7 @@ const EditTaxableSplitGroupModal = ({ splitGroupId, eventType, legs: originalLeg
         expenseDeductiblePctBps: eventType === 'expense' ? pctToBps(l.expenseDeductiblePct) : null,
         prepaidUntil: null as string | null,
         reclaimedVat: l.reclaimedVat ?? null,
-        privateUse: eventType === 'expense' && legPrivateUse(l),
+        privateUse: eventType === 'expense' && legPrivateUse(l, personVatPayer),
       }))
 
     setSubmitting(true)
@@ -170,6 +173,7 @@ const EditTaxableSplitGroupModal = ({ splitGroupId, eventType, legs: originalLeg
               }}
               groupNote={groupNote}
               onGroupNoteChange={setGroupNote}
+              personVatPayer={personVatPayer}
             />
 
             {minLegsError && <p className="text-sm text-destructive">{t('modals.editTaxableSplitGroup.minLegsError')}</p>}

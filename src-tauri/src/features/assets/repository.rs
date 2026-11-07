@@ -7,7 +7,6 @@ use super::models::AccountAssetLink;
 use super::purchase::PurchaseVat;
 use crate::features::currency::Currency;
 
-/// The one reader of the terms. An account without any reads as a plain asset.
 pub(crate) fn get_use_terms(conn: &Connection, account_id: i64) -> Result<AssetUseTerms, AppError> {
     let stored = conn
         .query_row(
@@ -59,8 +58,6 @@ pub(crate) fn get_use_terms(conn: &Connection, account_id: i64) -> Result<AssetU
     Ok(terms)
 }
 
-/// The one writer of the terms. It replaces everything they hold and stores 100 % as NULL,
-/// so saving an untouched asset changes nothing. Recalculate the asset after this.
 pub(crate) fn store_use_terms(
     conn: &Connection,
     account_id: i64,

@@ -13,7 +13,6 @@ struct StoredAsset {
     facts: AssetFacts,
 }
 
-/// A month can hold both kinds of entry, so the check names the kind it looks for.
 fn entry_exists(conn: &Connection, asset_id: i64, entry: &PlannedEntry) -> Result<bool, AppError> {
     let exists: Option<i64> = conn
         .query_row(
@@ -65,7 +64,6 @@ fn insert_entry(
     .map_err(AppError::from)
 }
 
-/// A depreciating asset gets no entries before the month it is bought in.
 fn waits_for_its_purchase_month(facts: &AssetFacts) -> Result<bool, AppError> {
     if facts.depreciation_period_months == 0 {
         return Ok(false);
@@ -75,7 +73,6 @@ fn waits_for_its_purchase_month(facts: &AssetFacts) -> Result<bool, AppError> {
     Ok((purchase_year, purchase_month) > (today_year, today_month))
 }
 
-/// Writes every system entry the asset is missing. Returns how many it wrote.
 fn write_missing_entries(conn: &Connection, asset: &StoredAsset) -> Result<i64, AppError> {
     if waits_for_its_purchase_month(&asset.facts)? {
         return Ok(0);
@@ -92,7 +89,6 @@ fn write_missing_entries(conn: &Connection, asset: &StoredAsset) -> Result<i64, 
     })
 }
 
-/// Reads every asset with a price and a date, or only `asset_id` when given.
 fn load_assets(conn: &Connection, asset_id: Option<i64>) -> Result<Vec<StoredAsset>, AppError> {
     let mut stmt = conn
         .prepare(
@@ -961,8 +957,6 @@ mod tests {
         );
     }
 
-    // ── Business-use share and lost VAT ──────────────────────────────────────
-
     fn kona_terms() -> AssetUseTerms {
         AssetUseTerms {
             purchase_vat: Some(PurchaseVat {
@@ -993,7 +987,6 @@ mod tests {
         .expect("create_account failed")
     }
 
-    /// (amount, date, deductible %) of one kind of system entry, oldest first.
     fn entries_of_kind(
         conn: &Connection,
         asset_id: i64,
