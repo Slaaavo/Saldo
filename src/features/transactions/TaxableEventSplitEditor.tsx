@@ -8,7 +8,7 @@ import { Button } from '../../shared/ui/button'
 import NumberValue from '../../shared/ui/NumberValue'
 import { toMinorUnits, todayIso, getMinorUnitsStep } from '../../shared/utils/format'
 import { Trash2 } from 'lucide-react'
-import { SplitLegDraft, makeEmptyLeg } from './splitLegDraft'
+import { SplitLegDraft, legShowsPrivateUse, makeEmptyLeg } from './splitLegDraft'
 import { VAT_QUICK_FILLS } from './taxableEventForm'
 
 const VAT_DEDUCTIBLE_QUICK_FILLS = ['100', '50']
@@ -154,6 +154,16 @@ const TaxableEventSplitEditor = ({ eventType, currencyCode, currencyMinorUnits, 
                   {t('modals.createExpense.reclaimedVat')}
                 </Label>
               </div>
+
+              {/* Also used privately */}
+              {legShowsPrivateUse(leg) && (
+                <div className="flex items-center gap-2">
+                  <Checkbox id={`leg-private-use-${index}`} checked={leg.privateUse} onCheckedChange={(v) => updateLeg(index, { privateUse: v === true })} />
+                  <Label htmlFor={`leg-private-use-${index}`} className="text-xs">
+                    {t('modals.createExpense.privateUse')}
+                  </Label>
+                </div>
+              )}
             </>
           )}
 

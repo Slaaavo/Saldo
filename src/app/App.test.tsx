@@ -460,6 +460,7 @@ const makeEvent = (overrides?: Partial<EventWithData>): EventWithData => {
     linkedPrepaidEventId: null,
     isSystemGenerated: false,
     reclaimedVat: null,
+    privateUse: false,
     ...overrides,
   }
 }

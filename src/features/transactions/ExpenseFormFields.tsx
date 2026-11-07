@@ -5,7 +5,7 @@ import { Input } from '../../shared/ui/input'
 import { PercentageInput } from '../../shared/ui/PercentageInput'
 import { Label } from '../../shared/ui/label'
 import { Checkbox } from '../../shared/ui/checkbox'
-import { VAT_QUICK_FILLS } from './taxableEventForm'
+import { VAT_QUICK_FILLS, showsPrivateUse } from './taxableEventForm'
 
 const VAT_RECLAIMABLE_QUICK_FILLS = ['100', '50']
 const EXPENSE_DEDUCTIBLE_QUICK_FILLS = ['100', '80', '50']
@@ -25,6 +25,8 @@ export interface ExpenseFormFieldsProps {
   reclaimedVat: boolean
   onReclaimedVatChange: (value: boolean) => void
   showReclaimedVat?: boolean
+  privateUse: boolean
+  onPrivateUseChange: (value: boolean) => void
   currencyCode: string
   currencyMinorUnits: number
 }
@@ -44,6 +46,8 @@ const ExpenseFormFields = ({
   reclaimedVat,
   onReclaimedVatChange,
   showReclaimedVat = true,
+  privateUse,
+  onPrivateUseChange,
   currencyCode,
   currencyMinorUnits,
 }: ExpenseFormFieldsProps) => {
@@ -137,6 +141,14 @@ const ExpenseFormFields = ({
         <div className="flex items-center gap-2">
           <Checkbox id={`${idPrefix}-reclaimed-vat`} checked={reclaimedVat} onCheckedChange={(v) => onReclaimedVatChange(v === true)} />
           <Label htmlFor={`${idPrefix}-reclaimed-vat`}>{t('modals.createExpense.reclaimedVat')}</Label>
+        </div>
+      )}
+
+      {/* Also used privately */}
+      {showsPrivateUse(vatRate, vatReclaimablePct, reclaimedVat) && (
+        <div className="flex items-center gap-2">
+          <Checkbox id={`${idPrefix}-private-use`} checked={privateUse} onCheckedChange={(v) => onPrivateUseChange(v === true)} />
+          <Label htmlFor={`${idPrefix}-private-use`}>{t('modals.createExpense.privateUse')}</Label>
         </div>
       )}
 

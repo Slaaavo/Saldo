@@ -54,6 +54,7 @@ const makeLeg = (amount: string, eventDate: string): SplitLegDraft => ({
   expenseDeductiblePct: '100',
   note: amount,
   reclaimedVat: false,
+  privateUse: false,
 })
 
 const deferred = () => {
@@ -105,6 +106,17 @@ describe('ReviewStep', () => {
     await waitFor(() => expect(createTaxableSplitGroup).toHaveBeenCalledOnce())
     const input = (createTaxableSplitGroup as Mock).mock.calls[0][0]
     expect(input.legs.map((leg: { eventDate: string }) => leg.eventDate)).toEqual(['2025-06-01', '2025-06-01'])
+  })
+
+  it('carries each leg of a multi-item receipt its rule switch', async () => {
+    const carCost = { ...makeLeg('1.00', '2025-05-03'), vatReclaimablePct: '50', reclaimedVat: true, privateUse: true }
+    renderStep([carCost, makeLeg('2.00', '2025-05-03')])
+
+    fireEvent.click(screen.getByText('ekasaImport.reviewStep.save'))
+
+    await waitFor(() => expect(createTaxableSplitGroup).toHaveBeenCalledOnce())
+    const { legs } = (createTaxableSplitGroup as Mock).mock.calls[0][0]
+    expect(legs.map((leg: { privateUse: boolean }) => leg.privateUse)).toEqual([true, false])
   })
 
   it('stores the receipt reference with a single-item receipt', async () => {

@@ -75,6 +75,7 @@ const CreateRevenueModal = ({ onClose }: Props) => {
             expenseDeductiblePctBps: null,
             prepaidUntil: null,
             reclaimedVat: null,
+            privateUse: false,
           })),
         })
       } else {
@@ -95,6 +96,7 @@ const CreateRevenueModal = ({ onClose }: Props) => {
           expenseDeductiblePctBps: null,
           prepaidUntil: null,
           reclaimedVat: null,
+          privateUse: false,
         })
         if (selectedCashflowIds.length > 0) {
           await linkCashflowsToTaxable(newEventId, selectedCashflowIds).catch((err) => {

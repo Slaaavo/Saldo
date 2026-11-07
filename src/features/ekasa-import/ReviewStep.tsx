@@ -10,7 +10,8 @@ import { Button } from '../../shared/ui/button'
 import { Label } from '../../shared/ui/label'
 import { DatePicker } from '../../shared/ui/date-picker'
 import TaxableEventSplitEditor from '../transactions/TaxableEventSplitEditor'
-import type { SplitLegDraft } from '../transactions/splitLegDraft'
+import { legPrivateUse, type SplitLegDraft } from '../transactions/splitLegDraft'
+import { showsPrivateUse } from '../transactions/taxableEventForm'
 import { useConsolidationCurrencyQuery } from '../../shared/hooks/useConsolidationCurrencyQuery'
 import { useResolvedPersonId } from '../transactions/useResolvedPersonId'
 import ExpenseFormFields from '../transactions/ExpenseFormFields'
@@ -46,6 +47,7 @@ const ReviewStep = ({ processedLegs, vendorName, receiptDate, sourceRef, already
   const [expenseDeductiblePct, setExpenseDeductiblePct] = useState(firstLeg?.expenseDeductiblePct ?? '')
   const [note, setNote] = useState(firstLeg?.note ?? '')
   const [reclaimedVat, setReclaimedVat] = useState(person?.vatPayer ?? false)
+  const [privateUse, setPrivateUse] = useState(firstLeg?.privateUse ?? false)
 
   // Multi-leg form state
   const [multiDate, setMultiDate] = useState(initialDate)
@@ -123,6 +125,7 @@ const ReviewStep = ({ processedLegs, vendorName, receiptDate, sourceRef, already
             expenseDeductiblePctBps: pctToBps(leg.expenseDeductiblePct),
             prepaidUntil: null,
             reclaimedVat: leg.reclaimedVat,
+            privateUse: legPrivateUse(leg),
           })),
           sourceRef,
         })
@@ -145,6 +148,7 @@ const ReviewStep = ({ processedLegs, vendorName, receiptDate, sourceRef, already
           expenseDeductiblePctBps: pctToBps(expenseDeductiblePct),
           prepaidUntil: null,
           reclaimedVat,
+          privateUse: privateUse && showsPrivateUse(vatRate, vatReclaimablePct, reclaimedVat),
           sourceRef,
         })
         await linkSelectedCashflows((cashflowIds) => linkCashflowsToTaxable(newEventId, cashflowIds))
@@ -205,6 +209,8 @@ const ReviewStep = ({ processedLegs, vendorName, receiptDate, sourceRef, already
               onNoteChange={setNote}
               reclaimedVat={reclaimedVat}
               onReclaimedVatChange={setReclaimedVat}
+              privateUse={privateUse}
+              onPrivateUseChange={setPrivateUse}
               currencyCode={currencyCode}
               currencyMinorUnits={currencyMinorUnits}
             />

@@ -11,7 +11,8 @@ import { Label } from '../../shared/ui/label'
 import { DatePicker } from '../../shared/ui/date-picker'
 import TaxableEventSplitEditor from './TaxableEventSplitEditor'
 import ExpenseFormFields from './ExpenseFormFields'
-import { SplitLegDraft, makeEmptyLeg } from './splitLegDraft'
+import { SplitLegDraft, legPrivateUse, makeEmptyLeg } from './splitLegDraft'
+import { showsPrivateUse } from './taxableEventForm'
 import { useConsolidationCurrencyQuery } from '../../shared/hooks/useConsolidationCurrencyQuery'
 import { useResolvedPersonId } from './useResolvedPersonId'
 import PersonPickerField from './PersonPickerField'
@@ -43,6 +44,7 @@ const CreateExpenseModal = ({ onClose }: Props) => {
   const [selectedCashflowIds, setSelectedCashflowIds] = useState<number[]>([])
   const [reclaimedVat, setReclaimedVat] = useState(() => persons.find((p) => p.id === personId)?.vatPayer ?? false)
   const [reclaimedVatPersonId, setReclaimedVatPersonId] = useState(personId)
+  const [privateUse, setPrivateUse] = useState(false)
 
   if (reclaimedVatPersonId !== personId) {
     setReclaimedVatPersonId(personId)
@@ -89,6 +91,7 @@ const CreateExpenseModal = ({ onClose }: Props) => {
             expenseDeductiblePctBps: pctToBps(leg.expenseDeductiblePct),
             prepaidUntil: null,
             reclaimedVat: leg.reclaimedVat,
+            privateUse: legPrivateUse(leg),
           })),
         })
         if (selectedCashflowIds.length > 0) {
@@ -112,6 +115,7 @@ const CreateExpenseModal = ({ onClose }: Props) => {
           expenseDeductiblePctBps: pctToBps(expenseDeductiblePct),
           prepaidUntil: null,
           reclaimedVat,
+          privateUse: privateUse && showsPrivateUse(vatRate, vatReclaimablePct, reclaimedVat),
         })
         if (selectedCashflowIds.length > 0) {
           await linkCashflowsToTaxable(newEventId, selectedCashflowIds).catch((err) => {
@@ -188,6 +192,8 @@ const CreateExpenseModal = ({ onClose }: Props) => {
                 onNoteChange={setNote}
                 reclaimedVat={reclaimedVat}
                 onReclaimedVatChange={setReclaimedVat}
+                privateUse={privateUse}
+                onPrivateUseChange={setPrivateUse}
                 currencyCode={currencyCode}
                 currencyMinorUnits={currencyMinorUnits}
               />

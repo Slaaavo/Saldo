@@ -144,6 +144,7 @@ export interface EventWithData {
   linkedPrepaidEventId: number | null
   isSystemGenerated: boolean
   reclaimedVat: boolean | null
+  privateUse: boolean
 }
 
 export interface ListEventsResult {

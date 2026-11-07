@@ -37,7 +37,6 @@ pub struct EkasaRuleInput {
     pub name_pattern: String,
     pub deductible_pct_bps: i64,
     pub vat_reclaimable_pct_bps: i64,
-    #[serde(default)]
     pub private_use: bool,
 }
 

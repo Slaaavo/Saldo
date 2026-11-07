@@ -4,6 +4,7 @@ import type { EkasaRuleDraft } from './types'
 import { Button } from '../../shared/ui/button'
 import { Input } from '../../shared/ui/input'
 import { PercentageInput } from '../../shared/ui/PercentageInput'
+import { Checkbox } from '../../shared/ui/checkbox'
 import { DialogFooter } from '../../shared/ui/dialog'
 
 interface RulesStepProps {
@@ -18,7 +19,9 @@ interface RulesStepProps {
   onBack: () => void
 }
 
-const makeEmptyRule = (): EkasaRuleDraft => ({ id: crypto.randomUUID(), namePattern: '', deductiblePct: '100', vatReclaimablePct: '100' })
+const makeEmptyRule = (): EkasaRuleDraft => ({ id: crypto.randomUUID(), namePattern: '', deductiblePct: '100', vatReclaimablePct: '100', privateUse: false })
+
+const ROW_GRID = 'grid grid-cols-[1fr_7rem_7rem_5rem_2.5rem_2.5rem_2.5rem] gap-2'
 
 const RulesStep = ({
   rules,
@@ -55,9 +58,9 @@ const RulesStep = ({
     onRulesChange(next)
   }
 
-  const handleRuleChange = (index: number, field: keyof EkasaRuleDraft, value: string) => {
+  const handleRuleChange = (index: number, change: Partial<EkasaRuleDraft>) => {
     const next = [...rules]
-    next[index] = { ...next[index], [field]: value }
+    next[index] = { ...next[index], ...change }
     onRulesChange(next)
   }
 
@@ -70,20 +73,21 @@ const RulesStep = ({
 
       <div className="flex flex-col gap-2">
         {/* Column headers */}
-        <div className="grid grid-cols-[1fr_7rem_7rem_2.5rem_2.5rem_2.5rem] gap-2 px-1">
+        <div className={`${ROW_GRID} px-1`}>
           <span className="text-xs font-medium text-muted-foreground">{t('ekasaImport.rulesStep.namePatternHeader')}</span>
           <span className="text-xs font-medium text-muted-foreground">{t('ekasaImport.rulesStep.deductiblePctHeader')}</span>
           <span className="text-xs font-medium text-muted-foreground">{t('ekasaImport.rulesStep.vatReclaimablePctHeader')}</span>
+          <span className="text-xs font-medium text-muted-foreground">{t('ekasaImport.rulesStep.privateUseHeader')}</span>
         </div>
 
         {/* Rule rows */}
         {rules.map((rule, index) => (
-          <div key={rule.id} className="grid grid-cols-[1fr_7rem_7rem_2.5rem_2.5rem_2.5rem] items-center gap-2">
+          <div key={rule.id} className={`${ROW_GRID} items-center`}>
             <Input
               type="text"
               placeholder={t('ekasaImport.rulesStep.namePatternPlaceholder')}
               value={rule.namePattern}
-              onChange={(e) => handleRuleChange(index, 'namePattern', e.target.value)}
+              onChange={(e) => handleRuleChange(index, { namePattern: e.target.value })}
             />
             <PercentageInput
               type="number"
@@ -91,7 +95,7 @@ const RulesStep = ({
               max="100"
               step="1"
               value={rule.deductiblePct}
-              onChange={(e) => handleRuleChange(index, 'deductiblePct', e.target.value)}
+              onChange={(e) => handleRuleChange(index, { deductiblePct: e.target.value })}
               aria-label={t('ekasaImport.rulesStep.deductiblePctHeader')}
             />
             <PercentageInput
@@ -100,8 +104,13 @@ const RulesStep = ({
               max="100"
               step="1"
               value={rule.vatReclaimablePct}
-              onChange={(e) => handleRuleChange(index, 'vatReclaimablePct', e.target.value)}
+              onChange={(e) => handleRuleChange(index, { vatReclaimablePct: e.target.value })}
               aria-label={t('ekasaImport.rulesStep.vatReclaimablePctHeader')}
+            />
+            <Checkbox
+              checked={rule.privateUse}
+              onCheckedChange={(v) => handleRuleChange(index, { privateUse: v === true })}
+              aria-label={t('ekasaImport.rulesStep.privateUseHeader')}
             />
             <Button type="button" variant="ghost" size="icon" disabled={index === 0} onClick={() => handleMoveUp(index)} aria-label={t('ekasaImport.rulesStep.moveUp')}>
               <ChevronUp className="h-4 w-4" />
@@ -123,7 +132,7 @@ const RulesStep = ({
         ))}
 
         {/* Default row — always present, cannot be deleted */}
-        <div className="grid grid-cols-[1fr_7rem_7rem_2.5rem_2.5rem_2.5rem] items-center gap-2 border-t pt-2">
+        <div className={`${ROW_GRID} items-center border-t pt-2`}>
           <span className="text-sm font-medium">{t('ekasaImport.rulesStep.default')}</span>
           <PercentageInput
             type="number"
@@ -143,7 +152,8 @@ const RulesStep = ({
             onChange={(e) => onDefaultVatReclaimablePctChange(e.target.value)}
             aria-label={t('ekasaImport.rulesStep.vatReclaimablePctHeader')}
           />
-          {/* placeholder cells to maintain grid alignment with the button columns */}
+          {/* placeholder cells to maintain grid alignment with the switch and button columns */}
+          <span />
           <span />
           <span />
           <span />

@@ -173,6 +173,7 @@ events:
   prepaidPeriod: "{{months}} mesiacov záloha"
   prepaidUntil: "Predplatené do: {{date}}"
   reclaimedVat: "DPH uplatnená"
+  privateUse: "Používa sa aj súkromne"
 
 # ──── Predplatený výdavok ────
 createPrepaidExpense:
@@ -367,6 +368,7 @@ modals:
     prepaidPeriodMonths: "Záloha v mesiacoch (voliteľná)"
     prepaidPeriodHelper: "Počet mesiacov, ktoré tento náklad pokrýva (napr. 12 pre ročné poistné)"
     reclaimedVat: "DPH uplatnená"
+    privateUse: "Používa sa aj súkromne"
     note: "Poznámka"
     notePlaceholder: "Voliteľná poznámka"
     split: "Rozdeliť"
@@ -754,6 +756,7 @@ ekasaImport:
     namePatternHeader: "Vzor"
     deductiblePctHeader: "Odpočítateľné"
     vatReclaimablePctHeader: "Vrátenie DPH"
+    privateUseHeader: "Aj súkromne"
     namePatternPlaceholder: "Vzor názvu (regex)"
     addRule: "Pridať pravidlo"
     deleteRule: "Zmazať pravidlo"

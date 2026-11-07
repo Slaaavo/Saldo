@@ -7,9 +7,10 @@ interface Props {
   expenseDeductiblePctBps: number | null
   prepaidUntil: string | null
   reclaimedVat: boolean | null
+  privateUse: boolean
 }
 
-const TaxMetadataLines = ({ eventType, vatRateBps, vatReclaimablePctBps, expenseDeductiblePctBps, prepaidUntil, reclaimedVat }: Props) => {
+const TaxMetadataLines = ({ eventType, vatRateBps, vatReclaimablePctBps, expenseDeductiblePctBps, prepaidUntil, reclaimedVat, privateUse }: Props) => {
   const { t } = useTranslation()
 
   const hasVatRate = vatRateBps !== null
@@ -18,7 +19,7 @@ const TaxMetadataLines = ({ eventType, vatRateBps, vatReclaimablePctBps, expense
   const hasPrepaidUntil = !!prepaidUntil
   const hasReclaimedVat = eventType === 'expense' && reclaimedVat === true
 
-  if (!hasVatRate && !hasVatReclaimable && !hasExpenseDeductible && !hasPrepaidUntil && !hasReclaimedVat) {
+  if (!hasVatRate && !hasVatReclaimable && !hasExpenseDeductible && !hasPrepaidUntil && !hasReclaimedVat && !privateUse) {
     return null
   }
 
@@ -29,6 +30,7 @@ const TaxMetadataLines = ({ eventType, vatRateBps, vatReclaimablePctBps, expense
       {hasExpenseDeductible && <p className="text-xs text-muted-foreground">{t('events.expenseDeductible', { pct: expenseDeductiblePctBps! / 100 })}</p>}
       {hasPrepaidUntil && <p className="text-xs text-muted-foreground">{t('events.prepaidUntil', { date: prepaidUntil!.slice(0, 10) })}</p>}
       {hasReclaimedVat && <span className="inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground mt-0.5">{t('events.reclaimedVat')}</span>}
+      {privateUse && <span className="inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground mt-0.5">{t('events.privateUse')}</span>}
     </>
   )
 }

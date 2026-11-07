@@ -447,6 +447,7 @@ export interface EkasaRule {
   namePattern: string
   deductiblePctBps: number
   vatReclaimablePctBps: number
+  privateUse: boolean
 }
 
 export interface EkasaImportProfile {
@@ -468,6 +469,7 @@ export interface UpsertEkasaProfilePayload {
     namePattern: string
     deductiblePctBps: number
     vatReclaimablePctBps: number
+    privateUse: boolean
   }>
 }
 
@@ -512,6 +514,7 @@ export interface TaxableEventLegInput {
   expenseDeductiblePctBps: number | null
   prepaidUntil: string | null
   reclaimedVat: boolean | null
+  privateUse: boolean
 }
 
 export const createTaxableEvent = (payload: {
@@ -525,6 +528,7 @@ export const createTaxableEvent = (payload: {
   expenseDeductiblePctBps: number | null
   prepaidUntil: string | null
   reclaimedVat: boolean | null
+  privateUse: boolean
   sourceRef?: string | null
 }): Promise<number> => {
   return invoke('create_taxable_event', { input: payload })
@@ -551,6 +555,7 @@ export const updateTaxableEvent = (payload: {
   expenseDeductiblePctBps: number | null
   prepaidUntil: string | null
   reclaimedVat: boolean | null
+  privateUse: boolean
 }): Promise<void> => {
   return invoke('update_taxable_event', { input: payload })
 }
@@ -569,6 +574,7 @@ export const updateTaxableSplitGroup = (payload: {
     expenseDeductiblePctBps: number | null
     prepaidUntil: string | null
     reclaimedVat: boolean | null
+    privateUse: boolean
   }>
   newLegs: TaxableEventLegInput[]
   removedLegIds: number[]

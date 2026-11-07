@@ -584,7 +584,6 @@ pub struct CreateTaxableEventInput {
     pub expense_deductible_pct_bps: Option<i64>,
     pub prepaid_until: Option<String>,
     pub reclaimed_vat: Option<bool>,
-    #[serde(default)]
     pub private_use: bool,
     pub source_ref: Option<SourceRef>,
 }
@@ -600,7 +599,6 @@ pub struct SplitTaxableLegInput {
     pub expense_deductible_pct_bps: Option<i64>,
     pub prepaid_until: Option<String>,
     pub reclaimed_vat: Option<bool>,
-    #[serde(default)]
     pub private_use: bool,
 }
 
@@ -627,7 +625,6 @@ pub struct UpdateTaxableEventInput {
     pub expense_deductible_pct_bps: Option<i64>,
     pub prepaid_until: Option<String>,
     pub reclaimed_vat: Option<bool>,
-    #[serde(default)]
     pub private_use: bool,
 }
 
@@ -643,7 +640,6 @@ pub struct UpdatedSplitLegInput {
     pub expense_deductible_pct_bps: Option<i64>,
     pub prepaid_until: Option<String>,
     pub reclaimed_vat: Option<bool>,
-    #[serde(default)]
     pub private_use: bool,
 }
 
@@ -658,7 +654,6 @@ pub struct NewSplitLegInput {
     pub expense_deductible_pct_bps: Option<i64>,
     pub prepaid_until: Option<String>,
     pub reclaimed_vat: Option<bool>,
-    #[serde(default)]
     pub private_use: bool,
 }
 

@@ -53,6 +53,7 @@ const StandaloneEventCard = ({ ev, bucketSnap, consolidationCurrency, onEditEven
             expenseDeductiblePctBps={ev.expenseDeductiblePctBps}
             prepaidUntil={ev.prepaidUntil}
             reclaimedVat={ev.reclaimedVat}
+            privateUse={ev.privateUse}
           />
           {ev.bucketName && <span className="inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground mt-0.5">{ev.bucketName}</span>}
         </div>

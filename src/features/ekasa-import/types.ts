@@ -7,6 +7,7 @@ export interface EkasaRuleDraft {
   namePattern: string
   deductiblePct: string
   vatReclaimablePct: string
+  privateUse: boolean
 }
 
 export interface ReceiptReadLine {

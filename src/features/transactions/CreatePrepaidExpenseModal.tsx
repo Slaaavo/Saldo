@@ -13,7 +13,7 @@ import { useConsolidationCurrencyQuery } from '../../shared/hooks/useConsolidati
 import { useResolvedPersonId } from './useResolvedPersonId'
 import PersonPickerField from './PersonPickerField'
 import ExpenseFormFields from './ExpenseFormFields'
-import { validatePrepaidUntil } from './taxableEventForm'
+import { showsPrivateUse, validatePrepaidUntil } from './taxableEventForm'
 
 interface Props {
   onClose: () => void
@@ -35,8 +35,11 @@ const CreatePrepaidExpenseModal = ({ onClose }: Props) => {
   const [expenseDeductiblePct, setExpenseDeductiblePct] = useState('')
   const [prepaidUntil, setPrepaidUntil] = useState('')
   const [note, setNote] = useState('')
+  const [privateUse, setPrivateUse] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [prepaidUntilError, setPrepaidUntilError] = useState<string | null>(null)
+  // A prepaid expense reclaims VAT by the person's flag, so the form has no field for it.
+  const reclaimsVat = persons.find((p) => p.id === personId)?.vatPayer ?? false
 
   const handlePrepaidUntilChange = (value: string) => {
     setPrepaidUntil(value)
@@ -88,6 +91,7 @@ const CreatePrepaidExpenseModal = ({ onClose }: Props) => {
         expenseDeductiblePctBps: pctToBps(expenseDeductiblePct),
         prepaidUntil: prepaidUntil || null,
         reclaimedVat: null,
+        privateUse: privateUse && showsPrivateUse(vatRate, vatReclaimablePct, reclaimsVat),
       })
       toast.success(t('modals.createPrepaidExpense.success', 'Prepaid expense created'))
       await queryClient.invalidateQueries({ queryKey: ['events'] })
@@ -141,8 +145,10 @@ const CreatePrepaidExpenseModal = ({ onClose }: Props) => {
               onExpenseDeductiblePctChange={setExpenseDeductiblePct}
               note={note}
               onNoteChange={setNote}
-              reclaimedVat={false}
+              reclaimedVat={reclaimsVat}
               onReclaimedVatChange={() => {}}
+              privateUse={privateUse}
+              onPrivateUseChange={setPrivateUse}
               currencyCode={currencyCode}
               currencyMinorUnits={currencyMinorUnits}
             />

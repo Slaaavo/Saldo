@@ -47,11 +47,12 @@ const legsFromMatches = (
       note: line.name,
       expenseDeductiblePct: rule ? rule.deductiblePct : defaultDeductiblePct,
       vatReclaimablePct: rule ? rule.vatReclaimablePct : defaultVatReclaimablePct,
+      privateUse: rule?.privateUse ?? false,
     }
   })
 
 interface ProfileSnapshot {
-  rules: Array<{ namePattern: string; deductiblePct: string; vatReclaimablePct: string }>
+  rules: Array<Omit<EkasaRuleDraft, 'id'>>
   defaultDeductiblePct: string
   defaultVatReclaimablePct: string
 }
@@ -76,8 +77,10 @@ const reviewOfflineReceipt = (prev: EkasaWizardState, result: ProcessReceiptResu
   }
 }
 
+const ruleSnapshot = ({ namePattern, deductiblePct, vatReclaimablePct, privateUse }: EkasaRuleDraft) => ({ namePattern, deductiblePct, vatReclaimablePct, privateUse })
+
 const snapshotFromState = (s: EkasaWizardState): ProfileSnapshot => ({
-  rules: s.rules.map((r) => ({ namePattern: r.namePattern, deductiblePct: r.deductiblePct, vatReclaimablePct: r.vatReclaimablePct })),
+  rules: s.rules.map(ruleSnapshot),
   defaultDeductiblePct: s.defaultDeductiblePct,
   defaultVatReclaimablePct: s.defaultVatReclaimablePct,
 })
@@ -191,11 +194,12 @@ export const useEkasaImportWizard = () => {
       namePattern: r.namePattern,
       deductiblePct: bpsToPct(r.deductiblePctBps),
       vatReclaimablePct: bpsToPct(r.vatReclaimablePctBps),
+      privateUse: r.privateUse,
     }))
     const defaultDeductiblePct = bpsToPct(profile.defaultDeductiblePctBps)
     const defaultVatReclaimablePct = bpsToPct(profile.defaultVatReclaimablePctBps)
     originalProfileRef.current = {
-      rules: rules.map((r) => ({ namePattern: r.namePattern, deductiblePct: r.deductiblePct, vatReclaimablePct: r.vatReclaimablePct })),
+      rules: rules.map(ruleSnapshot),
       defaultDeductiblePct,
       defaultVatReclaimablePct,
     }
@@ -215,6 +219,7 @@ export const useEkasaImportWizard = () => {
             namePattern: r.namePattern,
             deductiblePctBps: pctToBps(r.deductiblePct) ?? 0,
             vatReclaimablePctBps: pctToBps(r.vatReclaimablePct) ?? 0,
+            privateUse: r.privateUse,
           })),
       })
     },

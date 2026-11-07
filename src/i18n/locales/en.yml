@@ -171,6 +171,7 @@ events:
   prepaidPeriod: "{{months}} months prepaid"
   prepaidUntil: "Prepaid until: {{date}}"
   reclaimedVat: "VAT reclaimed"
+  privateUse: "Also used privately"
 
 # ──── Prepaid Expense ────
 createPrepaidExpense:
@@ -365,6 +366,7 @@ modals:
     prepaidPeriodMonths: "Prepaid period in months (optional)"
     prepaidPeriodHelper: "Number of months this expense covers (e.g. 12 for an annual insurance premium)"
     reclaimedVat: "VAT reclaimed"
+    privateUse: "Also used privately"
     note: "Note"
     notePlaceholder: "Optional note"
     split: "Split"
@@ -773,6 +775,7 @@ ekasaImport:
     namePatternHeader: "Pattern"
     deductiblePctHeader: "Deductible"
     vatReclaimablePctHeader: "VAT Reclaimable"
+    privateUseHeader: "Also private"
     namePatternPlaceholder: "Name pattern (regex)"
     addRule: "Add rule"
     deleteRule: "Delete rule"

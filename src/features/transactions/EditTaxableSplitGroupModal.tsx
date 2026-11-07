@@ -9,7 +9,7 @@ import { updateTaxableSplitGroup } from '../../shared/api'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogBody, DialogFooter } from '../../shared/ui/dialog'
 import { Button } from '../../shared/ui/button'
 import TaxableEventSplitEditor from './TaxableEventSplitEditor'
-import { SplitLegDraft } from './splitLegDraft'
+import { SplitLegDraft, legPrivateUse } from './splitLegDraft'
 
 interface Props {
   splitGroupId: number
@@ -29,6 +29,7 @@ const legToSplitLegDraft = (leg: EventWithData): SplitLegDraft => ({
   expenseDeductiblePct: bpsToPct(leg.expenseDeductiblePctBps),
   note: leg.note ?? '',
   reclaimedVat: leg.reclaimedVat ?? false,
+  privateUse: leg.privateUse,
 })
 
 const EditTaxableSplitGroupModal = ({ splitGroupId, eventType, legs: originalLegs, groupNote: initialGroupNote, onClose }: Props) => {
@@ -75,10 +76,11 @@ const EditTaxableSplitGroupModal = ({ splitGroupId, eventType, legs: originalLeg
           expenseDeductiblePctBps: eventType === 'expense' ? pctToBps(l.expenseDeductiblePct) : null,
           prepaidUntil: null as string | null,
           reclaimedVat: l.reclaimedVat ?? null,
+          privateUse: eventType === 'expense' && legPrivateUse(l),
           _original: original,
         }
       })
-      .filter(({ amountMinor, eventDate, note, vatRateBps, vatReclaimablePctBps, expenseDeductiblePctBps, reclaimedVat, _original }) => {
+      .filter(({ amountMinor, eventDate, note, vatRateBps, vatReclaimablePctBps, expenseDeductiblePctBps, reclaimedVat, privateUse, _original }) => {
         if (!_original) return true
         return (
           amountMinor !== _original.amountMinor ||
@@ -87,10 +89,11 @@ const EditTaxableSplitGroupModal = ({ splitGroupId, eventType, legs: originalLeg
           vatRateBps !== _original.vatRateBps ||
           vatReclaimablePctBps !== _original.vatReclaimablePctBps ||
           expenseDeductiblePctBps !== _original.expenseDeductiblePctBps ||
-          (reclaimedVat ?? false) !== (_original.reclaimedVat ?? false)
+          (reclaimedVat ?? false) !== (_original.reclaimedVat ?? false) ||
+          privateUse !== _original.privateUse
         )
       })
-      .map(({ eventId, amountMinor, eventDate, note, vatRateBps, vatReclaimablePctBps, expenseDeductiblePctBps, prepaidUntil, reclaimedVat }) => ({
+      .map(({ eventId, amountMinor, eventDate, note, vatRateBps, vatReclaimablePctBps, expenseDeductiblePctBps, prepaidUntil, reclaimedVat, privateUse }) => ({
         eventId,
         amountMinor,
         eventDate,
@@ -100,6 +103,7 @@ const EditTaxableSplitGroupModal = ({ splitGroupId, eventType, legs: originalLeg
         expenseDeductiblePctBps,
         prepaidUntil,
         reclaimedVat,
+        privateUse,
       }))
 
     const newLegs = activeLegs
@@ -113,6 +117,7 @@ const EditTaxableSplitGroupModal = ({ splitGroupId, eventType, legs: originalLeg
         expenseDeductiblePctBps: eventType === 'expense' ? pctToBps(l.expenseDeductiblePct) : null,
         prepaidUntil: null as string | null,
         reclaimedVat: l.reclaimedVat ?? null,
+        privateUse: eventType === 'expense' && legPrivateUse(l),
       }))
 
     setSubmitting(true)

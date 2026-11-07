@@ -89,6 +89,7 @@ const SplitGroupCard = ({ item, isExpanded, onToggle, onEditTaxableSplitGroup, o
                   expenseDeductiblePctBps={leg.expenseDeductiblePctBps}
                   prepaidUntil={leg.prepaidUntil}
                   reclaimedVat={leg.reclaimedVat}
+                  privateUse={leg.privateUse}
                 />
                 {leg.bucketName && <span className="inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground mt-0.5">{leg.bucketName}</span>}
               </div>

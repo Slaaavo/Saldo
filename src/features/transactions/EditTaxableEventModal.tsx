@@ -16,7 +16,7 @@ import { DatePicker } from '../../shared/ui/date-picker'
 import NumberValue from '../../shared/ui/NumberValue'
 import CashflowPicker from './CashflowPicker'
 import ExpenseFormFields from './ExpenseFormFields'
-import { VAT_QUICK_FILLS, validatePrepaidUntil } from './taxableEventForm'
+import { VAT_QUICK_FILLS, showsPrivateUse, validatePrepaidUntil } from './taxableEventForm'
 
 interface Props {
   event: EventWithData
@@ -40,6 +40,7 @@ const EditTaxableEventModal = ({ event, onClose }: Props) => {
   const [note, setNote] = useState(event.note ?? '')
   const [submitting, setSubmitting] = useState(false)
   const [reclaimedVat, setReclaimedVat] = useState<boolean>(event.reclaimedVat ?? false)
+  const [privateUse, setPrivateUse] = useState(event.privateUse)
 
   const handlePrepaidUntilChange = (value: string) => {
     setPrepaidUntil(value)
@@ -116,6 +117,7 @@ const EditTaxableEventModal = ({ event, onClose }: Props) => {
         expenseDeductiblePctBps: isExpense || isPrepaidExpense ? pctToBps(expenseDeductiblePct) : null,
         prepaidUntil: isPrepaidExpense ? prepaidUntil || null : null,
         reclaimedVat: isExpense ? reclaimedVat : null,
+        privateUse: (isExpense || isPrepaidExpense) && privateUse && showsPrivateUse(vatRate, vatReclaimablePct, reclaimedVat),
       })
       setSubmitting(false)
       await queryClient.invalidateQueries({ queryKey: ['events'] })
@@ -180,6 +182,8 @@ const EditTaxableEventModal = ({ event, onClose }: Props) => {
                   onNoteChange={setNote}
                   reclaimedVat={reclaimedVat}
                   onReclaimedVatChange={setReclaimedVat}
+                  privateUse={privateUse}
+                  onPrivateUseChange={setPrivateUse}
                   currencyCode={event.currencyCode}
                   currencyMinorUnits={minorUnits}
                 />
