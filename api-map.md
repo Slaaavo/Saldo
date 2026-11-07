@@ -8,7 +8,7 @@ All FE API calls are defined in `src/shared/api/index.ts` and invoke Tauri backe
 
 ### `createAccount`
 
-Creates a new account with name, currency, optional initial balance, account type, price per unit, asset links, and IBAN.
+Creates a new account with name, currency, optional initial balance, account type, price per unit, asset links, IBAN, and an asset's use terms (VAT facts and business-use share).
 
 - **BE command:** `create_account` → `src-tauri/src/features/accounts/commands.rs`
 - **Used in:**
@@ -17,11 +17,12 @@ Creates a new account with name, currency, optional initial balance, account typ
 
 ### `updateAccount`
 
-Updates an account's name and IBAN.
+Updates an account's name, IBAN, purchase fields and an asset's use terms. Leaving `assetUse` out keeps the stored terms.
 
 - **BE command:** `update_account` → `src-tauri/src/features/accounts/commands.rs`
 - **Used in:**
   - `src/app/useModalActions.ts` (useModalActions hook)
+  - `src/features/transactions/csv-import/useImportWizard.ts` (useImportWizard hook)
 
 ### `deleteAccount`
 
@@ -530,6 +531,22 @@ Updates which asset accounts are linked to a regular account.
 - **BE command:** `set_account_asset_links` → `src-tauri/src/features/assets/commands.rs`
 - **Used in:**
   - `src/app/useModalActions.ts` (useModalActions hook)
+
+### `getAssetUse`
+
+Reads an asset's VAT facts, its business-use share at purchase and its dated share changes.
+
+- **BE command:** `get_asset_use` → `src-tauri/src/features/assets/commands.rs`
+- **Used in:**
+  - `src/features/accounts/EditAccountModal.tsx` (EditAccountModal)
+
+### `previewAssetPurchase`
+
+Returns a purchase's split and its monthly amounts from the same rules that write the entries. Writes nothing.
+
+- **BE command:** `preview_asset_purchase` → `src-tauri/src/features/assets/commands.rs`
+- **Used in:**
+  - `src/features/assets/useAssetPurchasePreview.ts` (useAssetPurchasePreview hook)
 
 ---
 

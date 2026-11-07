@@ -6,7 +6,7 @@
 
 - `mcp-context` returns the database path, persons, tax models and recent batches, and refuses with a sentence when the database is behind, ahead, missing or in a missing custom folder.
 - `mcp-dry-run` previews a batch through the real write path and writes nothing. A refused batch lists every failing document.
-- `mcp-record` writes a batch: the entry date from the delivery date or the issue date, one entry or a split group, prepaid shares, an asset at its net or gross price with depreciation and a starting value dated at purchase, and payment links.
+- `mcp-record` writes a batch: the entry date from the delivery date or the issue date, one entry or a split group, prepaid shares, an asset at its net or gross price with depreciation and a starting value dated at purchase, and payment links. A mixed-use asset and `privateUse` are in [Asset business use](./asset-business-use.md).
 - `mcp-duplicate` refuses a document whose issuer and number are already recorded, in any letter case.
 - `mcp-review` refuses a write that does not carry the `reviewToken` of a dry run of the identical batch.
 - `mcp-undo` removes a batch's entries and assets. A second undo changes nothing.

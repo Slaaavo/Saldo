@@ -1,0 +1,38 @@
+[
+  {"call": "get_forecast", "args": {"taxModelId": 2}},
+  {"record": {
+    "label": "Verify vehicles",
+    "items": [
+      {"document": {"issuer": "47606649", "number": "VER-KONA", "file": "kona.pdf"}, "personId": 4,
+       "issueDate": "2026-07-12", "deliveryDate": "2026-07-12", "note": "Verify Kona",
+       "content": {"kind": "expense", "assets": [{"name": "Verify Kona", "grossMinor": 1560000, "vatRateBps": 2300, "depreciationMonths": 24,
+         "businessUse": {"businessUsePctBps": 8000, "vatReclaimablePctBps": 5000}}]}},
+      {"document": {"issuer": "44088311", "number": "VER-HONDA", "file": "honda.pdf"}, "personId": 4,
+       "issueDate": "2026-07-25", "deliveryDate": "2026-07-25", "note": "Verify Honda",
+       "content": {"kind": "expense", "assets": [{"name": "Verify Honda", "grossMinor": 830000, "vatRateBps": 2300, "depreciationMonths": 72,
+         "businessUse": {"businessUsePctBps": 8000, "vatReclaimablePctBps": 5000}}]}}
+    ]}},
+  {"record": {
+    "label": "Verify diesel",
+    "items": [
+      {"document": {"issuer": "31322832", "number": "VER-DIESEL-OFF", "file": "diesel-off.pdf"}, "personId": 4,
+       "issueDate": "2026-05-15", "note": "Verify diesel flat rule",
+       "content": {"kind": "expense", "lines": [{"grossMinor": 5830, "vatRateBps": 2300, "deductiblePctBps": 8000, "vatReclaimablePctBps": 5000, "privateUse": false}]}},
+      {"document": {"issuer": "31322832", "number": "VER-DIESEL-ON", "file": "diesel-on.pdf"}, "personId": 4,
+       "issueDate": "2026-08-15", "note": "Verify diesel split use",
+       "content": {"kind": "expense", "lines": [{"grossMinor": 5830, "vatRateBps": 2300, "deductiblePctBps": 8000, "vatReclaimablePctBps": 5000, "privateUse": true}]}}
+    ]}},
+  {"call": "read_receipt", "args": {"file": "${FIXTURES}/receipts/offline-receipt.pdf"}, "save": "pdf"},
+  {"record": {
+    "label": "Verify car receipt",
+    "items": [
+      {"receipt": "$pdf.receipt", "personId": 4, "date": "$pdf.date", "vendor": "VERIFY POTRAVINY s.r.o.", "lines": [
+        {"name": "KAVA ZRNKOVA 1KG", "grossMinor": 1299, "vatRateBps": 2300, "shares": {"deductiblePctBps": 0, "vatReclaimablePctBps": 0, "privateUse": false, "by": "claude"}},
+        {"name": "MLIEKO POLOTUCNE 1L", "grossMinor": 129, "vatRateBps": 500, "shares": {"deductiblePctBps": 0, "vatReclaimablePctBps": 0, "privateUse": false, "by": "claude"}},
+        {"name": "PAPIER A4 500L", "grossMinor": 662, "vatRateBps": 2300, "shares": {"deductiblePctBps": 10000, "vatReclaimablePctBps": 10000, "privateUse": false, "by": "user"}},
+        {"name": "PIVO SVETLE 0,5L", "grossMinor": 250, "vatRateBps": 2300, "shares": {"deductiblePctBps": 0, "vatReclaimablePctBps": 0, "privateUse": false, "by": "claude"}}
+      ]}
+    ]}},
+  {"call": "find_entries", "args": {"personId": 4, "from": "2026-05-01", "to": "2026-10-31"}},
+  {"call": "get_forecast", "args": {"taxModelId": 2}}
+]
