@@ -98,6 +98,7 @@ impl LineSpec {
                         Share::Averaged,
                     ),
                     (EntryKind::Prepaid, Part::NonDeductible, Share::Fixed),
+                    (EntryKind::LostVat, Part::NonDeductible, Share::Fixed),
                 ],
                 so_far: SoFarRule::Entries,
                 rest: RestRule::Average,
@@ -678,6 +679,45 @@ mod tests {
         assert_eq!(deductible.so_far, cell(0, ValueSource::Nothing));
         assert_eq!(deductible.rest, cell(1_200_00, ValueSource::Schedule));
         assert_eq!(reasons(&forecast), vec![None]);
+    }
+
+    fn lost_vat(month: u8, amount: i64) -> (u8, TaxEventBreakdown) {
+        entry(EntryKind::LostVat, month, amount, 0, amount)
+    }
+
+    #[test]
+    fn lost_vat_counts_once_as_a_non_deductible_cost_and_is_never_averaged() {
+        let forecast = build(
+            &figures(8, 0, &[]),
+            vec![lost_vat(7, 1_458_54), expense(7, 0, 800_00)],
+        );
+
+        let non_deductible = line(&forecast, ForecastLine::NonDeductibleCosts);
+        assert_eq!(non_deductible.so_far, cell(2_258_54, ValueSource::Entries));
+        assert_eq!(non_deductible.rest, cell(400_00, ValueSource::Average));
+        assert_eq!(non_deductible.year_minor, 2_658_54);
+        let deductible = line(&forecast, ForecastLine::DeductibleCosts);
+        assert_eq!(deductible.year_minor, 0);
+    }
+
+    #[test]
+    fn lost_vat_under_a_typed_so_far_is_not_counted_twice() {
+        let forecast = build(
+            &figures(
+                8,
+                0,
+                &[(ForecastLine::NonDeductibleCosts, Some(2_000_00), None)],
+            ),
+            vec![lost_vat(7, 1_458_54)],
+        );
+
+        let non_deductible = line(&forecast, ForecastLine::NonDeductibleCosts);
+        assert_eq!(non_deductible.rest, cell(1_000_00, ValueSource::Average));
+        assert_eq!(non_deductible.year_minor, 3_000_00);
+        assert_eq!(
+            reasons(&forecast),
+            vec![Some(EntryNotCountedReason::TypedValue)]
+        );
     }
 
     #[test]

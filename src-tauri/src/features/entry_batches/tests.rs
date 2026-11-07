@@ -1044,6 +1044,7 @@ fn save_laptop(
         purchase_price_minor: Some(292_601),
         purchase_date: Some("2026-10-12".to_owned()),
         depreciation_period_months: Some(48),
+        ..Default::default()
     };
     edit(&mut params);
     update_account(conn, params).unwrap();

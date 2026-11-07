@@ -945,6 +945,7 @@ taxModels:
       depreciation: Depreciation
       prepaid: "Prepaid expense share"
       expense: Expense
+      lost_vat: "Lost VAT on an asset"
     reason:
       typed_value: "Replaced by a typed value"
       after_actual_months: "After the actual months"

@@ -946,6 +946,7 @@ taxModels:
       depreciation: Odpisy
       prepaid: "Podiel predplateného nákladu"
       expense: Výdavky
+      lost_vat: "Neodpočítaná DPH pri majetku"
     reason:
       typed_value: "Nahradené zadanou hodnotou"
       after_actual_months: "Po skutočných mesiacoch"

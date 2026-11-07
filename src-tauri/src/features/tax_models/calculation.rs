@@ -221,7 +221,7 @@ pub fn calculate_revenue_breakdown(event: &EventDataForCalc) -> TaxEventBreakdow
 fn calculate_breakdown(model: &TaxModelDetail, event: &EventDataForCalc) -> TaxEventBreakdown {
     match event.kind {
         EntryKind::Revenue => calculate_revenue_breakdown(event),
-        EntryKind::Depreciation | EntryKind::Prepaid | EntryKind::Expense => {
+        EntryKind::Depreciation | EntryKind::Prepaid | EntryKind::Expense | EntryKind::LostVat => {
             let can_reclaim = determine_can_reclaim(
                 &model.vat_status,
                 model.vat_from_date.as_deref(),

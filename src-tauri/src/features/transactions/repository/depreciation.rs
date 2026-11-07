@@ -1,179 +1,130 @@
 use crate::error::AppError;
+use crate::features::assets::repository::get_use_terms;
+use crate::features::assets::schedule::{asset_entries, parse_ymd, AssetFacts, PlannedEntry};
 use crate::features::persons::repository::get_default_expense_account_id;
-use crate::shared::{div_round, format_end_of_month, local_now, with_savepoint_app};
+use crate::shared::{local_now, with_savepoint_app};
 use rusqlite::{params, Connection, OptionalExtension};
 
 use super::taxable_events::insert_taxable_event_data;
 
-// ---------------------------------------------------------------------------
-// Public context struct (re-used by Phase 8 recalculation)
-// ---------------------------------------------------------------------------
-
-pub(crate) struct AssetDepreciationContext {
-    pub asset_id: i64,
-    pub asset_name: String,
-    pub person_id: i64,
-    pub purchase_price_minor: i64,
-    pub purchase_date: String,
-    pub depreciation_period_months: i64,
+struct StoredAsset {
+    id: i64,
+    person_id: i64,
+    facts: AssetFacts,
 }
 
-// ---------------------------------------------------------------------------
-// Internal helpers
-// ---------------------------------------------------------------------------
-
-/// Parse a `YYYY-MM-DD[...]` string into `(year, month, day)`.
-fn parse_ymd(date: &str) -> Result<(i32, i32, i32), AppError> {
-    let s = &date[..10]; // take exactly the date portion
-    let parts: Vec<&str> = s.splitn(3, '-').collect();
-    if parts.len() != 3 {
-        return Err(AppError {
-            code: "VALIDATION".into(),
-            message: format!("Invalid date string: {}", date),
-        });
-    }
-    let year: i32 = parts[0].parse().map_err(|_| AppError {
-        code: "VALIDATION".into(),
-        message: format!("Invalid year in date: {}", date),
-    })?;
-    let month: i32 = parts[1].parse().map_err(|_| AppError {
-        code: "VALIDATION".into(),
-        message: format!("Invalid month in date: {}", date),
-    })?;
-    let day: i32 = parts[2].parse().map_err(|_| AppError {
-        code: "VALIDATION".into(),
-        message: format!("Invalid day in date: {}", date),
-    })?;
-    Ok((year, month, day))
+/// A month can hold both kinds of entry, so the check names the kind it looks for.
+fn entry_exists(conn: &Connection, asset_id: i64, entry: &PlannedEntry) -> Result<bool, AppError> {
+    let exists: Option<i64> = conn
+        .query_row(
+            "SELECT 1
+             FROM event e
+             JOIN event_data ed ON ed.id = e.latest_data_id
+             WHERE e.linked_asset_id = ?1
+               AND e.is_system_generated = 1
+               AND e.asset_entry = ?2
+               AND e.deleted_at IS NULL
+               AND substr(ed.event_date, 1, 7) = ?3",
+            params![asset_id, entry.kind.as_str(), &entry.event_date[..7]],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(AppError::from)?;
+    Ok(exists.is_some())
 }
 
-/// Add `offset` months to a (year, month) pair, returning the new (year, month).
-fn add_months(year: i32, month: i32, offset: i64) -> (i32, u32) {
-    let total_months = (year as i64) * 12 + (month as i64 - 1) + offset;
-    let new_year = (total_months / 12) as i32;
-    let new_month = (total_months % 12 + 1) as u32;
-    (new_year, new_month)
-}
-
-// ---------------------------------------------------------------------------
-// Per-asset generation (pub(crate) so Phase 8 can call it)
-// ---------------------------------------------------------------------------
-
-/// Generate all missing monthly depreciation events for a single depreciating asset.
-/// Returns the number of new events created.
-pub(crate) fn generate_depreciation_for_single_asset(
+fn insert_entry(
     conn: &Connection,
-    ctx: &AssetDepreciationContext,
-) -> Result<i64, AppError> {
+    asset: &StoredAsset,
+    entry: &PlannedEntry,
+) -> Result<(), AppError> {
+    let expense_account_id = get_default_expense_account_id(conn, asset.person_id)?;
+    conn.execute(
+        "INSERT INTO event (account_id, event_type, linked_asset_id, is_system_generated, asset_entry)
+         VALUES (?1, 'expense', ?2, 1, ?3)",
+        params![expense_account_id, asset.id, entry.kind.as_str()],
+    )
+    .map_err(AppError::from)?;
+    let event_id = conn.last_insert_rowid();
+
+    insert_taxable_event_data(
+        conn,
+        event_id,
+        entry.amount_minor,
+        &entry.event_date,
+        Some(entry.note.as_str()),
+        None,
+        None,
+        Some(entry.expense_deductible_pct_bps),
+        None,
+        None,
+    )
+    .map_err(AppError::from)
+}
+
+/// A depreciating asset gets no entries before the month it is bought in.
+fn waits_for_its_purchase_month(facts: &AssetFacts) -> Result<bool, AppError> {
+    if facts.depreciation_period_months == 0 {
+        return Ok(false);
+    }
+    let (purchase_year, purchase_month, _) = parse_ymd(&facts.purchase_date)?;
+    let (today_year, today_month, _) = parse_ymd(&local_now())?;
+    Ok((purchase_year, purchase_month) > (today_year, today_month))
+}
+
+/// Writes every system entry the asset is missing. Returns how many it wrote.
+fn write_missing_entries(conn: &Connection, asset: &StoredAsset) -> Result<i64, AppError> {
+    if waits_for_its_purchase_month(&asset.facts)? {
+        return Ok(0);
+    }
     with_savepoint_app(conn, || {
-        let (purchase_year, purchase_month, _) = parse_ymd(&ctx.purchase_date)?;
-
-        let today_str = local_now();
-        let (today_year, today_month, _) = parse_ymd(&today_str)?;
-
-        // No events for assets purchased strictly after the current month.
-        if (purchase_year, purchase_month) > (today_year, today_month) {
-            return Ok(0);
-        }
-
-        let last_eligible_offset = ctx.depreciation_period_months - 1;
-        let monthly_base = div_round(ctx.purchase_price_minor, ctx.depreciation_period_months);
-
-        let mut created: i64 = 0;
-        let mut cumulative_total: i64 = 0;
-        let mut yearly_target: i64 = 0;
-        let mut year_accumulated: i64 = 0;
-
-        for offset in 0..=last_eligible_offset {
-            let (event_year, event_month) = add_months(purchase_year, purchase_month, offset);
-            let year_month_prefix = format!("{:04}-{:02}%", event_year, event_month);
-
-            // At the start of each calendar year segment, compute the yearly target.
-            if offset == 0 || event_month == 1 {
-                let months_remaining_in_schedule = last_eligible_offset - offset + 1;
-                let months_until_december = 13 - event_month as i64;
-                let months_in_this_year_segment =
-                    months_remaining_in_schedule.min(months_until_december);
-                let segment_contains_last =
-                    offset + months_in_this_year_segment - 1 == last_eligible_offset;
-                yearly_target = if segment_contains_last {
-                    ctx.purchase_price_minor - cumulative_total
-                } else {
-                    div_round(
-                        ctx.purchase_price_minor * months_in_this_year_segment,
-                        ctx.depreciation_period_months,
-                    )
-                };
-                year_accumulated = 0;
+        let mut created = 0;
+        for entry in asset_entries(&asset.facts)? {
+            if !entry_exists(conn, asset.id, &entry)? {
+                insert_entry(conn, asset, &entry)?;
+                created += 1;
             }
-
-            // Compute the depreciation amount for this month.
-            let is_last_of_segment = event_month == 12 || offset == last_eligible_offset;
-            let amount = if is_last_of_segment {
-                yearly_target - year_accumulated
-            } else {
-                monthly_base
-            };
-
-            year_accumulated += amount;
-            cumulative_total += amount;
-
-            // Idempotency: skip if a system-generated event for this asset in this month
-            // already exists.
-            let exists: Option<i64> = conn
-                .query_row(
-                    "SELECT 1
-                     FROM event e
-                     JOIN event_data ed ON ed.id = e.latest_data_id
-                     WHERE e.linked_asset_id = ?1
-                       AND e.is_system_generated = 1
-                       AND e.deleted_at IS NULL
-                       AND ed.event_date LIKE ?2",
-                    params![ctx.asset_id, year_month_prefix],
-                    |row| row.get(0),
-                )
-                .optional()
-                .map_err(AppError::from)?;
-
-            if exists.is_some() {
-                continue;
-            }
-
-            let expense_account_id = get_default_expense_account_id(conn, ctx.person_id)?;
-
-            conn.execute(
-                "INSERT INTO event (account_id, event_type, linked_asset_id, is_system_generated)
-                 VALUES (?1, 'expense', ?2, 1)",
-                params![expense_account_id, ctx.asset_id],
-            )
-            .map_err(AppError::from)?;
-            let event_id = conn.last_insert_rowid();
-
-            let event_date = format_end_of_month(event_year, event_month);
-            let note = format!(
-                "Depreciation: {} ({:02}/{})",
-                ctx.asset_name, event_month, event_year
-            );
-
-            insert_taxable_event_data(
-                conn,
-                event_id,
-                amount,
-                &event_date,
-                Some(note.as_str()),
-                None,
-                None,
-                Some(10000),
-                None,
-                None,
-            )
-            .map_err(AppError::from)?;
-
-            created += 1;
         }
-
         Ok(created)
     })
+}
+
+/// Reads every asset with a price and a date, or only `asset_id` when given.
+fn load_assets(conn: &Connection, asset_id: Option<i64>) -> Result<Vec<StoredAsset>, AppError> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, name, person_id, purchase_price_minor, purchase_date,
+                    COALESCE(depreciation_period_months, 0)
+             FROM account
+             WHERE account_type = 'asset'
+               AND purchase_price_minor IS NOT NULL
+               AND purchase_date IS NOT NULL
+               AND (?1 IS NULL OR id = ?1)",
+        )
+        .map_err(AppError::from)?;
+
+    let mut assets = stmt
+        .query_map(params![asset_id], |row| {
+            Ok(StoredAsset {
+                id: row.get(0)?,
+                person_id: row.get(2)?,
+                facts: AssetFacts {
+                    name: row.get(1)?,
+                    purchase_price_minor: row.get(3)?,
+                    purchase_date: row.get(4)?,
+                    depreciation_period_months: row.get(5)?,
+                    use_terms: Default::default(),
+                },
+            })
+        })
+        .map_err(AppError::from)?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(AppError::from)?;
+
+    for asset in &mut assets {
+        asset.facts.use_terms = get_use_terms(conn, asset.id)?;
+    }
+    Ok(assets)
 }
 
 // ---------------------------------------------------------------------------
@@ -181,142 +132,19 @@ pub(crate) fn generate_depreciation_for_single_asset(
 // ---------------------------------------------------------------------------
 
 pub fn generate_depreciation_events(conn: &Connection) -> Result<(), AppError> {
-    // ── Depreciating assets ──────────────────────────────────────────────────
-    let mut stmt = conn
-        .prepare(
-            "SELECT a.id, a.name, a.person_id,
-                    a.purchase_price_minor, a.purchase_date, a.depreciation_period_months
-             FROM account a
-             WHERE a.account_type = 'asset'
-               AND a.purchase_price_minor IS NOT NULL
-               AND a.purchase_date IS NOT NULL
-               AND a.depreciation_period_months IS NOT NULL
-               AND a.depreciation_period_months > 0",
-        )
-        .map_err(AppError::from)?;
-
-    let depreciating: Vec<AssetDepreciationContext> = stmt
-        .query_map([], |row| {
-            Ok(AssetDepreciationContext {
-                asset_id: row.get(0)?,
-                asset_name: row.get(1)?,
-                person_id: row.get(2)?,
-                purchase_price_minor: row.get(3)?,
-                purchase_date: row.get(4)?,
-                depreciation_period_months: row.get(5)?,
-            })
-        })
-        .map_err(AppError::from)?
-        .collect::<rusqlite::Result<Vec<_>>>()
-        .map_err(AppError::from)?;
-
-    for ctx in &depreciating {
-        match generate_depreciation_for_single_asset(conn, ctx) {
+    for asset in &load_assets(conn, None)? {
+        match write_missing_entries(conn, asset) {
             Ok(n) if n > 0 => eprintln!(
                 "[depreciation] {} new event(s) for asset '{}' (id={})",
-                n, ctx.asset_name, ctx.asset_id
+                n, asset.facts.name, asset.id
             ),
             Ok(_) => {}
             Err(e) => eprintln!(
                 "[depreciation] error for asset '{}' (id={}): {}",
-                ctx.asset_name, ctx.asset_id, e.message
+                asset.facts.name, asset.id, e.message
             ),
         }
     }
-
-    // ── Instant-expense assets (depreciation_period_months IS NULL or = 0) ──
-    struct InstantAsset {
-        id: i64,
-        name: String,
-        person_id: i64,
-        purchase_price_minor: i64,
-        purchase_date: String,
-    }
-
-    let mut instant_stmt = conn
-        .prepare(
-            "SELECT a.id, a.name, a.person_id,
-                    a.purchase_price_minor, a.purchase_date
-             FROM account a
-             WHERE a.account_type = 'asset'
-               AND a.purchase_price_minor IS NOT NULL
-               AND a.purchase_date IS NOT NULL
-               AND (a.depreciation_period_months IS NULL OR a.depreciation_period_months = 0)",
-        )
-        .map_err(AppError::from)?;
-
-    let instant: Vec<InstantAsset> = instant_stmt
-        .query_map([], |row| {
-            Ok(InstantAsset {
-                id: row.get(0)?,
-                name: row.get(1)?,
-                person_id: row.get(2)?,
-                purchase_price_minor: row.get(3)?,
-                purchase_date: row.get(4)?,
-            })
-        })
-        .map_err(AppError::from)?
-        .collect::<rusqlite::Result<Vec<_>>>()
-        .map_err(AppError::from)?;
-
-    for asset in &instant {
-        let exists: Option<i64> = conn
-            .query_row(
-                "SELECT 1 FROM event
-                 WHERE linked_asset_id = ?1
-                   AND is_system_generated = 1
-                   AND deleted_at IS NULL",
-                params![asset.id],
-                |row| row.get(0),
-            )
-            .optional()
-            .map_err(AppError::from)?;
-
-        if exists.is_some() {
-            continue;
-        }
-
-        with_savepoint_app(conn, || {
-            let expense_account_id = get_default_expense_account_id(conn, asset.person_id)?;
-
-            conn.execute(
-                "INSERT INTO event (account_id, event_type, linked_asset_id, is_system_generated)
-                 VALUES (?1, 'expense', ?2, 1)",
-                params![expense_account_id, asset.id],
-            )
-            .map_err(AppError::from)?;
-            let event_id = conn.last_insert_rowid();
-
-            // Use the purchase_date directly; normalise to full datetime if needed.
-            let event_date = if asset.purchase_date.len() == 10 {
-                format!("{}T00:00:00", asset.purchase_date)
-            } else {
-                asset.purchase_date.clone()
-            };
-            let note = format!("Depreciation: {} (instant)", asset.name);
-
-            insert_taxable_event_data(
-                conn,
-                event_id,
-                asset.purchase_price_minor,
-                &event_date,
-                Some(note.as_str()),
-                None,
-                None,
-                Some(10000),
-                None,
-                None,
-            )
-            .map_err(AppError::from)?;
-
-            eprintln!(
-                "[depreciation] instant expense event for asset '{}' (id={})",
-                asset.name, asset.id
-            );
-            Ok(())
-        })?;
-    }
-
     Ok(())
 }
 
@@ -369,93 +197,9 @@ pub(crate) fn recalculate_depreciation_for_asset(
 ) -> Result<(), AppError> {
     with_savepoint_app(conn, || {
         delete_system_events_for_asset(conn, asset_account_id)?;
-
-        // Re-query the asset to determine current depreciation fields.
-        struct AssetRow {
-            name: String,
-            person_id: i64,
-            purchase_price_minor: Option<i64>,
-            purchase_date: Option<String>,
-            depreciation_period_months: Option<i64>,
+        for asset in &load_assets(conn, Some(asset_account_id))? {
+            write_missing_entries(conn, asset)?;
         }
-
-        let asset: Option<AssetRow> = conn
-            .query_row(
-                "SELECT name, person_id, purchase_price_minor, purchase_date,
-                        depreciation_period_months
-                 FROM account WHERE id = ?1 AND account_type = 'asset'",
-                params![asset_account_id],
-                |row| {
-                    Ok(AssetRow {
-                        name: row.get(0)?,
-                        person_id: row.get(1)?,
-                        purchase_price_minor: row.get(2)?,
-                        purchase_date: row.get(3)?,
-                        depreciation_period_months: row.get(4)?,
-                    })
-                },
-            )
-            .optional()
-            .map_err(AppError::from)?;
-
-        let asset = match asset {
-            Some(a) => a,
-            // Account no longer exists or is not an asset — nothing to do.
-            None => return Ok(()),
-        };
-
-        let (price, date) = match (asset.purchase_price_minor, asset.purchase_date) {
-            (Some(p), Some(d)) => (p, d),
-            // Incomplete fields — clearing depreciation means no events.
-            _ => return Ok(()),
-        };
-
-        let period = asset.depreciation_period_months.unwrap_or(0);
-
-        if period > 0 {
-            // Depreciating asset: delegate to the shared per-asset generator.
-            let ctx = AssetDepreciationContext {
-                asset_id: asset_account_id,
-                asset_name: asset.name,
-                person_id: asset.person_id,
-                purchase_price_minor: price,
-                purchase_date: date,
-                depreciation_period_months: period,
-            };
-            generate_depreciation_for_single_asset(conn, &ctx)?;
-        } else {
-            // Instant expense: price and date set but no depreciation period.
-            let expense_account_id = get_default_expense_account_id(conn, asset.person_id)?;
-            conn.execute(
-                "INSERT INTO event (account_id, event_type, linked_asset_id, is_system_generated)
-                 VALUES (?1, 'expense', ?2, 1)",
-                params![expense_account_id, asset_account_id],
-            )
-            .map_err(AppError::from)?;
-            let event_id = conn.last_insert_rowid();
-
-            let event_date = if date.len() == 10 {
-                format!("{}T00:00:00", date)
-            } else {
-                date.clone()
-            };
-            let note = format!("Depreciation: {} (instant)", asset.name);
-
-            insert_taxable_event_data(
-                conn,
-                event_id,
-                price,
-                &event_date,
-                Some(note.as_str()),
-                None,
-                None,
-                Some(10000),
-                None,
-                None,
-            )
-            .map_err(AppError::from)?;
-        }
-
         Ok(())
     })
 }
@@ -469,6 +213,9 @@ mod tests {
     use super::*;
     use crate::db::initialize_in_memory;
     use crate::features::accounts::repository::{create_account, CreateAccountParams};
+    use crate::features::assets::business_use::{AssetUseTerms, BusinessUseChange};
+    use crate::features::assets::purchase::PurchaseVat;
+    use crate::features::assets::repository::store_use_terms;
 
     /// Returns the person_id of the default seeded person (always 1 after migrations).
     fn default_person_id() -> i64 {
@@ -1209,5 +956,206 @@ mod tests {
             total, 3100,
             "Sum of all depreciation amounts must equal purchase_price_minor"
         );
+    }
+
+    // ── Business-use share and lost VAT ──────────────────────────────────────
+
+    fn kona_terms() -> AssetUseTerms {
+        AssetUseTerms {
+            purchase_vat: Some(PurchaseVat {
+                gross_minor: 1_560_000,
+                vat_rate_bps: 2300,
+                vat_reclaimable_pct_bps: 5000,
+            }),
+            business_use_pct_bps: Some(8000),
+            business_use_changes: Vec::new(),
+        }
+    }
+
+    fn mk_kona(conn: &Connection) -> i64 {
+        create_account(
+            conn,
+            CreateAccountParams {
+                name: "Hyundai Kona".to_owned(),
+                currency_id: 1,
+                account_type: "asset".to_owned(),
+                person_id: Some(default_person_id()),
+                purchase_price_minor: Some(1_268_292),
+                purchase_date: Some("2026-07-12".to_owned()),
+                depreciation_period_months: Some(24),
+                use_terms: kona_terms(),
+                ..Default::default()
+            },
+        )
+        .expect("create_account failed")
+    }
+
+    /// (amount, date, deductible %) of one kind of system entry, oldest first.
+    fn entries_of_kind(
+        conn: &Connection,
+        asset_id: i64,
+        asset_entry: &str,
+    ) -> Vec<(i64, String, i64)> {
+        let mut stmt = conn
+            .prepare(
+                "SELECT ed.amount_minor, ed.event_date, ed.expense_deductible_pct_bps
+                 FROM event e
+                 JOIN event_data ed ON ed.id = e.latest_data_id
+                 WHERE e.linked_asset_id = ?1
+                   AND e.asset_entry = ?2
+                   AND e.deleted_at IS NULL
+                 ORDER BY ed.event_date ASC",
+            )
+            .unwrap();
+        stmt.query_map(params![asset_id, asset_entry], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })
+        .unwrap()
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .unwrap()
+    }
+
+    #[test]
+    fn a_mixed_asset_keeps_both_entries_of_its_purchase_month_over_two_runs() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let asset_id = mk_kona(&conn);
+
+        generate_depreciation_events(&conn).expect("first run failed");
+        generate_depreciation_events(&conn).expect("second run failed");
+
+        let depreciation = entries_of_kind(&conn, asset_id, "depreciation");
+        assert_eq!(depreciation.len(), 24);
+        assert_eq!(depreciation[0].0, 52_846);
+        assert!(depreciation[0].1.starts_with("2026-07"));
+        assert_eq!(depreciation[0].2, 8000);
+        assert_eq!(depreciation.iter().map(|row| row.0).sum::<i64>(), 1_268_292);
+
+        assert_eq!(
+            entries_of_kind(&conn, asset_id, "lost_vat"),
+            vec![(145_854, "2026-07-12T00:00:00".to_owned(), 0)]
+        );
+    }
+
+    #[test]
+    fn a_share_change_splits_the_schedule_at_its_month() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let asset_id = mk_depreciating_asset(&conn, "Peugeot", 2_040_000, "2024-07-01", 48);
+        store_use_terms(
+            &conn,
+            asset_id,
+            &AssetUseTerms {
+                business_use_changes: vec![BusinessUseChange {
+                    from_month: "2026-07".to_owned(),
+                    business_use_pct_bps: 8000,
+                }],
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        recalculate_depreciation_for_asset(&conn, asset_id).expect("recalculate failed");
+
+        let rows = entries_of_kind(&conn, asset_id, "depreciation");
+        let share_in = |month: &str| {
+            rows.iter()
+                .find(|row| row.1.starts_with(month))
+                .map(|row| row.2)
+        };
+        assert_eq!(share_in("2024-07"), Some(10000));
+        assert_eq!(share_in("2026-06"), Some(10000));
+        assert_eq!(share_in("2026-07"), Some(8000));
+        assert_eq!(share_in("2028-06"), Some(8000));
+    }
+
+    #[test]
+    fn an_edit_keeps_the_shares_and_rebuilds_the_lost_vat_entry() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let asset_id = mk_kona(&conn);
+        recalculate_depreciation_for_asset(&conn, asset_id).expect("recalculate failed");
+
+        let mut terms = kona_terms();
+        terms.purchase_vat = Some(PurchaseVat {
+            gross_minor: 1_230_000,
+            vat_rate_bps: 2300,
+            vat_reclaimable_pct_bps: 5000,
+        });
+        store_use_terms(&conn, asset_id, &terms).unwrap();
+        conn.execute(
+            "UPDATE account SET purchase_price_minor = 1000000 WHERE id = ?1",
+            params![asset_id],
+        )
+        .unwrap();
+        recalculate_depreciation_for_asset(&conn, asset_id).expect("recalculate failed");
+
+        assert_eq!(
+            entries_of_kind(&conn, asset_id, "lost_vat"),
+            vec![(115_000, "2026-07-12T00:00:00".to_owned(), 0)]
+        );
+        let depreciation = entries_of_kind(&conn, asset_id, "depreciation");
+        assert_eq!(depreciation.iter().map(|row| row.0).sum::<i64>(), 1_000_000);
+        assert!(depreciation.iter().all(|row| row.2 == 8000));
+    }
+
+    #[test]
+    fn lowering_the_share_at_purchase_to_full_use_removes_the_lost_vat_entry() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let asset_id = mk_kona(&conn);
+        recalculate_depreciation_for_asset(&conn, asset_id).expect("recalculate failed");
+
+        let mut terms = kona_terms();
+        terms.business_use_pct_bps = Some(10000);
+        store_use_terms(&conn, asset_id, &terms).unwrap();
+        recalculate_depreciation_for_asset(&conn, asset_id).expect("recalculate failed");
+
+        assert!(entries_of_kind(&conn, asset_id, "lost_vat").is_empty());
+    }
+
+    #[test]
+    fn an_instant_write_off_takes_the_share_at_purchase() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let asset_id = create_account(
+            &conn,
+            CreateAccountParams {
+                name: "Dashcam".to_owned(),
+                currency_id: 1,
+                account_type: "asset".to_owned(),
+                person_id: Some(default_person_id()),
+                purchase_price_minor: Some(100_000),
+                purchase_date: Some("2026-07-12".to_owned()),
+                use_terms: AssetUseTerms {
+                    purchase_vat: Some(PurchaseVat {
+                        gross_minor: 123_000,
+                        vat_rate_bps: 2300,
+                        vat_reclaimable_pct_bps: 5000,
+                    }),
+                    business_use_pct_bps: Some(8000),
+                    business_use_changes: Vec::new(),
+                },
+                ..Default::default()
+            },
+        )
+        .expect("create_account failed");
+
+        generate_depreciation_events(&conn).expect("first run failed");
+        generate_depreciation_events(&conn).expect("second run failed");
+
+        assert_eq!(
+            entries_of_kind(&conn, asset_id, "depreciation"),
+            vec![(100_000, "2026-07-12T00:00:00".to_owned(), 8000)]
+        );
+        assert_eq!(entries_of_kind(&conn, asset_id, "lost_vat").len(), 1);
+    }
+
+    #[test]
+    fn an_asset_without_terms_keeps_its_full_share_and_gets_no_lost_vat_entry() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let asset_id = mk_depreciating_asset(&conn, "Laptop", 120_000, "2026-01-01", 12);
+
+        generate_depreciation_events(&conn).expect("generator failed");
+
+        let rows = entries_of_kind(&conn, asset_id, "depreciation");
+        assert_eq!(rows.len(), 12);
+        assert!(rows.iter().all(|row| row.2 == 10000));
+        assert!(entries_of_kind(&conn, asset_id, "lost_vat").is_empty());
     }
 }

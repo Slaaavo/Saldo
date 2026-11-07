@@ -127,6 +127,7 @@ pub(crate) fn create_account_with_conn(
                 purchase_date: input.purchase_date.clone(),
                 depreciation_period_months,
                 initial_balance_date: input.initial_balance_date.clone(),
+                ..Default::default()
             },
         )?;
 
@@ -203,6 +204,7 @@ fn update_account_with_conn(conn: &Connection, input: UpdateAccountInput) -> Res
                 purchase_price_minor: input.purchase_price_minor,
                 purchase_date: input.purchase_date.clone(),
                 depreciation_period_months,
+                ..Default::default()
             },
         )?;
 

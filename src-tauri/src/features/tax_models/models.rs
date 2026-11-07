@@ -87,15 +87,17 @@ pub enum EntryKind {
     Depreciation,
     Prepaid,
     Expense,
+    LostVat,
 }
 
 impl EntryKind {
     #[cfg(test)]
-    pub const ALL: [EntryKind; 4] = [
+    pub const ALL: [EntryKind; 5] = [
         EntryKind::Revenue,
         EntryKind::Depreciation,
         EntryKind::Prepaid,
         EntryKind::Expense,
+        EntryKind::LostVat,
     ];
 }
 

@@ -480,7 +480,8 @@ pub fn list_taxable_events_for_model(
                     ed.expense_deductible_pct_bps, ed.reclaimed_vat,
                     COALESCE(asset.depreciation_period_months, 0) > 0,
                     e.linked_prepaid_event_id IS NOT NULL,
-                    CAST(strftime('%m', ed.event_date) AS INTEGER)
+                    CAST(strftime('%m', ed.event_date) AS INTEGER),
+                    e.asset_entry IS 'lost_vat'
              FROM event e
              JOIN event_data ed ON ed.id = e.latest_data_id
              JOIN account a ON a.id = e.account_id
@@ -498,14 +499,16 @@ pub fn list_taxable_events_for_model(
             let event_id: i64 = row.get(0)?;
             let kind = match (
                 row.get::<_, String>(1)?.as_str(),
+                row.get::<_, bool>(12)?,
                 row.get::<_, bool>(9)?,
                 row.get::<_, bool>(10)?,
             ) {
-                ("revenue", _, _) => EntryKind::Revenue,
-                ("expense", true, _) => EntryKind::Depreciation,
-                ("expense", false, true) => EntryKind::Prepaid,
-                ("expense", false, false) => EntryKind::Expense,
-                (other, _, _) => {
+                ("revenue", _, _, _) => EntryKind::Revenue,
+                ("expense", true, _, _) => EntryKind::LostVat,
+                ("expense", false, true, _) => EntryKind::Depreciation,
+                ("expense", false, false, true) => EntryKind::Prepaid,
+                ("expense", false, false, false) => EntryKind::Expense,
+                (other, _, _, _) => {
                     return Err(unreadable_entry(
                         1,
                         Type::Text,

@@ -1,4 +1,6 @@
 use crate::error::AppError;
+use crate::features::assets::business_use::AssetUseTerms;
+use crate::features::assets::repository::store_use_terms;
 use crate::shared::{
     is_duplicate_iban_error, local_now, validate_iban, with_savepoint, with_savepoint_app,
 };
@@ -17,8 +19,10 @@ pub struct CreateAccountParams {
     pub purchase_date: Option<String>,
     pub depreciation_period_months: Option<i64>,
     pub initial_balance_date: Option<String>,
+    pub use_terms: AssetUseTerms,
 }
 
+#[derive(Default)]
 pub struct UpdateAccountParams {
     pub account_id: i64,
     pub name: String,
@@ -27,6 +31,8 @@ pub struct UpdateAccountParams {
     pub purchase_price_minor: Option<i64>,
     pub purchase_date: Option<String>,
     pub depreciation_period_months: Option<i64>,
+    /// `None` leaves the stored terms alone.
+    pub use_terms: Option<AssetUseTerms>,
 }
 
 pub struct UpdateSortOrderParams {
@@ -63,6 +69,7 @@ pub fn create_account(conn: &Connection, params: CreateAccountParams) -> Result<
             }
         })?;
         let account_id = conn.last_insert_rowid();
+        store_use_terms(conn, account_id, &params.use_terms)?;
 
         if let Some(amount) = params.initial_balance_minor {
             crate::features::transactions::repository::create_balance_update_inner(
@@ -204,7 +211,10 @@ pub fn update_account(conn: &Connection, params: UpdateAccountParams) -> Result<
     if rows == 0 {
         return Err(account_not_found());
     }
-    Ok(())
+    match &params.use_terms {
+        Some(terms) => store_use_terms(conn, params.account_id, terms),
+        None => Ok(()),
+    }
 }
 
 pub fn delete_account(conn: &Connection, account_id: i64) -> Result<(), AppError> {
@@ -1327,6 +1337,7 @@ mod tests {
             purchase_price_minor: Some(120_000),
             purchase_date: Some("2026-01-15".to_owned()),
             depreciation_period_months: Some(24),
+            ..Default::default()
         }
     }
 

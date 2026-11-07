@@ -2,8 +2,107 @@ use crate::error::AppError;
 use rusqlite::{params, Connection, OptionalExtension};
 use std::collections::{HashMap, HashSet};
 
+use super::business_use::{AssetUseTerms, BusinessUseChange, FULL_BUSINESS_USE_BPS};
 use super::models::AccountAssetLink;
+use super::purchase::PurchaseVat;
 use crate::features::currency::Currency;
+
+/// The one reader of the terms. An account without any reads as a plain asset.
+pub(crate) fn get_use_terms(conn: &Connection, account_id: i64) -> Result<AssetUseTerms, AppError> {
+    let stored = conn
+        .query_row(
+            "SELECT purchase_gross_minor, purchase_vat_rate_bps,
+                    purchase_vat_reclaimable_pct_bps, business_use_pct_bps
+             FROM account WHERE id = ?1",
+            params![account_id],
+            |row| {
+                let purchase_vat = match (row.get(0)?, row.get(1)?, row.get(2)?) {
+                    (Some(gross_minor), Some(vat_rate_bps), Some(vat_reclaimable_pct_bps)) => {
+                        Some(PurchaseVat {
+                            gross_minor,
+                            vat_rate_bps,
+                            vat_reclaimable_pct_bps,
+                        })
+                    }
+                    _ => None,
+                };
+                Ok(AssetUseTerms {
+                    purchase_vat,
+                    business_use_pct_bps: row.get(3)?,
+                    business_use_changes: Vec::new(),
+                })
+            },
+        )
+        .optional()
+        .map_err(AppError::from)?;
+    let Some(mut terms) = stored else {
+        return Ok(AssetUseTerms::default());
+    };
+
+    let mut stmt = conn
+        .prepare(
+            "SELECT from_month, business_use_pct_bps FROM asset_business_use_change
+             WHERE account_id = ?1 ORDER BY from_month",
+        )
+        .map_err(AppError::from)?;
+    terms.business_use_changes = stmt
+        .query_map(params![account_id], |row| {
+            Ok(BusinessUseChange {
+                from_month: row.get(0)?,
+                business_use_pct_bps: row.get(1)?,
+            })
+        })
+        .map_err(AppError::from)?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(AppError::from)?;
+
+    Ok(terms)
+}
+
+/// The one writer of the terms. It replaces everything they hold and stores 100 % as NULL,
+/// so saving an untouched asset changes nothing. Recalculate the asset after this.
+pub(crate) fn store_use_terms(
+    conn: &Connection,
+    account_id: i64,
+    terms: &AssetUseTerms,
+) -> Result<(), AppError> {
+    conn.execute(
+        "UPDATE account
+         SET purchase_gross_minor = ?1,
+             purchase_vat_rate_bps = ?2,
+             purchase_vat_reclaimable_pct_bps = ?3,
+             business_use_pct_bps = ?4
+         WHERE id = ?5",
+        params![
+            terms.purchase_vat.map(|vat| vat.gross_minor),
+            terms.purchase_vat.map(|vat| vat.vat_rate_bps),
+            terms.purchase_vat.map(|vat| vat.vat_reclaimable_pct_bps),
+            terms
+                .business_use_pct_bps
+                .filter(|&pct| pct != FULL_BUSINESS_USE_BPS),
+            account_id
+        ],
+    )
+    .map_err(AppError::from)?;
+    conn.execute(
+        "DELETE FROM asset_business_use_change WHERE account_id = ?1",
+        params![account_id],
+    )
+    .map_err(AppError::from)?;
+    for change in &terms.business_use_changes {
+        conn.execute(
+            "INSERT INTO asset_business_use_change (account_id, from_month, business_use_pct_bps)
+             VALUES (?1, ?2, ?3)",
+            params![
+                account_id,
+                change.from_month.as_str(),
+                change.business_use_pct_bps
+            ],
+        )
+        .map_err(AppError::from)?;
+    }
+    Ok(())
+}
 
 /// Convert a price-per-unit string to an FX rate and upsert it.
 /// Stores rate from `consolidation → asset_currency` on `date` with `is_direct = true`.

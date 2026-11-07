@@ -264,4 +264,32 @@ mod tests {
             .unwrap();
         assert_eq!(foreign_keys, 1);
     }
+
+    #[test]
+    fn upgrading_marks_existing_depreciation_events() {
+        let conn = fk_enabled_conn();
+        let before = MIGRATIONS
+            .iter()
+            .position(|(name, _)| name.starts_with("038_"))
+            .unwrap();
+        apply_pending(&conn, &MIGRATIONS[..before]).unwrap();
+        conn.execute_batch(
+            "INSERT INTO account (id, name, currency_id, account_type, person_id)
+             VALUES (900, 'Car', 1, 'asset', 1), (901, 'Costs', 1, 'account', 1);
+             INSERT INTO event (id, account_id, event_type, linked_asset_id, is_system_generated)
+             VALUES (900, 901, 'expense', 900, 1), (901, 901, 'expense', NULL, 0);",
+        )
+        .unwrap();
+
+        apply_pending(&conn, MIGRATIONS).unwrap();
+
+        let asset_entry = |id: i64| -> Option<String> {
+            conn.query_row("SELECT asset_entry FROM event WHERE id = ?1", [id], |row| {
+                row.get(0)
+            })
+            .unwrap()
+        };
+        assert_eq!(asset_entry(900).as_deref(), Some("depreciation"));
+        assert_eq!(asset_entry(901), None);
+    }
 }
