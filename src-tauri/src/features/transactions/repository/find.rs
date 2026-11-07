@@ -157,7 +157,7 @@ fn load_documents(
         "SELECT {DOC_KEY}, e.id, e.event_type, a.person_id, substr(ed.event_date, 1, 10),
                 ed.amount_minor, ed.note, sg.note, e.source_ref, e.batch_id, e.split_group_id,
                 ed.prepaid_until, ed.reclaimed_vat, ed.vat_rate_bps,
-                ed.expense_deductible_pct_bps, ed.vat_reclaimable_pct_bps
+                ed.expense_deductible_pct_bps, ed.vat_reclaimable_pct_bps, ed.private_use
          {TAXABLE_ROWS} AND {DOC_KEY} IN ({})
          ORDER BY e.id",
         placeholders(doc_keys.len())
@@ -186,6 +186,7 @@ fn load_documents(
                     vat_rate_bps,
                     deductible_pct_bps: row.get(14)?,
                     vat_reclaimable_pct_bps: row.get(15)?,
+                    private_use: row.get(16)?,
                 },
             })
         })?

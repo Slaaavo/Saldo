@@ -211,6 +211,8 @@ fn tools_list_carries_each_schema_whether_the_tool_only_reads_and_whether_it_rea
         "deductiblePctBps",
         "prepaidUntil",
         "depreciationMonths",
+        "privateUse",
+        "businessUse",
         "readToken",
         "vendor",
         "asset",
@@ -249,7 +251,8 @@ fn orange_invoice(seeded: &Seeded, number: &str) -> Value {
             "issueDate": "2026-10-31",
             "content": { "kind": "expense", "lines": [{
                 "grossMinor": 2399, "vatRateBps": 2300,
-                "deductiblePctBps": 8000, "vatReclaimablePctBps": 8000 }] },
+                "deductiblePctBps": 8000, "vatReclaimablePctBps": 8000,
+                "privateUse": false }] },
         }],
     })
 }
@@ -478,7 +481,8 @@ fn receipt_batch(seeded: &Seeded, read: &Value) -> Value {
         .map(|line| {
             let mut line = line.clone();
             line["shares"] = json!({ "deductiblePctBps": 10000,
-                                     "vatReclaimablePctBps": 10000, "by": "claude" });
+                                     "vatReclaimablePctBps": 10000, "privateUse": false,
+                                     "by": "claude" });
             line
         })
         .collect();

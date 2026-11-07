@@ -9,6 +9,7 @@ use crate::shared::text::strip_accents;
 pub struct Shares {
     pub deductible_pct_bps: i64,
     pub vat_reclaimable_pct_bps: i64,
+    pub private_use: bool,
 }
 
 pub struct RuleSource<'a> {
@@ -111,6 +112,7 @@ impl ShareRules {
             shares: Shares {
                 deductible_pct_bps: rule.deductible_pct_bps,
                 vat_reclaimable_pct_bps: rule.vat_reclaimable_pct_bps,
+                private_use: rule.private_use,
             },
         }))
     }
@@ -160,6 +162,7 @@ mod tests {
             shares: Shares {
                 deductible_pct_bps,
                 vat_reclaimable_pct_bps: deductible_pct_bps,
+                private_use: false,
             },
         }
     }
@@ -249,6 +252,7 @@ mod tests {
             name_pattern: pattern.to_owned(),
             deductible_pct_bps: bps,
             vat_reclaimable_pct_bps: 0,
+            private_use: false,
         };
         let rules = ShareRules::from_profile(&[row(0, "mlieko", 0), row(1, "mlieko|kava", 10000)]);
 

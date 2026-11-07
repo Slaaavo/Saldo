@@ -70,7 +70,10 @@ pub(super) fn count_prepaid_shares(
     parent_event_id: i64,
 ) -> Result<usize, AppError> {
     let count: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM event WHERE linked_prepaid_event_id = ?1 AND deleted_at IS NULL",
+        "SELECT COUNT(DISTINCT substr(ed.event_date, 1, 4))
+         FROM event e
+         JOIN event_data ed ON ed.id = e.latest_data_id
+         WHERE e.linked_prepaid_event_id = ?1 AND e.deleted_at IS NULL",
         params![parent_event_id],
         |row| row.get(0),
     )?;
@@ -164,8 +167,12 @@ pub(super) fn list_batch_asset_ids(conn: &Connection, batch_id: i64) -> Result<V
 pub(super) fn record_what_the_batch_made(conn: &Connection, batch_id: i64) -> Result<(), AppError> {
     conn.execute(
         "INSERT INTO entry_batch_asset
-             (account_id, name, purchase_price_minor, purchase_date, depreciation_period_months)
-         SELECT id, name, purchase_price_minor, purchase_date, depreciation_period_months
+             (account_id, name, purchase_price_minor, purchase_date, depreciation_period_months,
+              purchase_gross_minor, purchase_vat_rate_bps, purchase_vat_reclaimable_pct_bps,
+              business_use_pct_bps)
+         SELECT id, name, purchase_price_minor, purchase_date, depreciation_period_months,
+                purchase_gross_minor, purchase_vat_rate_bps, purchase_vat_reclaimable_pct_bps,
+                business_use_pct_bps
          FROM account WHERE batch_id = ?1",
         params![batch_id],
     )?;
@@ -233,7 +240,14 @@ pub(super) fn list_changed_rows(
                AND (a.name IS NOT made.name
                     OR a.purchase_price_minor IS NOT made.purchase_price_minor
                     OR a.purchase_date IS NOT made.purchase_date
-                    OR a.depreciation_period_months IS NOT made.depreciation_period_months)
+                    OR a.depreciation_period_months IS NOT made.depreciation_period_months
+                    OR a.purchase_gross_minor IS NOT made.purchase_gross_minor
+                    OR a.purchase_vat_rate_bps IS NOT made.purchase_vat_rate_bps
+                    OR a.purchase_vat_reclaimable_pct_bps
+                       IS NOT made.purchase_vat_reclaimable_pct_bps
+                    OR a.business_use_pct_bps IS NOT made.business_use_pct_bps
+                    OR EXISTS (SELECT 1 FROM asset_business_use_change change
+                               WHERE change.account_id = a.id))
              UNION ALL
              SELECT 4, tcl.taxable_event_id, NULL, tcl.cashflow_event_id
              FROM taxable_cashflow_link tcl

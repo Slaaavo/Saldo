@@ -381,6 +381,7 @@ pub struct EntryLine {
     pub vat_rate_bps: Option<i64>,
     pub deductible_pct_bps: Option<i64>,
     pub vat_reclaimable_pct_bps: Option<i64>,
+    pub private_use: bool,
 }
 
 /// A cash flow that can pay a document.

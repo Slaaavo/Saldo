@@ -5,6 +5,8 @@ use crate::db::initialize_in_memory;
 use crate::features::accounts::repository::{
     create_account, update_account, CreateAccountParams, UpdateAccountParams,
 };
+use crate::features::assets::business_use::BusinessUseChange;
+use crate::features::assets::repository::get_use_terms;
 use crate::features::ekasa::models::EkasaRuleInput;
 use crate::features::ekasa::reading::fake::{read_offline, FakeEkasaApi};
 use crate::features::ekasa::reading::ReceiptReading;
@@ -106,7 +108,7 @@ fn payment(conn: &Connection, books: &Books, amount_minor: i64) -> i64 {
 
 fn expense_line(gross_minor: i64, vat_rate_bps: i64) -> Value {
     json!({ "grossMinor": gross_minor, "vatRateBps": vat_rate_bps,
-            "deductiblePctBps": 10000, "vatReclaimablePctBps": 10000 })
+            "deductiblePctBps": 10000, "vatReclaimablePctBps": 10000, "privateUse": false })
 }
 
 fn item(books: &Books, issuer: &str, number: &str, content: Value) -> Value {
@@ -411,7 +413,8 @@ fn a_dry_run_reports_the_documents_and_keeps_nothing() {
     );
     assert_eq!(
         serde_json::to_value(&receipt.documents[0].lines[0]).unwrap(),
-        json!({ "grossMinor": 12_300, "netMinor": 10_000, "vatRateBps": 2300 }),
+        json!({ "grossMinor": 12_300, "netMinor": 10_000, "vatRateBps": 2300,
+                "privateUse": false }),
         "an invoice line reports neither the document's note nor its shares"
     );
     assert_eq!(receipt.documents[1].assets[0].account_id, None);
@@ -1297,7 +1300,8 @@ fn billa() -> ReceiptReading {
 }
 
 fn by(who: &str, deductible: i64, vat_reclaimable: i64) -> Value {
-    json!({ "deductiblePctBps": deductible, "vatReclaimablePctBps": vat_reclaimable, "by": who })
+    json!({ "deductiblePctBps": deductible, "vatReclaimablePctBps": vat_reclaimable,
+            "privateUse": false, "by": who })
 }
 
 fn receipt_item(books: &Books, reading: &ReceiptReading, shares: &[Value]) -> Value {
@@ -1341,6 +1345,7 @@ fn ekasa_profile(conn: &Connection, books: &Books, rules: &[(&str, i64, i64)]) {
                         name_pattern: pattern.to_owned(),
                         deductible_pct_bps: deductible,
                         vat_reclaimable_pct_bps: vat_reclaimable,
+                        private_use: false,
                     },
                 )
                 .collect(),
@@ -1415,14 +1420,18 @@ fn a_receipt_records_a_leg_per_line_with_the_shares_that_win() {
                 "shares": { "deductiblePctBps": 10000, "vatReclaimablePctBps": 10000,
                             "from": "rule",
                             "rule": { "position": 1, "pattern": "kava",
-                                      "deductiblePctBps": 10000, "vatReclaimablePctBps": 10000 },
-                            "claude": { "deductiblePctBps": 0, "vatReclaimablePctBps": 0 } } })
+                                      "deductiblePctBps": 10000, "vatReclaimablePctBps": 10000,
+                                      "privateUse": false },
+                            "claude": { "deductiblePctBps": 0, "vatReclaimablePctBps": 0,
+                                        "privateUse": false } },
+                "privateUse": false })
     );
     assert_eq!(
         document["lines"][1]["shares"],
         json!({ "deductiblePctBps": 10000, "vatReclaimablePctBps": 5000, "from": "user",
                 "rule": { "position": 2, "pattern": "mlieko|rozok",
-                          "deductiblePctBps": 0, "vatReclaimablePctBps": 0 } })
+                          "deductiblePctBps": 0, "vatReclaimablePctBps": 0,
+                          "privateUse": false } })
     );
     assert_eq!(
         document["lines"][2]["shares"],
@@ -1746,10 +1755,283 @@ fn an_error_inside_a_receipt_line_keeps_its_path() {
         "personId": 1, "date": "2026-10-12", "vendor": "BILLA",
         "lines": [{ "name": "KAVA", "grossMinor": 100, "vatRateBps": 2300,
                     "shares": { "deductiblePctBps": 0, "vatReclaimablePctBps": 0,
-                                "by": "profile" } }],
+                                "privateUse": false, "by": "profile" } }],
     });
 
     let err = parse(item).unwrap_err();
 
     assert!(err.starts_with("items[0]: lines[0].shares.by: "), "{err}");
+}
+
+fn kona(books: &Books, business_use_pct_bps: i64) -> Value {
+    item(
+        books,
+        "47606649",
+        "260100050",
+        json!({ "kind": "expense",
+                "assets": [{ "name": "Hyundai Kona", "grossMinor": 1_560_000, "vatRateBps": 2300,
+                             "depreciationMonths": 24,
+                             "businessUse": { "businessUsePctBps": business_use_pct_bps,
+                                              "vatReclaimablePctBps": 5000 } }] }),
+    )
+}
+
+fn lost_vat_rows(conn: &Connection, asset_id: i64) -> Vec<(i64, Option<i64>)> {
+    conn.prepare(
+        "SELECT ed.amount_minor, ed.expense_deductible_pct_bps
+         FROM event e JOIN event_data ed ON ed.id = e.latest_data_id
+         WHERE e.linked_asset_id = ?1 AND e.asset_entry = 'lost_vat' AND e.deleted_at IS NULL",
+    )
+    .unwrap()
+    .query_map([asset_id], |row| Ok((row.get(0)?, row.get(1)?)))
+    .unwrap()
+    .collect::<rusqlite::Result<_>>()
+    .unwrap()
+}
+
+fn start_value(conn: &Connection, asset_id: i64) -> i64 {
+    conn.query_row(
+        "SELECT ed.amount_minor FROM event e JOIN event_data ed ON ed.id = e.latest_data_id
+         WHERE e.account_id = ?1 AND e.event_type = 'balance_update'",
+        [asset_id],
+        |row| row.get(0),
+    )
+    .unwrap()
+}
+
+#[test]
+fn a_dry_run_shows_the_split_of_a_mixed_use_asset() {
+    let conn = initialize_in_memory().unwrap();
+    let books = books(&conn);
+
+    let receipt = run_batch(&conn, batch(vec![kona(&books, 8000)], true)).unwrap();
+
+    assert_eq!(
+        serde_json::to_value(&receipt.documents[0].assets[0]).unwrap(),
+        json!({ "accountId": null, "name": "Hyundai Kona", "purchasePriceMinor": 1_268_292,
+                "priceBasis": "net_lost_vat_apart", "depreciationMonths": 24,
+                "startValueMinor": 1_560_000, "reclaimedVatMinor": 145_854,
+                "lostVatEntryMinor": 145_854, "businessUsePctBps": 8000 })
+    );
+}
+
+#[test]
+fn a_changed_share_changes_the_review_token() {
+    let conn = initialize_in_memory().unwrap();
+    let books = books(&conn);
+    let token = |pct: i64| {
+        run_batch(&conn, batch(vec![kona(&books, pct)], true))
+            .unwrap()
+            .review_token
+            .unwrap()
+    };
+
+    assert_ne!(token(8000), token(7000));
+}
+
+#[test]
+fn undo_removes_a_mixed_use_asset_with_its_lost_vat_entry() {
+    let conn = initialize_in_memory().unwrap();
+    let books = books(&conn);
+    let receipt = record(&conn, vec![kona(&books, 8000)]);
+    let asset_id = receipt.documents[0].assets[0].account_id.unwrap();
+    assert_eq!(start_value(&conn, asset_id), 1_560_000);
+    assert_eq!(lost_vat_rows(&conn, asset_id), [(145_854, Some(0))]);
+
+    undo(&conn, receipt.batch_id.unwrap(), false).unwrap();
+
+    assert!(lost_vat_rows(&conn, asset_id).is_empty());
+    assert_eq!(
+        count(
+            &conn,
+            "SELECT COUNT(*) FROM account WHERE id = ?1",
+            asset_id
+        ),
+        0
+    );
+}
+
+fn saved_kona(asset_id: i64, books: &Books, use_terms: AssetUseTerms) -> UpdateAccountParams {
+    UpdateAccountParams {
+        account_id: asset_id,
+        name: "Hyundai Kona".to_owned(),
+        person_id: Some(books.person_id),
+        purchase_price_minor: Some(1_268_292),
+        purchase_date: Some("2026-10-12".to_owned()),
+        depreciation_period_months: Some(24),
+        use_terms: Some(use_terms),
+        ..Default::default()
+    }
+}
+
+#[test]
+fn undo_stops_at_a_share_edited_in_saldo() {
+    type Edit = fn(&mut AssetUseTerms);
+    let edits: [(&str, Edit); 3] = [
+        ("share at purchase", |terms| {
+            terms.business_use_pct_bps = Some(7000)
+        }),
+        ("reclaimed VAT", |terms| {
+            terms.purchase_vat.as_mut().unwrap().vat_reclaimable_pct_bps = 4000
+        }),
+        ("dated change", |terms| {
+            terms.business_use_changes.push(BusinessUseChange {
+                from_month: "2027-01".to_owned(),
+                business_use_pct_bps: 6000,
+            })
+        }),
+    ];
+    for (field, edit) in edits {
+        let conn = initialize_in_memory().unwrap();
+        let books = books(&conn);
+        let receipt = record(&conn, vec![kona(&books, 8000)]);
+        let asset_id = receipt.documents[0].assets[0].account_id.unwrap();
+        let mut terms = get_use_terms(&conn, asset_id).unwrap();
+        edit(&mut terms);
+
+        update_account(&conn, saved_kona(asset_id, &books, terms)).unwrap();
+
+        let Err(UndoBatchError::Changed { rows, .. }) =
+            undo(&conn, receipt.batch_id.unwrap(), false)
+        else {
+            panic!("an edited {field} must stop the undo")
+        };
+        assert_eq!(
+            rows,
+            [ChangedRow::AssetEditedInSaldo {
+                account_id: asset_id
+            }],
+            "{field}"
+        );
+    }
+}
+
+#[test]
+fn saving_a_laptop_at_full_business_use_is_not_a_change() {
+    let conn = initialize_in_memory().unwrap();
+    let books = books(&conn);
+    let receipt = record(&conn, vec![laptop_and_sleeve(&books)]);
+    let asset_id = receipt.documents[0].assets[0].account_id.unwrap();
+    save_laptop(&conn, &books, asset_id, |params| {
+        params.use_terms = Some(AssetUseTerms {
+            business_use_pct_bps: Some(10000),
+            ..Default::default()
+        })
+    });
+
+    undo(&conn, receipt.batch_id.unwrap(), false).unwrap();
+}
+
+fn private_use_of(conn: &Connection, note: &str) -> bool {
+    conn.query_row(
+        "SELECT ed.private_use FROM event e JOIN event_data ed ON ed.id = e.latest_data_id
+         WHERE ed.note = ?1 AND e.deleted_at IS NULL",
+        [note],
+        |row| row.get(0),
+    )
+    .unwrap()
+}
+
+fn with_private_use(mut shares: Value, private_use: bool) -> Value {
+    shares["privateUse"] = json!(private_use);
+    shares
+}
+
+#[test]
+fn a_rule_turns_the_switch_on_and_a_dictated_share_decides_it_alone() {
+    let conn = initialize_in_memory().unwrap();
+    let books = books(&conn);
+    ekasa_profile(
+        &conn,
+        &books,
+        &[("kava", 8000, 5000), ("mlieko", 8000, 5000)],
+    );
+    conn.execute("UPDATE ekasa_import_profile_rule SET private_use = 1", [])
+        .unwrap();
+    let reading = billa();
+    let item = receipt_item(
+        &books,
+        &reading,
+        &[
+            by("claude", 0, 0),
+            by("user", 8000, 5000),
+            with_private_use(by("claude", 5000, 0), true),
+        ],
+    );
+
+    record(&conn, vec![item]);
+
+    assert!(private_use_of(&conn, "KÁVA LAVAZZA 1KG"));
+    assert!(!private_use_of(&conn, "MLIEKO 1L"));
+    assert!(private_use_of(&conn, "PAPIER A4"));
+}
+
+#[test]
+fn an_invoice_line_keeps_its_switch_and_find_entries_returns_it() {
+    let conn = initialize_in_memory().unwrap();
+    let books = books(&conn);
+    let mut line = expense_line(5_830, 2300);
+    line["privateUse"] = json!(true);
+    let item = item(
+        &books,
+        "31347037",
+        "2026/10/700",
+        json!({ "kind": "expense", "lines": [line] }),
+    );
+
+    let receipt = record(&conn, vec![item]);
+
+    assert_eq!(receipt.documents[0].lines[0].private_use, Some(true));
+    let found = documents(&conn, &books);
+    assert!(found[0].lines[0].private_use);
+}
+
+#[test]
+fn a_private_use_prepaid_counts_its_yearly_shares_without_the_lost_vat_child() {
+    let conn = initialize_in_memory().unwrap();
+    let books = books(&conn);
+    let mut line = expense_line(123_000, 2300);
+    line["privateUse"] = json!(true);
+    line["vatReclaimablePctBps"] = json!(5000);
+    let prepaid = with(
+        item(
+            &books,
+            "35763469",
+            "PZ-2026-119",
+            json!({ "kind": "prepaid_expense", "line": line, "prepaidUntil": "2027-09-30" }),
+        ),
+        "issueDate",
+        json!("2026-10-01"),
+    );
+
+    let receipt = record(&conn, vec![prepaid]);
+
+    let RecordedShape::Prepaid {
+        event_id: Some(parent),
+        generated_shares,
+    } = receipt.documents[0].shape
+    else {
+        panic!("a prepaid document")
+    };
+    assert_eq!(generated_shares, 2);
+    assert_eq!(live_prepaid_shares(&conn, parent), 3);
+}
+
+#[test]
+fn a_line_must_say_whether_it_is_also_used_privately() {
+    let mut line = json!({ "grossMinor": 100, "vatRateBps": 2300, "deductiblePctBps": 8000,
+                           "vatReclaimablePctBps": 5000 });
+    let document = |line: &Value| {
+        json!({
+            "document": { "issuer": "1", "number": "2", "file": "a.pdf" },
+            "personId": 1, "issueDate": "2026-10-12",
+            "content": { "kind": "expense", "lines": [line] },
+        })
+    };
+
+    let err = parse(document(&line)).unwrap_err();
+    assert!(err.contains("privateUse"), "{err}");
+
+    line["privateUse"] = json!(false);
+    assert!(parse(document(&line)).is_ok());
 }

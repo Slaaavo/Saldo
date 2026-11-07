@@ -15,7 +15,8 @@ fn load_rules_for_profile(
     profile_id: i64,
 ) -> Result<Vec<EkasaRuleRow>, AppError> {
     let mut stmt = conn.prepare(
-        "SELECT id, profile_id, sort_order, name_pattern, deductible_pct_bps, vat_reclaimable_pct_bps
+        "SELECT id, profile_id, sort_order, name_pattern, deductible_pct_bps, vat_reclaimable_pct_bps,
+                private_use
          FROM ekasa_import_profile_rule
          WHERE profile_id = ?1
          ORDER BY sort_order ASC",
@@ -28,6 +29,7 @@ fn load_rules_for_profile(
             name_pattern: row.get(3)?,
             deductible_pct_bps: row.get(4)?,
             vat_reclaimable_pct_bps: row.get(5)?,
+            private_use: row.get(6)?,
         })
     })?;
     rows.collect::<rusqlite::Result<Vec<_>>>()
@@ -108,14 +110,16 @@ pub fn upsert_ekasa_profile(
         for rule in &params.rules {
             conn.execute(
                 "INSERT INTO ekasa_import_profile_rule
-                     (profile_id, sort_order, name_pattern, deductible_pct_bps, vat_reclaimable_pct_bps)
-                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                     (profile_id, sort_order, name_pattern, deductible_pct_bps,
+                      vat_reclaimable_pct_bps, private_use)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
                 params![
                     profile_id,
                     rule.sort_order,
                     rule.name_pattern.as_str(),
                     rule.deductible_pct_bps,
-                    rule.vat_reclaimable_pct_bps
+                    rule.vat_reclaimable_pct_bps,
+                    rule.private_use
                 ],
             )
             .map_err(AppError::from)?;
@@ -210,6 +214,7 @@ mod tests {
             name_pattern: name_pattern.to_owned(),
             deductible_pct_bps: 5000,
             vat_reclaimable_pct_bps: 5000,
+            private_use: false,
         }
     }
 

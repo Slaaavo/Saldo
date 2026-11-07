@@ -3,6 +3,8 @@ use super::models::{
     ReceiptLine, ShareBy, ShareSource,
 };
 use crate::error::AppError;
+use crate::features::assets::business_use::{AssetUseTerms, FULL_BUSINESS_USE_BPS};
+use crate::features::assets::purchase::{split_purchase, PurchaseVat};
 use crate::features::ekasa::reading::{check_receipt, LineFacts};
 use crate::features::ekasa::rules::{ShareRules, Shares};
 use crate::features::tax_models::calculation::calculate_net_amount;
@@ -49,13 +51,26 @@ pub(super) struct LegShares {
     pub source: ShareSource,
 }
 
+impl Leg {
+    pub fn private_use(&self) -> bool {
+        self.shares
+            .as_ref()
+            .is_some_and(|leg_shares| leg_shares.shares.private_use)
+    }
+}
+
 #[derive(Debug, Hash)]
 pub(super) struct AssetPlan {
     pub name: String,
     pub gross_minor: i64,
+    pub depreciation_months: i64,
     pub purchase_price_minor: i64,
     pub price_basis: PriceBasis,
-    pub depreciation_months: i64,
+    pub start_value_minor: i64,
+    pub reclaimed_vat_minor: i64,
+    pub lost_vat_entry_minor: i64,
+    /// Some only when the input gave `businessUse`, so a plain asset stores no terms.
+    pub use_terms: Option<AssetUseTerms>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -69,6 +84,10 @@ pub(super) enum EntryShape {
 pub(super) struct DerivedAsset {
     pub purchase_price_minor: i64,
     pub price_basis: PriceBasis,
+    pub start_value_minor: i64,
+    pub reclaimed_vat_minor: i64,
+    pub lost_vat_entry_minor: i64,
+    pub use_terms: Option<AssetUseTerms>,
 }
 
 impl Plan {
@@ -117,6 +136,7 @@ pub(super) fn document(item: &DocumentItem, default_reclaims_vat: bool) -> Resul
                 shares: Shares {
                     deductible_pct_bps: line.deductible_pct_bps.get(),
                     vat_reclaimable_pct_bps: line.vat_reclaimable_pct_bps.get(),
+                    private_use: line.private_use,
                 },
                 source: ShareSource::Invoice,
             }),
@@ -222,6 +242,7 @@ pub(super) fn receipt(
                     gross_minor: line.gross_minor,
                     vat_rate_bps: line.vat_rate_bps,
                     depreciation_months: asset.depreciation_months,
+                    business_use: asset.business_use,
                 },
                 reclaims,
             )?);
@@ -274,6 +295,7 @@ fn line_shares(line: &ReceiptLine, rules: Option<&ShareRules>) -> Option<LegShar
         let shares = Shares {
             deductible_pct_bps: given.deductible_pct_bps.get(),
             vat_reclaimable_pct_bps: given.vat_reclaimable_pct_bps.get(),
+            private_use: given.private_use,
         };
         (shares, given.by)
     });
@@ -297,9 +319,13 @@ fn asset_plan(part: &AssetPart, reclaims_vat: bool) -> Result<AssetPlan, AppErro
     Ok(AssetPlan {
         name: part.name.trim().to_owned(),
         gross_minor: part.gross_minor,
+        depreciation_months: part.depreciation_months,
         purchase_price_minor: price.purchase_price_minor,
         price_basis: price.price_basis,
-        depreciation_months: part.depreciation_months,
+        start_value_minor: price.start_value_minor,
+        reclaimed_vat_minor: price.reclaimed_vat_minor,
+        lost_vat_entry_minor: price.lost_vat_entry_minor,
+        use_terms: price.use_terms,
     })
 }
 
@@ -329,13 +355,32 @@ pub(super) fn asset_price(part: &AssetPart, reclaims_vat: bool) -> Result<Derive
     if part.name.trim().is_empty() {
         return Err(invalid("An asset needs a name"));
     }
-    let (purchase_price_minor, price_basis) = if reclaims_vat {
-        (
-            calculate_net_amount(part.gross_minor, part.vat_rate_bps.get()),
-            PriceBasis::NetVatReclaimed,
-        )
+    let vat_reclaimable_pct_bps = match (reclaims_vat, part.business_use) {
+        (false, _) => 0,
+        (true, None) => 10000,
+        (true, Some(business_use)) => business_use.vat_reclaimable_pct_bps.get(),
+    };
+    let business_use_pct_bps = part
+        .business_use
+        .map_or(FULL_BUSINESS_USE_BPS, |business_use| {
+            business_use.business_use_pct_bps.get()
+        });
+    let purchase_vat = PurchaseVat {
+        gross_minor: part.gross_minor,
+        vat_rate_bps: part.vat_rate_bps.get(),
+        vat_reclaimable_pct_bps,
+    };
+    let split = split_purchase(&purchase_vat, business_use_pct_bps);
+    let purchase_price_minor = split.depreciating_minor;
+    let net_minor = calculate_net_amount(part.gross_minor, part.vat_rate_bps.get());
+    let price_basis = if vat_reclaimable_pct_bps == 0 {
+        PriceBasis::GrossVatNotReclaimed
+    } else if split.lost_vat_entry_minor > 0 {
+        PriceBasis::NetLostVatApart
+    } else if purchase_price_minor > net_minor {
+        PriceBasis::NetPlusLostVat
     } else {
-        (part.gross_minor, PriceBasis::GrossVatNotReclaimed)
+        PriceBasis::NetVatReclaimed
     };
     if purchase_price_minor <= ASSET_MIN_PRICE_EXCLUSIVE_MINOR
         || part.depreciation_months <= ASSET_MIN_MONTHS_EXCLUSIVE
@@ -351,6 +396,14 @@ pub(super) fn asset_price(part: &AssetPart, reclaims_vat: bool) -> Result<Derive
     Ok(DerivedAsset {
         purchase_price_minor,
         price_basis,
+        start_value_minor: split.start_value_minor,
+        reclaimed_vat_minor: split.reclaimed_vat_minor,
+        lost_vat_entry_minor: split.lost_vat_entry_minor,
+        use_terms: part.business_use.map(|_| AssetUseTerms {
+            purchase_vat: reclaims_vat.then_some(purchase_vat),
+            business_use_pct_bps: Some(business_use_pct_bps),
+            business_use_changes: Vec::new(),
+        }),
     })
 }
 
@@ -366,7 +419,9 @@ mod tests {
     use super::*;
     use crate::features::ekasa::reading::fake::FakeEkasaApi;
     use crate::features::ekasa::rules::{RuleMatch, RuleSource};
-    use crate::features::entry_batches::models::{Bps, DocumentId, ExpenseContent, LineShares};
+    use crate::features::entry_batches::models::{
+        AssetBusinessUse, Bps, DocumentId, ExpenseContent, LineShares,
+    };
 
     const GROSS_NETTING_TO_THE_THRESHOLD_MINOR: i64 = 209_100;
 
@@ -380,6 +435,7 @@ mod tests {
             gross_minor,
             vat_rate_bps: bps(2300),
             depreciation_months,
+            business_use: None,
         }
     }
 
@@ -389,6 +445,17 @@ mod tests {
             vat_rate_bps: bps(2300),
             deductible_pct_bps: bps(10000),
             vat_reclaimable_pct_bps: bps(10000),
+            private_use: false,
+        }
+    }
+
+    fn with_use(gross_minor: i64, business_use: i64, reclaimable: i64) -> AssetPart {
+        AssetPart {
+            business_use: Some(AssetBusinessUse {
+                business_use_pct_bps: bps(business_use),
+                vat_reclaimable_pct_bps: bps(reclaimable),
+            }),
+            ..laptop(gross_minor, 24)
         }
     }
 
@@ -454,6 +521,10 @@ mod tests {
             DerivedAsset {
                 purchase_price_minor: 292_601,
                 price_basis: PriceBasis::NetVatReclaimed,
+                start_value_minor: 292_601,
+                reclaimed_vat_minor: 67_299,
+                lost_vat_entry_minor: 0,
+                use_terms: None,
             }
         );
     }
@@ -465,8 +536,47 @@ mod tests {
             DerivedAsset {
                 purchase_price_minor: 359_900,
                 price_basis: PriceBasis::GrossVatNotReclaimed,
+                start_value_minor: 359_900,
+                reclaimed_vat_minor: 0,
+                lost_vat_entry_minor: 0,
+                use_terms: None,
             }
         );
+    }
+
+    #[test]
+    fn a_mixed_use_asset_keeps_lost_vat_apart() {
+        let derived = asset_price(&with_use(1_560_000, 8000, 5000), true).unwrap();
+
+        assert_eq!(derived.purchase_price_minor, 1_268_292);
+        assert_eq!(derived.price_basis, PriceBasis::NetLostVatApart);
+        assert_eq!(derived.start_value_minor, 1_560_000);
+        assert_eq!(derived.reclaimed_vat_minor, 145_854);
+        assert_eq!(derived.lost_vat_entry_minor, 145_854);
+        let terms = derived.use_terms.unwrap();
+        assert_eq!(terms.business_use_pct_bps, Some(8000));
+        assert_eq!(terms.purchase_vat.unwrap().vat_reclaimable_pct_bps, 5000);
+    }
+
+    #[test]
+    fn partial_vat_on_an_asset_used_only_for_business_stays_in_its_price() {
+        let derived = asset_price(&with_use(1_560_000, 10000, 5000), true).unwrap();
+
+        assert_eq!(derived.purchase_price_minor, 1_414_146);
+        assert_eq!(derived.price_basis, PriceBasis::NetPlusLostVat);
+        assert_eq!(derived.start_value_minor, 1_414_146);
+        assert_eq!(derived.lost_vat_entry_minor, 0);
+    }
+
+    #[test]
+    fn a_business_share_without_reclaimed_vat_keeps_the_full_price_and_no_vat_facts() {
+        let derived = asset_price(&with_use(1_560_000, 8000, 5000), false).unwrap();
+
+        assert_eq!(derived.purchase_price_minor, 1_560_000);
+        assert_eq!(derived.price_basis, PriceBasis::GrossVatNotReclaimed);
+        let terms = derived.use_terms.unwrap();
+        assert_eq!(terms.purchase_vat, None);
+        assert_eq!(terms.business_use_pct_bps, Some(8000));
     }
 
     #[test]
@@ -540,6 +650,7 @@ mod tests {
         LineShares {
             deductible_pct_bps: bps(deductible),
             vat_reclaimable_pct_bps: bps(vat_reclaimable),
+            private_use: false,
             by,
         }
     }
@@ -576,6 +687,7 @@ mod tests {
             shares: Shares {
                 deductible_pct_bps: bps,
                 vat_reclaimable_pct_bps: bps,
+                private_use: false,
             },
         }))
     }
@@ -618,6 +730,7 @@ mod tests {
             shares: Shares {
                 deductible_pct_bps: bps,
                 vat_reclaimable_pct_bps: bps,
+                private_use: false,
             },
         };
         assert_eq!(
@@ -635,7 +748,8 @@ mod tests {
                         rule: rule(2, "mlieko|rozok", 0),
                         claude: Some(Shares {
                             deductible_pct_bps: 10000,
-                            vat_reclaimable_pct_bps: 10000
+                            vat_reclaimable_pct_bps: 10000,
+                            private_use: false,
                         }),
                     }
                 ),

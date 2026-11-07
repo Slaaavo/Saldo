@@ -12,6 +12,7 @@ use rusqlite::Connection;
 
 use crate::error::AppError;
 use crate::features::accounts::commands::{create_account_with_conn, CreateAccountInput};
+use crate::features::assets::business_use::{AssetUseTerms, FULL_BUSINESS_USE_BPS};
 use crate::features::currency::repository::get_consolidation_currency;
 use crate::features::ekasa::repository::get_ekasa_profile_for_person;
 use crate::features::ekasa::rules::ShareRules;
@@ -372,7 +373,7 @@ fn write_plan(conn: &Connection, ctx: &ItemContext, plan: &Plan) -> Result<Writt
                         .map(|s| s.shares.deductible_pct_bps),
                     prepaid_until: plan.prepaid_until.clone(),
                     reclaimed_vat: plan.reclaimed_vat,
-                    private_use: false,
+                    private_use: leg.private_use(),
                     source_ref: Some(plan.source_ref.clone()),
                 },
             )?;
@@ -413,7 +414,7 @@ fn write_plan(conn: &Connection, ctx: &ItemContext, plan: &Plan) -> Result<Writt
                                 .map(|s| s.shares.deductible_pct_bps),
                             prepaid_until: None,
                             reclaimed_vat: plan.reclaimed_vat,
-                            private_use: false,
+                            private_use: leg.private_use(),
                         })
                         .collect(),
                     source_ref: Some(plan.source_ref.clone()),
@@ -434,7 +435,7 @@ fn write_plan(conn: &Connection, ctx: &ItemContext, plan: &Plan) -> Result<Writt
                 name: asset.name.clone(),
                 currency_id: ctx.asset_currency_id,
                 account_type: Some("asset".to_owned()),
-                initial_balance_minor: Some(asset.purchase_price_minor),
+                initial_balance_minor: Some(asset.start_value_minor),
                 price_per_unit: None,
                 linked_asset_ids: None,
                 iban: None,
@@ -443,7 +444,7 @@ fn write_plan(conn: &Connection, ctx: &ItemContext, plan: &Plan) -> Result<Writt
                 purchase_date: Some(plan.entry_date.clone()),
                 depreciation_period_months: Some(asset.depreciation_months),
                 initial_balance_date: Some(plan.entry_date.clone()),
-                asset_use: None,
+                asset_use: asset.use_terms.clone(),
             },
         )?;
         stamp(
@@ -460,6 +461,13 @@ fn write_plan(conn: &Connection, ctx: &ItemContext, plan: &Plan) -> Result<Writt
             purchase_price_minor: asset.purchase_price_minor,
             price_basis: asset.price_basis,
             depreciation_months: asset.depreciation_months,
+            start_value_minor: asset.start_value_minor,
+            reclaimed_vat_minor: asset.reclaimed_vat_minor,
+            lost_vat_entry_minor: asset.lost_vat_entry_minor,
+            business_use_pct_bps: asset
+                .use_terms
+                .as_ref()
+                .map_or(FULL_BUSINESS_USE_BPS, AssetUseTerms::pct_at_purchase),
         });
     }
 
@@ -519,6 +527,7 @@ fn recorded_line(leg: &Leg, reported: bool) -> RecordedLine {
         vat_rate_bps: leg.vat_rate_bps,
         note: leg.note.clone().filter(|_| reported),
         shares,
+        private_use: leg.shares.as_ref().map(|_| leg.private_use()),
     }
 }
 

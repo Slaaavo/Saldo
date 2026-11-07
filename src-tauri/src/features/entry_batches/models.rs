@@ -172,6 +172,9 @@ pub struct LineShares {
     pub deductible_pct_bps: Bps,
     /// The share of the VAT that can be reclaimed.
     pub vat_reclaimable_pct_bps: Bps,
+    /// The cost is also used privately, so its lost VAT is not deductible. False keeps lost
+    /// VAT in the cost, as for fuel under the flat 80 % rule on a car used only for business.
+    pub private_use: bool,
     /// user: the user dictated these shares. claude: your own judgment.
     pub by: ShareBy,
 }
@@ -188,6 +191,19 @@ pub enum ShareBy {
 pub struct ReceiptAsset {
     /// Useful life in months. Depreciation spreads the purchase price over it.
     pub depreciation_months: i64,
+    pub business_use: Option<AssetBusinessUse>,
+}
+
+/// An asset that is not used only for business, or whose VAT is only partly reclaimed. Below
+/// 100 % business use with VAT reclaimed, the price without VAT depreciates and the lost VAT
+/// becomes one non-deductible entry in the purchase month.
+#[derive(Debug, Clone, Copy, Hash, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AssetBusinessUse {
+    /// The deductible share of the depreciation.
+    pub business_use_pct_bps: Bps,
+    /// The share of the purchase VAT that can be reclaimed.
+    pub vat_reclaimable_pct_bps: Bps,
 }
 
 /// One source document. Everything it produces (lines, assets, payment links) hangs off it.
@@ -313,6 +329,9 @@ pub struct ExpenseLine {
     pub deductible_pct_bps: Bps,
     /// The share of the VAT that can be reclaimed.
     pub vat_reclaimable_pct_bps: Bps,
+    /// The cost is also used privately, so its lost VAT is not deductible. False keeps lost
+    /// VAT in the cost, as for fuel under the flat 80 % rule on a car used only for business.
+    pub private_use: bool,
 }
 
 #[derive(Debug, Hash, Deserialize, JsonSchema)]
@@ -324,6 +343,7 @@ pub struct AssetPart {
     pub vat_rate_bps: Bps,
     /// Useful life in months. Depreciation spreads the purchase price over it.
     pub depreciation_months: i64,
+    pub business_use: Option<AssetBusinessUse>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -430,6 +450,9 @@ pub struct RecordedLine {
     /// A receipt line's shares and where they came from.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub shares: Option<RecordedShares>,
+    /// Whether an expense line is also used privately. Revenue has none.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub private_use: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -470,6 +493,12 @@ pub struct RecordedAsset {
     pub purchase_price_minor: i64,
     pub price_basis: PriceBasis,
     pub depreciation_months: i64,
+    /// The asset's balance on the dashboard when it is bought.
+    pub start_value_minor: i64,
+    pub reclaimed_vat_minor: i64,
+    /// One non-deductible entry in the purchase month. Zero when no such entry exists.
+    pub lost_vat_entry_minor: i64,
+    pub business_use_pct_bps: i64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
@@ -477,6 +506,10 @@ pub struct RecordedAsset {
 pub enum PriceBasis {
     NetVatReclaimed,
     GrossVatNotReclaimed,
+    /// VAT is partly reclaimed on an asset used only for business, so lost VAT is in the price.
+    NetPlusLostVat,
+    /// A mixed-use asset: the price without VAT, with lost VAT as its own entry.
+    NetLostVatApart,
 }
 
 /// Facts the review table should show. None of them stops the batch.
@@ -604,7 +637,7 @@ pub enum ChangedRow {
         event_id: i64,
         account_id: i64,
     },
-    /// Its name, purchase price, purchase date or depreciation months.
+    /// Its name, purchase price, purchase date, depreciation months, VAT facts or shares.
     AssetEditedInSaldo {
         account_id: i64,
     },

@@ -183,6 +183,7 @@ mod tests {
             name_pattern: name_pattern.to_string(),
             deductible_pct_bps: deductible,
             vat_reclaimable_pct_bps: vat_reclaimable,
+            private_use: false,
         }
     }
 
