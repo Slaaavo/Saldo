@@ -373,7 +373,7 @@ fn write_plan(conn: &Connection, ctx: &ItemContext, plan: &Plan) -> Result<Writt
                         .map(|s| s.shares.deductible_pct_bps),
                     prepaid_until: plan.prepaid_until.clone(),
                     reclaimed_vat: plan.reclaimed_vat,
-                    private_use: leg.private_use(),
+                    private_use: leg.private_use(plan.reclaimed_vat),
                     source_ref: Some(plan.source_ref.clone()),
                 },
             )?;
@@ -414,7 +414,7 @@ fn write_plan(conn: &Connection, ctx: &ItemContext, plan: &Plan) -> Result<Writt
                                 .map(|s| s.shares.deductible_pct_bps),
                             prepaid_until: None,
                             reclaimed_vat: plan.reclaimed_vat,
-                            private_use: leg.private_use(),
+                            private_use: leg.private_use(plan.reclaimed_vat),
                         })
                         .collect(),
                     source_ref: Some(plan.source_ref.clone()),
@@ -505,13 +505,14 @@ fn write_plan(conn: &Connection, ctx: &ItemContext, plan: &Plan) -> Result<Writt
         lines: plan
             .legs
             .iter()
-            .map(|leg| recorded_line(leg, plan.reports_lines))
+            .map(|leg| recorded_line(leg, plan))
             .collect(),
         assets,
     })
 }
 
-fn recorded_line(leg: &Leg, reported: bool) -> RecordedLine {
+fn recorded_line(leg: &Leg, plan: &Plan) -> RecordedLine {
+    let reported = plan.reports_lines;
     let shares = leg
         .shares
         .as_ref()
@@ -527,7 +528,10 @@ fn recorded_line(leg: &Leg, reported: bool) -> RecordedLine {
         vat_rate_bps: leg.vat_rate_bps,
         note: leg.note.clone().filter(|_| reported),
         shares,
-        private_use: leg.shares.as_ref().map(|_| leg.private_use()),
+        private_use: leg
+            .shares
+            .as_ref()
+            .map(|_| leg.private_use(plan.reclaimed_vat)),
     }
 }
 

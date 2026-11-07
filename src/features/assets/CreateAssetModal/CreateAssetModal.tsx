@@ -13,7 +13,7 @@ import { Input } from '../../../shared/ui/input'
 import { Label } from '../../../shared/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../../shared/ui/select'
 import { extractErrorMessage } from '../../../shared/utils/errors'
-import { EMPTY_ASSET_USE_DRAFT, termsFromDraft, type AssetUseDraft } from '../assetUseDraft'
+import { EMPTY_ASSET_USE_DRAFT, assetUseProblem, termsFromDraft, type AssetUseDraft } from '../assetUseDraft'
 import { useAssetPurchasePreview } from '../useAssetPurchasePreview'
 import CurrencyFields from './CurrencyFields'
 import UnitFields from './UnitFields'
@@ -68,7 +68,6 @@ const CreateAssetModal = ({ onSuccess, onClose }: Props) => {
     draft: assetUse,
     minorUnits: selectedCurrency?.minorUnits ?? 2,
     showVatFields: showVatFields && showDepreciation,
-    purchaseDate,
     depreciationPeriod,
   })
 
@@ -114,7 +113,13 @@ const CreateAssetModal = ({ onSuccess, onClose }: Props) => {
           return
         }
 
-        let initialBalanceMinor = preview?.startValueMinor
+        const useProblem = showDepreciation ? assetUseProblem(assetUse, selectedCurrency.minorUnits, showVatFields) : null
+        if (useProblem) {
+          toast.error(t(`modals.assetDepreciation.${useProblem}`))
+          return
+        }
+
+        let initialBalanceMinor: number | undefined
         if (initialValue.trim()) {
           const parsed = parseFloat(initialValue)
           if (isNaN(parsed)) {

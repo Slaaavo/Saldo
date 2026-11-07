@@ -8,7 +8,7 @@ import type { AssetUseTerms } from '../../shared/types'
 import { fromMinorUnits, toMinorUnits } from '../../shared/utils/format'
 import AssetPrivateUseFields from '../assets/AssetPrivateUseFields'
 import BusinessUseChanges from '../assets/BusinessUseChanges'
-import { DEPRECIATION_PRESETS, EMPTY_ASSET_USE_DRAFT, draftFromTerms, termsFromDraft, type AssetUseDraft } from '../assets/assetUseDraft'
+import { DEPRECIATION_PRESETS, EMPTY_ASSET_USE_DRAFT, assetUseProblem, draftFromTerms, termsFromDraft, type AssetUseDraft } from '../assets/assetUseDraft'
 import { useAssetPurchasePreview } from '../assets/useAssetPurchasePreview'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogBody, DialogFooter } from '../../shared/ui/dialog'
 import { Button } from '../../shared/ui/button'
@@ -83,13 +83,18 @@ const EditAccountModal = ({
   const [editedUse, setEditedUse] = useState<AssetUseDraft | null>(null)
   const assetUse = editedUse ?? (storedUse ? draftFromTerms(storedUse, currencyMinorUnits) : EMPTY_ASSET_USE_DRAFT)
   const showVatFields = selectedPerson?.vatPayer === true || !!storedUse?.purchaseVat
-  const preview = useAssetPurchasePreview({ draft: assetUse, minorUnits: currencyMinorUnits, showVatFields: showVatFields && showDepreciation, purchaseDate, depreciationPeriod })
+  const preview = useAssetPurchasePreview({ draft: assetUse, minorUnits: currencyMinorUnits, showVatFields: showVatFields && showDepreciation, depreciationPeriod })
   const hasPeriod = parseInt(depreciationPeriod, 10) > 0
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (!name.trim()) {
       toast.error(t('validation.nameRequired', { entity: t('common.account') }))
+      return
+    }
+    const useProblem = showDepreciation && storedUse ? assetUseProblem(assetUse, currencyMinorUnits, showVatFields) : null
+    if (useProblem) {
+      toast.error(t(`modals.assetDepreciation.${useProblem}`))
       return
     }
     const purchasePriceMinor = showDepreciation && purchasePrice.trim() ? toMinorUnits(purchasePrice, currencyMinorUnits) : null
@@ -181,7 +186,7 @@ const EditAccountModal = ({
                   minorUnits={currencyMinorUnits}
                   preview={preview}
                 />
-                {hasPeriod && (
+                {(hasPeriod || assetUse.changes.length > 0) && (
                   <BusinessUseChanges
                     idPrefix="edit-asset"
                     atPurchasePct={assetUse.privateUse ? assetUse.businessUsePct : '100'}

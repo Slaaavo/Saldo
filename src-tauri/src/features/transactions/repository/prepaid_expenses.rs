@@ -189,7 +189,7 @@ pub(crate) fn generate_prepaid_child_events(
             )?;
         }
 
-        if cost.lost_vat_apart_minor > 0 {
+        if cost.lost_vat_apart_minor != 0 {
             let note = match &ctx.note {
                 Some(n) => format!("Prepaid: {n} (lost VAT)"),
                 None => "Prepaid (lost VAT)".to_owned(),
@@ -653,6 +653,22 @@ mod tests {
             lost_vat,
             (11_500, Some(0), "2024-07-01T00:00:00".to_owned())
         );
+    }
+
+    #[test]
+    fn a_prepaid_credit_note_keeps_its_lost_vat_in_one_child_too() {
+        let (conn, account_id) = setup_test_db();
+        let parent_event_id = insert_prepaid_parent(&conn, account_id, -123_000);
+        let ctx = PrepaidExpenseContext {
+            total_amount_minor: -123_000,
+            ..vignette(parent_event_id, account_id)
+        };
+
+        generate_prepaid_child_events(&conn, &ctx).unwrap();
+
+        let rows = child_rows(&conn, parent_event_id);
+        assert_eq!(rows.len(), 3);
+        assert_eq!(rows.iter().map(|r| r.0).sum::<i64>(), -123_000 + 11_500);
     }
 
     #[test]

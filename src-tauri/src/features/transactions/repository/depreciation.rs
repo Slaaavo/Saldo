@@ -24,7 +24,11 @@ fn entry_exists(conn: &Connection, asset_id: i64, entry: &PlannedEntry) -> Resul
                AND e.asset_entry = ?2
                AND e.deleted_at IS NULL
                AND substr(ed.event_date, 1, 7) = ?3",
-            params![asset_id, entry.kind.as_str(), &entry.event_date[..7]],
+            params![
+                asset_id,
+                entry.kind.as_str(),
+                entry.event_date.get(..7).unwrap_or(&entry.event_date)
+            ],
             |row| row.get(0),
         )
         .optional()

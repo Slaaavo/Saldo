@@ -34,6 +34,7 @@ enum Part {
 enum Share {
     Averaged,
     Fixed,
+    Scheduled,
 }
 
 #[derive(Clone, Copy)]
@@ -95,7 +96,7 @@ impl LineSpec {
                     (
                         EntryKind::Depreciation,
                         Part::NonDeductible,
-                        Share::Averaged,
+                        Share::Scheduled,
                     ),
                     (EntryKind::Prepaid, Part::NonDeductible, Share::Fixed),
                     (EntryKind::LostVat, Part::NonDeductible, Share::Fixed),
@@ -121,7 +122,7 @@ impl LineSpec {
     fn reads_entries(&self, period: Period, share: Share) -> bool {
         match period {
             Period::SoFar => !matches!(self.so_far, SoFarRule::Nothing),
-            Period::Rest => share == Share::Fixed,
+            Period::Rest => share != Share::Averaged,
         }
     }
 }
@@ -162,9 +163,11 @@ pub(super) fn build(figures: &ForecastFigures, entries: Vec<(u8, TaxEventBreakdo
             };
             let typed = figures.typed_values.get(&line).copied().unwrap_or_default();
             let averaged_so_far = sum(Period::SoFar, Share::Averaged);
-            let fixed_rest = sum(Period::Rest, Share::Fixed);
+            let scheduled_so_far = sum(Period::SoFar, Share::Scheduled);
+            let fixed_rest = sum(Period::Rest, Share::Fixed) + sum(Period::Rest, Share::Scheduled);
 
-            let so_far_entries = averaged_so_far + sum(Period::SoFar, Share::Fixed);
+            let so_far_entries =
+                averaged_so_far + sum(Period::SoFar, Share::Fixed) + scheduled_so_far;
             let so_far_rule = match (t.get(), spec.so_far) {
                 (0, _) | (_, SoFarRule::Nothing) => (0, ValueSource::Nothing),
                 (_, SoFarRule::Entries) => (so_far_entries, ValueSource::Entries),
@@ -180,7 +183,9 @@ pub(super) fn build(figures: &ForecastFigures, entries: Vec<(u8, TaxEventBreakdo
                     ValueSource::MonthlyAmount,
                 ),
                 (_, RestRule::Average) => {
-                    let base = typed.so_far_minor.unwrap_or(averaged_so_far);
+                    let base = typed
+                        .so_far_minor
+                        .map_or(averaged_so_far, |so_far| (so_far - scheduled_so_far).max(0));
                     match t.average_rest(base) {
                         Some(0) if fixed_rest != 0 => (fixed_rest, ValueSource::Schedule),
                         Some(average) => (average + fixed_rest, ValueSource::Average),
@@ -255,7 +260,7 @@ fn not_counted_reason(
                 Period::SoFar => line.so_far,
                 Period::Rest => line.rest,
             };
-            [Share::Averaged, Share::Fixed]
+            [Share::Averaged, Share::Fixed, Share::Scheduled]
                 .into_iter()
                 .filter(move |&share| spec.amount(entry, share) != 0)
                 .map(
@@ -542,8 +547,69 @@ mod tests {
         );
         let non_deductible = line(&forecast, ForecastLine::NonDeductibleCosts);
         assert_eq!(non_deductible.so_far, cell(45_000, ValueSource::Entries));
-        assert_eq!(non_deductible.rest, cell(15_000, ValueSource::Average));
+        assert_eq!(non_deductible.rest, cell(15_000, ValueSource::Schedule));
         assert!(reasons(&forecast).iter().all(Option::is_none));
+    }
+
+    fn share_drops_to_80_pct_in_july() -> Vec<(u8, TaxEventBreakdown)> {
+        (1..=12)
+            .map(|month| {
+                let non_deductible = if month < 7 { 0 } else { 7_000 };
+                entry(
+                    EntryKind::Depreciation,
+                    month,
+                    35_000,
+                    35_000 - non_deductible,
+                    non_deductible,
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_dated_share_change_reaches_non_deductible_costs_by_its_schedule() {
+        for (actual_months, so_far, rest) in [(6, 0, 42_000), (9, 21_000, 21_000)] {
+            let forecast = build(
+                &figures(actual_months, 0, &[]),
+                share_drops_to_80_pct_in_july(),
+            );
+
+            let non_deductible = line(&forecast, ForecastLine::NonDeductibleCosts);
+            assert_eq!(non_deductible.so_far.amount_minor, so_far);
+            assert_eq!(non_deductible.rest, cell(rest, ValueSource::Schedule));
+            assert_eq!(non_deductible.year_minor, 42_000);
+        }
+    }
+
+    #[test]
+    fn a_typed_so_far_keeps_the_schedule_of_a_dated_share_change() {
+        let forecast = build(
+            &figures(
+                9,
+                0,
+                &[(ForecastLine::NonDeductibleCosts, Some(21_000), None)],
+            ),
+            share_drops_to_80_pct_in_july(),
+        );
+
+        let non_deductible = line(&forecast, ForecastLine::NonDeductibleCosts);
+        assert_eq!(non_deductible.rest, cell(21_000, ValueSource::Schedule));
+        assert_eq!(non_deductible.year_minor, 42_000);
+    }
+
+    #[test]
+    fn a_typed_so_far_averages_only_what_the_schedule_does_not_explain() {
+        let forecast = build(
+            &figures(
+                6,
+                0,
+                &[(ForecastLine::NonDeductibleCosts, Some(50_000), None)],
+            ),
+            depreciation_schedule(35_000, 5_000),
+        );
+
+        let non_deductible = line(&forecast, ForecastLine::NonDeductibleCosts);
+        assert_eq!(non_deductible.rest, cell(50_000, ValueSource::Average));
     }
 
     #[test]
@@ -637,7 +703,7 @@ mod tests {
             depreciation_schedule(35_000, 5_000),
         );
         let non_deductible = line(&forecast, ForecastLine::NonDeductibleCosts);
-        assert_eq!(non_deductible.rest, cell(30_000, ValueSource::Average));
+        assert_eq!(non_deductible.rest, cell(30_000, ValueSource::Schedule));
         assert_eq!(non_deductible.year_minor, 60_000);
     }
 

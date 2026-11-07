@@ -1,7 +1,7 @@
 import type { AssetUseTerms, BusinessUseChange, PurchaseVat } from '../../shared/types'
 import { bpsToPct, fromMinorUnits, pctToBps, toMinorUnits } from '../../shared/utils/format'
 
-const FULL_BUSINESS_USE_BPS = 10000
+export const FULL_BUSINESS_USE_BPS = 10000
 
 export const DEPRECIATION_PRESETS = [
   ['presetInstant', '0'],
@@ -50,6 +50,14 @@ export const purchaseVatFromDraft = (draft: AssetUseDraft, minorUnits: number, s
   const vatReclaimablePctBps = pctToBps(draft.vatReclaimablePct)
   if (!(grossMinor > 0) || vatRateBps === null || vatReclaimablePctBps === null) return null
   return { grossMinor, vatRateBps, vatReclaimablePctBps }
+}
+
+export const assetUseProblem = (draft: AssetUseDraft, minorUnits: number, showVatFields: boolean): 'businessUseMissing' | 'vatIncomplete' | null => {
+  if (!draft.privateUse) return null
+  if (pctToBps(draft.businessUsePct) === null) return 'businessUseMissing'
+  const vatStarted = draft.grossPrice.trim() !== '' || draft.vatRate.trim() !== ''
+  if (showVatFields && vatStarted && purchaseVatFromDraft(draft, minorUnits, showVatFields) === null) return 'vatIncomplete'
+  return null
 }
 
 export const termsFromDraft = (draft: AssetUseDraft, minorUnits: number, showVatFields: boolean): AssetUseTerms => ({

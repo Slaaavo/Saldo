@@ -1,11 +1,35 @@
 import { describe, expect, it } from 'vitest'
-import { EMPTY_ASSET_USE_DRAFT, draftFromTerms, purchaseVatFromDraft, termsFromDraft } from './assetUseDraft'
+import { EMPTY_ASSET_USE_DRAFT, assetUseProblem, draftFromTerms, purchaseVatFromDraft, termsFromDraft } from './assetUseDraft'
 
 const kona = {
   purchaseVat: { grossMinor: 1560000, vatRateBps: 2300, vatReclaimablePctBps: 5000 },
   businessUsePctBps: 8000,
   businessUseChanges: [],
 }
+
+describe('assetUseProblem', () => {
+  const draft = draftFromTerms(kona, 2)
+
+  it('accepts full VAT facts and a share on its own', () => {
+    expect(assetUseProblem(draft, 2, true)).toBeNull()
+    expect(assetUseProblem({ ...draft, grossPrice: '', vatRate: '' }, 2, true)).toBeNull()
+  })
+
+  it('refuses a blank field instead of dropping the VAT facts', () => {
+    expect(assetUseProblem({ ...draft, vatRate: '' }, 2, true)).toBe('vatIncomplete')
+    expect(assetUseProblem({ ...draft, vatReclaimablePct: '' }, 2, true)).toBe('vatIncomplete')
+    expect(assetUseProblem({ ...draft, grossPrice: '' }, 2, true)).toBe('vatIncomplete')
+  })
+
+  it('refuses a blank business use', () => {
+    expect(assetUseProblem({ ...draft, businessUsePct: '' }, 2, true)).toBe('businessUseMissing')
+  })
+
+  it('ignores the fields while the switch is off or the VAT fields are hidden', () => {
+    expect(assetUseProblem({ ...draft, privateUse: false, vatRate: '' }, 2, true)).toBeNull()
+    expect(assetUseProblem({ ...draft, vatRate: '' }, 2, false)).toBeNull()
+  })
+})
 
 describe('assetUseDraft', () => {
   it('reads a mixed-use asset with the switch on', () => {

@@ -188,7 +188,7 @@ pub fn split_expense_cost(
     let reclaimable_vat_minor =
         calculate_reclaimable_vat(vat_minor, vat_reclaimable_pct_bps, can_reclaim);
     let non_reclaimable_vat_minor = vat_minor - reclaimable_vat_minor;
-    let some_vat_comes_back = reclaimable_vat_minor > 0;
+    let some_vat_comes_back = reclaimable_vat_minor != 0;
     let lost_vat_apart_minor = if private_use && some_vat_comes_back {
         non_reclaimable_vat_minor
     } else {
@@ -453,6 +453,27 @@ mod tests {
         };
         let breakdown = calculate_expense_breakdown(&zero_reclaimable, true);
         assert_eq!(breakdown.tax_deductible_cost_minor, 4664);
+    }
+
+    #[test]
+    fn a_full_credit_note_cancels_a_private_use_expense() {
+        let expense = calculate_expense_breakdown(&diesel(true), true);
+        let credit_note = calculate_expense_breakdown(
+            &EventDataForCalc {
+                amount_minor: -5830,
+                ..diesel(true)
+            },
+            true,
+        );
+
+        assert_eq!(
+            expense.tax_deductible_cost_minor + credit_note.tax_deductible_cost_minor,
+            0
+        );
+        assert_eq!(
+            expense.non_tax_deductible_cost_minor + credit_note.non_tax_deductible_cost_minor,
+            0
+        );
     }
 
     fn flat_bracket(rate_bps: i64) -> TaxModelBracketRow {

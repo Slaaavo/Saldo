@@ -445,6 +445,8 @@ modals:
     changeMonth: "Od mesiaca"
     addChange: "Pridať"
     removeChange: "Odstrániť"
+    businessUseMissing: "Zadajte podnikateľské použitie alebo zrušte Používa sa aj súkromne."
+    vatIncomplete: "Vyplňte cenu s DPH, sadzbu DPH a vrátenú DPH, alebo vymažte cenu a sadzbu."
 
   editTransfer:
     title: Upraviť prevod

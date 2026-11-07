@@ -7,7 +7,7 @@ use crate::features::assets::business_use::{AssetUseTerms, FULL_BUSINESS_USE_BPS
 use crate::features::assets::purchase::{split_purchase, PurchaseVat};
 use crate::features::ekasa::reading::{check_receipt, LineFacts};
 use crate::features::ekasa::rules::{ShareRules, Shares};
-use crate::features::tax_models::calculation::calculate_net_amount;
+use crate::features::tax_models::calculation::{calculate_net_amount, split_expense_cost};
 use crate::features::transactions::models::TaxableKind;
 use crate::features::transactions::SourceRef;
 use crate::shared::{major_units, validate_iso_date};
@@ -52,10 +52,18 @@ pub(super) struct LegShares {
 }
 
 impl Leg {
-    pub fn private_use(&self) -> bool {
-        self.shares
-            .as_ref()
-            .is_some_and(|leg_shares| leg_shares.shares.private_use)
+    pub fn private_use(&self, reclaimed_vat: Option<bool>) -> bool {
+        self.shares.as_ref().is_some_and(|leg_shares| {
+            let lost_vat_apart_minor = split_expense_cost(
+                self.gross_minor,
+                self.vat_rate_bps,
+                leg_shares.shares.vat_reclaimable_pct_bps,
+                reclaimed_vat == Some(true),
+                true,
+            )
+            .lost_vat_apart_minor;
+            leg_shares.shares.private_use && lost_vat_apart_minor != 0
+        })
     }
 }
 

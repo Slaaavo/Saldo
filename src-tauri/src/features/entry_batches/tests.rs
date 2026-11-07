@@ -1955,7 +1955,7 @@ fn a_rule_turns_the_switch_on_and_a_dictated_share_decides_it_alone() {
         &[
             by("claude", 0, 0),
             by("user", 8000, 5000),
-            with_private_use(by("claude", 5000, 0), true),
+            with_private_use(by("claude", 5000, 5000), true),
         ],
     );
 
@@ -1972,6 +1972,7 @@ fn an_invoice_line_keeps_its_switch_and_find_entries_returns_it() {
     let books = books(&conn);
     let mut line = expense_line(5_830, 2300);
     line["privateUse"] = json!(true);
+    line["vatReclaimablePctBps"] = json!(5000);
     let item = item(
         &books,
         "31347037",
@@ -1984,6 +1985,25 @@ fn an_invoice_line_keeps_its_switch_and_find_entries_returns_it() {
     assert_eq!(receipt.documents[0].lines[0].private_use, Some(true));
     let found = documents(&conn, &books);
     assert!(found[0].lines[0].private_use);
+}
+
+#[test]
+fn a_line_with_no_lost_vat_stores_the_switch_off_as_the_forms_do() {
+    let conn = initialize_in_memory().unwrap();
+    let books = books(&conn);
+    let mut line = expense_line(5_830, 2300);
+    line["privateUse"] = json!(true);
+    let item = item(
+        &books,
+        "31347037",
+        "2026/10/701",
+        json!({ "kind": "expense", "lines": [line] }),
+    );
+
+    let receipt = record(&conn, vec![item]);
+
+    assert_eq!(receipt.documents[0].lines[0].private_use, Some(false));
+    assert!(!documents(&conn, &books)[0].lines[0].private_use);
 }
 
 #[test]

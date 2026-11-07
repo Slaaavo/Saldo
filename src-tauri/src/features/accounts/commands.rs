@@ -1,9 +1,8 @@
 use crate::error::AppError;
 use crate::features::assets::business_use::AssetUseTerms;
-use crate::features::assets::purchase::split_purchase;
 use crate::features::assets::repository::get_use_terms;
+use crate::features::assets::resolve::{resolve_purchase, PurchaseRequest};
 use crate::features::currency::repository::get_consolidation_currency;
-use crate::features::persons::repository::get_person_vat_payer;
 use crate::shared::{is_iso_date, validate_event_date, with_savepoint_app};
 use crate::AppState;
 use rusqlite::Connection;
@@ -139,14 +138,17 @@ pub(crate) fn create_account_with_conn(
                 name: input.name.trim().to_owned(),
                 currency_id: input.currency_id,
                 account_type: account_type.to_owned(),
-                initial_balance_minor: input.initial_balance_minor,
+                initial_balance_minor: input.initial_balance_minor.or(purchase.start_value_minor),
                 price_per_unit: input.price_per_unit.clone(),
                 iban: input.iban.clone(),
                 person_id: input.person_id,
                 purchase_price_minor: purchase.price_minor,
                 purchase_date: input.purchase_date.clone(),
                 depreciation_period_months,
-                initial_balance_date: input.initial_balance_date.clone(),
+                initial_balance_date: input
+                    .initial_balance_date
+                    .clone()
+                    .or_else(|| purchase.start_value_minor.and(input.purchase_date.clone())),
                 use_terms: purchase.terms.clone(),
             },
         )?;
@@ -287,63 +289,6 @@ pub fn update_sort_order(
 
 fn is_consolidation_currency(conn: &Connection, currency_id: i64) -> Result<bool, AppError> {
     Ok(get_consolidation_currency(conn)?.id == currency_id)
-}
-
-struct PurchaseRequest<'a> {
-    person_id: Option<i64>,
-    typed_price_minor: Option<i64>,
-    purchase_date: Option<&'a str>,
-    depreciation_period_months: Option<i64>,
-    given_terms: Option<&'a AssetUseTerms>,
-    stored_terms: &'a AssetUseTerms,
-}
-
-struct ResolvedPurchase {
-    price_minor: Option<i64>,
-    terms: AssetUseTerms,
-}
-
-fn price_from_vat_facts_or_typed(
-    terms: &AssetUseTerms,
-    typed_price_minor: Option<i64>,
-) -> Option<i64> {
-    match &terms.purchase_vat {
-        Some(purchase_vat) => {
-            Some(split_purchase(purchase_vat, terms.pct_at_purchase()).depreciating_minor)
-        }
-        None => typed_price_minor,
-    }
-}
-
-fn resolve_purchase(
-    conn: &Connection,
-    request: PurchaseRequest,
-) -> Result<ResolvedPurchase, AppError> {
-    let price_or_date_cleared =
-        request.typed_price_minor.is_none() || request.purchase_date.is_none();
-    let terms = match request.given_terms {
-        Some(given) => given.clone(),
-        None if price_or_date_cleared => AssetUseTerms::default(),
-        None => request.stored_terms.clone(),
-    };
-    let price_minor = price_from_vat_facts_or_typed(&terms, request.typed_price_minor);
-    let purchase_month = price_minor
-        .and(request.purchase_date)
-        .and_then(|date| date.get(..7));
-    let period_months = request.depreciation_period_months.filter(|&m| m != 0);
-    terms.validate(purchase_month, period_months)?;
-
-    let vat_facts_are_new =
-        terms.purchase_vat.is_some() && terms.purchase_vat != request.stored_terms.purchase_vat;
-    if let (true, Some(person_id)) = (vat_facts_are_new, request.person_id) {
-        if !get_person_vat_payer(conn, person_id)? {
-            return Err(AppError {
-                code: "VALIDATION".into(),
-                message: "Only a VAT payer's asset can have a VAT split".into(),
-            });
-        }
-    }
-    Ok(ResolvedPurchase { price_minor, terms })
 }
 
 /// Depreciation fields only make sense on asset accounts.
@@ -861,6 +806,43 @@ mod tests {
             |row| row.get(0),
         )
         .unwrap()
+    }
+
+    fn initial_balance(conn: &Connection, account_id: i64) -> i64 {
+        conn.query_row(
+            "SELECT ed.amount_minor FROM event e JOIN event_data ed ON ed.id = e.latest_data_id
+             WHERE e.account_id = ?1 AND e.event_type = 'balance_update'",
+            [account_id],
+            |row| row.get(0),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn a_vat_split_starts_at_its_start_value_on_the_purchase_date() {
+        let conn = initialize_in_memory().expect("DB init failed");
+
+        let id = mk_kona(&conn);
+
+        assert_eq!(initial_balance(&conn, id), 1_560_000);
+        assert_eq!(initial_balance_date(&conn, id), "2026-07-12");
+    }
+
+    #[test]
+    fn a_typed_initial_value_beats_the_start_value() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        mk_vat_payer(&conn);
+        let input = CreateAccountInput {
+            initial_balance_minor: Some(1_000_000),
+            purchase_date: Some("2026-07-12".to_owned()),
+            depreciation_period_months: Some(24),
+            asset_use: Some(kona_terms()),
+            ..create_input(&conn, "asset", EUR_ID)
+        };
+
+        let id = create_account_with_conn(&conn, input).unwrap();
+
+        assert_eq!(initial_balance(&conn, id), 1_000_000);
     }
 
     #[test]

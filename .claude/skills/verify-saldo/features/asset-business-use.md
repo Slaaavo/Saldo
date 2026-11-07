@@ -27,7 +27,7 @@ An asset can take a price with VAT, a reclaimed VAT share and a business-use sha
 Preconditions:
 
 - Baseline from the [README](./README.md), on the dev DB.
-- `Verify Co` is a VAT payer, and tax model 2 has VAT `all_year` and actual figures through December. Otherwise the non-deductible part of depreciation is averaged, and the sheet shows a partial figure.
+- `Verify Co` is a VAT payer, and tax model 2 has VAT `all_year` and actual figures through December.
 - For `abu-mcp` and `abu-rule`, `Verify Co` needs an eKasa rule `kava` at 80/50 with the switch on. Seed it with the SQL in [Recording documents](./mcp-recording.md), using person 4 and adding `private_use` 1, or tick `Also private` in the wizard.
 
 - **Create (`abu-create`).** Open `Add Asset`. Type Asset name `Verify Kona`, then press `tab`, `down`, `down`, `down`, `return` to choose `Verify Co`. Click `2 yr (24)`, set Purchase date to 12 July 2026 from its label. Click `Also used privately`: Business use reads 80 and VAT reclaimed 50. Type Price with VAT `15600` and VAT rate `23`. The summary reads Depreciates `12 682.92`, a month `528.46`, deductible `422.76`, VAT reclaimed `1 458.54`, Lost VAT `1 458.54`. Purchase price is disabled and reads `12682.92`. Click `Create`. The dashboard card reads `15 600.00`.

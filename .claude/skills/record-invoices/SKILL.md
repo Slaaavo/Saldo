@@ -37,7 +37,7 @@ Take these from every document. Amounts are integer cents (minor units), VAT inc
   - Accessories under the threshold on the same invoice stay as expense lines of that document.
   - An asset takes no payment link. A document with only assets must have empty `paymentIds`.
 - **Shares.** Every expense line needs `deductiblePctBps`, `vatReclaimablePctBps` (10000 is 100 %) and `privateUse`. Look up the supplier's last entry with `find_entries` and its `issuer`, and reuse its shares. For a new supplier, propose 10000 deductible, and a VAT reclaim of 10000 when the person is a VAT payer or 0 when it is not. Mark proposed shares in the table. Set `reclaimedVat` only when a document differs from the person's VAT-payer flag.
-- **Private use.** `privateUse` true means the cost is also used privately, so its lost VAT is not deductible. It changes nothing unless some of the VAT is reclaimed. Keep it false for an ordinary cost, and for fuel under the flat 80 % rule on a car used only for business, whose lost VAT stays in the cost. Show it in the table, and reuse the supplier's earlier value.
+- **Private use.** `privateUse` true means the cost is also used privately, so its lost VAT is not deductible. It only applies to a line with both reclaimed and lost VAT: on any other line Saldo stores it off, and the dry run reports it false. Keep it false for an ordinary cost, and for fuel under the flat 80 % rule on a car used only for business, whose lost VAT stays in the cost. Show it in the table, and reuse the supplier's earlier value.
 
 ## Read each eKasa receipt
 

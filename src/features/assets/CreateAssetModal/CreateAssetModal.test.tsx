@@ -151,7 +151,7 @@ describe('CreateAssetModal', () => {
 
       await waitFor(() => expect(createAccount).toHaveBeenCalledOnce())
       const args = (createAccount as Mock).mock.calls[0]
-      expect(args[2]).toBe(1560000)
+      expect(args[2]).toBeUndefined()
       expect(args[11]).toEqual({
         purchaseVat: { grossMinor: 1560000, vatRateBps: 2300, vatReclaimablePctBps: 5000 },
         businessUsePctBps: 8000,

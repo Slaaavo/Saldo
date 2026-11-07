@@ -127,12 +127,7 @@ export const getAssetUse = (accountId: number): Promise<AssetUseTerms> => {
   return invoke('get_asset_use', { accountId })
 }
 
-export const previewAssetPurchase = (input: {
-  purchaseVat: PurchaseVat
-  businessUsePctBps: number
-  purchaseDate: string | null
-  depreciationPeriodMonths: number | null
-}): Promise<AssetPurchasePreview> => {
+export const previewAssetPurchase = (input: { purchaseVat: PurchaseVat; businessUsePctBps: number; depreciationPeriodMonths: number | null }): Promise<AssetPurchasePreview> => {
   return invoke('preview_asset_purchase', { input })
 }
 

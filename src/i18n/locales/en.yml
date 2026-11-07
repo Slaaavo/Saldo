@@ -443,6 +443,8 @@ modals:
     changeMonth: "From month"
     addChange: "Add"
     removeChange: "Remove"
+    businessUseMissing: "Enter the business use, or untick Also used privately."
+    vatIncomplete: "Fill in the price with VAT, the VAT rate and the VAT reclaimed, or clear the price and the rate."
 
   editTransfer:
     title: Edit Transfer

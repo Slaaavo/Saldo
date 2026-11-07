@@ -555,6 +555,8 @@ mod tests {
     use super::*;
     use crate::db::initialize_in_memory;
     use crate::features::accounts::repository::{create_account, CreateAccountParams};
+    use crate::features::assets::business_use::AssetUseTerms;
+    use crate::features::assets::purchase::PurchaseVat;
     use crate::features::persons::repository::get_default_expense_account_id;
     use crate::features::tax_models::calculation::calculate_tax_model_results;
     use crate::features::transactions::repository::depreciation::generate_depreciation_events;
@@ -1280,5 +1282,108 @@ mod tests {
             kinds_and_months(&conn, person_id, 2027),
             vec![(EntryKind::Prepaid, 1)]
         );
+    }
+
+    #[test]
+    fn a_mixed_use_asset_reaches_the_forecast_from_its_stored_rows() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let person_id = get_default_person_id(&conn);
+        create_account(
+            &conn,
+            CreateAccountParams {
+                name: "Kona".to_owned(),
+                currency_id: 1,
+                account_type: "asset".to_owned(),
+                person_id: Some(person_id),
+                purchase_price_minor: Some(1_268_292),
+                purchase_date: Some("2024-07-12".to_owned()),
+                depreciation_period_months: Some(24),
+                use_terms: AssetUseTerms {
+                    purchase_vat: Some(PurchaseVat {
+                        gross_minor: 1_560_000,
+                        vat_rate_bps: 2300,
+                        vat_reclaimable_pct_bps: 5000,
+                    }),
+                    business_use_pct_bps: Some(8000),
+                    business_use_changes: Vec::new(),
+                },
+                ..Default::default()
+            },
+        )
+        .expect("create asset failed");
+        generate_depreciation_events(&conn).expect("generate depreciation failed");
+
+        let lost_vat_entries = kinds_and_months(&conn, person_id, 2024)
+            .into_iter()
+            .filter(|(kind, _)| *kind == EntryKind::LostVat)
+            .collect::<Vec<_>>();
+        assert_eq!(lost_vat_entries, vec![(EntryKind::LostVat, 7)]);
+
+        let model_id = create_tax_model(&conn, model_params(person_id, 2024)).unwrap();
+        let events = list_taxable_events_for_model(
+            &conn,
+            ListTaxableEventsForModelParams {
+                person_id,
+                calendar_year: 2024,
+            },
+        )
+        .unwrap();
+        let result = calculate_tax_model_results(&get_tax_model(&conn, model_id).unwrap(), &events);
+
+        assert_eq!(result.total_tax_deductible_expenses_minor, 253_654);
+        assert_eq!(
+            result.total_non_tax_deductible_expenses_minor,
+            63_419 + 145_854
+        );
+    }
+
+    #[test]
+    fn a_private_prepaid_expense_reaches_the_forecast_with_its_lost_vat_child() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let person_id = get_default_person_id(&conn);
+        let account_id = get_default_expense_account_id(&conn, person_id).unwrap();
+        let parent_event_id = create_taxable_event(
+            &conn,
+            CreateTaxableEventParams {
+                account_id,
+                event_type: "prepaid_expense".to_owned(),
+                amount_minor: 123_000,
+                event_date: "2024-07-01T00:00:00".to_owned(),
+                prepaid_until: Some("2025-06-30".to_owned()),
+                ..Default::default()
+            },
+        )
+        .expect("create prepaid expense failed");
+        generate_prepaid_child_events(
+            &conn,
+            &PrepaidExpenseContext {
+                parent_event_id,
+                account_id,
+                expense_date: "2024-07-01".to_owned(),
+                prepaid_until: "2025-06-30".to_owned(),
+                total_amount_minor: 123_000,
+                expense_deductible_pct_bps: Some(8000),
+                note: None,
+                vat_rate_bps: Some(2300),
+                vat_reclaimable_pct_bps: Some(5000),
+                reclaimed_vat: true,
+                private_use: true,
+            },
+        )
+        .expect("generate prepaid shares failed");
+
+        let events = list_taxable_events_for_model(
+            &conn,
+            ListTaxableEventsForModelParams {
+                person_id,
+                calendar_year: 2024,
+            },
+        )
+        .unwrap();
+
+        assert!(events.iter().all(|event| event.kind == EntryKind::Prepaid));
+        assert!(events.iter().any(
+            |event| event.amount_minor == 11_500 && event.expense_deductible_pct_bps == Some(0)
+        ));
     }
 }

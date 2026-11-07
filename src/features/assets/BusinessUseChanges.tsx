@@ -27,7 +27,9 @@ const BusinessUseChanges = ({ idPrefix, atPurchasePct, changes, onChange }: Prop
 
   const sorted = [...changes].sort((a, b) => a.fromMonth.localeCompare(b.fromMonth))
   const businessUsePctBps = pctToBps(pct)
-  const canAdd = fromMonth.trim() !== '' && businessUsePctBps !== null
+  const monthIsValid = /^\d{4}-(0[1-9]|1[0-2])$/.test(fromMonth.trim())
+  const monthIsTaken = changes.some((change) => change.fromMonth === fromMonth.trim())
+  const canAdd = monthIsValid && !monthIsTaken && businessUsePctBps !== null
 
   const handleAdd = () => {
     if (businessUsePctBps === null) return

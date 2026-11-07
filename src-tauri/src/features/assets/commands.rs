@@ -7,16 +7,14 @@ use super::business_use::{check_bps, AssetUseTerms};
 use super::models::AccountAssetLink;
 use super::purchase::{split_purchase, PurchaseSplit, PurchaseVat};
 use super::repository;
-use super::schedule::{asset_entries, AssetEntryKind, AssetFacts};
 use crate::features::currency::Currency;
-use crate::shared::{is_iso_date, local_now};
+use crate::shared::div_round;
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PreviewAssetPurchaseInput {
     pub purchase_vat: PurchaseVat,
     pub business_use_pct_bps: i64,
-    pub purchase_date: Option<String>,
     pub depreciation_period_months: Option<i64>,
 }
 
@@ -76,37 +74,16 @@ pub fn preview_asset_purchase(
     input.purchase_vat.validate()?;
     check_bps("Business use", input.business_use_pct_bps)?;
     let split = split_purchase(&input.purchase_vat, input.business_use_pct_bps);
-
-    let period_months = input.depreciation_period_months.unwrap_or(0);
-    let purchase_date = input
-        .purchase_date
-        .filter(|date| is_iso_date(date))
-        .unwrap_or_else(|| local_now()[..10].to_owned());
-    let first_month = if period_months > 0 {
-        let facts = AssetFacts {
-            name: String::new(),
-            purchase_price_minor: split.depreciating_minor,
-            purchase_date,
-            depreciation_period_months: period_months,
-            use_terms: AssetUseTerms {
-                purchase_vat: Some(input.purchase_vat),
-                business_use_pct_bps: Some(input.business_use_pct_bps),
-                business_use_changes: Vec::new(),
-            },
-        };
-        asset_entries(&facts)?
-            .into_iter()
-            .find(|entry| entry.kind == AssetEntryKind::Depreciation)
-    } else {
-        None
-    };
+    let monthly_minor = input
+        .depreciation_period_months
+        .filter(|&months| months > 0)
+        .map(|months| div_round(split.depreciating_minor, months));
 
     Ok(AssetPurchasePreview {
         split,
-        monthly_minor: first_month.as_ref().map(|entry| entry.amount_minor),
-        monthly_deductible_minor: first_month
-            .as_ref()
-            .map(|entry| entry.amount_minor * entry.expense_deductible_pct_bps / 10000),
+        monthly_minor,
+        monthly_deductible_minor: monthly_minor
+            .map(|monthly| monthly * input.business_use_pct_bps / 10000),
     })
 }
 
@@ -227,7 +204,6 @@ mod tests {
                 vat_reclaimable_pct_bps: 5000,
             },
             business_use_pct_bps: 8000,
-            purchase_date: Some("2026-07-12".to_owned()),
             depreciation_period_months: months,
         }
     }
