@@ -741,6 +741,7 @@ fn an_entry_of_the_same_kind_and_total_nearby_is_similar_whatever_its_reference(
             expense_deductible_pct_bps: Some(10000),
             prepaid_until: None,
             reclaimed_vat: Some(true),
+            private_use: false,
             source_ref: None,
         },
     )
@@ -955,6 +956,7 @@ fn undo_stops_at_rows_changed_in_saldo_until_told_to_remove_them_too() {
                 expense_deductible_pct_bps: None,
                 prepaid_until: None,
                 reclaimed_vat: None,
+                private_use: false,
             }],
             ..Default::default()
         },
@@ -1543,6 +1545,7 @@ fn a_receipt_the_app_imported_is_already_recorded_and_twice_in_a_batch_is_a_dupl
             expense_deductible_pct_bps: Some(10000),
             prepaid_until: None,
             reclaimed_vat: Some(true),
+            private_use: false,
             source_ref: Some(SourceRef::ekasa_online(BILLA)),
         },
     )

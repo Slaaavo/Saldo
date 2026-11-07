@@ -166,32 +166,73 @@ fn allocate_loss(earlier: &[EarlierProfit], loss_minor: i64) -> Vec<EarlierProfi
         .collect()
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub struct ExpenseCost {
+    pub net_minor: i64,
+    pub vat_minor: i64,
+    pub reclaimable_vat_minor: i64,
+    pub non_reclaimable_vat_minor: i64,
+    /// What the deductible % applies to.
+    pub deductible_base_minor: i64,
+    /// Lost VAT kept out of that base. It is never deductible.
+    pub lost_vat_apart_minor: i64,
+}
+
+/// VAT that cannot be reclaimed is part of what an expense costs. Only a private-use entry
+/// that really gets VAT back keeps the rest apart, because VAT stays in the cost when none of
+/// it can be reclaimed.
+pub fn split_expense_cost(
+    amount_minor: i64,
+    vat_rate_bps: i64,
+    vat_reclaimable_pct_bps: i64,
+    can_reclaim: bool,
+    private_use: bool,
+) -> ExpenseCost {
+    let net_minor = calculate_net_amount(amount_minor, vat_rate_bps);
+    let vat_minor = calculate_vat_amount(amount_minor, net_minor);
+    let reclaimable_vat_minor =
+        calculate_reclaimable_vat(vat_minor, vat_reclaimable_pct_bps, can_reclaim);
+    let non_reclaimable_vat_minor = vat_minor - reclaimable_vat_minor;
+    let lost_vat_apart_minor = if private_use && reclaimable_vat_minor > 0 {
+        non_reclaimable_vat_minor
+    } else {
+        0
+    };
+    ExpenseCost {
+        net_minor,
+        vat_minor,
+        reclaimable_vat_minor,
+        non_reclaimable_vat_minor,
+        deductible_base_minor: net_minor + non_reclaimable_vat_minor - lost_vat_apart_minor,
+        lost_vat_apart_minor,
+    }
+}
+
 pub fn calculate_expense_breakdown(
     event: &EventDataForCalc,
     can_reclaim: bool,
 ) -> TaxEventBreakdown {
-    let vat_rate_bps = event.vat_rate_bps.unwrap_or(0);
-    let net_amount_minor = calculate_net_amount(event.amount_minor, vat_rate_bps);
-    let vat_amount_minor = calculate_vat_amount(event.amount_minor, net_amount_minor);
-    let vat_reclaimable_pct_bps = event.vat_reclaimable_pct_bps.unwrap_or(0);
-    let reclaimable_vat_minor =
-        calculate_reclaimable_vat(vat_amount_minor, vat_reclaimable_pct_bps, can_reclaim);
-    let non_reclaimable_vat_minor = vat_amount_minor - reclaimable_vat_minor;
+    let cost = split_expense_cost(
+        event.amount_minor,
+        event.vat_rate_bps.unwrap_or(0),
+        event.vat_reclaimable_pct_bps.unwrap_or(0),
+        can_reclaim,
+        event.private_use,
+    );
     let expense_deductible_pct_bps = event.expense_deductible_pct_bps.unwrap_or(10000);
-    // VAT that cannot be reclaimed is part of what the expense costs.
-    let cost_minor = net_amount_minor + non_reclaimable_vat_minor;
-    let tax_deductible_cost_minor = cost_minor * expense_deductible_pct_bps / 10000;
-    let non_tax_deductible_cost_minor = cost_minor - tax_deductible_cost_minor;
+    let tax_deductible_cost_minor = cost.deductible_base_minor * expense_deductible_pct_bps / 10000;
+    let non_tax_deductible_cost_minor =
+        cost.deductible_base_minor + cost.lost_vat_apart_minor - tax_deductible_cost_minor;
     TaxEventBreakdown {
         event_id: event.event_id,
         kind: event.kind,
         event_date: event.event_date.clone(),
         note: event.note.clone(),
         amount_minor: event.amount_minor,
-        net_amount_minor,
-        vat_amount_minor,
-        reclaimable_vat_minor,
-        non_reclaimable_vat_minor,
+        net_amount_minor: cost.net_minor,
+        vat_amount_minor: cost.vat_minor,
+        reclaimable_vat_minor: cost.reclaimable_vat_minor,
+        non_reclaimable_vat_minor: cost.non_reclaimable_vat_minor,
         tax_deductible_cost_minor,
         non_tax_deductible_cost_minor,
         not_counted: None,
@@ -372,7 +413,50 @@ mod tests {
             vat_reclaimable_pct_bps,
             expense_deductible_pct_bps,
             reclaimed_vat,
+            private_use: false,
         }
+    }
+
+    fn diesel(private_use: bool) -> EventDataForCalc {
+        EventDataForCalc {
+            private_use,
+            ..make_event(
+                1,
+                EntryKind::Expense,
+                5830,
+                Some(2300),
+                Some(5000),
+                Some(8000),
+                Some(true),
+            )
+        }
+    }
+
+    #[test]
+    fn diesel_with_the_switch_off_keeps_lost_vat_in_the_deductible_cost() {
+        let breakdown = calculate_expense_breakdown(&diesel(false), true);
+        assert_eq!(breakdown.tax_deductible_cost_minor, 4228);
+        assert_eq!(breakdown.non_tax_deductible_cost_minor, 1057);
+    }
+
+    #[test]
+    fn diesel_with_the_switch_on_keeps_lost_vat_out_of_the_deductible_cost() {
+        let breakdown = calculate_expense_breakdown(&diesel(true), true);
+        assert_eq!(breakdown.tax_deductible_cost_minor, 3791);
+        assert_eq!(breakdown.non_tax_deductible_cost_minor, 1494);
+    }
+
+    #[test]
+    fn the_switch_does_nothing_when_no_vat_comes_back() {
+        let not_reclaimed = calculate_expense_breakdown(&diesel(true), false);
+        assert_eq!(not_reclaimed.tax_deductible_cost_minor, 4664);
+
+        let zero_reclaimable = EventDataForCalc {
+            vat_reclaimable_pct_bps: Some(0),
+            ..diesel(true)
+        };
+        let breakdown = calculate_expense_breakdown(&zero_reclaimable, true);
+        assert_eq!(breakdown.tax_deductible_cost_minor, 4664);
     }
 
     fn flat_bracket(rate_bps: i64) -> TaxModelBracketRow {

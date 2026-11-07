@@ -584,6 +584,8 @@ pub struct CreateTaxableEventInput {
     pub expense_deductible_pct_bps: Option<i64>,
     pub prepaid_until: Option<String>,
     pub reclaimed_vat: Option<bool>,
+    #[serde(default)]
+    pub private_use: bool,
     pub source_ref: Option<SourceRef>,
 }
 
@@ -598,6 +600,8 @@ pub struct SplitTaxableLegInput {
     pub expense_deductible_pct_bps: Option<i64>,
     pub prepaid_until: Option<String>,
     pub reclaimed_vat: Option<bool>,
+    #[serde(default)]
+    pub private_use: bool,
 }
 
 #[derive(Deserialize)]
@@ -623,6 +627,8 @@ pub struct UpdateTaxableEventInput {
     pub expense_deductible_pct_bps: Option<i64>,
     pub prepaid_until: Option<String>,
     pub reclaimed_vat: Option<bool>,
+    #[serde(default)]
+    pub private_use: bool,
 }
 
 #[derive(Deserialize)]
@@ -637,6 +643,8 @@ pub struct UpdatedSplitLegInput {
     pub expense_deductible_pct_bps: Option<i64>,
     pub prepaid_until: Option<String>,
     pub reclaimed_vat: Option<bool>,
+    #[serde(default)]
+    pub private_use: bool,
 }
 
 #[derive(Deserialize)]
@@ -650,6 +658,8 @@ pub struct NewSplitLegInput {
     pub expense_deductible_pct_bps: Option<i64>,
     pub prepaid_until: Option<String>,
     pub reclaimed_vat: Option<bool>,
+    #[serde(default)]
+    pub private_use: bool,
 }
 
 #[derive(Deserialize)]
@@ -711,15 +721,18 @@ fn validate_expense_only_fields(
     vat_reclaimable_pct_bps: Option<i64>,
     expense_deductible_pct_bps: Option<i64>,
     prepaid_until: Option<&str>,
+    private_use: bool,
 ) -> Result<(), AppError> {
     if event_type != "expense"
         && event_type != "prepaid_expense"
-        && (vat_reclaimable_pct_bps.is_some() || expense_deductible_pct_bps.is_some())
+        && (vat_reclaimable_pct_bps.is_some()
+            || expense_deductible_pct_bps.is_some()
+            || private_use)
     {
         return Err(AppError {
             code: "VALIDATION".into(),
             message:
-                "vat_reclaimable_pct_bps and expense_deductible_pct_bps are only valid for expense or prepaid_expense events"
+                "vat_reclaimable_pct_bps, expense_deductible_pct_bps and private_use are only valid for expense or prepaid_expense events"
                     .into(),
         });
     }
@@ -784,6 +797,7 @@ pub(crate) fn create_taxable_event_inner(
         input.vat_reclaimable_pct_bps,
         input.expense_deductible_pct_bps,
         input.prepaid_until.as_deref(),
+        input.private_use,
     )?;
     validate_taxable_field_ranges(
         input.vat_rate_bps,
@@ -816,6 +830,7 @@ pub(crate) fn create_taxable_event_inner(
                 expense_deductible_pct_bps: input.expense_deductible_pct_bps,
                 prepaid_until: input.prepaid_until.clone(),
                 reclaimed_vat: resolved_reclaimed_vat,
+                private_use: input.private_use,
                 source_ref: input.source_ref,
             },
         )?;
@@ -832,6 +847,7 @@ pub(crate) fn create_taxable_event_inner(
                     vat_rate_bps: input.vat_rate_bps,
                     vat_reclaimable_pct_bps: input.vat_reclaimable_pct_bps,
                     reclaimed_vat: resolved_reclaimed_vat.unwrap_or(false),
+                    private_use: input.private_use,
                 };
                 repository::prepaid_expenses::generate_prepaid_child_events(conn, &ctx)?;
             }
@@ -867,6 +883,7 @@ pub(crate) fn create_taxable_split_group_inner(
             leg.vat_reclaimable_pct_bps,
             leg.expense_deductible_pct_bps,
             leg.prepaid_until.as_deref(),
+            leg.private_use,
         )?;
         validate_taxable_field_ranges(
             leg.vat_rate_bps,
@@ -894,6 +911,7 @@ pub(crate) fn create_taxable_split_group_inner(
             // Only expense groups have a default, so revenue legs store no reclaimed_vat.
             reclaimed_vat: default_reclaimed_vat
                 .map(|vat_payer| l.reclaimed_vat.unwrap_or(vat_payer)),
+            private_use: l.private_use,
         })
         .collect();
     let id = repository::create_taxable_split_group_with_legs(
@@ -928,6 +946,7 @@ fn update_taxable_event_inner(
         input.vat_reclaimable_pct_bps,
         input.expense_deductible_pct_bps,
         input.prepaid_until.as_deref(),
+        input.private_use,
     )?;
     validate_taxable_field_ranges(
         input.vat_rate_bps,
@@ -962,6 +981,7 @@ fn update_taxable_event_inner(
                 expense_deductible_pct_bps: input.expense_deductible_pct_bps,
                 prepaid_until: input.prepaid_until.clone(),
                 reclaimed_vat: input.reclaimed_vat,
+                private_use: input.private_use,
             },
         )?;
         // The repository has confirmed that input.event_type is the stored type.
@@ -980,6 +1000,7 @@ fn update_taxable_event_inner(
                 vat_rate_bps: input.vat_rate_bps,
                 vat_reclaimable_pct_bps: input.vat_reclaimable_pct_bps,
                 reclaimed_vat: updated.reclaimed_vat.unwrap_or(false),
+                private_use: input.private_use,
             };
             repository::prepaid_expenses::regenerate_prepaid_child_events(conn, &ctx)?;
         }
@@ -1008,6 +1029,7 @@ fn update_taxable_split_group_inner(
             leg.vat_reclaimable_pct_bps,
             leg.expense_deductible_pct_bps,
             leg.prepaid_until.as_deref(),
+            leg.private_use,
         )?;
         validate_taxable_field_ranges(
             leg.vat_rate_bps,
@@ -1022,6 +1044,7 @@ fn update_taxable_split_group_inner(
             leg.vat_reclaimable_pct_bps,
             leg.expense_deductible_pct_bps,
             leg.prepaid_until.as_deref(),
+            leg.private_use,
         )?;
         validate_taxable_field_ranges(
             leg.vat_rate_bps,
@@ -1043,6 +1066,7 @@ fn update_taxable_split_group_inner(
             expense_deductible_pct_bps: l.expense_deductible_pct_bps,
             prepaid_until: l.prepaid_until,
             reclaimed_vat: l.reclaimed_vat,
+            private_use: l.private_use,
         })
         .collect();
     let new_legs = input
@@ -1057,6 +1081,7 @@ fn update_taxable_split_group_inner(
             expense_deductible_pct_bps: l.expense_deductible_pct_bps,
             prepaid_until: l.prepaid_until,
             reclaimed_vat: l.reclaimed_vat,
+            private_use: l.private_use,
         })
         .collect();
     repository::update_taxable_split_group(
@@ -1315,6 +1340,7 @@ mod tests {
             expense_deductible_pct_bps: None,
             prepaid_until: Some("2025-06-30".to_owned()),
             reclaimed_vat: None,
+            private_use: false,
             source_ref: None,
         }
     }
@@ -1331,6 +1357,7 @@ mod tests {
             expense_deductible_pct_bps: None,
             prepaid_until: Some("2025-06-30".to_owned()),
             reclaimed_vat: None,
+            private_use: false,
         }
     }
 
@@ -1573,6 +1600,7 @@ mod tests {
             expense_deductible_pct_bps: None,
             prepaid_until: None,
             reclaimed_vat: None,
+            private_use: false,
         }
     }
 
@@ -1695,8 +1723,82 @@ mod tests {
             expense_deductible_pct_bps: None,
             prepaid_until: None,
             reclaimed_vat: Some(false),
+            private_use: false,
             source_ref: None,
         }
+    }
+
+    fn stored_private_use(conn: &Connection, event_id: i64) -> bool {
+        conn.query_row(
+            "SELECT ed.private_use FROM event e
+             JOIN event_data ed ON ed.id = e.latest_data_id WHERE e.id = ?1",
+            params![event_id],
+            |row| row.get(0),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn revenue_refuses_the_private_use_switch() {
+        let conn = initialize_in_memory().unwrap();
+        let person_id = mk_person(&conn, true);
+        let input = CreateTaxableEventInput {
+            private_use: true,
+            ..revenue_input(person_id)
+        };
+
+        let err = create_taxable_event_inner(&conn, input).unwrap_err();
+
+        assert!(err.message.contains("private_use"), "{}", err.message);
+    }
+
+    #[test]
+    fn split_legs_keep_their_own_switch_through_create_edit_and_add() {
+        let conn = initialize_in_memory().unwrap();
+        let person_id = mk_person(&conn, true);
+        let mut input = split_input(person_id, "expense");
+        input.legs[0].private_use = true;
+        let group = create_taxable_split_group_inner(&conn, input).unwrap();
+        let ids = leg_ids(&conn, group);
+        assert!(stored_private_use(&conn, ids[0]));
+        assert!(!stored_private_use(&conn, ids[1]));
+
+        update_taxable_split_group_inner(
+            &conn,
+            UpdateTaxableSplitGroupInput {
+                split_group_id: group,
+                event_type: "expense".to_owned(),
+                group_note: None,
+                updated_legs: vec![UpdatedSplitLegInput {
+                    event_id: ids[1],
+                    amount_minor: 2000,
+                    event_date: "2024-07-01".to_owned(),
+                    note: None,
+                    vat_rate_bps: None,
+                    vat_reclaimable_pct_bps: None,
+                    expense_deductible_pct_bps: None,
+                    prepaid_until: None,
+                    reclaimed_vat: None,
+                    private_use: true,
+                }],
+                new_legs: vec![NewSplitLegInput {
+                    amount_minor: 500,
+                    event_date: "2024-07-01".to_owned(),
+                    note: None,
+                    vat_rate_bps: None,
+                    vat_reclaimable_pct_bps: None,
+                    expense_deductible_pct_bps: None,
+                    prepaid_until: None,
+                    reclaimed_vat: None,
+                    private_use: true,
+                }],
+                removed_leg_ids: vec![],
+            },
+        )
+        .unwrap();
+
+        let ids = leg_ids(&conn, group);
+        assert!(ids.iter().all(|&id| stored_private_use(&conn, id)));
     }
 
     #[test]
@@ -1720,6 +1822,7 @@ mod tests {
                 expense_deductible_pct_bps: None,
                 prepaid_until: None,
                 reclaimed_vat: Some(false),
+                private_use: false,
             },
         )
         .unwrap();
@@ -1753,6 +1856,7 @@ mod tests {
                     expense_deductible_pct_bps: None,
                     prepaid_until: None,
                     reclaimed_vat: Some(false),
+                    private_use: false,
                 }],
                 new_legs: vec![NewSplitLegInput {
                     amount_minor: 1000,
@@ -1763,6 +1867,7 @@ mod tests {
                     expense_deductible_pct_bps: None,
                     prepaid_until: None,
                     reclaimed_vat: Some(false),
+                    private_use: false,
                 }],
                 ..split_update_input(group_id, "revenue")
             },
@@ -1796,6 +1901,7 @@ mod tests {
                     expense_deductible_pct_bps: None,
                     prepaid_until: None,
                     reclaimed_vat: None,
+                    private_use: false,
                 }],
                 ..split_update_input(group_id, "expense")
             },
@@ -1923,6 +2029,7 @@ mod tests {
                     expense_deductible_pct_bps: None,
                     prepaid_until: None,
                     reclaimed_vat: None,
+                    private_use: false,
                 }],
                 new_legs: vec![NewSplitLegInput {
                     amount_minor: 1000,
@@ -1933,6 +2040,7 @@ mod tests {
                     expense_deductible_pct_bps: None,
                     prepaid_until: None,
                     reclaimed_vat: None,
+                    private_use: false,
                 }],
                 removed_leg_ids: vec![legs[1]],
                 ..split_update_input(group_id, "expense")

@@ -43,13 +43,13 @@ pub fn update_event(conn: &Connection, params: UpdateEventParams) -> Result<(), 
             counterpart_account_id, bucket_id, original_currency_id,
             original_amount_minor, fx_rate_mantissa, fx_rate_exponent,
             vat_rate_bps, vat_reclaimable_pct_bps,
-            expense_deductible_pct_bps, reclaimed_vat, prepaid_until
+            expense_deductible_pct_bps, reclaimed_vat, prepaid_until, private_use
         )
         SELECT ?1, ?2, ?3, ?4,
             counterpart_account_id, bucket_id, original_currency_id,
             original_amount_minor, fx_rate_mantissa, fx_rate_exponent,
             vat_rate_bps, vat_reclaimable_pct_bps,
-            expense_deductible_pct_bps, reclaimed_vat, prepaid_until
+            expense_deductible_pct_bps, reclaimed_vat, prepaid_until, private_use
         FROM event_data
         WHERE id = (SELECT latest_data_id FROM event WHERE id = ?1)",
         params![event_id, amount_minor, event_date, note],
@@ -362,6 +362,46 @@ mod tests {
                 Some("2027-01-14".to_owned())
             )
         );
+    }
+
+    #[test]
+    fn update_event_keeps_the_private_use_switch() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let expense_account_id =
+            crate::features::persons::repository::get_default_expense_account_id(&conn, 1).unwrap();
+        let event_id = create_taxable_event(
+            &conn,
+            CreateTaxableEventParams {
+                account_id: expense_account_id,
+                event_type: "expense".to_owned(),
+                amount_minor: 5_830,
+                event_date: "2026-07-15T00:00:00".to_owned(),
+                private_use: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        update_event(
+            &conn,
+            UpdateEventParams {
+                event_id,
+                amount_minor: 6_000,
+                event_date: "2026-07-15T00:00:00".to_owned(),
+                note: None,
+            },
+        )
+        .expect("update_event failed");
+
+        let private_use: bool = conn
+            .query_row(
+                "SELECT ed.private_use FROM event e
+                 JOIN event_data ed ON ed.id = e.latest_data_id WHERE e.id = ?1",
+                params![event_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(private_use);
     }
 
     #[test]

@@ -210,6 +210,7 @@ pub struct EventDataForCalc {
     pub vat_reclaimable_pct_bps: Option<i64>,
     pub expense_deductible_pct_bps: Option<i64>,
     pub reclaimed_vat: Option<bool>,
+    pub private_use: bool,
 }
 
 #[derive(Debug, Serialize, Clone)]

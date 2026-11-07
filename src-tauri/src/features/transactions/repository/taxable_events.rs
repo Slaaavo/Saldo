@@ -19,6 +19,7 @@ pub struct CreateTaxableEventParams {
     pub expense_deductible_pct_bps: Option<i64>,
     pub prepaid_until: Option<String>,
     pub reclaimed_vat: Option<bool>,
+    pub private_use: bool,
     pub source_ref: Option<SourceRef>,
 }
 
@@ -31,6 +32,7 @@ pub struct TaxableEventLeg {
     pub expense_deductible_pct_bps: Option<i64>,
     pub prepaid_until: Option<String>,
     pub reclaimed_vat: Option<bool>,
+    pub private_use: bool,
 }
 
 #[derive(Default)]
@@ -55,6 +57,7 @@ pub struct UpdateTaxableEventParams {
     pub expense_deductible_pct_bps: Option<i64>,
     pub prepaid_until: Option<String>,
     pub reclaimed_vat: Option<bool>,
+    pub private_use: bool,
 }
 
 pub struct UpdatedSplitLeg {
@@ -67,6 +70,7 @@ pub struct UpdatedSplitLeg {
     pub expense_deductible_pct_bps: Option<i64>,
     pub prepaid_until: Option<String>,
     pub reclaimed_vat: Option<bool>,
+    pub private_use: bool,
 }
 
 pub struct NewSplitLeg {
@@ -78,6 +82,7 @@ pub struct NewSplitLeg {
     pub expense_deductible_pct_bps: Option<i64>,
     pub prepaid_until: Option<String>,
     pub reclaimed_vat: Option<bool>,
+    pub private_use: bool,
 }
 
 #[derive(Default)]
@@ -91,39 +96,46 @@ pub struct UpdateTaxableSplitGroupParams {
     pub removed_leg_ids: Vec<i64>,
 }
 
+/// One version of a taxable event. It has no `Default`, so a writer cannot leave out
+/// `private_use` and silently reset it.
+pub(crate) struct TaxableEventRow<'a> {
+    pub event_id: i64,
+    pub amount_minor: i64,
+    pub event_date: &'a str,
+    pub note: Option<&'a str>,
+    pub vat_rate_bps: Option<i64>,
+    pub vat_reclaimable_pct_bps: Option<i64>,
+    pub expense_deductible_pct_bps: Option<i64>,
+    pub prepaid_until: Option<&'a str>,
+    pub reclaimed_vat: Option<bool>,
+    pub private_use: bool,
+}
+
 // ---------------------------------------------------------------------------
 // Helper: insert a taxable event_data row (used by both create and update).
 // The trigger trg_eventdata_after_insert automatically updates event.latest_data_id.
 // ---------------------------------------------------------------------------
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn insert_taxable_event_data(
     conn: &Connection,
-    event_id: i64,
-    amount_minor: i64,
-    event_date: &str,
-    note: Option<&str>,
-    vat_rate_bps: Option<i64>,
-    vat_reclaimable_pct_bps: Option<i64>,
-    expense_deductible_pct_bps: Option<i64>,
-    prepaid_until: Option<&str>,
-    reclaimed_vat: Option<bool>,
+    row: TaxableEventRow,
 ) -> rusqlite::Result<()> {
     conn.execute(
         "INSERT INTO event_data (
             event_id, amount_minor, event_date, note,
             vat_rate_bps, vat_reclaimable_pct_bps,
-            expense_deductible_pct_bps, prepaid_until, reclaimed_vat
-         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            expense_deductible_pct_bps, prepaid_until, reclaimed_vat, private_use
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
         params![
-            event_id,
-            amount_minor,
-            event_date,
-            note,
-            vat_rate_bps,
-            vat_reclaimable_pct_bps,
-            expense_deductible_pct_bps,
-            prepaid_until,
-            reclaimed_vat.map(|v| v as i64),
+            row.event_id,
+            row.amount_minor,
+            row.event_date,
+            row.note,
+            row.vat_rate_bps,
+            row.vat_reclaimable_pct_bps,
+            row.expense_deductible_pct_bps,
+            row.prepaid_until,
+            row.reclaimed_vat.map(|v| v as i64),
+            row.private_use as i64,
         ],
     )?;
     Ok(())
@@ -151,15 +163,18 @@ pub fn create_taxable_event(
 
         insert_taxable_event_data(
             conn,
-            event_id,
-            params.amount_minor,
-            params.event_date.as_str(),
-            params.note.as_deref(),
-            params.vat_rate_bps,
-            params.vat_reclaimable_pct_bps,
-            params.expense_deductible_pct_bps,
-            params.prepaid_until.as_deref(),
-            params.reclaimed_vat,
+            TaxableEventRow {
+                event_id,
+                amount_minor: params.amount_minor,
+                event_date: params.event_date.as_str(),
+                note: params.note.as_deref(),
+                vat_rate_bps: params.vat_rate_bps,
+                vat_reclaimable_pct_bps: params.vat_reclaimable_pct_bps,
+                expense_deductible_pct_bps: params.expense_deductible_pct_bps,
+                prepaid_until: params.prepaid_until.as_deref(),
+                reclaimed_vat: params.reclaimed_vat,
+                private_use: params.private_use,
+            },
         )
         .map_err(AppError::from)?;
 
@@ -194,15 +209,18 @@ pub fn create_taxable_split_group_with_legs(
 
             insert_taxable_event_data(
                 conn,
-                event_id,
-                leg.amount_minor,
-                leg.event_date.as_str(),
-                leg.note.as_deref(),
-                leg.vat_rate_bps,
-                leg.vat_reclaimable_pct_bps,
-                leg.expense_deductible_pct_bps,
-                leg.prepaid_until.as_deref(),
-                leg.reclaimed_vat,
+                TaxableEventRow {
+                    event_id,
+                    amount_minor: leg.amount_minor,
+                    event_date: leg.event_date.as_str(),
+                    note: leg.note.as_deref(),
+                    vat_rate_bps: leg.vat_rate_bps,
+                    vat_reclaimable_pct_bps: leg.vat_reclaimable_pct_bps,
+                    expense_deductible_pct_bps: leg.expense_deductible_pct_bps,
+                    prepaid_until: leg.prepaid_until.as_deref(),
+                    reclaimed_vat: leg.reclaimed_vat,
+                    private_use: leg.private_use,
+                },
             )
             .map_err(AppError::from)?;
         }
@@ -285,15 +303,18 @@ pub fn update_taxable_event(
 
     insert_taxable_event_data(
         conn,
-        params.event_id,
-        params.amount_minor,
-        params.event_date.as_str(),
-        params.note.as_deref(),
-        params.vat_rate_bps,
-        params.vat_reclaimable_pct_bps,
-        params.expense_deductible_pct_bps,
-        params.prepaid_until.as_deref(),
-        reclaimed_vat,
+        TaxableEventRow {
+            event_id: params.event_id,
+            amount_minor: params.amount_minor,
+            event_date: params.event_date.as_str(),
+            note: params.note.as_deref(),
+            vat_rate_bps: params.vat_rate_bps,
+            vat_reclaimable_pct_bps: params.vat_reclaimable_pct_bps,
+            expense_deductible_pct_bps: params.expense_deductible_pct_bps,
+            prepaid_until: params.prepaid_until.as_deref(),
+            reclaimed_vat,
+            private_use: params.private_use,
+        },
     )
     .map_err(AppError::from)?;
 
@@ -443,15 +464,22 @@ pub fn update_taxable_split_group(
 
             insert_taxable_event_data(
                 conn,
-                leg.event_id,
-                leg.amount_minor,
-                leg.event_date.as_str(),
-                leg.note.as_deref(),
-                leg.vat_rate_bps,
-                leg.vat_reclaimable_pct_bps,
-                leg.expense_deductible_pct_bps,
-                leg.prepaid_until.as_deref(),
-                resolve_reclaimed_vat(&event_type, leg.reclaimed_vat, person_vat_payer),
+                TaxableEventRow {
+                    event_id: leg.event_id,
+                    amount_minor: leg.amount_minor,
+                    event_date: leg.event_date.as_str(),
+                    note: leg.note.as_deref(),
+                    vat_rate_bps: leg.vat_rate_bps,
+                    vat_reclaimable_pct_bps: leg.vat_reclaimable_pct_bps,
+                    expense_deductible_pct_bps: leg.expense_deductible_pct_bps,
+                    prepaid_until: leg.prepaid_until.as_deref(),
+                    reclaimed_vat: resolve_reclaimed_vat(
+                        &event_type,
+                        leg.reclaimed_vat,
+                        person_vat_payer,
+                    ),
+                    private_use: leg.private_use,
+                },
             )?;
         }
 
@@ -465,15 +493,22 @@ pub fn update_taxable_split_group(
 
             insert_taxable_event_data(
                 conn,
-                event_id,
-                leg.amount_minor,
-                leg.event_date.as_str(),
-                leg.note.as_deref(),
-                leg.vat_rate_bps,
-                leg.vat_reclaimable_pct_bps,
-                leg.expense_deductible_pct_bps,
-                leg.prepaid_until.as_deref(),
-                resolve_reclaimed_vat(&event_type, leg.reclaimed_vat, person_vat_payer),
+                TaxableEventRow {
+                    event_id,
+                    amount_minor: leg.amount_minor,
+                    event_date: leg.event_date.as_str(),
+                    note: leg.note.as_deref(),
+                    vat_rate_bps: leg.vat_rate_bps,
+                    vat_reclaimable_pct_bps: leg.vat_reclaimable_pct_bps,
+                    expense_deductible_pct_bps: leg.expense_deductible_pct_bps,
+                    prepaid_until: leg.prepaid_until.as_deref(),
+                    reclaimed_vat: resolve_reclaimed_vat(
+                        &event_type,
+                        leg.reclaimed_vat,
+                        person_vat_payer,
+                    ),
+                    private_use: leg.private_use,
+                },
             )?;
         }
 

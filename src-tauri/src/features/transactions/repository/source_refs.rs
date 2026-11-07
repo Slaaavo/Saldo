@@ -94,6 +94,7 @@ mod tests {
             expense_deductible_pct_bps: None,
             prepaid_until: None,
             reclaimed_vat: None,
+            private_use: false,
         }
     }
 

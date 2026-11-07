@@ -5,7 +5,7 @@ use crate::features::persons::repository::get_default_expense_account_id;
 use crate::shared::{local_now, with_savepoint_app};
 use rusqlite::{params, Connection, OptionalExtension};
 
-use super::taxable_events::insert_taxable_event_data;
+use super::taxable_events::{insert_taxable_event_data, TaxableEventRow};
 
 struct StoredAsset {
     id: i64,
@@ -49,15 +49,18 @@ fn insert_entry(
 
     insert_taxable_event_data(
         conn,
-        event_id,
-        entry.amount_minor,
-        &entry.event_date,
-        Some(entry.note.as_str()),
-        None,
-        None,
-        Some(entry.expense_deductible_pct_bps),
-        None,
-        None,
+        TaxableEventRow {
+            event_id,
+            amount_minor: entry.amount_minor,
+            event_date: &entry.event_date,
+            note: Some(entry.note.as_str()),
+            vat_rate_bps: None,
+            vat_reclaimable_pct_bps: None,
+            expense_deductible_pct_bps: Some(entry.expense_deductible_pct_bps),
+            prepaid_until: None,
+            reclaimed_vat: None,
+            private_use: false,
+        },
     )
     .map_err(AppError::from)
 }

@@ -42,6 +42,7 @@ pub struct EventWithData {
     pub linked_prepaid_event_id: Option<i64>,
     pub is_system_generated: bool,
     pub reclaimed_vat: Option<bool>,
+    pub private_use: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

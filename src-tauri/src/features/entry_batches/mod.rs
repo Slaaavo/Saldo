@@ -372,6 +372,7 @@ fn write_plan(conn: &Connection, ctx: &ItemContext, plan: &Plan) -> Result<Writt
                         .map(|s| s.shares.deductible_pct_bps),
                     prepaid_until: plan.prepaid_until.clone(),
                     reclaimed_vat: plan.reclaimed_vat,
+                    private_use: false,
                     source_ref: Some(plan.source_ref.clone()),
                 },
             )?;
@@ -412,6 +413,7 @@ fn write_plan(conn: &Connection, ctx: &ItemContext, plan: &Plan) -> Result<Writt
                                 .map(|s| s.shares.deductible_pct_bps),
                             prepaid_until: None,
                             reclaimed_vat: plan.reclaimed_vat,
+                            private_use: false,
                         })
                         .collect(),
                     source_ref: Some(plan.source_ref.clone()),

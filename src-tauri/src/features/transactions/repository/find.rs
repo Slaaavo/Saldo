@@ -453,6 +453,7 @@ mod tests {
             expense_deductible_pct_bps: Some(10000),
             prepaid_until: None,
             reclaimed_vat: Some(true),
+            private_use: false,
         }
     }
 

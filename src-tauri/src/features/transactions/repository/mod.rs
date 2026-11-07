@@ -121,7 +121,8 @@ pub(super) const EVENT_SELECT: &str = "
           e.linked_asset_id,
           e.linked_prepaid_event_id,
           e.is_system_generated,
-          ed.reclaimed_vat";
+          ed.reclaimed_vat,
+          ed.private_use";
 
 pub(super) const EVENT_JOINS: &str = "
         JOIN account a ON a.id = e.account_id
@@ -174,6 +175,7 @@ pub(super) fn map_event_row(
         linked_prepaid_event_id: row.get(32)?,
         is_system_generated: row.get(33)?,
         reclaimed_vat: row.get::<_, Option<i64>>(34)?.map(|v| v != 0),
+        private_use: row.get(35)?,
     })
 }
 
@@ -1878,6 +1880,7 @@ mod tests {
                         expense_deductible_pct_bps: Some(10000),
                         prepaid_until: None,
                         reclaimed_vat: None,
+                        private_use: false,
                     },
                     TaxableEventLeg {
                         amount_minor: -8000,
@@ -1888,6 +1891,7 @@ mod tests {
                         expense_deductible_pct_bps: Some(5000),
                         prepaid_until: None,
                         reclaimed_vat: None,
+                        private_use: false,
                     },
                 ],
                 ..Default::default()
@@ -2030,6 +2034,7 @@ mod tests {
                         expense_deductible_pct_bps: None,
                         prepaid_until: None,
                         reclaimed_vat: None,
+                        private_use: false,
                     },
                     TaxableEventLeg {
                         amount_minor: -2000,
@@ -2040,6 +2045,7 @@ mod tests {
                         expense_deductible_pct_bps: None,
                         prepaid_until: None,
                         reclaimed_vat: None,
+                        private_use: false,
                     },
                     TaxableEventLeg {
                         amount_minor: -3000,
@@ -2050,6 +2056,7 @@ mod tests {
                         expense_deductible_pct_bps: None,
                         prepaid_until: None,
                         reclaimed_vat: None,
+                        private_use: false,
                     },
                 ],
                 ..Default::default()
@@ -2089,6 +2096,7 @@ mod tests {
                     expense_deductible_pct_bps: None,
                     prepaid_until: None,
                     reclaimed_vat: None,
+                    private_use: false,
                 }],
                 new_legs: vec![NewSplitLeg {
                     amount_minor: -4000,
@@ -2099,6 +2107,7 @@ mod tests {
                     expense_deductible_pct_bps: None,
                     prepaid_until: None,
                     reclaimed_vat: None,
+                    private_use: false,
                 }],
                 removed_leg_ids: vec![leg_to_remove],
             },
@@ -2174,6 +2183,7 @@ mod tests {
                         expense_deductible_pct_bps: None,
                         prepaid_until: None,
                         reclaimed_vat: None,
+                        private_use: false,
                     },
                     TaxableEventLeg {
                         amount_minor: 3000,
@@ -2184,6 +2194,7 @@ mod tests {
                         expense_deductible_pct_bps: None,
                         prepaid_until: None,
                         reclaimed_vat: None,
+                        private_use: false,
                     },
                 ],
                 ..Default::default()
@@ -2254,6 +2265,7 @@ mod tests {
                         expense_deductible_pct_bps: None,
                         prepaid_until: None,
                         reclaimed_vat: None,
+                        private_use: false,
                     },
                     TaxableEventLeg {
                         amount_minor: -2000,
@@ -2264,6 +2276,7 @@ mod tests {
                         expense_deductible_pct_bps: None,
                         prepaid_until: None,
                         reclaimed_vat: None,
+                        private_use: false,
                     },
                 ],
                 ..Default::default()
@@ -2464,6 +2477,7 @@ mod tests {
                         expense_deductible_pct_bps: None,
                         prepaid_until: None,
                         reclaimed_vat: None,
+                        private_use: false,
                     },
                     TaxableEventLeg {
                         amount_minor: -2000,
@@ -2474,6 +2488,7 @@ mod tests {
                         expense_deductible_pct_bps: None,
                         prepaid_until: None,
                         reclaimed_vat: None,
+                        private_use: false,
                     },
                 ],
                 ..Default::default()

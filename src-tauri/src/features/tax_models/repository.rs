@@ -481,7 +481,8 @@ pub fn list_taxable_events_for_model(
                     COALESCE(asset.depreciation_period_months, 0) > 0,
                     e.linked_prepaid_event_id IS NOT NULL,
                     CAST(strftime('%m', ed.event_date) AS INTEGER),
-                    e.asset_entry IS 'lost_vat'
+                    e.asset_entry IS 'lost_vat',
+                    ed.private_use
              FROM event e
              JOIN event_data ed ON ed.id = e.latest_data_id
              JOIN account a ON a.id = e.account_id
@@ -539,6 +540,7 @@ pub fn list_taxable_events_for_model(
                 vat_reclaimable_pct_bps: row.get(6)?,
                 expense_deductible_pct_bps: row.get(7)?,
                 reclaimed_vat: row.get::<_, Option<i64>>(8)?.map(|v| v != 0),
+                private_use: row.get(13)?,
             })
         })
         .map_err(AppError::from)?
@@ -1265,6 +1267,7 @@ mod tests {
                 vat_rate_bps: None,
                 vat_reclaimable_pct_bps: None,
                 reclaimed_vat: false,
+                private_use: false,
             },
         )
         .expect("generate prepaid shares failed");

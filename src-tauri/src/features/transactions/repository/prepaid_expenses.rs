@@ -2,12 +2,10 @@ use chrono::{Datelike, NaiveDate};
 use rusqlite::{params, Connection};
 
 use crate::error::AppError;
-use crate::features::tax_models::calculation::{
-    calculate_net_amount, calculate_reclaimable_vat, calculate_vat_amount,
-};
+use crate::features::tax_models::calculation::{split_expense_cost, ExpenseCost};
 use crate::shared::{div_round, with_savepoint_app};
 
-use super::taxable_events::insert_taxable_event_data;
+use super::taxable_events::{insert_taxable_event_data, TaxableEventRow};
 
 // ---------------------------------------------------------------------------
 // Public context struct
@@ -25,20 +23,18 @@ pub(crate) struct PrepaidExpenseContext {
     pub vat_reclaimable_pct_bps: Option<i64>,
     /// The parent's resolved `reclaimed_vat` flag.
     pub reclaimed_vat: bool,
+    pub private_use: bool,
 }
 
 impl PrepaidExpenseContext {
-    /// The amount the yearly children split: the gross minus the VAT reclaimed up front.
-    fn amount_to_split_minor(&self) -> i64 {
-        let net_minor =
-            calculate_net_amount(self.total_amount_minor, self.vat_rate_bps.unwrap_or(0));
-        let vat_minor = calculate_vat_amount(self.total_amount_minor, net_minor);
-        let reclaimed_minor = calculate_reclaimable_vat(
-            vat_minor,
+    fn cost(&self) -> ExpenseCost {
+        split_expense_cost(
+            self.total_amount_minor,
+            self.vat_rate_bps.unwrap_or(0),
             self.vat_reclaimable_pct_bps.unwrap_or(0),
             self.reclaimed_vat,
-        );
-        self.total_amount_minor - reclaimed_minor
+            self.private_use,
+        )
     }
 }
 
@@ -133,45 +129,81 @@ fn parse_date_prefix(field: &str, value: &str) -> Result<NaiveDate, AppError> {
 // Database operations
 // ---------------------------------------------------------------------------
 
-/// Insert system-generated yearly child events for a prepaid expense.
+fn insert_prepaid_child(
+    conn: &Connection,
+    ctx: &PrepaidExpenseContext,
+    amount_minor: i64,
+    event_date: &str,
+    note: &str,
+    expense_deductible_pct_bps: Option<i64>,
+) -> Result<(), AppError> {
+    conn.execute(
+        "INSERT INTO event (account_id, event_type, linked_prepaid_event_id, is_system_generated)
+         VALUES (?1, 'expense', ?2, 1)",
+        params![ctx.account_id, ctx.parent_event_id],
+    )
+    .map_err(AppError::from)?;
+
+    insert_taxable_event_data(
+        conn,
+        TaxableEventRow {
+            event_id: conn.last_insert_rowid(),
+            amount_minor,
+            event_date,
+            note: Some(note),
+            vat_rate_bps: None,
+            vat_reclaimable_pct_bps: None,
+            expense_deductible_pct_bps,
+            prepaid_until: None,
+            reclaimed_vat: None,
+            private_use: false,
+        },
+    )
+    .map_err(AppError::from)
+}
+
+/// Insert system-generated yearly child events for a prepaid expense, and one more child
+/// for lost VAT kept out of the deductible base.
 pub(crate) fn generate_prepaid_child_events(
     conn: &Connection,
     ctx: &PrepaidExpenseContext,
 ) -> Result<(), AppError> {
     with_savepoint_app(conn, || {
+        let cost = ctx.cost();
         let segments = calculate_prepaid_segments(
             &ctx.expense_date,
             &ctx.prepaid_until,
-            ctx.amount_to_split_minor(),
+            cost.deductible_base_minor,
         )?;
 
         for segment in &segments {
-            conn.execute(
-                "INSERT INTO event (account_id, event_type, linked_prepaid_event_id, is_system_generated)
-                 VALUES (?1, 'expense', ?2, 1)",
-                params![ctx.account_id, ctx.parent_event_id],
-            )
-            .map_err(AppError::from)?;
-            let event_id = conn.last_insert_rowid();
-
             let note = match &ctx.note {
                 Some(n) => format!("Prepaid: {} ({})", n, segment.year),
                 None => format!("Prepaid ({})", segment.year),
             };
-
-            insert_taxable_event_data(
+            insert_prepaid_child(
                 conn,
-                event_id,
+                ctx,
                 segment.amount_minor,
                 &segment.event_date,
-                Some(note.as_str()),
-                None,
-                None,
+                &note,
                 ctx.expense_deductible_pct_bps,
-                None,
-                None,
-            )
-            .map_err(AppError::from)?;
+            )?;
+        }
+
+        if cost.lost_vat_apart_minor > 0 {
+            let note = match &ctx.note {
+                Some(n) => format!("Prepaid: {n} (lost VAT)"),
+                None => "Prepaid (lost VAT)".to_owned(),
+            };
+            insert_prepaid_child(
+                conn,
+                ctx,
+                cost.lost_vat_apart_minor,
+                &segments[0].event_date,
+                &note,
+                Some(0),
+            )?;
         }
 
         Ok(())
@@ -367,7 +399,8 @@ mod tests {
                  vat_reclaimable_pct_bps INTEGER NULL,
                  expense_deductible_pct_bps INTEGER NULL,
                  prepaid_until TEXT NULL,
-                 reclaimed_vat INTEGER NULL
+                 reclaimed_vat INTEGER NULL,
+                 private_use INTEGER NOT NULL DEFAULT 0
              );
              CREATE TABLE taxable_cashflow_link (
                  id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -423,6 +456,7 @@ mod tests {
             vat_rate_bps: None,
             vat_reclaimable_pct_bps: None,
             reclaimed_vat: false,
+            private_use: false,
         };
         generate_prepaid_child_events(&conn, &ctx).unwrap();
 
@@ -494,6 +528,7 @@ mod tests {
             vat_rate_bps: None,
             vat_reclaimable_pct_bps: None,
             reclaimed_vat: false,
+            private_use: false,
         };
         generate_prepaid_child_events(&conn, &ctx).unwrap();
 
@@ -584,7 +619,58 @@ mod tests {
             vat_rate_bps: Some(2300),
             vat_reclaimable_pct_bps: Some(10000),
             reclaimed_vat,
+            private_use: false,
         }
+    }
+
+    fn vignette(parent_event_id: i64, account_id: i64) -> PrepaidExpenseContext {
+        PrepaidExpenseContext {
+            expense_deductible_pct_bps: Some(8000),
+            vat_reclaimable_pct_bps: Some(5000),
+            private_use: true,
+            ..vat_ctx(parent_event_id, account_id, true)
+        }
+    }
+
+    #[test]
+    fn private_use_splits_the_net_and_adds_one_child_for_lost_vat() {
+        let (conn, account_id) = setup_test_db();
+        let parent_event_id = insert_prepaid_parent(&conn, account_id, 123_000);
+
+        generate_prepaid_child_events(&conn, &vignette(parent_event_id, account_id)).unwrap();
+
+        let rows = child_rows(&conn, parent_event_id);
+        assert_eq!(rows.len(), 3);
+        assert_eq!(rows.iter().map(|r| r.0).sum::<i64>(), 123_000 - 11_500);
+        let lost_vat: (i64, Option<i64>, String) = conn
+            .query_row(
+                "SELECT ed.amount_minor, ed.expense_deductible_pct_bps, ed.event_date
+                 FROM event e JOIN event_data ed ON ed.id = e.latest_data_id
+                 WHERE e.linked_prepaid_event_id = ?1 AND ed.note LIKE '%lost VAT%'",
+                params![parent_event_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            lost_vat,
+            (11_500, Some(0), "2024-07-01T00:00:00".to_owned())
+        );
+    }
+
+    #[test]
+    fn private_use_with_no_vat_coming_back_adds_no_lost_vat_child() {
+        let (conn, account_id) = setup_test_db();
+        let parent_event_id = insert_prepaid_parent(&conn, account_id, 123_000);
+        let ctx = PrepaidExpenseContext {
+            reclaimed_vat: false,
+            ..vignette(parent_event_id, account_id)
+        };
+
+        generate_prepaid_child_events(&conn, &ctx).unwrap();
+
+        let rows = child_rows(&conn, parent_event_id);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows.iter().map(|r| r.0).sum::<i64>(), 123_000);
     }
 
     #[test]
@@ -642,6 +728,7 @@ mod tests {
             vat_rate_bps: None,
             vat_reclaimable_pct_bps: None,
             reclaimed_vat: false,
+            private_use: false,
         };
         generate_prepaid_child_events(&conn, &ctx).unwrap();
 
