@@ -26,6 +26,7 @@ vi.mock('sonner', () => ({
   toast: { error: vi.fn(), success: vi.fn() },
 }))
 
+import { toast } from 'sonner'
 import { listPersons, getConsolidationCurrency, getAssetUse, previewAssetPurchase } from '../../shared/api'
 
 const makeWrapper = () => {
@@ -118,6 +119,73 @@ describe('EditAccountModal depreciation fields', () => {
       businessUsePctBps: null,
       businessUseChanges: [{ fromMonth: '2026-09', businessUsePctBps: 8000 }],
     })
+  })
+
+  const konaTerms = {
+    purchaseVat: { grossMinor: 1560000, vatRateBps: 2300, vatReclaimablePctBps: 5000 },
+    businessUsePctBps: 8000,
+    businessUseChanges: [],
+  }
+
+  it('refuses a blank VAT rate instead of dropping the VAT facts', async () => {
+    ;(getAssetUse as Mock).mockResolvedValue(konaTerms)
+    const onSubmit = vi.fn()
+    renderModal({ ...saved, onSubmit })
+    const user = userEvent.setup()
+
+    await waitFor(() => expect(screen.getByLabelText('modals.assetDepreciation.vatRate')).toHaveValue(23))
+    await user.clear(screen.getByLabelText('modals.assetDepreciation.vatRate'))
+    await user.click(screen.getByText('modals.editAccount.submit'))
+
+    expect(onSubmit).not.toHaveBeenCalled()
+    expect(toast.error).toHaveBeenCalledWith('modals.assetDepreciation.vatIncomplete')
+  })
+
+  it('refuses a blank business use instead of reading it as 100 %', async () => {
+    ;(getAssetUse as Mock).mockResolvedValue(konaTerms)
+    const onSubmit = vi.fn()
+    renderModal({ ...saved, onSubmit })
+    const user = userEvent.setup()
+
+    await waitFor(() => expect(screen.getByLabelText('modals.assetDepreciation.businessUse')).toHaveValue(80))
+    await user.clear(screen.getByLabelText('modals.assetDepreciation.businessUse'))
+    await user.click(screen.getByText('modals.editAccount.submit'))
+
+    expect(onSubmit).not.toHaveBeenCalled()
+    expect(toast.error).toHaveBeenCalledWith('modals.assetDepreciation.businessUseMissing')
+  })
+
+  const datedChange = { purchaseVat: null, businessUsePctBps: null, businessUseChanges: [{ fromMonth: '2027-01', businessUsePctBps: 6000 }] }
+
+  it('keeps a dated change on screen when the period is removed, so it can be taken out', async () => {
+    ;(getAssetUse as Mock).mockResolvedValue(datedChange)
+    renderModal(saved)
+    const user = userEvent.setup()
+
+    await screen.findByText('modals.assetDepreciation.removeChange')
+    await user.clear(screen.getByLabelText('modals.assetDepreciation.depreciationPeriodMonths'))
+
+    expect(screen.getByText('modals.assetDepreciation.removeChange')).toBeInTheDocument()
+  })
+
+  it('takes a dated change only for a new month in YYYY-MM form', async () => {
+    ;(getAssetUse as Mock).mockResolvedValue(datedChange)
+    renderModal(saved)
+    const user = userEvent.setup()
+
+    await user.click(await screen.findByText('modals.assetDepreciation.changeFromMonth'))
+    const month = screen.getByLabelText('modals.assetDepreciation.changeMonth')
+    await user.type(screen.getByLabelText('modals.assetDepreciation.businessUse'), '80')
+    const add = screen.getByText('modals.assetDepreciation.addChange')
+
+    await user.type(month, 'abc')
+    expect(add).toBeDisabled()
+    await user.clear(month)
+    await user.type(month, '2027-01')
+    expect(add).toBeDisabled()
+    await user.clear(month)
+    await user.type(month, '2027-02')
+    expect(add).toBeEnabled()
   })
 
   it('offers no dated change on an asset written off at once', async () => {
