@@ -10,7 +10,10 @@ import type {
   DbLocationInfo,
   PickDbFolderResult,
   AccountAssetLink,
+  AssetPurchasePreview,
+  AssetUseTerms,
   PartnerAccount,
+  PurchaseVat,
   EventWithData,
   ImportProfileRow,
   PersonRow,
@@ -76,6 +79,7 @@ export const createAccount = (
   purchasePriceMinor?: number | null,
   purchaseDate?: string | null,
   depreciationPeriodMonths?: number | null,
+  assetUse?: AssetUseTerms | null,
 ): Promise<number> => {
   return invoke('create_account', {
     input: {
@@ -90,10 +94,12 @@ export const createAccount = (
       purchasePriceMinor: purchasePriceMinor ?? null,
       purchaseDate: purchaseDate ?? null,
       depreciationPeriodMonths: depreciationPeriodMonths ?? null,
+      assetUse: assetUse ?? null,
     },
   })
 }
 
+/** Leaving `assetUse` out keeps the asset's stored terms. */
 export const updateAccount = (
   accountId: number,
   name: string,
@@ -102,6 +108,7 @@ export const updateAccount = (
   purchasePriceMinor?: number | null,
   purchaseDate?: string | null,
   depreciationPeriodMonths?: number | null,
+  assetUse?: AssetUseTerms | null,
 ): Promise<void> => {
   return invoke('update_account', {
     input: {
@@ -112,8 +119,22 @@ export const updateAccount = (
       purchasePriceMinor: purchasePriceMinor ?? null,
       purchaseDate: purchaseDate ?? null,
       depreciationPeriodMonths: depreciationPeriodMonths ?? null,
+      assetUse: assetUse ?? null,
     },
   })
+}
+
+export const getAssetUse = (accountId: number): Promise<AssetUseTerms> => {
+  return invoke('get_asset_use', { accountId })
+}
+
+export const previewAssetPurchase = (input: {
+  purchaseVat: PurchaseVat
+  businessUsePctBps: number
+  purchaseDate: string | null
+  depreciationPeriodMonths: number | null
+}): Promise<AssetPurchasePreview> => {
+  return invoke('preview_asset_purchase', { input })
 }
 
 export const createPartnerAccount = (name: string, currencyId: number, iban: string): Promise<number> => {

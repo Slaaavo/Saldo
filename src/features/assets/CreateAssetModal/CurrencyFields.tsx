@@ -1,13 +1,15 @@
 import { useTranslation } from 'react-i18next'
 import CurrencySelect from '../../currency/CurrencySelect'
-import type { Currency } from '../../../shared/types'
+import type { AssetPurchasePreview, Currency } from '../../../shared/types'
 import { PINNED_CURRENCY_CODES } from '../../../shared/config/constants'
-import { getMinorUnitsStep } from '../../../shared/utils/format'
+import { fromMinorUnits, getMinorUnitsStep } from '../../../shared/utils/format'
 import { CurrencyInput } from '../../../shared/ui/CurrencyInput'
 import { DatePicker } from '../../../shared/ui/date-picker'
 import { Input } from '../../../shared/ui/input'
 import { Label } from '../../../shared/ui/label'
 import { Button } from '../../../shared/ui/button'
+import AssetPrivateUseFields from '../AssetPrivateUseFields'
+import { DEPRECIATION_PRESETS, type AssetUseDraft } from '../assetUseDraft'
 
 interface CurrencyFieldsProps {
   currencies: Currency[]
@@ -22,6 +24,10 @@ interface CurrencyFieldsProps {
   setPurchaseDate: (value: string) => void
   depreciationPeriod: string
   setDepreciationPeriod: (value: string) => void
+  assetUse: AssetUseDraft
+  setAssetUse: (draft: AssetUseDraft) => void
+  showVatFields: boolean
+  preview: AssetPurchasePreview | undefined
 }
 
 const CurrencyFields = ({
@@ -37,8 +43,13 @@ const CurrencyFields = ({
   setPurchaseDate,
   depreciationPeriod,
   setDepreciationPeriod,
+  assetUse,
+  setAssetUse,
+  showVatFields,
+  preview,
 }: CurrencyFieldsProps) => {
   const { t } = useTranslation()
+  const minorUnits = selectedCurrency?.minorUnits ?? 2
 
   return (
     <>
@@ -54,7 +65,7 @@ const CurrencyFields = ({
           step={getMinorUnitsStep(selectedCurrency?.minorUnits ?? 2)}
           value={initialValue}
           onChange={(e) => setInitialValue(e.target.value)}
-          placeholder="0"
+          placeholder={preview ? fromMinorUnits(preview.startValueMinor, minorUnits) : '0'}
           currencyCode={selectedCurrency?.code}
         />
       </div>
@@ -66,9 +77,10 @@ const CurrencyFields = ({
             <CurrencyInput
               id="create-asset-purchase-price"
               type="number"
-              step={getMinorUnitsStep(selectedCurrency?.minorUnits ?? 2)}
-              value={purchasePrice}
+              step={getMinorUnitsStep(minorUnits)}
+              value={preview ? fromMinorUnits(preview.depreciatingMinor, minorUnits) : purchasePrice}
               onChange={(e) => setPurchasePrice(e.target.value)}
+              disabled={preview !== undefined}
               placeholder="0"
               currencyCode={selectedCurrency?.code}
             />
@@ -82,20 +94,22 @@ const CurrencyFields = ({
             <Input id="create-asset-depreciation-period" type="number" min="0" value={depreciationPeriod} onChange={(e) => setDepreciationPeriod(e.target.value)} placeholder="" />
             <p className="text-xs text-muted-foreground">{t('modals.assetDepreciation.depreciationPeriodHelper')}</p>
             <div className="flex gap-2 flex-wrap">
-              {(
-                [
-                  ['presetInstant', '0'],
-                  ['preset4y', '48'],
-                  ['preset5y', '60'],
-                  ['preset20y', '240'],
-                ] as const
-              ).map(([key, val]) => (
+              {DEPRECIATION_PRESETS.map(([key, val]) => (
                 <Button key={key} type="button" variant="outline" size="sm" onClick={() => setDepreciationPeriod(val)}>
                   {t(`modals.assetDepreciation.${key}`)}
                 </Button>
               ))}
             </div>
           </div>
+          <AssetPrivateUseFields
+            idPrefix="create-asset"
+            draft={assetUse}
+            onChange={setAssetUse}
+            showVatFields={showVatFields}
+            currencyCode={selectedCurrency?.code ?? ''}
+            minorUnits={minorUnits}
+            preview={preview}
+          />
         </>
       )}
     </>

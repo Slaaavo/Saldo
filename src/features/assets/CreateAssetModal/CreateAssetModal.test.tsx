@@ -13,6 +13,7 @@ vi.mock('../../../shared/api', () => ({
   createCustomUnit: vi.fn(),
   createAccount: vi.fn(),
   listPersons: vi.fn(),
+  previewAssetPurchase: vi.fn(),
 }))
 
 vi.mock('../../../app/useSelectedPerson', () => ({
@@ -51,12 +52,12 @@ vi.mock('../../currency/CurrencySelect', () => ({
   ),
 }))
 
-import { listCurrencies, getConsolidationCurrency, listCustomUnits, createCustomUnit, createAccount, listPersons } from '../../../shared/api'
+import { listCurrencies, getConsolidationCurrency, listCustomUnits, createCustomUnit, createAccount, listPersons, previewAssetPurchase } from '../../../shared/api'
 
 const EUR: Currency = { id: 1, code: 'EUR', name: 'Euro', minorUnits: 2, isCustom: false }
 const USD: Currency = { id: 2, code: 'USD', name: 'US Dollar', minorUnits: 2, isCustom: false }
 
-const makePerson = (id: number, personType: string): PersonRow => ({
+const makePerson = (id: number, personType: string, vatPayer = false): PersonRow => ({
   id,
   name: `Person ${id}`,
   personType,
@@ -64,14 +65,22 @@ const makePerson = (id: number, personType: string): PersonRow => ({
   createdAt: '2025-01-01T00:00:00',
   defaultRevenueAccountId: 1,
   defaultExpenseAccountId: 2,
-  vatPayer: false,
+  vatPayer,
 })
 
-const setupMocks = (personType: 'legal' | 'physical' | null = 'legal') => {
+const setupMocks = (personType: 'legal' | 'physical' | null = 'legal', vatPayer = false) => {
   ;(listCurrencies as Mock).mockResolvedValue([EUR, USD])
   ;(getConsolidationCurrency as Mock).mockResolvedValue(EUR)
   ;(listCustomUnits as Mock).mockResolvedValue([])
-  ;(listPersons as Mock).mockResolvedValue(personType ? [makePerson(5, personType)] : [])
+  ;(listPersons as Mock).mockResolvedValue(personType ? [makePerson(5, personType, vatPayer)] : [])
+  ;(previewAssetPurchase as Mock).mockResolvedValue({
+    depreciatingMinor: 1268292,
+    reclaimedVatMinor: 145854,
+    lostVatEntryMinor: 145854,
+    startValueMinor: 1560000,
+    monthlyMinor: 52846,
+    monthlyDeductibleMinor: 42276,
+  })
   ;(createCustomUnit as Mock).mockResolvedValue(77)
   ;(createAccount as Mock).mockResolvedValue(100)
 }
@@ -108,7 +117,7 @@ describe('CreateAssetModal', () => {
 
       await waitFor(() => expect(createAccount).toHaveBeenCalledOnce())
       const args = (createAccount as Mock).mock.calls[0]
-      expect(args.slice(8)).toEqual([100000, expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/), 48])
+      expect(args.slice(8)).toEqual([100000, expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/), 48, null])
     })
 
     it('sends no depreciation values when no purchase price is entered', async () => {
@@ -119,7 +128,45 @@ describe('CreateAssetModal', () => {
       await user.click(screen.getByText(SUBMIT))
 
       await waitFor(() => expect(createAccount).toHaveBeenCalledOnce())
-      expect((createAccount as Mock).mock.calls[0].slice(8)).toEqual([null, null, null])
+      expect((createAccount as Mock).mock.calls[0].slice(8)).toEqual([null, null, null, null])
+    })
+
+    it('shows the VAT fields of a mixed-use asset to a VAT payer and sends the terms and start value', async () => {
+      setupMocks('legal', true)
+      const user = await renderModal()
+
+      await user.type(screen.getByLabelText(NAME_LABEL), 'Kona')
+      await user.click(await screen.findByLabelText('modals.assetDepreciation.privateUse'))
+      expect(screen.getByLabelText('modals.assetDepreciation.businessUse')).toHaveValue(80)
+      expect(screen.getByLabelText('modals.assetDepreciation.vatReclaimablePct')).toHaveValue(50)
+      await user.type(screen.getByLabelText('modals.assetDepreciation.grossPrice'), '15600')
+      await user.type(screen.getByLabelText('modals.assetDepreciation.vatRate'), '23')
+      await user.type(screen.getByLabelText('modals.assetDepreciation.depreciationPeriodMonths'), '24')
+
+      await waitFor(() => expect(screen.getByLabelText('modals.assetDepreciation.purchasePrice')).toBeDisabled())
+      expect(screen.getByLabelText('modals.assetDepreciation.purchasePrice')).toHaveValue(12682.92)
+      expect(screen.getByText('modals.assetDepreciation.summaryLostVat')).toBeInTheDocument()
+
+      await user.click(screen.getByText(SUBMIT))
+
+      await waitFor(() => expect(createAccount).toHaveBeenCalledOnce())
+      const args = (createAccount as Mock).mock.calls[0]
+      expect(args[2]).toBe(1560000)
+      expect(args[11]).toEqual({
+        purchaseVat: { grossMinor: 1560000, vatRateBps: 2300, vatReclaimablePctBps: 5000 },
+        businessUsePctBps: 8000,
+        businessUseChanges: [],
+      })
+    })
+
+    it('offers only the business use to a person who is no VAT payer', async () => {
+      setupMocks('legal', false)
+      const user = await renderModal()
+
+      await user.click(await screen.findByLabelText('modals.assetDepreciation.privateUse'))
+
+      expect(screen.getByLabelText('modals.assetDepreciation.businessUse')).toBeInTheDocument()
+      expect(screen.queryByLabelText('modals.assetDepreciation.grossPrice')).not.toBeInTheDocument()
     })
 
     it('hides the depreciation fields and sends nothing for a physical person', async () => {
@@ -131,7 +178,7 @@ describe('CreateAssetModal', () => {
       await user.click(screen.getByText(SUBMIT))
 
       await waitFor(() => expect(createAccount).toHaveBeenCalledOnce())
-      expect((createAccount as Mock).mock.calls[0].slice(8)).toEqual([null, null, null])
+      expect((createAccount as Mock).mock.calls[0].slice(8)).toEqual([null, null, null, null])
     })
 
     it('hides the depreciation fields and drops typed values when the currency is not the consolidation currency', async () => {
@@ -146,7 +193,7 @@ describe('CreateAssetModal', () => {
       await user.click(screen.getByText(SUBMIT))
 
       await waitFor(() => expect(createAccount).toHaveBeenCalledOnce())
-      expect((createAccount as Mock).mock.calls[0].slice(8)).toEqual([null, null, null])
+      expect((createAccount as Mock).mock.calls[0].slice(8)).toEqual([null, null, null, null])
     })
   })
 

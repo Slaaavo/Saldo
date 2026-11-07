@@ -18,6 +18,7 @@ import {
   updateBucketBalanceUpdate,
   updateTransfer,
 } from '../shared/api'
+import type { AssetUseTerms } from '../shared/types'
 import { extractErrorMessage } from '../shared/utils/errors'
 import { useSnapshotQuery } from '../shared/hooks/useSnapshotQuery'
 import { useConsolidationCurrencyQuery } from '../shared/hooks/useConsolidationCurrencyQuery'
@@ -118,12 +119,14 @@ export const useModalActions = ({ closeModal, onFxRatePrompt }: UseModalActionsO
     purchasePriceMinor?: number | null,
     purchaseDate?: string | null,
     depreciationPeriodMonths?: number | null,
+    assetUse?: AssetUseTerms | null,
   ) => {
     try {
-      await updateAccount(accountId, name, iban, personId, purchasePriceMinor, purchaseDate, depreciationPeriodMonths)
+      await updateAccount(accountId, name, iban, personId, purchasePriceMinor, purchaseDate, depreciationPeriodMonths, assetUse)
       closeModal()
       await queryClient.invalidateQueries({ queryKey: ['snapshot'] })
       await queryClient.invalidateQueries({ queryKey: ['events'] })
+      await queryClient.invalidateQueries({ queryKey: ['assetUse', accountId] })
     } catch (err) {
       toast.error(t('errors.updateAccount', { error: extractErrorMessage(err) }))
     }

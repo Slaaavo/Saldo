@@ -13,6 +13,8 @@ import { Input } from '../../../shared/ui/input'
 import { Label } from '../../../shared/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../../shared/ui/select'
 import { extractErrorMessage } from '../../../shared/utils/errors'
+import { EMPTY_ASSET_USE_DRAFT, termsFromDraft, type AssetUseDraft } from '../assetUseDraft'
+import { useAssetPurchasePreview } from '../useAssetPurchasePreview'
 import CurrencyFields from './CurrencyFields'
 import UnitFields from './UnitFields'
 import { NEW_UNIT_VALUE } from './constants'
@@ -60,6 +62,15 @@ const CreateAssetModal = ({ onSuccess, onClose }: Props) => {
   const [depreciationPeriod, setDepreciationPeriod] = useState('')
   // The backend only accepts depreciation for legal persons and for assets held in the consolidation currency.
   const showDepreciation = selectedPerson?.personType === 'legal' && selectedCurrency !== null && selectedCurrency.id === consolidationCurrency?.id
+  const [assetUse, setAssetUse] = useState<AssetUseDraft>(EMPTY_ASSET_USE_DRAFT)
+  const showVatFields = selectedPerson?.vatPayer === true
+  const preview = useAssetPurchasePreview({
+    draft: assetUse,
+    minorUnits: selectedCurrency?.minorUnits ?? 2,
+    showVatFields: showVatFields && showDepreciation,
+    purchaseDate,
+    depreciationPeriod,
+  })
 
   const isCreatingNewUnit = selectedUnitId === NEW_UNIT_VALUE
   const selectedUnit = customUnits.find((u) => String(u.id) === selectedUnitId) ?? null
@@ -103,7 +114,7 @@ const CreateAssetModal = ({ onSuccess, onClose }: Props) => {
           return
         }
 
-        let initialBalanceMinor: number | undefined
+        let initialBalanceMinor = preview?.startValueMinor
         if (initialValue.trim()) {
           const parsed = parseFloat(initialValue)
           if (isNaN(parsed)) {
@@ -114,8 +125,8 @@ const CreateAssetModal = ({ onSuccess, onClose }: Props) => {
         }
 
         // Fields hidden from the form must not be sent, and the default purchase date only means something next to a purchase price.
-        const hasPurchasePrice = showDepreciation && purchasePrice.trim() !== ''
-        const purchasePriceMinor = hasPurchasePrice ? toMinorUnits(purchasePrice, selectedCurrency.minorUnits) : null
+        const hasPurchasePrice = showDepreciation && (purchasePrice.trim() !== '' || preview !== undefined)
+        const purchasePriceMinor = purchasePrice.trim() !== '' && hasPurchasePrice ? toMinorUnits(purchasePrice, selectedCurrency.minorUnits) : null
         const purchaseDateValue = hasPurchasePrice && purchaseDate.trim() ? purchaseDate.trim() : null
         const periodMonths = showDepreciation && depreciationPeriod.trim() !== '' ? Math.max(0, parseInt(depreciationPeriod, 10)) : null
 
@@ -131,6 +142,7 @@ const CreateAssetModal = ({ onSuccess, onClose }: Props) => {
           purchasePriceMinor,
           purchaseDateValue,
           periodMonths,
+          showDepreciation && assetUse.privateUse ? termsFromDraft(assetUse, selectedCurrency.minorUnits, showVatFields) : null,
         )
       } else {
         // Unit path validation
@@ -271,6 +283,10 @@ const CreateAssetModal = ({ onSuccess, onClose }: Props) => {
                 setPurchaseDate={setPurchaseDate}
                 depreciationPeriod={depreciationPeriod}
                 setDepreciationPeriod={setDepreciationPeriod}
+                assetUse={assetUse}
+                setAssetUse={setAssetUse}
+                showVatFields={showVatFields}
+                preview={preview}
               />
             ) : (
               <UnitFields

@@ -2,9 +2,14 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { listPersons } from '../../shared/api'
+import { getAssetUse, listPersons } from '../../shared/api'
 import { useConsolidationCurrencyQuery } from '../../shared/hooks/useConsolidationCurrencyQuery'
+import type { AssetUseTerms } from '../../shared/types'
 import { fromMinorUnits, toMinorUnits } from '../../shared/utils/format'
+import AssetPrivateUseFields from '../assets/AssetPrivateUseFields'
+import BusinessUseChanges from '../assets/BusinessUseChanges'
+import { DEPRECIATION_PRESETS, EMPTY_ASSET_USE_DRAFT, draftFromTerms, termsFromDraft, type AssetUseDraft } from '../assets/assetUseDraft'
+import { useAssetPurchasePreview } from '../assets/useAssetPurchasePreview'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogBody, DialogFooter } from '../../shared/ui/dialog'
 import { Button } from '../../shared/ui/button'
 import { Input } from '../../shared/ui/input'
@@ -33,6 +38,7 @@ interface Props {
     purchasePriceMinor?: number | null,
     purchaseDate?: string | null,
     depreciationPeriodMonths?: number | null,
+    assetUse?: AssetUseTerms | null,
   ) => void
   onClose: () => void
 }
@@ -73,6 +79,14 @@ const EditAccountModal = ({
   const [purchaseDate, setPurchaseDate] = useState(currentPurchaseDate ? currentPurchaseDate.slice(0, 10) : '')
   const [depreciationPeriod, setDepreciationPeriod] = useState(currentDepreciationPeriodMonths !== null ? String(currentDepreciationPeriodMonths) : '')
 
+  const { data: storedUse } = useQuery({ queryKey: ['assetUse', accountId], queryFn: () => getAssetUse(accountId), enabled: accountType === 'asset' })
+  const [editedUse, setEditedUse] = useState<AssetUseDraft | null>(null)
+  const assetUse = editedUse ?? (storedUse ? draftFromTerms(storedUse, currencyMinorUnits) : EMPTY_ASSET_USE_DRAFT)
+  // A person who stopped paying VAT keeps the facts of a purchase made while they paid it.
+  const showVatFields = selectedPerson?.vatPayer === true || !!storedUse?.purchaseVat
+  const preview = useAssetPurchasePreview({ draft: assetUse, minorUnits: currencyMinorUnits, showVatFields: showVatFields && showDepreciation, purchaseDate, depreciationPeriod })
+  const hasPeriod = parseInt(depreciationPeriod, 10) > 0
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (!name.trim()) {
@@ -82,10 +96,11 @@ const EditAccountModal = ({
     const purchasePriceMinor = showDepreciation && purchasePrice.trim() ? toMinorUnits(purchasePrice, currencyMinorUnits) : null
     const purchaseDateValue = showDepreciation && purchaseDate.trim() ? purchaseDate.trim() : null
     const periodMonths = showDepreciation && depreciationPeriod.trim() !== '' ? Math.max(0, parseInt(depreciationPeriod, 10)) : null
+    const assetUseTerms = showDepreciation && storedUse ? termsFromDraft(assetUse, currencyMinorUnits, showVatFields) : null
     if (showIban) {
-      onSubmit(accountId, name.trim(), iban.trim(), personId ?? undefined, purchasePriceMinor, purchaseDateValue, periodMonths)
+      onSubmit(accountId, name.trim(), iban.trim(), personId ?? undefined, purchasePriceMinor, purchaseDateValue, periodMonths, assetUseTerms)
     } else {
-      onSubmit(accountId, name.trim(), undefined, personId ?? undefined, purchasePriceMinor, purchaseDateValue, periodMonths)
+      onSubmit(accountId, name.trim(), undefined, personId ?? undefined, purchasePriceMinor, purchaseDateValue, periodMonths, assetUseTerms)
     }
   }
 
@@ -134,7 +149,13 @@ const EditAccountModal = ({
                 <h3 className="text-base font-semibold border-t border-border pt-2 mt-1">{t('modals.assetDepreciation.sectionTitle')}</h3>
                 <div className="flex flex-col gap-2">
                   <Label htmlFor="edit-purchase-price">{t('modals.assetDepreciation.purchasePrice')}</Label>
-                  <CurrencyInput id="edit-purchase-price" value={purchasePrice} onChange={(e) => setPurchasePrice(e.target.value)} currencyCode="" />
+                  <CurrencyInput
+                    id="edit-purchase-price"
+                    value={preview ? fromMinorUnits(preview.depreciatingMinor, currencyMinorUnits) : purchasePrice}
+                    onChange={(e) => setPurchasePrice(e.target.value)}
+                    disabled={preview !== undefined}
+                    currencyCode=""
+                  />
                 </div>
                 <div className="flex flex-col gap-2">
                   <Label htmlFor="edit-purchase-date">{t('modals.assetDepreciation.purchaseDate')}</Label>
@@ -145,20 +166,30 @@ const EditAccountModal = ({
                   <Input id="edit-depreciation-period" type="number" min="0" value={depreciationPeriod} onChange={(e) => setDepreciationPeriod(e.target.value)} placeholder="" />
                   <p className="text-xs text-muted-foreground">{t('modals.assetDepreciation.depreciationPeriodHelper')}</p>
                   <div className="flex gap-2 flex-wrap">
-                    {(
-                      [
-                        ['presetInstant', '0'],
-                        ['preset4y', '48'],
-                        ['preset5y', '60'],
-                        ['preset20y', '240'],
-                      ] as const
-                    ).map(([key, val]) => (
+                    {DEPRECIATION_PRESETS.map(([key, val]) => (
                       <Button key={key} type="button" variant="outline" size="sm" onClick={() => setDepreciationPeriod(val)}>
                         {t(`modals.assetDepreciation.${key}`)}
                       </Button>
                     ))}
                   </div>
                 </div>
+                <AssetPrivateUseFields
+                  idPrefix="edit-asset"
+                  draft={assetUse}
+                  onChange={setEditedUse}
+                  showVatFields={showVatFields}
+                  currencyCode={currencyCode}
+                  minorUnits={currencyMinorUnits}
+                  preview={preview}
+                />
+                {hasPeriod && (
+                  <BusinessUseChanges
+                    idPrefix="edit-asset"
+                    atPurchasePct={assetUse.privateUse ? assetUse.businessUsePct : '100'}
+                    changes={assetUse.changes}
+                    onChange={(changes) => setEditedUse({ ...assetUse, changes })}
+                  />
+                )}
               </>
             )}
           </DialogBody>

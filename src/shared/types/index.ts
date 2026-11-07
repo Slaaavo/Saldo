@@ -171,6 +171,33 @@ export interface PartnerAccount {
 
 export type AccountKind = 'account' | 'bucket' | 'asset'
 
+export interface PurchaseVat {
+  grossMinor: number
+  vatRateBps: number
+  vatReclaimablePctBps: number
+}
+
+export interface BusinessUseChange {
+  /** YYYY-MM */
+  fromMonth: string
+  businessUsePctBps: number
+}
+
+export interface AssetUseTerms {
+  purchaseVat: PurchaseVat | null
+  businessUsePctBps: number | null
+  businessUseChanges: BusinessUseChange[]
+}
+
+export interface AssetPurchasePreview {
+  depreciatingMinor: number
+  reclaimedVatMinor: number
+  lostVatEntryMinor: number
+  startValueMinor: number
+  monthlyMinor: number | null
+  monthlyDeductibleMinor: number | null
+}
+
 /** Live shows everything Saldo knows. A moment shows the books as they stood then. `until` is YYYY-MM-DD (end of day) or YYYY-MM-DDTHH:MM:SS. */
 export type AsOf = { kind: 'live' } | { kind: 'at'; until: string }
 
