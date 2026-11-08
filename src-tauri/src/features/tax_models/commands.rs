@@ -5,6 +5,7 @@ use crate::features::tax_models::models::{
     validation, ActualMonths, EarlierProfit, ForecastFigures, ForecastLine, MinimumTaxBand,
     TaxCalculationResult, TaxModelDetail, TaxModelRow, TypedPair,
 };
+use crate::shared::MAX_AMOUNT_MINOR;
 use crate::AppState;
 use chrono::NaiveDate;
 use serde::Deserialize;
@@ -83,8 +84,6 @@ pub struct SaveTaxForecastFiguresInput {
     pub model_id: i64,
     pub figures: ForecastFiguresInput,
 }
-
-const MAX_AMOUNT_MINOR: i64 = 10_000_000_000_000;
 
 fn validate_amount(amount_minor: i64, label: impl std::fmt::Display) -> Result<(), AppError> {
     if amount_minor < 0 {

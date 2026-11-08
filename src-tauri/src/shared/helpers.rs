@@ -174,6 +174,10 @@ pub fn format_end_of_month(year: i32, month: u32) -> String {
     format!("{:04}-{:02}-{:02}T23:59:59", year, month, last_day)
 }
 
+/// The largest amount a user may type, 100 billion in a two-decimal currency. Sums of many such
+/// amounts still fit in an `i64`.
+pub const MAX_AMOUNT_MINOR: i64 = 10_000_000_000_000;
+
 /// Integer division with rounding to nearest, halves away from zero (symmetric for negatives).
 pub fn div_round(numerator: i64, denominator: i64) -> i64 {
     (numerator + numerator.signum() * (denominator.abs() / 2)) / denominator
@@ -184,8 +188,8 @@ pub fn major_units(minor: i64) -> String {
     format!("{sign}{}.{:02}", minor.abs() / 100, minor.abs() % 100)
 }
 
-/// `div_round` for the i128 intermediates of `convert_balance`; `denominator` must be positive.
-fn div_round_i128(numerator: i128, denominator: i128) -> i128 {
+/// `div_round` for i128 intermediates; `denominator` must be positive.
+pub(crate) fn div_round_i128(numerator: i128, denominator: i128) -> i128 {
     (numerator + numerator.signum() * (denominator / 2)) / denominator
 }
 
