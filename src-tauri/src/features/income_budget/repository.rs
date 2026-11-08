@@ -407,6 +407,22 @@ mod tests {
         }
     }
 
+    #[test]
+    fn a_transfer_leg_counts_as_income_once_its_other_account_is_deleted() {
+        let conn = initialize_in_memory().unwrap();
+        let checking = mk(&conn, "Checking", "account", DEFAULT_PERSON, EUR);
+        let theirs = mk(&conn, "Theirs", "account", other_person(&conn), EUR);
+        let mut transfer = entry(theirs, -7_000, "2026-10-15");
+        transfer.counterpart_account_id = Some(checking);
+        create_transfer(&conn, &transfer).unwrap();
+        let while_a_transfer = october_gross(&conn, DEFAULT_PERSON);
+
+        delete_account(&conn, theirs).unwrap();
+
+        assert_eq!(while_a_transfer, 0);
+        assert_eq!(october_gross(&conn, DEFAULT_PERSON), 7_000);
+    }
+
     fn november_budget(conn: &Connection, events_until: &str) -> Evaluation {
         let checking = mk(conn, "Checking", "account", DEFAULT_PERSON, EUR);
         cashflow(conn, checking, 50_000, "2026-11-20T10:00:00");
