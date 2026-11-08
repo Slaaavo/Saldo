@@ -80,16 +80,17 @@ const setupMocks = (overrides?: { rows?: SnapshotRow[]; budget?: IncomeBudget })
   ;(getConsolidationCurrency as Mock).mockResolvedValue({ id: 1, code: 'EUR', name: 'Euro', minorUnits: 2, isCustom: false })
 }
 
-const renderDialog = () => {
+const newQueryClient = () => new QueryClient({ defaultOptions: { queries: { retry: 0 } } })
+
+const renderDialog = (queryClient = newQueryClient()) => {
   const onClose = vi.fn()
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: 0 } } })
   const wrapper = ({ children }: { children: ReactNode }) => (
     <QueryClientProvider client={queryClient}>
       <SelectedPersonProvider>{children}</SelectedPersonProvider>
     </QueryClientProvider>
   )
-  render(<IncomeBudgetDialog bucketId={30} onClose={onClose} />, { wrapper })
-  return { onClose }
+  const { unmount } = render(<IncomeBudgetDialog bucketId={30} onClose={onClose} />, { wrapper })
+  return { onClose, unmount }
 }
 
 const rowCells = (label: string) => within(screen.getByRole('row', { name: new RegExp(`^${label}`) })).getAllByRole('cell')
@@ -220,6 +221,32 @@ describe('IncomeBudgetDialog', () => {
       { month: NOV, budgetMinor: 612000, vatBps: 2300 },
       { month: DEC, budgetMinor: null, vatBps: 2300 },
     ])
+  })
+
+  it('reopens on the months saved since it was last open, wherever the time machine was', async () => {
+    const user = userEvent.setup()
+    let stored = makeBudget().months
+    ;(getIncomeBudget as Mock).mockImplementation(async () => makeBudget({ months: stored }))
+    ;(saveIncomeBudget as Mock).mockImplementation(async (_bucketId: number, months: IncomeBudget['months']) => {
+      stored = months
+    })
+    const queryClient = newQueryClient()
+    const december = () => screen.findByRole('textbox', { name: 'incomeBudget.table.budgetCell (month=December 2026)' })
+
+    const firstLive = renderDialog(queryClient)
+    expect(await december()).toHaveValue('')
+    firstLive.unmount()
+
+    timeMachine.asOf = { kind: 'at', until: '2026-10-15' }
+    const inThePast = renderDialog(queryClient)
+    await user.type(await december(), '6120')
+    await user.click(screen.getByRole('button', { name: 'incomeBudget.save' }))
+    await waitFor(() => expect(inThePast.onClose).toHaveBeenCalledOnce())
+    inThePast.unmount()
+
+    timeMachine.asOf = LIVE
+    renderDialog(queryClient)
+    expect(await december()).toHaveValue('6120')
   })
 
   it('sends nothing on Cancel', async () => {
