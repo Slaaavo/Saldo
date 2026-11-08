@@ -230,7 +230,7 @@ export interface TaggedCashflows {
   valuation: Valuation
 }
 
-export const BUCKET_KINDS = ['balance'] as const
+export const BUCKET_KINDS = ['balance', 'incomeBudget'] as const
 
 export type BucketKind = (typeof BUCKET_KINDS)[number]
 

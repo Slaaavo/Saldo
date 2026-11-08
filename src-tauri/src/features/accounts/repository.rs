@@ -1,6 +1,7 @@
 use crate::error::AppError;
 use crate::features::assets::business_use::AssetUseTerms;
 use crate::features::assets::repository::store_use_terms;
+use crate::features::buckets::BucketKind;
 use crate::shared::{
     is_duplicate_iban_error, local_now, validate_iban, with_savepoint, with_savepoint_app,
 };
@@ -20,6 +21,7 @@ pub struct CreateAccountParams {
     pub depreciation_period_months: Option<i64>,
     pub initial_balance_date: Option<String>,
     pub use_terms: AssetUseTerms,
+    pub bucket_kind: BucketKind,
 }
 
 #[derive(Default)]
@@ -55,8 +57,8 @@ pub fn create_account(conn: &Connection, params: CreateAccountParams) -> Result<
             |row| row.get(0),
         )?;
         conn.execute(
-            "INSERT INTO account (name, currency_id, account_type, sort_order, iban, person_id, purchase_price_minor, purchase_date, depreciation_period_months) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-            params![params.name.as_str(), params.currency_id, params.account_type.as_str(), next_sort_order, normalised_iban, params.person_id, params.purchase_price_minor, params.purchase_date.as_deref(), params.depreciation_period_months],
+            "INSERT INTO account (name, currency_id, account_type, sort_order, iban, person_id, purchase_price_minor, purchase_date, depreciation_period_months, bucket_kind) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            params![params.name.as_str(), params.currency_id, params.account_type.as_str(), next_sort_order, normalised_iban, params.person_id, params.purchase_price_minor, params.purchase_date.as_deref(), params.depreciation_period_months, params.bucket_kind],
         ).map_err(|e| {
             if is_duplicate_iban_error(&e) {
                 AppError {

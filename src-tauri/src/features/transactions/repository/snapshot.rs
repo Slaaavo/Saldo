@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use crate::error::AppError;
 use crate::features::assets::repository::get_all_account_asset_link_ids;
 use crate::features::buckets::repository::list_all_latest_bucket_links;
-use crate::features::buckets::{BucketKind, BucketState};
+use crate::features::buckets::BucketState;
 use crate::features::currency::models::Currency;
 use crate::features::currency::rate_age::{is_stale, rate_age_days};
 use crate::features::currency::repository::{
@@ -203,7 +203,8 @@ pub fn get_accounts_snapshot(
            a.purchase_price_minor,
            a.purchase_date,
            a.depreciation_period_months,
-           a.bucket_enabled
+           a.bucket_enabled,
+           a.bucket_kind
          FROM account a
          JOIN currency c ON c.id = a.currency_id
          WHERE a.account_type IN ('account', 'bucket', 'asset')
@@ -222,7 +223,7 @@ pub fn get_accounts_snapshot(
             let account_type: AccountKind = row.get(2)?;
             let bucket = match account_type {
                 AccountKind::Bucket => Some(BucketState {
-                    kind: BucketKind::Balance,
+                    kind: row.get(14)?,
                     enabled: row.get(13)?,
                 }),
                 AccountKind::Account | AccountKind::Asset => None,
@@ -394,6 +395,7 @@ mod tests {
     use crate::features::accounts::repository::{create_account, CreateAccountParams};
     use crate::features::assets::repository::set_account_asset_links;
     use crate::features::buckets::repository::{set_bucket_event_links, SetBucketEventLinksParams};
+    use crate::features::buckets::BucketKind;
     use crate::features::currency::repository::{
         set_fx_rate_manual, upsert_fx_rates, SetFxRateManualParams,
     };
@@ -964,6 +966,18 @@ mod tests {
         let on = mk_account(&conn, "bucket");
         let off = mk_account(&conn, "bucket");
         switch_off(&conn, off);
+        let income = create_account(
+            &conn,
+            CreateAccountParams {
+                name: "Income".to_owned(),
+                currency_id: 1,
+                account_type: "bucket".to_owned(),
+                person_id: Some(1),
+                bucket_kind: BucketKind::IncomeBudget,
+                ..Default::default()
+            },
+        )
+        .unwrap();
 
         let rows = rows_at(&conn, "2026-03-05");
 
@@ -986,6 +1000,14 @@ mod tests {
         assert_eq!(
             serde_json::to_value(row(&rows, off)).unwrap()["bucket"],
             serde_json::json!({ "kind": "balance", "enabled": false })
+        );
+        assert_eq!(
+            serde_json::to_value(row(&rows, income)).unwrap()["bucket"],
+            serde_json::json!({ "kind": "incomeBudget", "enabled": true })
+        );
+        assert_eq!(
+            serde_json::to_value(row(&rows, account)).unwrap()["bucket"],
+            serde_json::Value::Null
         );
     }
 

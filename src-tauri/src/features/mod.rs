@@ -5,6 +5,7 @@ pub mod csv_profiles;
 pub mod currency;
 pub mod ekasa;
 pub mod entry_batches;
+pub mod income_budget;
 pub mod partner_accounts;
 pub mod persons;
 pub mod settings;

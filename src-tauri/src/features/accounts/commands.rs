@@ -2,6 +2,7 @@ use crate::error::AppError;
 use crate::features::assets::business_use::AssetUseTerms;
 use crate::features::assets::repository::get_use_terms;
 use crate::features::assets::resolve::{resolve_purchase, PurchaseRequest};
+use crate::features::buckets::BucketKind;
 use crate::features::currency::repository::get_consolidation_currency;
 use crate::shared::{is_iso_date, validate_event_date, with_savepoint_app};
 use crate::AppState;
@@ -150,6 +151,7 @@ pub(crate) fn create_account_with_conn(
                     .clone()
                     .or_else(|| purchase.start_value_minor.and(input.purchase_date.clone())),
                 use_terms: purchase.terms.clone(),
+                bucket_kind: BucketKind::Balance,
             },
         )?;
 

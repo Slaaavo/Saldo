@@ -280,6 +280,7 @@ mod tests {
     use super::*;
     use crate::db::initialize_in_memory;
     use crate::features::accounts::repository::{create_account, CreateAccountParams};
+    use crate::features::buckets::{BucketKind, BucketState};
 
     fn mk_account(conn: &Connection, account_type: &str) -> i64 {
         create_account(
@@ -294,12 +295,15 @@ mod tests {
         .unwrap()
     }
 
-    fn switch_of(conn: &Connection, bucket_id: i64) -> Option<bool> {
+    fn bucket_state(conn: &Connection, bucket_id: i64) -> Option<BucketState> {
         crate::features::transactions::repository::rows_at(conn, "2026-11-08")
             .into_iter()
             .find(|row| row.account_id == bucket_id)
             .and_then(|row| row.bucket)
-            .map(|bucket| bucket.enabled)
+    }
+
+    fn switch_of(conn: &Connection, bucket_id: i64) -> Option<bool> {
+        bucket_state(conn, bucket_id).map(|bucket| bucket.enabled)
     }
 
     fn set(conn: &Connection, bucket_id: i64, enabled: bool) -> Result<(), AppError> {
@@ -344,7 +348,18 @@ mod tests {
     #[test]
     fn update_account_keeps_the_switch_and_the_kind() {
         let conn = initialize_in_memory().unwrap();
-        let bucket = mk_account(&conn, "bucket");
+        let bucket = create_account(
+            &conn,
+            CreateAccountParams {
+                name: "Income".to_owned(),
+                account_type: "bucket".to_owned(),
+                currency_id: 1,
+                person_id: Some(1),
+                bucket_kind: BucketKind::IncomeBudget,
+                ..Default::default()
+            },
+        )
+        .unwrap();
         set(&conn, bucket, false).unwrap();
 
         crate::features::accounts::commands::update_account_with_conn(
@@ -362,7 +377,13 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(switch_of(&conn, bucket), Some(false));
+        assert_eq!(
+            bucket_state(&conn, bucket),
+            Some(BucketState {
+                kind: BucketKind::IncomeBudget,
+                enabled: false
+            })
+        );
     }
 
     #[test]
