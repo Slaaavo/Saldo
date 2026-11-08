@@ -6,8 +6,6 @@ pub struct AppError {
     pub message: String,
 }
 
-/// A `RAISE` in a trigger is a storage rule refusing the write, and its message is written for
-/// the user.
 impl From<rusqlite::Error> for AppError {
     fn from(e: rusqlite::Error) -> Self {
         if let rusqlite::Error::SqliteFailure(failure, Some(message)) = &e {

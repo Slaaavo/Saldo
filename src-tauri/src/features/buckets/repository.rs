@@ -44,7 +44,6 @@ pub struct BucketFacts {
     pub currency_id: i64,
 }
 
-/// None when `bucket_id` is not a bucket.
 pub fn get_bucket_facts(
     conn: &Connection,
     bucket_id: i64,
@@ -64,8 +63,6 @@ pub fn get_bucket_facts(
     .optional()
 }
 
-/// False when `bucket_id` is not a bucket. The value is absolute, so a repeated call changes
-/// nothing.
 pub fn set_bucket_enabled(
     conn: &Connection,
     params: SetBucketEnabledParams,

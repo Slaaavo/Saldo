@@ -205,8 +205,7 @@ struct RatedAmount<'a> {
 }
 
 /// Bucket links never warn. A link values its source account's balance at the same rate, and
-/// that account is always a row of its own, so the row warns for it. A switched-off bucket counts
-/// nowhere, so it does not warn either.
+/// that account is always a row of its own, so the row warns for it.
 pub fn rate_warnings(rows: &[SnapshotRow]) -> Vec<RateWarning> {
     let counted_rows = || rows.iter().filter(|row| !row.is_switched_off());
     let balances = counted_rows().map(|row| RatedAmount {

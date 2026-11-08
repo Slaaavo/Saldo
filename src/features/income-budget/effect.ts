@@ -1,6 +1,5 @@
 import type { IncomeBudgetPreview, MonthKey } from '@/shared/types'
 
-/** What the previewed value does to Left to Spend. Amounts are in the consolidation currency and never negative. */
 export type Effect =
   | { kind: 'off' }
   | { kind: 'noRate' }

@@ -128,7 +128,6 @@ pub struct SnapshotRow {
     pub account_name: String,
     pub account_type: AccountKind,
     pub iban: Option<String>,
-    /// For an income budget, its computed value: received minus budget over its started months.
     pub balance_minor: i64,
     pub currency_code: String,
     pub currency_minor_units: i64,

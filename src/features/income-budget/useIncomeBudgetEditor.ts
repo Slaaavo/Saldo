@@ -19,7 +19,6 @@ interface Options {
   onSaved: () => void
 }
 
-/** The dialog's draft from open to Save. Nothing reaches the database before Save, so Cancel only has to drop it. */
 export const useIncomeBudgetEditor = ({ bucketId, budget, minorUnits, measure, onSaved }: Options) => {
   const { t, i18n } = useTranslation()
   const queryClient = useQueryClient()

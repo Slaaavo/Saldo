@@ -4,7 +4,6 @@ import { getIncomeBudget, previewIncomeBudget } from '@/shared/api'
 import type { AsOf } from '@/shared/types'
 import { parseDraft, type BudgetDraft, type YearSpan } from './budgetDraft'
 
-/** The counted accounts follow every account change, and those changes invalidate 'snapshot'. */
 export const useIncomeBudget = (bucketId: number, asOf: AsOf) =>
   useQuery({
     queryKey: ['snapshot', 'income-budget', bucketId, asOf],
@@ -19,7 +18,6 @@ interface PreviewOptions {
   minorUnits: number
 }
 
-/** Received depends on cashflows, so the key nests under 'events' and refreshes with every entry change. */
 export const useIncomeBudgetPreview = ({ bucketId, asOf, span, draft, minorUnits }: PreviewOptions) => {
   const deferredDraft = useDeferredValue(draft)
   const { fromYear, toYear } = useDeferredValue(span)

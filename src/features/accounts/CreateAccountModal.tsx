@@ -41,10 +41,9 @@ const CreateAccountModal = ({ accountType, assets, onSubmit, onSubmitIncomeBudge
   const isAsset = accountType === 'asset'
   const isIncomeBudget = isBucket && bucketKind === 'incomeBudget'
 
-  // undefined = derived; number = explicitly chosen. An income budget gets no default person: its person decides whose income counts, so it is picked, not assumed.
-  const [personIdOverride, setPersonIdOverride] = useState<number | undefined>(selectedPersonId ?? undefined)
+  const [pickedPersonId, setPickedPersonId] = useState<number | undefined>(selectedPersonId ?? undefined)
   const derivedPersonId = isIncomeBudget ? null : (persons?.find((p) => p.isDefault)?.id ?? null)
-  const personId: number | null = personIdOverride ?? derivedPersonId
+  const personId: number | null = pickedPersonId ?? derivedPersonId
   const showPersonSelect = !isAsset && !!persons && (isIncomeBudget || persons.length > 1)
 
   useEffect(() => {
@@ -179,7 +178,7 @@ const CreateAccountModal = ({ accountType, assets, onSubmit, onSubmitIncomeBudge
                     // Radix also reports '' here when the value has no matching item, so only a listed person counts.
                     const picked = persons.find((p) => String(p.id) === val)
                     if (!picked) return
-                    setPersonIdOverride(picked.id)
+                    setPickedPersonId(picked.id)
                     setPersonMissing(false)
                   }}
                 >

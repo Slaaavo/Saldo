@@ -6,7 +6,6 @@ export const EMPTY_SNAPSHOT: Snapshot = { rows: [], metrics: [], rateWarnings: [
 
 export const valueOf = (valuation: Valuation): number | null => (valuation.kind === 'noRate' ? null : valuation.valueMinor)
 
-/** An income budget's value is computed from its typed months, so no screen offers it a balance update, a cashflow or a tag. */
 export const takesEntries = (row: SnapshotRow): boolean => row.bucket?.kind !== 'incomeBudget'
 
 export const groupRowsByKind = (rows: SnapshotRow[]) => ({

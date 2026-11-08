@@ -13,8 +13,6 @@ pub struct BucketLink {
     pub source_currency_minor_units: i64,
 }
 
-/// Fixed once the bucket is created. An income budget's value is computed from its typed months,
-/// so it owns no entries.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum BucketKind {
@@ -50,7 +48,6 @@ impl FromSql for BucketKind {
     }
 }
 
-/// Only bucket rows carry one. `enabled` is today's switch, also for a past moment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BucketState {

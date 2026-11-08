@@ -8,9 +8,6 @@ use super::calculation::{
 use super::models::CountedAccount;
 use crate::error::AppError;
 
-/// The accounts whose incoming money is the budget's Received: the person's own accounts in the
-/// budget's currency that Left to Spend counts. `gross_inflows` and `counted_accounts` share it,
-/// so the dialog's list of accounts and its numbers cannot disagree.
 const COUNTED_ACCOUNT: &str = "a.account_type = 'account'
     AND a.person_id = :person_id
     AND a.currency_id = :currency_id
@@ -51,7 +48,6 @@ struct InflowsParams {
     to: YearMonth,
 }
 
-/// The person's income budget. There is at most one, because the unique index allows no second.
 pub fn income_budget_of(conn: &Connection, person_id: i64) -> rusqlite::Result<Option<i64>> {
     conn.query_row(
         "SELECT id FROM account WHERE person_id = ?1 AND bucket_kind = 'income_budget'",
@@ -73,7 +69,7 @@ pub fn list_cells(conn: &Connection, bucket_id: i64) -> rusqlite::Result<Vec<Bud
             let vat_bps: Option<i64> = row.get(2)?;
             YearMonth::parse(&month)
                 .and_then(|month| BudgetCell::new(month, budget_minor, vat_bps))
-                .map_err(stored)
+                .map_err(damaged_row)
         })?
         .collect::<rusqlite::Result<_>>()?;
     Ok(cells)
@@ -125,11 +121,11 @@ pub fn counted_accounts(
     Ok(accounts)
 }
 
-/// Months are compared through `substr`, never as date ranges, because stored dates mix
-/// date-only and timed values.
+const EVENT_MONTH: &str = "substr(ed.event_date, 1, 7)";
+
 fn gross_inflows(conn: &Connection, params: InflowsParams) -> rusqlite::Result<GrossInflows> {
     let mut stmt = conn.prepare(&format!(
-        "SELECT substr(ed.event_date, 1, 7) AS month, SUM(ed.amount_minor)
+        "SELECT {EVENT_MONTH} AS month, SUM(ed.amount_minor)
          FROM account a
          JOIN event e       ON e.account_id = a.id
          JOIN event_data ed ON ed.id = e.latest_data_id
@@ -138,7 +134,7 @@ fn gross_inflows(conn: &Connection, params: InflowsParams) -> rusqlite::Result<G
            AND e.deleted_at IS NULL
            AND ed.amount_minor > 0
            AND ed.event_date <= :events_until
-           AND substr(ed.event_date, 1, 7) BETWEEN :from AND :to
+           AND {EVENT_MONTH} BETWEEN :from AND :to
          GROUP BY month"
     ))?;
     let inflows = stmt
@@ -152,16 +148,13 @@ fn gross_inflows(conn: &Connection, params: InflowsParams) -> rusqlite::Result<G
             },
             |row| {
                 let month: String = row.get(0)?;
-                Ok((YearMonth::parse(&month).map_err(stored)?, row.get(1)?))
+                Ok((YearMonth::parse(&month).map_err(damaged_row)?, row.get(1)?))
             },
         )?
         .collect::<rusqlite::Result<_>>()?;
     Ok(inflows)
 }
 
-/// Evaluates `cells` against the inflows stored up to the moment. `day` decides which months
-/// have started and `events_until` which cashflows count, so live counts a payment dated later in
-/// the current month.
 pub fn evaluate_draft(
     conn: &Connection,
     params: EvaluateDraftParams,
@@ -183,7 +176,6 @@ pub fn evaluate_draft(
     Ok(evaluate(&params.cells, &gross, current, params.lines_for))
 }
 
-/// The stored budget's value at the moment.
 pub fn value_at(conn: &Connection, params: ValueAtParams) -> rusqlite::Result<i64> {
     let cells = list_cells(conn, params.bucket_id)?;
     let evaluation = evaluate_draft(
@@ -200,8 +192,7 @@ pub fn value_at(conn: &Connection, params: ValueAtParams) -> rusqlite::Result<i6
     Ok(evaluation.value_minor)
 }
 
-/// The table's CHECKs keep stored months valid, so this fires only on a damaged database.
-fn stored(err: AppError) -> rusqlite::Error {
+fn damaged_row(err: AppError) -> rusqlite::Error {
     rusqlite::Error::FromSqlConversionFailure(0, Type::Text, err.message.into())
 }
 

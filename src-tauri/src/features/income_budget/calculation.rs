@@ -85,8 +85,6 @@ impl Serialize for YearMonth {
     }
 }
 
-/// One typed month. The fields are private and `new` checks what the table's CHECKs check, so a
-/// cell that exists is valid.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BudgetCell {
@@ -137,7 +135,6 @@ impl BudgetCell {
     }
 }
 
-/// What arrived in each month, VAT included.
 pub type GrossInflows = BTreeMap<YearMonth, i64>;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -156,9 +153,6 @@ pub struct Evaluation {
     pub lines: Vec<MonthLine>,
 }
 
-/// The one definition of an income budget's value: the sum of received minus budget over every
-/// budgeted month that has started by `current`. `lines_for` only decides which months are
-/// drawn, never the value.
 pub fn evaluate(
     cells: &[BudgetCell],
     gross: &GrossInflows,
@@ -193,7 +187,6 @@ pub fn evaluate(
     Evaluation { value_minor, lines }
 }
 
-/// The earliest month whose inflows `evaluate` reads, or None when it reads none.
 pub fn first_month_needed(
     cells: &[BudgetCell],
     lines_for: Option<(YearMonth, YearMonth)>,

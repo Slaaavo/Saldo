@@ -6,7 +6,6 @@ export type DraftRow = (typeof DRAFT_ROWS)[number]
 
 export type DraftCell = Readonly<Record<DraftRow, string>>
 
-/** What the user typed, as typed, until Save. A month with both cells blank has no entry. */
 export type BudgetDraft = ReadonlyMap<MonthKey, DraftCell>
 
 export type ParsedText = { kind: 'empty' } | { kind: 'value'; value: number } | { kind: 'invalid' }
@@ -16,7 +15,6 @@ export interface InvalidCell {
   row: DraftRow
 }
 
-/** `cells` holds every month with a valid value. An invalid cell counts as empty there and is listed in `invalid`. */
 export interface ParsedDraft {
   cells: BudgetCell[]
   invalid: InvalidCell[]
@@ -33,7 +31,6 @@ const INVALID: ParsedText = { kind: 'invalid' }
 const VAT_SCALE = 2
 const MAX_VAT_BPS = 10000
 const MAX_EXACT_DIGITS = 15
-// The preview command refuses a year outside these and a span of more years.
 const FIRST_YEAR = 1990
 const LAST_YEAR = 2200
 const MAX_YEARS = 40
@@ -79,7 +76,6 @@ export const draftFromCells = (cells: readonly BudgetCell[], minorUnits: number)
 
 const DECIMAL = /^(\d+)(?:[.,](\d+))?$/
 
-// Digits only, so "1,234.50" or "1.234,50" is invalid instead of misread, and the value is exact without floating point.
 const parseDecimal = (text: string, scale: number, max: number): ParsedText => {
   const compact = text.replace(/\s/g, '')
   if (compact === '') return EMPTY
@@ -118,14 +114,12 @@ export const parseDraft = (draft: BudgetDraft, minorUnits: number): ParsedDraft 
   return { cells, invalid }
 }
 
-/** The first to the last year that holds a value, or only the moment's year when none does. */
 export const spanOf = (draft: BudgetDraft, momentYear: number): YearSpan => {
   const years = [...draft.keys()].map(yearOf)
   if (years.length === 0) return { fromYear: momentYear, toYear: momentYear }
   return { fromYear: Math.min(...years), toYear: Math.max(...years) }
 }
 
-/** The span one year wider on that side, or null where the preview would refuse it. */
 export const widen = (span: YearSpan, side: 'before' | 'after'): YearSpan | null => {
   const next = side === 'before' ? { ...span, fromYear: span.fromYear - 1 } : { ...span, toYear: span.toYear + 1 }
   if (next.fromYear < FIRST_YEAR || next.toYear > LAST_YEAR || next.toYear - next.fromYear >= MAX_YEARS) return null

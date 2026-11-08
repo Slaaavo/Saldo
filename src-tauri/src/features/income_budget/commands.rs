@@ -208,8 +208,6 @@ pub(crate) fn save_income_budget_inner(
     })
 }
 
-/// A person holds at most one income budget, so an income budget cannot move to a person who
-/// already has one. Any other account may change its person freely.
 pub(crate) fn check_person_change(
     conn: &Connection,
     account_id: i64,

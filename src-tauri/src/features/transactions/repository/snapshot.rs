@@ -55,8 +55,6 @@ impl Moment {
         &self.events_until[..10]
     }
 
-    /// Today when live, the picked day otherwise. Live has no cutoff, so its day comes from here,
-    /// never from `events_until`.
     pub(crate) fn day(&self) -> NaiveDate {
         self.age_reference
     }
@@ -159,7 +157,6 @@ pub struct ValueAmountParams {
     pub amount_minor: i64,
 }
 
-/// Values one amount the way the snapshot values a row at the same moment.
 pub(crate) fn value_amount(
     conn: &Connection,
     params: ValueAmountParams,

@@ -2,12 +2,10 @@ import { useEffect, useEffectEvent, useRef, useState } from 'react'
 import type { DraftRow } from './budgetDraft'
 import { columnAtX, edgeScrollDelta, type FillSpan, type TableGeometry } from './fillRange'
 
-/** The table as a drag sees it: the columns, measured once when the drag starts, and the scroller it moves. */
 export interface DragSurface extends TableGeometry {
   scroller: { scrollLeft: number; readonly clientWidth: number; getBoundingClientRect(): { left: number } }
 }
 
-/** The corner square's pointerdown, narrowed to what the drag reads. */
 export interface FillPointerDown {
   button: number
   pointerId: number
@@ -26,11 +24,6 @@ interface Options {
   onFill: (span: FillSpan) => void
 }
 
-/**
- * Dragging a cell's corner square across months. Moves and the release are read on the window, so the drag also works when
- * pointer capture does not. Escape cancels only the drag: it is prevented in the capture phase, and the dialog leaves a
- * prevented Escape alone.
- */
 export const useFillDrag = ({ measure, onFill }: Options) => {
   const [drag, setDrag] = useState<FillSpan | null>(null)
   const session = useRef<Session | null>(null)
