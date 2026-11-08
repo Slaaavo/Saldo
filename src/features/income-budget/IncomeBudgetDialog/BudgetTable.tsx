@@ -69,9 +69,14 @@ export const BudgetTable = ({
     const intent = pendingScroll.current
     if (!scroller || !intent) return
     pendingScroll.current = null
-    if (intent === 'start') scroller.scrollLeft = 0
-    else if (intent === 'end') scroller.scrollLeft = scroller.scrollWidth
-    else scroller.scrollLeft = scrollLeftForMoment(surfaceOf(scroller), months, moment)
+    if (intent === 'moment') {
+      scroller.scrollLeft = scrollLeftForMoment(surfaceOf(scroller), months, moment)
+      return
+    }
+    // WKWebView drops a scroll position set in the same frame as the year's new columns, so it keeps painting the old offset.
+    requestAnimationFrame(() => {
+      scroller.scrollLeft = intent === 'start' ? 0 : scroller.scrollWidth
+    })
   })
 
   const addYear = (side: 'before' | 'after') => {
