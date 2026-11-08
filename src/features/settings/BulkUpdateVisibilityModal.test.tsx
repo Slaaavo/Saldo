@@ -3,6 +3,7 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { SnapshotRow } from '../../shared/types'
 import BulkUpdateVisibilityModal from './BulkUpdateVisibilityModal'
+import { makeIncomeBudgetRow } from '../../shared/testing/snapshotFixtures'
 
 vi.mock('react-i18next', () => {
   const t = (key: string) => key
@@ -44,6 +45,18 @@ describe('BulkUpdateVisibilityModal select all', () => {
     await user.click(save())
 
     expect(savedIds(onSave)).toEqual([1, 2, 3, OTHER_PERSONS_ACCOUNT])
+  })
+
+  it('does not list an income budget, so select all never hides or shows it', async () => {
+    const user = userEvent.setup()
+    const onSave = vi.fn()
+    render(<BulkUpdateVisibilityModal accounts={[makeRow(1), makeIncomeBudgetRow({ accountId: 30 })]} currentExclusions={[]} onSave={onSave} onClose={vi.fn()} />)
+
+    expect(screen.queryByText('Consulting income')).not.toBeInTheDocument()
+    await user.click(selectAll())
+    await user.click(save())
+
+    expect(savedIds(onSave)).toEqual([1])
   })
 
   it('leaves no exclusions when none existed and everything is included again', async () => {

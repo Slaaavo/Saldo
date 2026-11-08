@@ -5,6 +5,7 @@ import { ChevronDown, ChevronRight, Link2 } from 'lucide-react'
 import { withDefaultTime, todayIso, toMinorUnits, getMinorUnitsStep } from '../../shared/utils/format'
 import { extractErrorMessage } from '../../shared/utils/errors'
 import { useSnapshotQuery } from '../../shared/hooks/useSnapshotQuery'
+import { takesEntries } from '../../shared/utils/snapshot'
 import type { SnapshotRow } from '../../shared/types'
 import NumberValue from '../../shared/ui/NumberValue'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogBody, DialogFooter } from '../../shared/ui/dialog'
@@ -33,7 +34,7 @@ const BulkUpdateBalanceModal = ({ exclusions, onSubmit, onClose }: Props) => {
   const [assetsExpanded, setAssetsExpanded] = useState(true)
 
   const exclusionSet = new Set(exclusions)
-  const visibleAccounts = accounts.filter((r) => !exclusionSet.has(r.accountId))
+  const visibleAccounts = accounts.filter((r) => takesEntries(r) && !exclusionSet.has(r.accountId))
 
   const realAccounts = visibleAccounts.filter((r) => r.accountType === 'account')
   const bucketAccounts = visibleAccounts.filter((r) => r.accountType === 'bucket')

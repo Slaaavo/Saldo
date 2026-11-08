@@ -9,7 +9,7 @@ import { useModal } from './useModal'
 import { useSnapshotQuery } from '../shared/hooks/useSnapshotQuery'
 import { useConsolidationCurrencyQuery } from '../shared/hooks/useConsolidationCurrencyQuery'
 import { useBulkUpdateExclusionsQuery } from '../shared/hooks/useBulkUpdateExclusionsQuery'
-import { LIVE, groupRowsByKind } from '../shared/utils/snapshot'
+import { LIVE, groupRowsByKind, takesEntries } from '../shared/utils/snapshot'
 import CreateBalanceUpdateModal from '../features/transactions/CreateBalanceUpdateModal'
 import EditBalanceUpdateModal from '../features/transactions/EditBalanceUpdateModal'
 import CreateAccountModal from '../features/accounts/CreateAccountModal'
@@ -49,6 +49,7 @@ const AppModals = ({ dbLocation }: AppModalsProps) => {
   const snapshotQuery = useSnapshotQuery(LIVE)
   const snapshot = snapshotQuery.data?.rows ?? []
   const { accounts, buckets, assets } = groupRowsByKind(snapshot)
+  const entryAccounts = snapshot.filter(takesEntries)
   const consolidationCurrencyQuery = useConsolidationCurrencyQuery()
   const consolidationCurrency = consolidationCurrencyQuery.data ?? null
   const exclusionsQuery = useBulkUpdateExclusionsQuery()
@@ -79,7 +80,7 @@ const AppModals = ({ dbLocation }: AppModalsProps) => {
     case 'createBalanceUpdate':
       return (
         <CreateBalanceUpdateModal
-          accounts={snapshot}
+          accounts={entryAccounts}
           preselectedAccountId={modalState.preselectedAccountId}
           onSubmit={handleCreateBalanceUpdate}
           onBucketSubmit={handleCreateBucketBalanceUpdate}
@@ -91,7 +92,7 @@ const AppModals = ({ dbLocation }: AppModalsProps) => {
       return (
         <EditBalanceUpdateModal
           event={modalState.event}
-          accounts={snapshot}
+          accounts={entryAccounts}
           onSubmit={handleEditBalanceUpdate}
           onBucketSubmit={handleEditBucketBalanceUpdate}
           onClose={closeModal}

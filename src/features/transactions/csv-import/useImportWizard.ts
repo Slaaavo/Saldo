@@ -19,6 +19,7 @@ import {
 } from '../../../shared/api'
 import { toMinorUnits } from '../../../shared/utils/format'
 import { extractErrorMessage } from '../../../shared/utils/errors'
+import { takesEntries } from '../../../shared/utils/snapshot'
 import type { WizardState, CashflowFieldKey, ImportRow, ColumnMapping, IbanMatchResult, SplitLeg } from './types'
 import type { IbanLookupEntry } from './ibanMatcher'
 import { buildIbanLookup, matchIban, normalizeIban } from './ibanMatcher'
@@ -142,7 +143,7 @@ export const useImportWizard = (params: { snapshot: SnapshotRow[]; onClose: () =
   const selectedAccountCurrencyId = currencies.find((c) => c.code === selectedAccountCurrencyCode)?.id ?? 0
 
   // Derived: bucket rows that don't already have this account linked
-  const availableBuckets = snapshot.filter((r) => r.accountType === 'bucket' && !r.bucketLinks.some((l) => l.sourceAccountId === wizardState.selectedAccountId))
+  const availableBuckets = snapshot.filter((r) => r.accountType === 'bucket' && takesEntries(r) && !r.bucketLinks.some((l) => l.sourceAccountId === wizardState.selectedAccountId))
 
   // Derived: account-type rows that have no IBAN set
   const accountsWithoutIban = snapshot.filter((r) => r.accountType === 'account' && !r.iban)

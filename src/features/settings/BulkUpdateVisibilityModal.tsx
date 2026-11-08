@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { SnapshotRow } from '../../shared/types'
+import { takesEntries } from '../../shared/utils/snapshot'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogBody, DialogFooter } from '../../shared/ui/dialog'
 import { Button } from '../../shared/ui/button'
 import { Checkbox } from '../../shared/ui/checkbox'
@@ -26,11 +27,12 @@ const BulkUpdateVisibilityModal = ({ accounts, currentExclusions, onSave, onClos
   const { t } = useTranslation()
   const [excluded, setExcluded] = useState<Set<number>>(() => new Set(currentExclusions))
 
-  const realAccounts = accounts.filter((r) => r.accountType === 'account')
-  const bucketAccounts = accounts.filter((r) => r.accountType === 'bucket')
-  const assetAccounts = accounts.filter((r) => r.accountType === 'asset')
+  const listed = accounts.filter(takesEntries)
+  const realAccounts = listed.filter((r) => r.accountType === 'account')
+  const bucketAccounts = listed.filter((r) => r.accountType === 'bucket')
+  const assetAccounts = listed.filter((r) => r.accountType === 'asset')
 
-  const allIds = accounts.map((r) => r.accountId)
+  const allIds = listed.map((r) => r.accountId)
 
   const selectAllState: CheckedState = (() => {
     const includedCount = allIds.filter((id) => !excluded.has(id)).length

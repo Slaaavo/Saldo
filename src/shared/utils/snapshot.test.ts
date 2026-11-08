@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { groupRowsByKind, valueOf } from './snapshot'
+import { groupRowsByKind, takesEntries, valueOf } from './snapshot'
 import { NO_RATE, converted, makeRow, sameCurrency } from '../testing/snapshotFixtures'
 
 describe('valueOf', () => {
@@ -13,6 +13,24 @@ describe('valueOf', () => {
 
   it('gives nothing for an amount without a rate, so it cannot be mistaken for zero', () => {
     expect(valueOf(NO_RATE)).toBeNull()
+  })
+})
+
+describe('takesEntries', () => {
+  it('lets accounts, assets and balance buckets take entries, switched off or not', () => {
+    const rows = [
+      makeRow({ accountType: 'account' }),
+      makeRow({ accountType: 'asset' }),
+      makeRow({ accountType: 'bucket' }),
+      makeRow({ accountType: 'bucket', bucket: { kind: 'balance', enabled: false } }),
+    ]
+
+    expect(rows.map(takesEntries)).toEqual([true, true, true, true])
+  })
+
+  it('keeps every entry off an income budget, switched on or off', () => {
+    expect(takesEntries(makeRow({ accountType: 'bucket', bucket: { kind: 'incomeBudget', enabled: true } }))).toBe(false)
+    expect(takesEntries(makeRow({ accountType: 'bucket', bucket: { kind: 'incomeBudget', enabled: false } }))).toBe(false)
   })
 })
 

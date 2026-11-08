@@ -5,7 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { AsOf } from '../../shared/types'
 import BulkUpdateBalanceModal from './BulkUpdateBalanceModal'
 import { SelectedPersonProvider } from '../../app/SelectedPersonContext'
-import { makeRow, makeSnapshot } from '../../shared/testing/snapshotFixtures'
+import { makeIncomeBudgetRow, makeRow, makeSnapshot } from '../../shared/testing/snapshotFixtures'
 
 vi.mock('react-i18next', async () => (await import('../../shared/testing/i18nMock')).i18nMock)
 
@@ -95,5 +95,18 @@ describe('BulkUpdateBalanceModal', () => {
 
     expect(await screen.findByText('Savings')).toBeInTheDocument()
     expect(screen.queryByText('Checking')).not.toBeInTheDocument()
+  })
+
+  it('offers no field for an income budget, whose value Saldo computes', async () => {
+    ;(getAccountsSnapshot as Mock).mockResolvedValue(
+      makeSnapshot({
+        rows: [makeRow({ accountId: 1, accountName: 'Checking' }), makeRow({ accountId: 3, accountName: 'Vacation', accountType: 'bucket' }), makeIncomeBudgetRow()],
+      }),
+    )
+    renderModal()
+
+    expect(await screen.findByText('Vacation')).toBeInTheDocument()
+    expect(screen.queryByText('Consulting income')).not.toBeInTheDocument()
+    expect(screen.getAllByRole('spinbutton')).toHaveLength(2)
   })
 })

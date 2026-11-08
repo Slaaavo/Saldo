@@ -1,6 +1,7 @@
 import type { EarlierProfitResult, EntryKind, EntryNotCountedReason, ForecastFigures, ForecastLineResult, MinimumTaxBand } from './taxForecast'
 
 export * from './taxForecast'
+export * from './incomeBudget'
 
 export interface PersonRow {
   id: number

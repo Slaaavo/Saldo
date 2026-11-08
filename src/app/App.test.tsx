@@ -13,7 +13,7 @@ import LedgerPage from '../features/ledger/LedgerPage'
 import PartnersPage from '../features/partners/PartnersPage'
 import ImportProfilesPage from '../features/csv-profiles/ImportProfilesPage'
 import type { SnapshotRow, EventWithData, Currency, ModalState, DbLocationInfo } from '../shared/types'
-import { makeRow, makeSnapshot } from '../shared/testing/snapshotFixtures'
+import { makeIncomeBudgetRow, makeRow, makeSnapshot } from '../shared/testing/snapshotFixtures'
 
 // ── Mock i18n — pass-through that returns the key (with interpolations) ─────
 vi.mock('react-i18next', () => ({
@@ -268,8 +268,9 @@ vi.mock('../features/csv-profiles/ImportProfilesPage', () => ({
 
 // Mock all modals
 vi.mock('../features/transactions/CreateBalanceUpdateModal', () => ({
-  default: (props: { onSubmit: () => void; onClose: () => void }) => (
+  default: (props: { accounts: SnapshotRow[]; onSubmit: () => void; onClose: () => void }) => (
     <div data-testid="create-balance-modal">
+      <span data-testid="create-balance-accounts">{props.accounts.map((a) => a.accountName).join(', ')}</span>
       <button data-testid="create-balance-submit" onClick={props.onSubmit}>
         Submit
       </button>
@@ -281,8 +282,9 @@ vi.mock('../features/transactions/CreateBalanceUpdateModal', () => ({
 }))
 
 vi.mock('../features/transactions/EditBalanceUpdateModal', () => ({
-  default: (props: { onClose: () => void }) => (
+  default: (props: { accounts: SnapshotRow[]; onClose: () => void }) => (
     <div data-testid="edit-balance-modal">
+      <span data-testid="edit-balance-accounts">{props.accounts.map((a) => a.accountName).join(', ')}</span>
       <button data-testid="edit-balance-close" onClick={props.onClose}>
         Close
       </button>
@@ -844,6 +846,19 @@ describe('App', () => {
       await waitFor(() => {
         expect(screen.getByTestId('edit-balance-modal')).toBeInTheDocument()
       })
+    })
+
+    it('offers the balance update forms every account and bucket except an income budget', async () => {
+      setupDefaultMocks({ snapshot: [makeRow({ accountName: 'Checking' }), makeBucket({ accountName: 'Vacation' }), makeIncomeBudgetRow({ accountName: 'Consulting income' })] })
+
+      modalStateValue = { type: 'createBalanceUpdate' }
+      const { unmount } = renderApp()
+      await waitFor(() => expect(screen.getByTestId('create-balance-accounts')).toHaveTextContent(/^Checking, Vacation$/))
+      unmount()
+
+      modalStateValue = { type: 'editBalanceUpdate', event: makeEvent() }
+      renderApp()
+      await waitFor(() => expect(screen.getByTestId('edit-balance-accounts')).toHaveTextContent(/^Checking, Vacation$/))
     })
 
     it('renders CreateAccountModal when modalState is createAccount', async () => {

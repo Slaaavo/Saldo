@@ -4,6 +4,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '../../shared/ui/popover
 import { Button } from '../../shared/ui/button'
 import { Check, ChevronDown } from 'lucide-react'
 import { cn } from '@/shared/lib/utils'
+import { takesEntries } from '@/shared/utils/snapshot'
 
 interface Props {
   accounts: SnapshotRow[]
@@ -19,22 +20,23 @@ interface Group {
 
 const PortfolioItemFilter = ({ accounts, selectedIds, onChange }: Props) => {
   const { t } = useTranslation()
+  const listed = accounts.filter(takesEntries)
 
   const groups: Group[] = [
     {
       labelKey: 'ledgerPage.groupAccounts',
       type: 'account',
-      items: accounts.filter((a) => a.accountType === 'account'),
+      items: listed.filter((a) => a.accountType === 'account'),
     },
     {
       labelKey: 'ledgerPage.groupBuckets',
       type: 'bucket',
-      items: accounts.filter((a) => a.accountType === 'bucket'),
+      items: listed.filter((a) => a.accountType === 'bucket'),
     },
     {
       labelKey: 'ledgerPage.groupAssets',
       type: 'asset',
-      items: accounts.filter((a) => a.accountType === 'asset'),
+      items: listed.filter((a) => a.accountType === 'asset'),
     },
   ].filter((g) => g.items.length > 0)
 

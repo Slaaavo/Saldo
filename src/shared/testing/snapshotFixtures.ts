@@ -48,6 +48,9 @@ export const makeRow = (overrides?: Partial<SnapshotRow>): SnapshotRow => {
   }
 }
 
+export const makeIncomeBudgetRow = (overrides?: Partial<SnapshotRow>): SnapshotRow =>
+  makeRow({ accountId: 30, accountName: 'Consulting income', accountType: 'bucket', personId: 2, bucket: { kind: 'incomeBudget', enabled: true }, ...overrides })
+
 export const makeBucketLink = (overrides?: Partial<ValuedBucketLink>): ValuedBucketLink => ({
   id: 1,
   eventId: 1,

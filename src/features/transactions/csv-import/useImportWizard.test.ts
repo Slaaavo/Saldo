@@ -3,7 +3,7 @@ import { renderHook, act, waitFor } from '@testing-library/react'
 import type { Currency, EventWithData, ImportProfileRow, SnapshotRow } from '../../../shared/types'
 import { toast } from 'sonner'
 import { useImportWizard } from './useImportWizard'
-import { makeRow } from '../../../shared/testing/snapshotFixtures'
+import { makeIncomeBudgetRow, makeRow } from '../../../shared/testing/snapshotFixtures'
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -131,6 +131,15 @@ describe('useImportWizard', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     setupMocks()
+  })
+
+  describe('buckets', () => {
+    it('offers every bucket for tagging a row or a split leg except an income budget', async () => {
+      const { result } = renderWizard([...SNAPSHOT, makeAccount({ accountId: 10, accountName: 'Vacation', accountType: 'bucket' }), makeIncomeBudgetRow()])
+
+      await waitFor(() => expect(listImportProfiles).toHaveBeenCalled())
+      expect(result.current.availableBuckets.map((b) => b.accountName)).toEqual(['Vacation'])
+    })
   })
 
   describe('review', () => {

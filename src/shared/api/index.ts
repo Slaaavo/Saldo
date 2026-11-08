@@ -22,6 +22,9 @@ import type {
   TaxCalculationResult,
   MinimumTaxBand,
   ForecastFigures,
+  BudgetCell,
+  IncomeBudget,
+  IncomeBudgetPreview,
 } from '../types'
 
 export const createBalanceUpdate = (accountId: number, amountMinor: number, eventDate: string, note?: string): Promise<number> => {
@@ -249,6 +252,30 @@ export const updateBucketBalanceUpdate = (eventId: number, amountMinor: number, 
 
 export const setBucketEnabled = (bucketId: number, enabled: boolean): Promise<void> => {
   return invoke<void>('set_bucket_enabled', { input: { bucketId, enabled } })
+}
+
+export const createIncomeBudget = (name: string, currencyId: number, personId: number): Promise<number> => {
+  return invoke<number>('create_income_budget', { input: { name, currencyId, personId } })
+}
+
+export const getIncomeBudget = (bucketId: number, asOf: AsOf): Promise<IncomeBudget> => {
+  return invoke<IncomeBudget>('get_income_budget', { input: { bucketId, asOf } })
+}
+
+export interface PreviewIncomeBudgetInput {
+  bucketId: number
+  asOf: AsOf
+  fromYear: number
+  toYear: number
+  months: BudgetCell[]
+}
+
+export const previewIncomeBudget = (input: PreviewIncomeBudgetInput): Promise<IncomeBudgetPreview> => {
+  return invoke<IncomeBudgetPreview>('preview_income_budget', { input })
+}
+
+export const saveIncomeBudget = (bucketId: number, months: BudgetCell[]): Promise<void> => {
+  return invoke<void>('save_income_budget', { input: { bucketId, months } })
 }
 
 export const listLinksForEvent = (eventId: number): Promise<BucketLink[]> => {
