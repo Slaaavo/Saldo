@@ -21,10 +21,11 @@ export const NO_RATE: Valuation = { kind: 'noRate' }
 
 export const makeRow = (overrides?: Partial<SnapshotRow>): SnapshotRow => {
   const balanceMinor = overrides?.balanceMinor ?? 100000
+  const accountType = overrides?.accountType ?? 'account'
   return {
     accountId: 1,
     accountName: 'Checking',
-    accountType: 'account',
+    accountType,
     iban: null,
     balanceMinor,
     currencyCode: 'EUR',
@@ -42,6 +43,7 @@ export const makeRow = (overrides?: Partial<SnapshotRow>): SnapshotRow => {
     purchasePriceMinor: null,
     purchaseDate: null,
     depreciationPeriodMonths: null,
+    bucket: accountType === 'bucket' ? { kind: 'balance', enabled: true } : null,
     ...overrides,
   }
 }

@@ -72,6 +72,7 @@ metrics:
       linkedToAsset: "Linked to an asset, so it counts in Net Worth only."
       earmark: "A bucket sets aside money that is already in your accounts, so it is not added."
       notLiquid: "Assets are not liquid, so they are not counted here."
+      switchedOff: "Switched off on its card."
 
 # ──── Rate warnings ────
 rateWarnings:
@@ -108,6 +109,8 @@ buckets:
   additionalBalance: "Additional balance"
   cashflowTaggedBalance: "Tagged cashflows"
   notCounted: "Not counted"
+  off: "Off"
+  countInLeftToSpend: "Count {{name}} in Left to Spend"
 
 # ──── Asset cards ────
 assets:
@@ -570,6 +573,7 @@ errors:
   importCashflows: "Failed to import cashflows: {{error}}"
   linkConflict: "Cannot link {{accountName}} to this bucket because it is linked to {{bucketName}} on {{date}}."
   updateTransfer: "Failed to update transfer: {{error}}"
+  switchBucket: "Failed to switch the bucket: {{error}}"
 
 # ──── Language selector ────
 language:

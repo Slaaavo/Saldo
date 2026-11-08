@@ -15,8 +15,18 @@ export const BalanceDisplay = ({ row, consolidationCurrency }: BalanceDisplayPro
   const { t, i18n } = useTranslation()
   const { valuation } = row
 
-  if (row.accountType === 'bucket') {
-    return <BucketAmountWithTooltip row={row} currency={consolidationCurrency} className={cn('text-2xl font-bold', row.countedMinor < 0 && 'text-destructive')} />
+  if (row.bucket) {
+    const off = !row.bucket.enabled
+    return (
+      <div className="flex h-8 items-center gap-2">
+        <BucketAmountWithTooltip
+          row={row}
+          currency={consolidationCurrency}
+          className={cn('text-2xl font-bold', off ? 'text-muted-foreground' : row.countedMinor < 0 && 'text-destructive')}
+        />
+        {off && <span className="rounded bg-muted px-1.5 py-0.5 text-xs font-medium text-muted-foreground">{t('buckets.off')}</span>}
+      </div>
+    )
   }
 
   const native = (

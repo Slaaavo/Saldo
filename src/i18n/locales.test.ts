@@ -5,7 +5,7 @@ import sk from './locales/sk.yml'
 import { ENTRY_KINDS, ENTRY_NOT_COUNTED_REASONS, FORECAST_LINES, VALUE_SOURCES, type MetricKind, type NotCountedReason } from '../shared/types'
 
 const METRIC_KINDS = { netWorth: true, liquid: true, totalBalance: true, leftToSpend: true } satisfies Record<MetricKind, true>
-const NOT_COUNTED_REASONS = { noRate: true, linkedToAsset: true, earmark: true, notLiquid: true } satisfies Record<NotCountedReason, true>
+const NOT_COUNTED_REASONS = { noRate: true, linkedToAsset: true, earmark: true, notLiquid: true, switchedOff: true } satisfies Record<NotCountedReason, true>
 
 const translator = (lng: 'en' | 'sk') => {
   const instance = i18next.createInstance()
@@ -114,6 +114,9 @@ describe.each(['en', 'sk'] as const)('%s locale', (lng) => {
       'rateWarnings.noRate',
       'accounts.noRateTooltip',
       'buckets.notCounted',
+      'buckets.off',
+      'buckets.countInLeftToSpend',
+      'errors.switchBucket',
     ]
     expect(keys.filter((key) => !i18n.exists(key))).toEqual([])
   })

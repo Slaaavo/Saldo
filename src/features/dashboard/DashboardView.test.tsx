@@ -21,6 +21,7 @@ vi.mock('../../shared/api', () => ({
   getConsolidationCurrency: vi.fn(),
   getEventById: vi.fn(),
   listPersons: vi.fn(),
+  setBucketEnabled: vi.fn(),
 }))
 
 import { getAccountsSnapshot, listEvents, getConsolidationCurrency, listPersons } from '../../shared/api'

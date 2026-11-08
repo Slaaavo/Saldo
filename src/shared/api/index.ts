@@ -247,6 +247,10 @@ export const updateBucketBalanceUpdate = (eventId: number, amountMinor: number, 
   })
 }
 
+export const setBucketEnabled = (bucketId: number, enabled: boolean): Promise<void> => {
+  return invoke<void>('set_bucket_enabled', { input: { bucketId, enabled } })
+}
+
 export const listLinksForEvent = (eventId: number): Promise<BucketLink[]> => {
   return invoke<BucketLink[]>('list_links_for_event', { eventId })
 }

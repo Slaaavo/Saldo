@@ -3,6 +3,7 @@ import type { SnapshotRow, Currency } from '@/shared/types'
 import { cn } from '@/shared/lib/utils'
 import { Card, CardContent } from '@/shared/ui/card'
 import { Pencil } from 'lucide-react'
+import BucketSwitch from '../../buckets/BucketSwitch'
 import { BalanceDisplay } from './BalanceDisplay'
 import { EquityTooltip } from './EquityTooltip'
 import { AccountContextMenu } from './AccountContextMenu'
@@ -49,14 +50,17 @@ const AccountCard = ({
               {row.accountName}
             </span>
           </div>
-          <AccountContextMenu
-            accountId={row.accountId}
-            accountName={row.accountName}
-            accountType={row.accountType}
-            onRenameAccount={onRenameAccount}
-            onDeleteAccount={onDeleteAccount}
-            onManageLinkedAssets={onManageLinkedAssets}
-          />
+          <div className="flex shrink-0 items-center gap-1">
+            {row.bucket && <BucketSwitch bucketId={row.accountId} bucketName={row.accountName} enabled={row.bucket.enabled} />}
+            <AccountContextMenu
+              accountId={row.accountId}
+              accountName={row.accountName}
+              accountType={row.accountType}
+              onRenameAccount={onRenameAccount}
+              onDeleteAccount={onDeleteAccount}
+              onManageLinkedAssets={onManageLinkedAssets}
+            />
+          </div>
         </div>
         {personName && <span className="text-xs text-muted-foreground">{personName}</span>}
         {row.accountType === 'account' && <IbanDisplay iban={row.iban} />}

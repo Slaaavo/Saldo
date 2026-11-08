@@ -132,6 +132,23 @@ describe('MetricBreakdownDialog', () => {
     expect(bucket).toHaveTextContent('1 230.00 EUR')
   })
 
+  it('says a switched-off bucket is not subtracted because it is off', () => {
+    renderDialog(
+      makeMetric('leftToSpend', {
+        counted: [checking],
+        skipped: [
+          makeSkippedLine({ accountId: 10, accountName: 'Holiday', accountType: 'bucket', part: { kind: 'bucketTotal' }, amount: makeMoney(123000), reason: 'switchedOff' }),
+        ],
+      }),
+    )
+
+    const bucket = within(screen.getByRole('list', { name: 'metrics.breakdown.notCounted' }))
+      .getByText('Holiday')
+      .closest('li')!
+    expect(bucket).toHaveTextContent('metrics.breakdown.reason.switchedOff')
+    expect(bucket).toHaveTextContent('1 230.00 EUR')
+  })
+
   it('leaves out the not-counted list when every row is counted', () => {
     renderDialog(makeMetric('totalBalance', { counted: [checking] }))
 

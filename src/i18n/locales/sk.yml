@@ -72,6 +72,7 @@ metrics:
       linkedToAsset: "Je prepojený s aktívom, preto sa počíta iba do čistého imania."
       earmark: "Obálka len vyčleňuje peniaze, ktoré už sú na vašich účtoch, preto sa nepripočítava."
       notLiquid: "Aktíva nie sú likvidné, preto sa tu nezapočítavajú."
+      switchedOff: "Vypnutá na svojej karte."
 
 # ──── Upozornenia na kurzy ────
 rateWarnings:
@@ -109,6 +110,8 @@ buckets:
   additionalBalance: "Dodatočný zostatok"
   cashflowTaggedBalance: "Označené cashflow"
   notCounted: "Nezapočítané"
+  off: "Vypnutá"
+  countInLeftToSpend: "Započítať {{name}} do „Zostáva na míňanie“"
 
 
 # ──── Aktíva ────
@@ -570,6 +573,7 @@ errors:
   importCashflows: "Nepodarilo sa importovať transakcie: {{error}}"
   linkConflict: "Nie je možné prepojiť {{accountName}} s touto obálkou, pretože je prepojený s obálkou {{bucketName}} dňa {{date}}."
   updateTransfer: "Nepodarilo sa aktualizovať prevod: {{error}}"
+  switchBucket: "Nepodarilo sa prepnúť obálku: {{error}}"
 
 # ──── Uložisko dát ────
 dataStorage:

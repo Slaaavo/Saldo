@@ -96,6 +96,7 @@ vi.mock('../shared/api', () => ({
   createBucketBalanceUpdate: vi.fn(),
   updateBucketBalanceUpdate: vi.fn(),
   listLinksForEvent: vi.fn().mockResolvedValue([]),
+  setBucketEnabled: vi.fn(),
   setAppSetting: vi.fn(),
   updateSortOrder: vi.fn(),
   createCustomUnit: vi.fn(),

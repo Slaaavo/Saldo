@@ -230,6 +230,16 @@ export interface TaggedCashflows {
   valuation: Valuation
 }
 
+export const BUCKET_KINDS = ['balance'] as const
+
+export type BucketKind = (typeof BUCKET_KINDS)[number]
+
+/** `enabled` is today's switch, also when the dashboard shows a past moment. */
+export interface BucketState {
+  kind: BucketKind
+  enabled: boolean
+}
+
 export interface SnapshotRow {
   accountId: number
   accountName: string
@@ -253,6 +263,8 @@ export interface SnapshotRow {
   purchasePriceMinor: number | null
   purchaseDate: string | null
   depreciationPeriodMonths: number | null
+  /** Set on bucket rows only. */
+  bucket: BucketState | null
 }
 
 export interface Money {
@@ -282,7 +294,7 @@ export interface CountedLine extends LineSubject {
   signedMinor: number
 }
 
-export type NotCountedReason = 'noRate' | 'linkedToAsset' | 'earmark' | 'notLiquid'
+export type NotCountedReason = 'noRate' | 'linkedToAsset' | 'earmark' | 'notLiquid' | 'switchedOff'
 
 export interface SkippedLine extends LineSubject {
   amount: Money

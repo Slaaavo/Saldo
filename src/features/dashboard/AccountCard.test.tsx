@@ -1,12 +1,19 @@
-import { describe, it, expect, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest'
+import type { ReactNode } from 'react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import AccountCard from './AccountCard'
 import type { SnapshotRow, Currency } from '../../shared/types'
 import { NO_RATE, converted, makeRow } from '../../shared/testing/snapshotFixtures'
+import { setBucketEnabled } from '../../shared/api'
 
 // ── Mock i18n — pass-through that returns the key, with interpolation values appended ─────
 vi.mock('react-i18next', async () => (await import('../../shared/testing/i18nMock')).i18nMock)
+
+vi.mock('../../shared/api', () => ({
+  setBucketEnabled: vi.fn(),
+}))
 
 // ── Mock NumberValue — renders its value prop as text ────────────────────────
 vi.mock('../../shared/ui/NumberValue', () => ({
@@ -15,18 +22,87 @@ vi.mock('../../shared/ui/NumberValue', () => ({
 
 // ── Mock BucketAmountWithTooltip — renders a placeholder ─────────────────────
 vi.mock('../buckets/BucketAmountWithTooltip', () => ({
-  default: () => <span data-testid="bucket-amount">bucket-amount</span>,
+  default: ({ className }: { className?: string }) => (
+    <span data-testid="bucket-amount" className={className}>
+      bucket-amount
+    </span>
+  ),
 }))
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 const EUR: Currency = { id: 1, code: 'EUR', name: 'Euro', minorUnits: 2, isCustom: false }
 
+let queryClient: QueryClient
+
+const Providers = ({ children }: { children: ReactNode }) => <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+
 const renderCard = (row: SnapshotRow, allAccounts?: SnapshotRow[]) =>
-  render(<AccountCard row={row} consolidationCurrency={EUR} allAccounts={allAccounts} onUpdateBalance={() => {}} onDeleteAccount={() => {}} onRenameAccount={() => {}} />)
+  render(<AccountCard row={row} consolidationCurrency={EUR} allAccounts={allAccounts} onUpdateBalance={() => {}} onDeleteAccount={() => {}} onRenameAccount={() => {}} />, {
+    wrapper: Providers,
+  })
+
+const holiday = (enabled: boolean, countedMinor = 50000) =>
+  makeRow({ accountId: 10, accountName: 'Holiday', accountType: 'bucket', countedMinor, bucket: { kind: 'balance', enabled } })
+
+beforeEach(() => {
+  vi.clearAllMocks()
+  queryClient = new QueryClient({ defaultOptions: { queries: { retry: 0 } } })
+  ;(setBucketEnabled as Mock).mockResolvedValue(undefined)
+})
 
 // ── Test cases ───────────────────────────────────────────────────────────────
 
 describe('AccountCard', () => {
+  it('gives a bucket card a switch that is on while the bucket counts', () => {
+    renderCard(holiday(true))
+
+    expect(screen.getByRole('switch', { name: 'buckets.countInLeftToSpend (name=Holiday)' })).toHaveAttribute('aria-checked', 'true')
+    expect(screen.queryByText('buckets.off')).not.toBeInTheDocument()
+    expect(screen.getByTestId('bucket-amount')).not.toHaveClass('text-muted-foreground')
+  })
+
+  it('shows Off and a muted amount, never red, when the bucket is switched off', () => {
+    renderCard(holiday(false, -2000))
+
+    expect(screen.getByRole('switch')).toHaveAttribute('aria-checked', 'false')
+    expect(screen.getByText('buckets.off')).toBeInTheDocument()
+    const amount = screen.getByTestId('bucket-amount')
+    expect(amount).toHaveClass('text-muted-foreground')
+    expect(amount).not.toHaveClass('text-destructive')
+  })
+
+  it('gives an account card and an asset card no switch', () => {
+    renderCard(makeRow({ accountId: 1, accountType: 'account' }))
+    renderCard(makeRow({ accountId: 2, accountType: 'asset' }))
+
+    expect(screen.queryByRole('switch')).not.toBeInTheDocument()
+  })
+
+  it('sends the new state, shows it at once and refreshes the snapshot', async () => {
+    const user = userEvent.setup()
+    const invalidate = vi.spyOn(queryClient, 'invalidateQueries')
+    let finish: () => void = () => {}
+    ;(setBucketEnabled as Mock).mockReturnValue(new Promise<void>((resolve) => (finish = resolve)))
+    renderCard(holiday(true))
+
+    await user.click(screen.getByRole('switch'))
+
+    expect(setBucketEnabled).toHaveBeenCalledWith(10, false)
+    expect(screen.getByRole('switch')).toHaveAttribute('aria-checked', 'false')
+    finish()
+    await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: ['snapshot'] }))
+  })
+
+  it('goes back to the stored state when the switch fails', async () => {
+    const user = userEvent.setup()
+    ;(setBucketEnabled as Mock).mockRejectedValue({ code: 'DB_ERROR', message: 'locked' })
+    renderCard(holiday(true))
+
+    await user.click(screen.getByRole('switch'))
+
+    await waitFor(() => expect(screen.getByRole('switch')).toHaveAttribute('aria-checked', 'true'))
+  })
+
   it('renders bucket-type row without IBAN section, shows bucket balance', () => {
     renderCard(makeRow({ accountId: 10, accountName: 'Vacation Fund', accountType: 'bucket', balanceMinor: 50000 }))
 
