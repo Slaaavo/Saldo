@@ -278,6 +278,7 @@ export type LinePart =
   | { kind: 'linkedAccount'; sourceAccountId: number; sourceAccountName: string }
   | { kind: 'taggedCashflows'; sourceAccountId: number; sourceAccountName: string }
   | { kind: 'bucketTotal' }
+  | { kind: 'incomeBudget' }
 
 export interface LineSubject {
   accountId: number

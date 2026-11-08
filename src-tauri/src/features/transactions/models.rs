@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::features::buckets::{BucketLink, BucketState};
+use crate::features::buckets::{BucketKind, BucketLink, BucketState};
 
 /// Flattened event with its current (latest) event_data.
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -128,6 +128,7 @@ pub struct SnapshotRow {
     pub account_name: String,
     pub account_type: AccountKind,
     pub iban: Option<String>,
+    /// For an income budget, its computed value: received minus budget over its started months.
     pub balance_minor: i64,
     pub currency_code: String,
     pub currency_minor_units: i64,
@@ -161,6 +162,11 @@ impl SnapshotRow {
     pub fn is_switched_off(&self) -> bool {
         self.bucket.is_some_and(|bucket| !bucket.enabled)
     }
+
+    pub fn is_income_budget(&self) -> bool {
+        self.bucket
+            .is_some_and(|bucket| bucket.kind == BucketKind::IncomeBudget)
+    }
 }
 
 #[derive(Debug, Serialize, Clone, PartialEq, Eq)]
@@ -188,6 +194,7 @@ pub enum LinePart {
         source_account_name: String,
     },
     BucketTotal,
+    IncomeBudget,
 }
 
 #[derive(Debug, Serialize, Clone, PartialEq, Eq)]

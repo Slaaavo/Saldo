@@ -24,6 +24,8 @@ const partLabel = (part: LinePart, accountType: AccountKind, t: TFunction): stri
       return t('metrics.breakdown.part.taggedCashflows', { account: part.sourceAccountName })
     case 'bucketTotal':
       return t('metrics.breakdown.part.bucketTotal')
+    case 'incomeBudget':
+      return t('metrics.breakdown.part.incomeBudget')
     default: {
       const _exhaustive: never = part
       return _exhaustive

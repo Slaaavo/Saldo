@@ -67,6 +67,7 @@ metrics:
       linkedAccount: "via {{account}}"
       taggedCashflows: "tagged from {{account}}"
       bucketTotal: Bucket total
+      incomeBudget: Received minus budget
     reason:
       noRate: "No {{currency}} rate, so it cannot be converted."
       linkedToAsset: "Linked to an asset, so it counts in Net Worth only."

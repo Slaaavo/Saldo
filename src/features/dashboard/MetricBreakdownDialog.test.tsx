@@ -100,6 +100,21 @@ describe('MetricBreakdownDialog', () => {
     expect(within(rows[1]).getAllByRole('cell')[3]).toHaveTextContent(/^-1 000\.00 EUR$/)
   })
 
+  it('labels an income budget line as received minus budget and adds a negative one', () => {
+    renderDialog(
+      makeMetric('leftToSpend', {
+        counted: [
+          checking,
+          makeCountedLine({ accountId: 11, accountName: 'Income', accountType: 'bucket', part: { kind: 'incomeBudget' }, native: makeMoney(-631500), signedMinor: 631500 }),
+        ],
+      }),
+    )
+
+    const row = screen.getByRole('row', { name: /Income/ })
+    expect(within(row).getByText('metrics.breakdown.part.incomeBudget')).toBeInTheDocument()
+    expect(within(row).getAllByRole('cell')[3]).toHaveTextContent(/^\+6 315\.00 EUR$/)
+  })
+
   it('shows the total Rust returned in the total row, even when it differs from the lines', () => {
     renderDialog(makeMetric('totalBalance', { counted: [checking, dollars], totalMinor: 99900 }))
 

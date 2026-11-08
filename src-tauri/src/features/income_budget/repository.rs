@@ -426,7 +426,10 @@ mod tests {
     #[test]
     fn inflows_stop_at_the_moment_and_live_counts_a_payment_dated_later_this_month() {
         let at = november_budget(&initialize_in_memory().unwrap(), AT_NOV_8);
-        let live = november_budget(&initialize_in_memory().unwrap(), "9999-12-31T23:59:59");
+        let live = november_budget(
+            &initialize_in_memory().unwrap(),
+            Moment::live(nov_8()).events_until(),
+        );
 
         assert_eq!(at.value_minor, -80_000);
         assert_eq!(live.value_minor, 50_000 - 80_000);

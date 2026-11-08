@@ -39,7 +39,11 @@ struct Part<'a> {
 
 fn parts(row: &SnapshotRow) -> Vec<Part<'_>> {
     let balance = Part {
-        line: LinePart::Balance,
+        line: if row.is_income_budget() {
+            LinePart::IncomeBudget
+        } else {
+            LinePart::Balance
+        },
         native: Money {
             amount_minor: row.balance_minor,
             currency_code: row.currency_code.clone(),
@@ -662,6 +666,45 @@ mod tests {
 
         assert_eq!(warned(std::slice::from_ref(&bucket)), [6, 9]);
         assert_eq!(warned(&[switched_off(bucket)]), Vec::<i64>::new());
+    }
+
+    fn income_budget(account_id: i64, value_minor: i64) -> SnapshotRow {
+        let mut row = eur(account_id, Bucket, value_minor);
+        row.bucket = Some(BucketState {
+            kind: BucketKind::IncomeBudget,
+            enabled: true,
+        });
+        row
+    }
+
+    #[test]
+    fn a_negative_income_budget_raises_left_to_spend() {
+        let rows = vec![eur(1, Account, 100_000), income_budget(6, -631_500)];
+
+        let metrics = headline_metrics(&rows, &eur_currency());
+        let left = find(&metrics, LeftToSpend);
+
+        assert_eq!(counted_signed(left, 6), [(LinePart::IncomeBudget, 631_500)]);
+        assert_eq!(left.total_minor(), 100_000 + 631_500);
+    }
+
+    #[test]
+    fn an_income_budget_line_is_an_income_budget_part() {
+        let rows = vec![
+            eur(1, Account, 100_000),
+            income_budget(6, 20_000),
+            eur(7, Bucket, 5_000),
+        ];
+
+        let metrics = headline_metrics(&rows, &eur_currency());
+        let left = find(&metrics, LeftToSpend);
+
+        assert_eq!(counted_signed(left, 6), [(LinePart::IncomeBudget, -20_000)]);
+        assert_eq!(counted_signed(left, 7), [(LinePart::Balance, -5_000)]);
+        assert_eq!(
+            serde_json::to_value(LinePart::IncomeBudget).unwrap(),
+            serde_json::json!({ "kind": "incomeBudget" })
+        );
     }
 
     #[test]

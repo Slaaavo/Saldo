@@ -6,3 +6,5 @@ pub mod models;
 mod repository;
 #[cfg(test)]
 mod storage_tests;
+
+pub(crate) use repository::{value_at, ValueAtParams};

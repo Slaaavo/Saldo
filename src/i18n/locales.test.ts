@@ -111,6 +111,7 @@ describe.each(['en', 'sk'] as const)('%s locale', (lng) => {
       'metrics.breakdown.part.linkedAccount',
       'metrics.breakdown.part.taggedCashflows',
       'metrics.breakdown.part.bucketTotal',
+      'metrics.breakdown.part.incomeBudget',
       'rateWarnings.noRate',
       'accounts.noRateTooltip',
       'buckets.notCounted',

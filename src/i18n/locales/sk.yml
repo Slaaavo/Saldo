@@ -67,6 +67,7 @@ metrics:
       linkedAccount: "cez {{account}}"
       taggedCashflows: "označené z {{account}}"
       bucketTotal: Súčet obálky
+      incomeBudget: Prijaté mínus rozpočet
     reason:
       noRate: "Chýba kurz pre {{currency}}, preto sa nedá prepočítať."
       linkedToAsset: "Je prepojený s aktívom, preto sa počíta iba do čistého imania."

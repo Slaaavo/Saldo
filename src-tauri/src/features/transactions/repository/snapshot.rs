@@ -6,12 +6,13 @@ use std::collections::HashMap;
 use crate::error::AppError;
 use crate::features::assets::repository::get_all_account_asset_link_ids;
 use crate::features::buckets::repository::list_all_latest_bucket_links;
-use crate::features::buckets::BucketState;
+use crate::features::buckets::{BucketKind, BucketState};
 use crate::features::currency::models::Currency;
 use crate::features::currency::rate_age::{is_stale, rate_age_days};
 use crate::features::currency::repository::{
     get_consolidation_currency, get_fx_rate_for_conversion, GetFxRateForConversionParams,
 };
+use crate::features::income_budget;
 use crate::features::transactions::metrics;
 use crate::features::transactions::models::{
     AccountKind, RateUsed, Snapshot, SnapshotRow, TaggedCashflows, Valuation, ValuedBucketLink,
@@ -52,6 +53,16 @@ impl Moment {
 
     fn rates_until(&self) -> &str {
         &self.events_until[..10]
+    }
+
+    /// Today when live, the picked day otherwise. Live has no cutoff, so its day comes from here,
+    /// never from `events_until`.
+    pub(crate) fn day(&self) -> NaiveDate {
+        self.age_reference
+    }
+
+    pub(crate) fn events_until(&self) -> &str {
+        &self.events_until
     }
 }
 
@@ -219,8 +230,9 @@ pub fn get_accounts_snapshot(
                 minor_units: row.get(6)?,
                 is_custom: row.get::<_, i64>(7)? != 0,
             };
-            let balance_minor: i64 = row.get(8)?;
+            let account_id: i64 = row.get(0)?;
             let account_type: AccountKind = row.get(2)?;
+            let person_id: Option<i64> = row.get(9)?;
             let bucket = match account_type {
                 AccountKind::Bucket => Some(BucketState {
                     kind: row.get(14)?,
@@ -228,8 +240,27 @@ pub fn get_accounts_snapshot(
                 }),
                 AccountKind::Account | AccountKind::Asset => None,
             };
+            let balance_minor: i64 = match (bucket, person_id) {
+                (
+                    Some(BucketState {
+                        kind: BucketKind::IncomeBudget,
+                        ..
+                    }),
+                    Some(person_id),
+                ) => income_budget::value_at(
+                    conn,
+                    income_budget::ValueAtParams {
+                        bucket_id: account_id,
+                        person_id,
+                        currency_id: held.currency_id,
+                        events_until: moment.events_until().to_owned(),
+                        day: moment.day(),
+                    },
+                )?,
+                _ => row.get(8)?,
+            };
             Ok(SnapshotRow {
-                account_id: row.get(0)?,
+                account_id,
                 account_name: row.get(1)?,
                 account_type,
                 iban: row.get(3)?,
@@ -245,7 +276,7 @@ pub fn get_accounts_snapshot(
                 tagged_cashflows: vec![],
                 counted_minor: 0,
                 equity_minor: None,
-                person_id: row.get(9)?,
+                person_id,
                 purchase_price_minor: row.get(10)?,
                 purchase_date: row.get(11)?,
                 depreciation_period_months: row.get(12)?,
@@ -395,12 +426,11 @@ mod tests {
     use crate::features::accounts::repository::{create_account, CreateAccountParams};
     use crate::features::assets::repository::set_account_asset_links;
     use crate::features::buckets::repository::{set_bucket_event_links, SetBucketEventLinksParams};
-    use crate::features::buckets::BucketKind;
     use crate::features::currency::repository::{
         set_fx_rate_manual, upsert_fx_rates, SetFxRateManualParams,
     };
     use crate::features::transactions::models::{
-        Metric, MetricKind, Money, RateProblem, RateWarning,
+        LinePart, Metric, MetricKind, Money, NotCountedReason, RateProblem, RateWarning,
     };
     use crate::features::transactions::repository::{
         create_balance_update, create_cashflow, CashflowEntry, CreateBalanceUpdateParams,
@@ -1036,6 +1066,158 @@ mod tests {
             metric(&at(&conn, "2026-03-05"), MetricKind::LeftToSpend).total_minor(),
             10_000
         );
+    }
+
+    fn income_budget_in(conn: &Connection, currency: &str, person_id: i64) -> i64 {
+        create_account(
+            conn,
+            CreateAccountParams {
+                name: format!("Income {currency}"),
+                currency_id: currency_id(conn, currency),
+                account_type: "bucket".to_owned(),
+                person_id: Some(person_id),
+                bucket_kind: BucketKind::IncomeBudget,
+                ..Default::default()
+            },
+        )
+        .unwrap()
+    }
+
+    fn budget_month(conn: &Connection, bucket_id: i64, month: &str, budget: i64, vat: i64) {
+        conn.execute(
+            "INSERT INTO income_budget_month (bucket_id, month, budget_minor, vat_bps)
+             VALUES (?1, ?2, ?3, ?4)",
+            params![bucket_id, month, budget, vat],
+        )
+        .unwrap();
+    }
+
+    fn account_of(conn: &Connection, currency: &str, person_id: i64) -> i64 {
+        create_account(
+            conn,
+            CreateAccountParams {
+                name: format!("{currency} account of {person_id}"),
+                currency_id: currency_id(conn, currency),
+                account_type: "account".to_owned(),
+                person_id: Some(person_id),
+                ..Default::default()
+            },
+        )
+        .unwrap()
+    }
+
+    fn snapshot_of(conn: &Connection, until: &str, person_id: Option<i64>) -> Snapshot {
+        get_accounts_snapshot(
+            conn,
+            GetSnapshotParams {
+                moment: Moment::at(until).unwrap(),
+                person_id,
+            },
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn an_income_budget_row_holds_its_computed_value_live_and_at_a_date() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let consulting = account_of(&conn, "EUR", 1);
+        let budget = income_budget_in(&conn, "EUR", 1);
+        budget_month(&conn, budget, "2026-10", 564_000, 2_300);
+        budget_month(&conn, budget, "2026-11", 612_000, 2_300);
+        cashflow(&conn, consulting, 720_411, "2026-10-12T09:00:00", None);
+        cashflow(&conn, consulting, 500_000, "2026-11-20T09:00:00", None);
+
+        let november_8th = at(&conn, "2026-11-08");
+        let october_31st = at(&conn, "2026-10-31");
+        let live = live(&conn, "2026-11-08");
+
+        let october = 585_700 - 564_000;
+        let row_at_8th = row(&november_8th.rows, budget);
+        assert_eq!(row_at_8th.balance_minor, october - 612_000);
+        assert_eq!(
+            row_at_8th.valuation,
+            Valuation::SameCurrency {
+                value_minor: october - 612_000
+            }
+        );
+        assert_eq!(row_at_8th.counted_minor, october - 612_000);
+        assert_eq!(
+            metric(&november_8th, MetricKind::LeftToSpend).total_minor(),
+            720_411 - (october - 612_000)
+        );
+        assert_eq!(row(&october_31st.rows, budget).balance_minor, october);
+        assert_eq!(
+            row(&live.rows, budget).balance_minor,
+            october + 406_504 - 612_000
+        );
+    }
+
+    #[test]
+    fn the_person_filter_does_not_change_an_income_budgets_value() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let other = crate::features::persons::repository::create_person(
+            &conn,
+            crate::features::persons::repository::CreatePersonParams {
+                name: "Other".to_owned(),
+                person_type: "physical".to_owned(),
+                vat_payer: false,
+            },
+        )
+        .unwrap();
+        let mine = account_of(&conn, "EUR", 1);
+        let theirs = account_of(&conn, "EUR", other);
+        let budget = income_budget_in(&conn, "EUR", 1);
+        budget_month(&conn, budget, "2026-10", 100_000, 0);
+        cashflow(&conn, mine, 80_000, "2026-10-12", None);
+        cashflow(&conn, theirs, 900_000, "2026-10-12", None);
+
+        let everyone = snapshot_of(&conn, "2026-11-08", None);
+        let only_mine = snapshot_of(&conn, "2026-11-08", Some(1));
+
+        assert_eq!(row(&everyone.rows, budget).balance_minor, -20_000);
+        assert_eq!(row(&only_mine.rows, budget).balance_minor, -20_000);
+    }
+
+    #[test]
+    fn an_income_budget_in_a_currency_without_a_rate_counts_nothing_and_warns() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let dollars = account_of(&conn, "USD", 1);
+        let budget = income_budget_in(&conn, "USD", 1);
+        budget_month(&conn, budget, "2026-10", 50_000, 0);
+        cashflow(&conn, dollars, 100_000, "2026-10-12", None);
+
+        let snapshot = at(&conn, "2026-11-08");
+
+        let budget_row = row(&snapshot.rows, budget);
+        assert_eq!(budget_row.balance_minor, 50_000);
+        assert_eq!(budget_row.valuation, Valuation::NoRate);
+        assert_eq!(budget_row.counted_minor, 0);
+        let left = metric(&snapshot, MetricKind::LeftToSpend);
+        let skipped: Vec<(LinePart, Money, NotCountedReason)> = left
+            .skipped()
+            .iter()
+            .filter(|line| line.subject.account_id == budget)
+            .map(|line| (line.subject.part.clone(), line.amount.clone(), line.reason))
+            .collect();
+        let usd = |amount_minor| Money {
+            amount_minor,
+            currency_code: "USD".to_owned(),
+            minor_units: 2,
+        };
+        assert_eq!(
+            skipped,
+            [(
+                LinePart::IncomeBudget,
+                usd(50_000),
+                NotCountedReason::NoRate
+            )]
+        );
+        let warned: Vec<(i64, Money)> = snapshot
+            .rate_warnings
+            .iter()
+            .map(|w| (w.account_id, w.native.clone()))
+            .collect();
+        assert!(warned.contains(&(budget, usd(50_000))), "{warned:?}");
     }
 
     #[test]
