@@ -260,6 +260,23 @@ describe('IncomeBudgetDialog', () => {
     expect(saveIncomeBudget).not.toHaveBeenCalled()
   })
 
+  it('keeps the typed months through a click outside, and still closes on Escape and the X', async () => {
+    const user = userEvent.setup()
+    const { onClose } = renderDialog()
+    const december = await screen.findByRole('textbox', { name: 'incomeBudget.table.budgetCell (month=December 2026)' })
+    await user.type(december, '6120')
+
+    fireEvent.pointerDown(document.body)
+    fireEvent.focusIn(document.body)
+
+    expect(onClose).not.toHaveBeenCalled()
+    expect(december).toHaveValue('6120')
+    fireEvent.keyDown(december, { key: 'Escape' })
+    expect(onClose).toHaveBeenCalledOnce()
+    await user.click(screen.getByRole('button', { name: 'Close' }))
+    expect(onClose).toHaveBeenCalledTimes(2)
+  })
+
   it('closes when its bucket leaves the snapshot', async () => {
     setupMocks({ rows: [makeRow()] })
     const { onClose } = renderDialog()

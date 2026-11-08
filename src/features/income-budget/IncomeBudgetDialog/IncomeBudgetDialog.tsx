@@ -32,7 +32,7 @@ const IncomeBudgetDialog = ({ bucketId, onClose }: Props) => {
         if (!open) onClose()
       }}
     >
-      <DialogContent className="max-w-5xl" aria-describedby={undefined}>
+      <DialogContent className="max-w-5xl" aria-describedby={undefined} onInteractOutside={(event) => event.preventDefault()}>
         <DialogHeader>
           <DialogTitle className="flex flex-wrap items-center gap-2">
             {row?.accountName}
