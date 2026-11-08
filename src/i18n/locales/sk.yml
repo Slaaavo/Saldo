@@ -155,7 +155,7 @@ incomeBudget:
     some: "Započítavajú sa peniaze prichádzajúce na {{accounts}}."
     none: "Zatiaľ sa nezapočítava žiadny účet osoby {{person}} v {{currency}}."
   invalid:
-    budget: "{{cell}}: zadajte sumu bez znamienka, napríklad 5640 alebo 5640,50."
+    budget: "{{cell}}: zadajte sumu ako 5640 alebo 5640,50, bez znamienka a bez oddeľovača tisícov."
     vat: "{{cell}}: zadajte sadzbu DPH od 0 do 100, napríklad 23."
 
 

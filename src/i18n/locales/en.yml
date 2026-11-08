@@ -152,7 +152,7 @@ incomeBudget:
     some: "Counts money arriving on {{accounts}}."
     none: "No account of {{person}} in {{currency}} counts yet."
   invalid:
-    budget: "{{cell}}: type an amount without a sign, like 5640 or 5640.50."
+    budget: "{{cell}}: type an amount like 5640 or 5640.50, with no sign and no thousands separator."
     vat: "{{cell}}: type a VAT rate from 0 to 100, like 23."
 
 # ──── Asset cards ────
