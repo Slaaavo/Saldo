@@ -30,6 +30,7 @@ import CreateExpenseModal from '../features/transactions/CreateExpenseModal'
 import CreatePrepaidExpenseModal from '../features/transactions/CreatePrepaidExpenseModal'
 import EditTaxableEventModal from '../features/transactions/EditTaxableEventModal'
 import EditTaxableSplitGroupModal from '../features/transactions/EditTaxableSplitGroupModal'
+import IncomeBudgetDialog from '../features/income-budget/IncomeBudgetDialog'
 
 interface AppModalsProps {
   dbLocation: {
@@ -223,6 +224,9 @@ const AppModals = ({ dbLocation }: AppModalsProps) => {
           onClose={closeModal}
         />
       )
+
+    case 'editIncomeBudget':
+      return <IncomeBudgetDialog bucketId={modalState.bucketId} onClose={closeModal} />
 
     case 'confirmSwitchDb':
       return (

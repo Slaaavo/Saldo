@@ -52,9 +52,22 @@ vi.mock('../../shared/ui/NumberValue', () => ({
 }))
 
 vi.mock('./AccountCards', () => ({
-  default: (props: { sectionTitle?: string; addButtonLabel?: string; emptyMessage?: string; onCreateAccount: () => void; onReorder?: () => void; snapshot: SnapshotRow[] }) => (
+  default: (props: {
+    sectionTitle?: string
+    addButtonLabel?: string
+    emptyMessage?: string
+    onCreateAccount: () => void
+    onReorder?: () => void
+    onEditIncomeBudget?: (bucketId: number) => void
+    snapshot: SnapshotRow[]
+  }) => (
     <div data-testid={`account-cards-${props.sectionTitle ?? 'unknown'}`}>
       <span data-testid="section-title">{props.sectionTitle}</span>
+      {props.onEditIncomeBudget && (
+        <button data-testid={`edit-budget-${props.sectionTitle}`} onClick={() => props.onEditIncomeBudget?.(30)}>
+          edit budget
+        </button>
+      )}
       {props.snapshot.length === 0 && props.emptyMessage && <span data-testid="empty-message">{props.emptyMessage}</span>}
       <button data-testid={`add-btn-${props.sectionTitle}`} onClick={props.onCreateAccount}>
         {props.addButtonLabel}
@@ -448,6 +461,16 @@ describe('DashboardView', () => {
         type: 'createAccount',
         accountType: 'bucket',
       })
+    })
+
+    it("opens an income budget's dialog from the buckets section only", async () => {
+      const user = userEvent.setup()
+      setupApiMocks({ snapshot: [makeRow(), makeBucket()] })
+      renderDashboard()
+      await waitFor(() => screen.getByTestId('edit-budget-buckets.sectionTitle'))
+      expect(screen.queryByTestId('edit-budget-accounts.sectionTitle')).not.toBeInTheDocument()
+      await user.click(screen.getByTestId('edit-budget-buckets.sectionTitle'))
+      expect(mockSetModalState).toHaveBeenCalledWith({ type: 'editIncomeBudget', bucketId: 30 })
     })
 
     it('opens createAsset modal for assets section', async () => {

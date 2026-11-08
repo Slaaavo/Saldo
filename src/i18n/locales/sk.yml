@@ -114,6 +114,50 @@ buckets:
   off: "Vypnutá"
   countInLeftToSpend: "Započítať {{name}} do „Zostáva na míňanie“"
 
+# ──── Rozpočet príjmov ────
+incomeBudget:
+  edit: Upraviť rozpočet
+  save: Uložiť
+  cancel: Zrušiť
+  summary:
+    on: "Táto obálka ku dňu {{date}} podľa hodnôt nižšie"
+  effect:
+    off: "Táto obálka je na svojej karte vypnutá, preto ju „Zostáva na míňanie“ zatiaľ ignoruje."
+    noRate: "Saldo pre tento deň nemá kurz {{currency}}, preto „Zostáva na míňanie“ túto obálku vynecháva."
+    aboveCash: "„Zostáva na míňanie“ ukazuje o <amount></amount> viac, než máte peňazí."
+    belowCash: "<amount></amount> z vašich peňazí zostáva mimo „Zostáva na míňanie“, pretože prišlo viac, než ste rozpočítali."
+    equalsCash: "„Zostáva na míňanie“ sa rovná vašim peniazom."
+    currentMonthPending: "Rozpočet na {{month}} sa počíta od 1. dňa a jeho platba ešte neprišla."
+  table:
+    month: Mesiac
+    budget: Rozpočet
+    vat: DPH
+    received: Prijaté
+    difference: Rozdiel
+    withoutVat: "bez DPH, {{currency}}"
+    today: Dnes
+    asOf: "Stav k {{date}}"
+    soFar: zatiaľ
+    budgetCell: "Rozpočet, {{month}}"
+    vatCell: "DPH, {{month}}"
+    fillBudget: "Vyplniť rozpočet z mesiaca {{month}}"
+    fillVat: "Vyplniť DPH z mesiaca {{month}}"
+    addYear: "Pridať rok {{year}}"
+  announce:
+    yearAdded: "Rok {{year}} je pridaný. Zostane, len ak doň zadáte hodnotu a uložíte."
+    filled_one: "Hodnota „{{value}}“ je skopírovaná do {{count}} ďalšieho mesiaca."
+    filled_few: "Hodnota „{{value}}“ je skopírovaná do {{count}} ďalších mesiacov."
+    filled_other: "Hodnota „{{value}}“ je skopírovaná do {{count}} ďalších mesiacov."
+    cleared_one: "Vymazané v {{count}} ďalšom mesiaci."
+    cleared_few: "Vymazané v {{count}} ďalších mesiacoch."
+    cleared_other: "Vymazané v {{count}} ďalších mesiacoch."
+  counted:
+    some: "Započítavajú sa peniaze prichádzajúce na {{accounts}}."
+    none: "Zatiaľ sa nezapočítava žiadny účet osoby {{person}} v {{currency}}."
+  invalid:
+    budget: "{{cell}}: zadajte sumu bez znamienka, napríklad 5640 alebo 5640,50."
+    vat: "{{cell}}: zadajte sadzbu DPH od 0 do 100, napríklad 23."
+
 
 # ──── Aktíva ────
 assets:
@@ -575,6 +619,7 @@ errors:
   linkConflict: "Nie je možné prepojiť {{accountName}} s touto obálkou, pretože je prepojený s obálkou {{bucketName}} dňa {{date}}."
   updateTransfer: "Nepodarilo sa aktualizovať prevod: {{error}}"
   switchBucket: "Nepodarilo sa prepnúť obálku: {{error}}"
+  saveIncomeBudget: "Nepodarilo sa uložiť rozpočet príjmov: {{error}}"
 
 # ──── Uložisko dát ────
 dataStorage:

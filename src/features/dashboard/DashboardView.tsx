@@ -161,6 +161,7 @@ const DashboardView = () => {
               addButtonLabel={t('buckets.addBucket')}
               emptyMessage={t('buckets.empty')}
               onUpdateBalance={handleUpdateBalance}
+              onEditIncomeBudget={(bucketId) => setModalState({ type: 'editIncomeBudget', bucketId })}
               onRenameAccount={handleRename}
               onDeleteAccount={handleDelete('bucket')}
               onCreateAccount={() => setModalState({ type: 'createAccount', accountType: 'bucket' })}

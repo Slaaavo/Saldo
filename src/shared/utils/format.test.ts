@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { formatAmount, formatDate, toEndOfDay, todayIso, formatDisplayDate, withDefaultTime, toMinorUnits, fromMinorUnits, getMinorUnitsStep } from './format'
+import { formatAmount, formatDate, toEndOfDay, todayIso, formatDisplayDate, formatShortDay, withDefaultTime, toMinorUnits, fromMinorUnits, getMinorUnitsStep } from './format'
 
 describe('formatAmount', () => {
   it('formats zero', () => {
@@ -13,6 +13,11 @@ describe('formatAmount', () => {
 
   it('formats positive amounts', () => {
     expect(formatAmount(5000)).toBe('50.00 €')
+  })
+
+  it('shows the bare number when the symbol is empty', () => {
+    const bare = { currencySymbol: '', currencyPosition: 'right', thousandsSeparator: ' ', decimalSeparator: '.' } as const
+    expect(formatAmount(-631500, 2, bare)).toBe('-6 315.00')
   })
 
   it('formats with thousands separators', () => {
@@ -107,6 +112,13 @@ describe('formatDisplayDate', () => {
 
   it('formats in the Slovak i18n language', () => {
     expect(formatDisplayDate('2026-03-05', 'sk')).toBe('5. marca 2026')
+  })
+})
+
+describe('formatShortDay', () => {
+  it('gives the day and a short month, day first in English too', () => {
+    expect(formatShortDay('2026-11-08', 'en')).toBe('8 Nov')
+    expect(formatShortDay('2026-11-08', 'sk')).toBe('8. 11.')
   })
 })
 

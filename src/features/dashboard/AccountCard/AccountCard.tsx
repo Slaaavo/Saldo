@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next'
 import type { SnapshotRow, Currency } from '@/shared/types'
 import { cn } from '@/shared/lib/utils'
+import { takesEntries } from '@/shared/utils/snapshot'
 import { Card, CardContent } from '@/shared/ui/card'
 import { Pencil } from 'lucide-react'
 import BucketSwitch from '../../buckets/BucketSwitch'
@@ -16,6 +17,7 @@ interface AccountCardProps {
   consolidationCurrency?: Currency | null
   updateButtonLabel?: string
   onUpdateBalance: (accountId: number) => void
+  onEditIncomeBudget?: (bucketId: number) => void
   onRenameAccount: (accountId: number, currentName: string) => void
   onDeleteAccount: (accountId: number, name: string) => void
   onManageLinkedAssets?: (accountId: number, accountName: string) => void
@@ -29,6 +31,7 @@ const AccountCard = ({
   consolidationCurrency,
   updateButtonLabel,
   onUpdateBalance,
+  onEditIncomeBudget,
   onRenameAccount,
   onDeleteAccount,
   onManageLinkedAssets,
@@ -39,6 +42,9 @@ const AccountCard = ({
   const { t } = useTranslation()
 
   const equity = useAccountCardEquity(row, allAccounts)
+  const action = takesEntries(row)
+    ? { label: updateButtonLabel ?? t('accounts.updateBalance'), run: () => onUpdateBalance(row.accountId) }
+    : onEditIncomeBudget && { label: t('incomeBudget.edit'), run: () => onEditIncomeBudget(row.accountId) }
 
   return (
     <Card className={cn('relative w-[250px] min-w-[250px] shrink-0')}>
@@ -68,13 +74,15 @@ const AccountCard = ({
         {equity && consolidationCurrency && (
           <EquityTooltip row={row} equityMinor={equity.equityMinor} equityLinkedRows={equity.equityLinkedRows} consolidationCurrency={consolidationCurrency} />
         )}
-        <button
-          onClick={() => onUpdateBalance(row.accountId)}
-          className="mt-2 text-xs font-bold uppercase tracking-wider text-muted-foreground hover:text-primary transition-colors flex items-center gap-1"
-        >
-          <Pencil className="h-3 w-3" />
-          {updateButtonLabel ?? t('accounts.updateBalance')}
-        </button>
+        {action && (
+          <button
+            onClick={action.run}
+            className="mt-2 text-xs font-bold uppercase tracking-wider text-muted-foreground hover:text-primary transition-colors flex items-center gap-1"
+          >
+            <Pencil className="h-3 w-3" />
+            {action.label}
+          </button>
+        )}
       </CardContent>
     </Card>
   )

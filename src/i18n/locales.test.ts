@@ -91,6 +91,44 @@ describe.each(['en', 'sk'] as const)('%s locale', (lng) => {
     expect(keys.filter((key) => !i18n.exists(key))).toEqual([])
   })
 
+  it('has the income budget copy', () => {
+    const keys = [
+      'incomeBudget.edit',
+      'incomeBudget.save',
+      'incomeBudget.cancel',
+      'incomeBudget.summary.on',
+      'incomeBudget.effect.off',
+      'incomeBudget.effect.noRate',
+      'incomeBudget.effect.aboveCash',
+      'incomeBudget.effect.belowCash',
+      'incomeBudget.effect.equalsCash',
+      'incomeBudget.effect.currentMonthPending',
+      'incomeBudget.table.month',
+      'incomeBudget.table.budget',
+      'incomeBudget.table.vat',
+      'incomeBudget.table.received',
+      'incomeBudget.table.difference',
+      'incomeBudget.table.withoutVat',
+      'incomeBudget.table.today',
+      'incomeBudget.table.asOf',
+      'incomeBudget.table.soFar',
+      'incomeBudget.table.budgetCell',
+      'incomeBudget.table.vatCell',
+      'incomeBudget.table.fillBudget',
+      'incomeBudget.table.fillVat',
+      'incomeBudget.table.addYear',
+      'incomeBudget.announce.yearAdded',
+      'incomeBudget.counted.some',
+      'incomeBudget.counted.none',
+      'incomeBudget.invalid.budget',
+      'incomeBudget.invalid.vat',
+      'errors.saveIncomeBudget',
+    ]
+    expect(keys.filter((key) => !i18n.exists(key))).toEqual([])
+    expect([1, 2, 5].map((count) => i18n.t('incomeBudget.announce.filled', { count, value: '5640' }))).not.toContain('incomeBudget.announce.filled')
+    expect([1, 2, 5].map((count) => i18n.t('incomeBudget.announce.cleared', { count }))).not.toContain('incomeBudget.announce.cleared')
+  })
+
   it('has the time machine, rate warning and breakdown copy', () => {
     const keys = [
       'timeMachine.live',

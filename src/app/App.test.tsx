@@ -401,6 +401,10 @@ vi.mock('../features/transactions/CsvImportModal', () => ({
   default: () => <div data-testid="csv-import-modal" />,
 }))
 
+vi.mock('../features/income-budget/IncomeBudgetDialog', () => ({
+  default: (props: { bucketId: number }) => <div data-testid="income-budget-dialog">{props.bucketId}</div>,
+}))
+
 vi.mock('../features/transactions/EditTransferModal', () => ({
   default: () => <div data-testid="edit-transfer-modal" />,
 }))
@@ -985,6 +989,14 @@ describe('App', () => {
       renderApp()
       await waitFor(() => {
         expect(screen.getByTestId('manage-linked-assets-modal')).toBeInTheDocument()
+      })
+    })
+
+    it('renders the income budget dialog for its bucket when modalState is editIncomeBudget', async () => {
+      modalStateValue = { type: 'editIncomeBudget', bucketId: 30 }
+      renderApp()
+      await waitFor(() => {
+        expect(screen.getByTestId('income-budget-dialog')).toHaveTextContent('30')
       })
     })
 

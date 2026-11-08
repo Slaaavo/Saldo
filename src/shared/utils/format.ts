@@ -24,7 +24,9 @@ export const formatAmount = (amountMinor: number, minorUnits: number = 2, config
 
   let result: string
   const symbol = currencyCode ?? config.currencySymbol
-  if (config.currencyPosition === 'left') {
+  if (symbol === '') {
+    result = numberStr
+  } else if (config.currencyPosition === 'left') {
     result = `${symbol} ${numberStr}`
   } else {
     result = `${numberStr} ${symbol}`
@@ -73,16 +75,23 @@ export const getMinorUnitsStep = (minorUnits: number): string => {
 // i18n reports bare language codes; bare "en" would give US month-first dates, so English keeps the day-month-year order it always had here.
 const DISPLAY_LOCALES: Record<string, string> = { en: 'en-GB' }
 
-/** `locale` is the current i18n language (e.g. "en", "sk"). */
-export const formatDisplayDate = (dateStr: string, locale = 'en-GB'): string => {
+const dayLocale = (language: string): string => DISPLAY_LOCALES[language] ?? language
+
+const dateOf = (dateStr: string): Date => {
   const [y, m, d] = dateStr.split('-').map(Number)
-  const date = new Date(y, m - 1, d)
-  return date.toLocaleDateString(DISPLAY_LOCALES[locale] ?? locale, {
+  return new Date(y, m - 1, d)
+}
+
+/** `locale` is the current i18n language (e.g. "en", "sk"). */
+export const formatDisplayDate = (dateStr: string, locale = 'en-GB'): string =>
+  dateOf(dateStr).toLocaleDateString(dayLocale(locale), {
     year: 'numeric',
     month: 'long',
     day: 'numeric',
   })
-}
+
+/** "8 Nov" in English, "8. 11." in Slovak. `language` is the current i18n language. */
+export const formatShortDay = (dateStr: string, language: string): string => dateOf(dateStr).toLocaleDateString(dayLocale(language), { day: 'numeric', month: 'short' })
 
 /** Converts a percentage string (e.g. "23") to basis points integer (e.g. 2300). Returns null for empty/invalid input. */
 export const pctToBps = (str: string): number | null => {

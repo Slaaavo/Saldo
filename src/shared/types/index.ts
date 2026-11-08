@@ -77,6 +77,7 @@ export type ModalState =
       balanceMinor: number
     }
   | { type: 'manageLinkedAssets'; accountId: number; accountName: string }
+  | { type: 'editIncomeBudget'; bucketId: number }
   | { type: 'csvImport' }
   | { type: 'ekasaImport' }
   | { type: 'addEvents' }

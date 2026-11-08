@@ -14,6 +14,7 @@ interface Props {
   updateButtonLabel?: string
   emptyMessage?: string
   onUpdateBalance: (accountId: number) => void
+  onEditIncomeBudget?: (bucketId: number) => void
   onRenameAccount: (accountId: number, currentName: string) => void
   onDeleteAccount: (accountId: number, name: string) => void
   onCreateAccount: () => void
@@ -35,6 +36,7 @@ const AccountCards = ({
   updateButtonLabel,
   emptyMessage,
   onUpdateBalance,
+  onEditIncomeBudget,
   onRenameAccount,
   onDeleteAccount,
   onCreateAccount,
@@ -118,6 +120,7 @@ const AccountCards = ({
                   consolidationCurrency={consolidationCurrency}
                   updateButtonLabel={updateButtonLabel}
                   onUpdateBalance={onUpdateBalance}
+                  onEditIncomeBudget={onEditIncomeBudget}
                   onRenameAccount={onRenameAccount}
                   onDeleteAccount={onDeleteAccount}
                   onManageLinkedAssets={onManageLinkedAssets}

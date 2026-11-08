@@ -5,7 +5,7 @@ import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import AccountCard from './AccountCard'
 import type { SnapshotRow, Currency } from '../../shared/types'
-import { NO_RATE, converted, makeRow } from '../../shared/testing/snapshotFixtures'
+import { NO_RATE, converted, makeIncomeBudgetRow, makeRow } from '../../shared/testing/snapshotFixtures'
 import { setBucketEnabled } from '../../shared/api'
 
 // ── Mock i18n — pass-through that returns the key, with interpolation values appended ─────
@@ -101,6 +101,42 @@ describe('AccountCard', () => {
     await user.click(screen.getByRole('switch'))
 
     await waitFor(() => expect(screen.getByRole('switch')).toHaveAttribute('aria-checked', 'true'))
+  })
+
+  it('gives an income budget card Edit budget instead of Update balance', async () => {
+    const user = userEvent.setup()
+    const onUpdateBalance = vi.fn()
+    const onEditIncomeBudget = vi.fn()
+    render(
+      <AccountCard
+        row={makeIncomeBudgetRow({ accountId: 30 })}
+        consolidationCurrency={EUR}
+        onUpdateBalance={onUpdateBalance}
+        onEditIncomeBudget={onEditIncomeBudget}
+        onDeleteAccount={() => {}}
+        onRenameAccount={() => {}}
+      />,
+      { wrapper: Providers },
+    )
+
+    expect(screen.queryByRole('button', { name: 'accounts.updateBalance' })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'incomeBudget.edit' }))
+
+    expect(onEditIncomeBudget).toHaveBeenCalledWith(30)
+    expect(onUpdateBalance).not.toHaveBeenCalled()
+    expect(screen.getByRole('switch')).toBeInTheDocument()
+  })
+
+  it('keeps Update balance on a balance bucket', async () => {
+    const user = userEvent.setup()
+    const onUpdateBalance = vi.fn()
+    render(<AccountCard row={holiday(true)} onUpdateBalance={onUpdateBalance} onEditIncomeBudget={vi.fn()} onDeleteAccount={() => {}} onRenameAccount={() => {}} />, {
+      wrapper: Providers,
+    })
+
+    await user.click(screen.getByRole('button', { name: 'accounts.updateBalance' }))
+
+    expect(onUpdateBalance).toHaveBeenCalledWith(10)
   })
 
   it('renders bucket-type row without IBAN section, shows bucket balance', () => {

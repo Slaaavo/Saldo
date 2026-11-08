@@ -313,18 +313,27 @@ Creates an income budget: a bucket whose value Saldo computes from typed months.
 Opens an income budget at the dashboard's moment. Takes `{ bucketId, asOf }` and returns `{ day, momentMonth, months, countedAccounts }`: the moment's day and month, the typed months, and the accounts whose incoming money counts.
 
 - **BE command:** `get_income_budget` → `src-tauri/src/features/income_budget/commands.rs`
+- **Used in:**
+  - `src/features/income-budget/useIncomeBudgetQueries.ts` (useIncomeBudget hook)
+    - → `src/features/income-budget/IncomeBudgetDialog/IncomeBudgetDialog.tsx`
 
 ### `previewIncomeBudget`
 
 Evaluates a draft of months without saving it. Takes `{ bucketId, asOf, fromYear, toYear, months }` (at most 40 years) and returns `{ valueMinor, valuation, lines }`, one line per month of the years shown.
 
 - **BE command:** `preview_income_budget` → `src-tauri/src/features/income_budget/commands.rs`
+- **Used in:**
+  - `src/features/income-budget/useIncomeBudgetQueries.ts` (useIncomeBudgetPreview hook)
+    - → `src/features/income-budget/IncomeBudgetDialog/BudgetEditor.tsx`
 
 ### `saveIncomeBudget`
 
 Replaces the income budget's typed months with `months`. Takes `{ bucketId, months }`; refuses a balance bucket, a repeated or malformed month and an empty cell.
 
 - **BE command:** `save_income_budget` → `src-tauri/src/features/income_budget/commands.rs`
+- **Used in:**
+  - `src/features/income-budget/useIncomeBudgetEditor.ts` (useIncomeBudgetEditor hook)
+    - → `src/features/income-budget/IncomeBudgetDialog/BudgetEditor.tsx`
 
 ---
 

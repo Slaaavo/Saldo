@@ -113,6 +113,48 @@ buckets:
   off: "Off"
   countInLeftToSpend: "Count {{name}} in Left to Spend"
 
+# ──── Income budget ────
+incomeBudget:
+  edit: Edit budget
+  save: Save
+  cancel: Cancel
+  summary:
+    on: "This bucket on {{date}}, with the values below"
+  effect:
+    off: "This bucket is switched off on its card, so Left to Spend ignores it for now."
+    noRate: "Saldo has no {{currency}} rate for this day, so Left to Spend leaves this bucket out."
+    aboveCash: "Left to Spend shows <amount></amount> more than your cash."
+    belowCash: "<amount></amount> of your cash stays out of Left to Spend, because more arrived than you budgeted."
+    equalsCash: "Left to Spend equals your cash."
+    currentMonthPending: "{{month}}'s budget counts from the 1st, and its payment has not arrived yet."
+  table:
+    month: Month
+    budget: Budget
+    vat: VAT
+    received: Received
+    difference: Difference
+    withoutVat: "without VAT, {{currency}}"
+    today: Today
+    asOf: "As of {{date}}"
+    soFar: so far
+    budgetCell: "Budget, {{month}}"
+    vatCell: "VAT, {{month}}"
+    fillBudget: "Fill budget from {{month}}"
+    fillVat: "Fill VAT from {{month}}"
+    addYear: "Add {{year}}"
+  announce:
+    yearAdded: "{{year}} added. It is kept only if you type a value into it and save."
+    filled_one: "Copied \"{{value}}\" into {{count}} more month."
+    filled_other: "Copied \"{{value}}\" into {{count}} more months."
+    cleared_one: "Cleared {{count}} more month."
+    cleared_other: "Cleared {{count}} more months."
+  counted:
+    some: "Counts money arriving on {{accounts}}."
+    none: "No account of {{person}} in {{currency}} counts yet."
+  invalid:
+    budget: "{{cell}}: type an amount without a sign, like 5640 or 5640.50."
+    vat: "{{cell}}: type a VAT rate from 0 to 100, like 23."
+
 # ──── Asset cards ────
 assets:
   sectionTitle: Assets
@@ -575,6 +617,7 @@ errors:
   linkConflict: "Cannot link {{accountName}} to this bucket because it is linked to {{bucketName}} on {{date}}."
   updateTransfer: "Failed to update transfer: {{error}}"
   switchBucket: "Failed to switch the bucket: {{error}}"
+  saveIncomeBudget: "Failed to save the income budget: {{error}}"
 
 # ──── Language selector ────
 language:
