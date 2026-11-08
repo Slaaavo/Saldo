@@ -4,9 +4,10 @@ import { getIncomeBudget, previewIncomeBudget } from '@/shared/api'
 import type { AsOf } from '@/shared/types'
 import { parseDraft, type BudgetDraft, type YearSpan } from './budgetDraft'
 
+/** The counted accounts follow every account change, and those changes invalidate 'snapshot'. */
 export const useIncomeBudget = (bucketId: number, asOf: AsOf) =>
   useQuery({
-    queryKey: ['incomeBudget', bucketId, asOf],
+    queryKey: ['snapshot', 'income-budget', bucketId, asOf],
     queryFn: () => getIncomeBudget(bucketId, asOf),
   })
 

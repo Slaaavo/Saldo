@@ -70,7 +70,6 @@ describe('useIncomeBudgetEditor', () => {
     ])
     expect(onSaved).toHaveBeenCalledOnce()
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['snapshot'] })
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['incomeBudget', 30] })
   })
 
   it('blocks Save on an invalid cell and names it', async () => {

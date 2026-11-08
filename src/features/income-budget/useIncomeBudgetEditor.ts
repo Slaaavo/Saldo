@@ -59,7 +59,6 @@ export const useIncomeBudgetEditor = ({ bucketId, budget, minorUnits, measure, o
       await saveIncomeBudget(bucketId, cells)
       onSaved()
       await queryClient.invalidateQueries({ queryKey: ['snapshot'] })
-      await queryClient.invalidateQueries({ queryKey: ['incomeBudget', bucketId] })
     } catch (err) {
       toast.error(t('errors.saveIncomeBudget', { error: extractErrorMessage(err) }))
     } finally {
