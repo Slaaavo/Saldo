@@ -282,6 +282,40 @@ describe('IncomeBudgetDialog', () => {
     await waitFor(() => expect(onClose).toHaveBeenCalled())
   })
 
+  describe('while the dialog zooms in', () => {
+    const LABEL_WIDTH = 148
+    const COLUMN_WIDTH = 92
+    const ZOOM = 0.95
+    const layoutLeft = (element: HTMLElement) => {
+      const month = element.dataset.month
+      if (month === undefined) return 0
+      return LABEL_WIDTH + [...element.parentElement!.querySelectorAll('th[data-month]')].indexOf(element) * COLUMN_WIDTH
+    }
+    const layoutWidth = (element: HTMLElement) => (element.dataset.month !== undefined ? COLUMN_WIDTH : LABEL_WIDTH)
+
+    afterEach(() => {
+      vi.restoreAllMocks()
+    })
+
+    it('scrolls to four months before the moment by the unscaled layout', async () => {
+      vi.spyOn(HTMLElement.prototype, 'offsetLeft', 'get').mockImplementation(function (this: HTMLElement) {
+        return layoutLeft(this)
+      })
+      vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(function (this: HTMLElement) {
+        return layoutWidth(this)
+      })
+      vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+        const left = this instanceof HTMLElement ? layoutLeft(this) * ZOOM : 0
+        return { left, right: left + (this instanceof HTMLElement ? layoutWidth(this) : 0) * ZOOM } as DOMRect
+      })
+      const scrolledTo = vi.spyOn(Element.prototype, 'scrollLeft', 'set')
+      renderDialog()
+
+      await screen.findByRole('columnheader', { name: /^Nov 2026/ })
+      expect(scrolledTo).toHaveBeenCalledWith((NOV_INDEX - 4) * COLUMN_WIDTH)
+    })
+  })
+
   describe('during a fill drag', () => {
     const capture = vi.fn()
     beforeEach(() => {

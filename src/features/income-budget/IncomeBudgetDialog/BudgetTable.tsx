@@ -10,7 +10,7 @@ import { cellLabel, fillLabel } from '../labels'
 import { formatMonth } from '../month'
 import { BudgetInputCell } from './BudgetInputCell'
 import { YearEdgeButton } from './YearEdgeButton'
-import { surfaceOf } from './tableSurface'
+import { layoutOf } from './tableSurface'
 
 const BARE_NUMBER: NumberFormatConfig = { ...defaultNumberFormat, currencySymbol: '' }
 
@@ -70,7 +70,7 @@ export const BudgetTable = ({
     if (!scroller || !intent) return
     pendingScroll.current = null
     if (intent === 'moment') {
-      scroller.scrollLeft = scrollLeftForMoment(surfaceOf(scroller), months, moment)
+      scroller.scrollLeft = scrollLeftForMoment(layoutOf(scroller), months, moment)
       return
     }
     // WKWebView drops a scroll position set in the same frame as the year's new columns, so it keeps painting the old offset.
