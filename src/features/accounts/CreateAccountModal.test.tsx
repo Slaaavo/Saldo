@@ -84,18 +84,30 @@ describe('CreateAccountModal kind', () => {
     expect(screen.queryByRole('group', { name: 'modals.createBucket.kind' })).not.toBeInTheDocument()
   })
 
-  it('hides the starting balance of an income budget and always asks for its person', async () => {
+  it('hides the starting balance of an income budget and always shows its person', async () => {
     const user = userEvent.setup()
-    renderModal({ persons: [PERSONAL] })
+    renderModal()
     await screen.findByDisplayValue('EUR — Euro')
     expect(screen.getByLabelText('modals.createAccount.initialBalance')).toBeInTheDocument()
-    expect(screen.queryByRole('combobox', { name: 'persons.selector' })).not.toBeInTheDocument()
 
     await user.click(kindButton('incomeBudget'))
 
     expect(kindButton('incomeBudget')).toHaveAttribute('aria-pressed', 'true')
     expect(screen.queryByLabelText('modals.createAccount.initialBalance')).not.toBeInTheDocument()
     expect(screen.getByRole('combobox', { name: 'persons.selector' })).toHaveTextContent('modals.createBucket.pickPerson')
+  })
+
+  it('starts an income budget on the only person', async () => {
+    const user = userEvent.setup()
+    const { onSubmitIncomeBudget } = renderModal({ persons: [PERSONAL] })
+    await fillName(user, 'Consulting income')
+    expect(screen.queryByRole('combobox', { name: 'persons.selector' })).not.toBeInTheDocument()
+
+    await user.click(kindButton('incomeBudget'))
+    expect(screen.getByRole('combobox', { name: 'persons.selector' })).toHaveTextContent('Personal')
+    await user.click(screen.getByRole('button', { name: 'modals.createAccount.submit' }))
+
+    expect(onSubmitIncomeBudget).toHaveBeenCalledWith('Consulting income', 1, 1)
   })
 
   it('does not create an income budget without a person and says why', async () => {

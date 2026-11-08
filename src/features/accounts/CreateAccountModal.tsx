@@ -42,7 +42,8 @@ const CreateAccountModal = ({ accountType, assets, onSubmit, onSubmitIncomeBudge
   const isIncomeBudget = isBucket && bucketKind === 'incomeBudget'
 
   const [pickedPersonId, setPickedPersonId] = useState<number | undefined>(selectedPersonId ?? undefined)
-  const derivedPersonId = isIncomeBudget ? null : (persons?.find((p) => p.isDefault)?.id ?? null)
+  const onlyPersonId = persons?.length === 1 ? persons[0].id : null
+  const derivedPersonId = isIncomeBudget ? onlyPersonId : (persons?.find((p) => p.isDefault)?.id ?? null)
   const personId: number | null = pickedPersonId ?? derivedPersonId
   const showPersonSelect = !isAsset && !!persons && (isIncomeBudget || persons.length > 1)
 
