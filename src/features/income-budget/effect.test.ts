@@ -21,28 +21,28 @@ describe('effectOf', () => {
     expect(effectOf(preview({ valuation: NO_RATE }), on)).toEqual({ kind: 'noRate' })
   })
 
-  it('says Left to Spend shows more than the cash, and that this month is still waiting for its payment', () => {
-    expect(effectOf(preview(), on)).toEqual({ kind: 'aboveCash', amountMinor: 631500, currentMonthPending: true })
+  it('says the bucket raises Left to Spend, and that this month is still waiting for its payment', () => {
+    expect(effectOf(preview(), on)).toEqual({ kind: 'raises', amountMinor: 631500, currentMonthPending: true })
   })
 
   it('does not call the month pending once its payment arrived or when it has no budget', () => {
     expect(effectOf(preview({ lines: [line({ receivedMinor: 497561, differenceMinor: -114439 })] }), on)).toEqual({
-      kind: 'aboveCash',
+      kind: 'raises',
       amountMinor: 631500,
       currentMonthPending: false,
     })
-    expect(effectOf(preview({ lines: [line({ budgeted: false, differenceMinor: null })] }), on)).toEqual({ kind: 'aboveCash', amountMinor: 631500, currentMonthPending: false })
+    expect(effectOf(preview({ lines: [line({ budgeted: false, differenceMinor: null })] }), on)).toEqual({ kind: 'raises', amountMinor: 631500, currentMonthPending: false })
   })
 
-  it('says how much cash stays out of Left to Spend when more arrived than budgeted', () => {
-    expect(effectOf(preview({ valueMinor: 25000, valuation: sameCurrency(25000) }), on)).toEqual({ kind: 'belowCash', amountMinor: 25000 })
+  it('says the bucket lowers Left to Spend when more arrived than budgeted', () => {
+    expect(effectOf(preview({ valueMinor: 25000, valuation: sameCurrency(25000) }), on)).toEqual({ kind: 'lowers', amountMinor: 25000 })
   })
 
-  it('says Left to Spend equals the cash at zero', () => {
-    expect(effectOf(preview({ valueMinor: 0, valuation: sameCurrency(0) }), on)).toEqual({ kind: 'equalsCash' })
+  it('says the bucket leaves Left to Spend unchanged at zero', () => {
+    expect(effectOf(preview({ valueMinor: 0, valuation: sameCurrency(0) }), on)).toEqual({ kind: 'unchanged' })
   })
 
   it('uses the value in the consolidation currency', () => {
-    expect(effectOf(preview({ valueMinor: -1000, valuation: converted(-920) }), on)).toEqual({ kind: 'aboveCash', amountMinor: 920, currentMonthPending: true })
+    expect(effectOf(preview({ valueMinor: -1000, valuation: converted(-920) }), on)).toEqual({ kind: 'raises', amountMinor: 920, currentMonthPending: true })
   })
 })

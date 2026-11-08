@@ -124,9 +124,9 @@ incomeBudget:
   effect:
     off: "Táto obálka je na svojej karte vypnutá, preto ju „Zostáva na míňanie“ zatiaľ ignoruje."
     noRate: "Saldo pre tento deň nemá kurz {{currency}}, preto „Zostáva na míňanie“ túto obálku vynecháva."
-    aboveCash: "„Zostáva na míňanie“ ukazuje o <amount></amount> viac, než máte peňazí."
-    belowCash: "<amount></amount> z vašich peňazí zostáva mimo „Zostáva na míňanie“, pretože prišlo viac, než ste rozpočítali."
-    equalsCash: "„Zostáva na míňanie“ sa rovná vašim peniazom."
+    raises: "Táto obálka zvyšuje „Zostáva na míňanie“ o <amount></amount>."
+    lowers: "Táto obálka znižuje „Zostáva na míňanie“ o <amount></amount>, pretože prišlo viac, než ste rozpočítali."
+    unchanged: "Táto obálka „Zostáva na míňanie“ nemení."
     currentMonthPending: "Rozpočet na {{month}} sa počíta od 1. dňa a jeho platba ešte neprišla."
   table:
     month: Mesiac

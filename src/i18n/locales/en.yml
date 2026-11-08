@@ -123,9 +123,9 @@ incomeBudget:
   effect:
     off: "This bucket is switched off on its card, so Left to Spend ignores it for now."
     noRate: "Saldo has no {{currency}} rate for this day, so Left to Spend leaves this bucket out."
-    aboveCash: "Left to Spend shows <amount></amount> more than your cash."
-    belowCash: "<amount></amount> of your cash stays out of Left to Spend, because more arrived than you budgeted."
-    equalsCash: "Left to Spend equals your cash."
+    raises: "This bucket raises Left to Spend by <amount></amount>."
+    lowers: "This bucket lowers Left to Spend by <amount></amount>, because more arrived than you budgeted."
+    unchanged: "This bucket leaves Left to Spend unchanged."
     currentMonthPending: "{{month}}'s budget counts from the 1st, and its payment has not arrived yet."
   table:
     month: Month

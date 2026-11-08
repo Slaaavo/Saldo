@@ -33,17 +33,17 @@ const EffectSentence = ({ effect, bucketCurrency, consolidationCurrency, moment 
       return t('incomeBudget.effect.off')
     case 'noRate':
       return t('incomeBudget.effect.noRate', { currency: bucketCurrency.code })
-    case 'equalsCash':
-      return t('incomeBudget.effect.equalsCash')
-    case 'aboveCash':
-    case 'belowCash': {
+    case 'unchanged':
+      return t('incomeBudget.effect.unchanged')
+    case 'raises':
+    case 'lowers': {
       const amount = (
         <NumberValue value={effect.amountMinor} currencyCode={consolidationCurrency.code} minorUnits={consolidationCurrency.minorUnits} className="font-semibold text-foreground" />
       )
       return (
         <>
           <Trans i18nKey={`incomeBudget.effect.${effect.kind}`} components={{ amount }} />
-          {effect.kind === 'aboveCash' && effect.currentMonthPending && ` ${t('incomeBudget.effect.currentMonthPending', { month: monthName(moment, i18n.language) })}`}
+          {effect.kind === 'raises' && effect.currentMonthPending && ` ${t('incomeBudget.effect.currentMonthPending', { month: monthName(moment, i18n.language) })}`}
         </>
       )
     }

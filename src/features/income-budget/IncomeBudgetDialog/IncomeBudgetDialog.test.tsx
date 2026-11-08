@@ -156,9 +156,7 @@ describe('IncomeBudgetDialog', () => {
     renderDialog()
 
     expect(await screen.findByText('-5 903.00 EUR')).toBeInTheDocument()
-    expect(screen.getByText(/incomeBudget\.effect\.aboveCash/)).toHaveTextContent(
-      'incomeBudget.effect.aboveCash 5 903.00 EUR incomeBudget.effect.currentMonthPending (month=November)',
-    )
+    expect(screen.getByText(/incomeBudget\.effect\.raises/)).toHaveTextContent('incomeBudget.effect.raises 5 903.00 EUR incomeBudget.effect.currentMonthPending (month=November)')
     expect(screen.getByText('incomeBudget.summary.on (date=8 November 2026)')).toBeInTheDocument()
   })
 

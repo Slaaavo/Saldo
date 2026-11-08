@@ -32,8 +32,8 @@ describe('BudgetSummary', () => {
   it('puts the amount into the effect sentence in English', () => {
     renderIn('en', -631500)
 
-    expect(screen.getByText(/^Left to Spend shows/)).toHaveTextContent(
-      "Left to Spend shows 6 315.00 EUR more than your cash. November's budget counts from the 1st, and its payment has not arrived yet.",
+    expect(screen.getByText(/^This bucket raises/)).toHaveTextContent(
+      "This bucket raises Left to Spend by 6 315.00 EUR. November's budget counts from the 1st, and its payment has not arrived yet.",
     )
     expect(screen.getByText('This bucket on 8 November 2026, with the values below')).toBeInTheDocument()
   })
@@ -41,6 +41,12 @@ describe('BudgetSummary', () => {
   it('puts the amount into the effect sentence in Slovak', () => {
     renderIn('sk', 25000)
 
-    expect(screen.getByText(/z vašich peňazí/)).toHaveTextContent('250.00 EUR z vašich peňazí zostáva mimo „Zostáva na míňanie“, pretože prišlo viac, než ste rozpočítali.')
+    expect(screen.getByText(/^Táto obálka znižuje/)).toHaveTextContent('Táto obálka znižuje „Zostáva na míňanie“ o 250.00 EUR, pretože prišlo viac, než ste rozpočítali.')
+  })
+
+  it('says the bucket leaves Left to Spend unchanged at zero', () => {
+    renderIn('en', 0)
+
+    expect(screen.getByText('This bucket leaves Left to Spend unchanged.')).toBeInTheDocument()
   })
 })
