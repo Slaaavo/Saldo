@@ -123,6 +123,13 @@ describe.each(['en', 'sk'] as const)('%s locale', (lng) => {
       'incomeBudget.invalid.budget',
       'incomeBudget.invalid.vat',
       'errors.saveIncomeBudget',
+      'errors.createIncomeBudget',
+      'modals.createBucket.incomeBudgetNamePlaceholder',
+      'modals.createBucket.kind',
+      'modals.createBucket.kinds.balance',
+      'modals.createBucket.kinds.incomeBudget',
+      'modals.createBucket.pickPerson',
+      'modals.createBucket.personRequired',
     ]
     expect(keys.filter((key) => !i18n.exists(key))).toEqual([])
     expect([1, 2, 5].map((count) => i18n.t('incomeBudget.announce.filled', { count, value: '5640' }))).not.toContain('incomeBudget.announce.filled')

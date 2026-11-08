@@ -4,6 +4,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import {
   createBalanceUpdate,
   createAccount,
+  createIncomeBudget,
   updateAccount,
   deleteAccount,
   updateEvent,
@@ -108,6 +109,17 @@ export const useModalActions = ({ closeModal, onFxRatePrompt }: UseModalActionsO
       await queryClient.invalidateQueries({ queryKey: ['events'] })
     } catch (err) {
       toast.error(t('errors.createAccount', { error: extractErrorMessage(err) }))
+    }
+  }
+
+  const handleCreateIncomeBudget = async (name: string, currencyId: number, personId: number) => {
+    try {
+      await createIncomeBudget(name, currencyId, personId)
+      closeModal()
+      await queryClient.invalidateQueries({ queryKey: ['snapshot'] })
+      await queryClient.invalidateQueries({ queryKey: ['events'] })
+    } catch (err) {
+      toast.error(t('errors.createIncomeBudget', { error: extractErrorMessage(err) }))
     }
   }
 
@@ -238,6 +250,7 @@ export const useModalActions = ({ closeModal, onFxRatePrompt }: UseModalActionsO
     handleDeleteEvent,
     handleDeleteSplitGroup,
     handleCreateAccount,
+    handleCreateIncomeBudget,
     handleEditAccount,
     handleDeleteAccount,
     handleBulkUpdateSubmit,

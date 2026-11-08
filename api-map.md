@@ -307,6 +307,9 @@ Switches a bucket on or off. Left to Spend ignores a bucket that is off. Takes `
 Creates an income budget: a bucket whose value Saldo computes from typed months. Takes `{ name, currencyId, personId }` and returns the new id. Refuses an unknown person and a person who already has one.
 
 - **BE command:** `create_income_budget` → `src-tauri/src/features/income_budget/commands.rs`
+- **Used in:**
+  - `src/app/useModalActions.ts` (useModalActions hook)
+    - → `src/features/accounts/CreateAccountModal.tsx` (CreateAccountModal, through `onSubmitIncomeBudget`)
 
 ### `getIncomeBudget`
 

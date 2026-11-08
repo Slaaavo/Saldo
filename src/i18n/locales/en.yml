@@ -270,6 +270,13 @@ modals:
     title: Create Bucket
     nameLabel: Bucket Name
     namePlaceholder: e.g. Emergency Fund
+    incomeBudgetNamePlaceholder: e.g. Consulting income
+    kind: Kind
+    kinds:
+      balance: Normal
+      incomeBudget: Income budget
+    pickPerson: Pick a person
+    personRequired: "Pick the person whose income this budgets."
 
   createAsset:
     title: Add Asset
@@ -618,6 +625,7 @@ errors:
   updateTransfer: "Failed to update transfer: {{error}}"
   switchBucket: "Failed to switch the bucket: {{error}}"
   saveIncomeBudget: "Failed to save the income budget: {{error}}"
+  createIncomeBudget: "Failed to create the income budget: {{error}}"
 
 # ──── Language selector ────
 language:

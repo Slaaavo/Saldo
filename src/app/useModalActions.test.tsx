@@ -4,11 +4,12 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { Currency, SnapshotRow } from '../shared/types'
 import { makeRow, makeSnapshot } from '../shared/testing/snapshotFixtures'
 import { useModalActions } from './useModalActions'
-import { createBalanceUpdate, updateEvent, createBucketBalanceUpdate, listFxRates, updateAccount, setAccountAssetLinks } from '../shared/api'
+import { createBalanceUpdate, updateEvent, createBucketBalanceUpdate, listFxRates, updateAccount, setAccountAssetLinks, createIncomeBudget } from '../shared/api'
 
 vi.mock('../shared/api', () => ({
   createBalanceUpdate: vi.fn(),
   createAccount: vi.fn(),
+  createIncomeBudget: vi.fn(),
   updateAccount: vi.fn(),
   deleteAccount: vi.fn(),
   updateEvent: vi.fn(),
@@ -70,6 +71,37 @@ describe('useModalActions error messages', () => {
     await result.current.handleSetAccountAssetLinks(1, [4])
 
     expect(mockToastError).toHaveBeenCalledWith('errors.setAccountAssetLinks:{"error":"conflict"}')
+  })
+})
+
+describe('useModalActions handleCreateIncomeBudget', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('creates the income budget, closes the form and refreshes the snapshot and entries', async () => {
+    ;(createIncomeBudget as Mock).mockResolvedValue(31)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: 0 } } })
+    const invalidate = vi.spyOn(queryClient, 'invalidateQueries')
+    const wrapper = ({ children }: { children: React.ReactNode }) => <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    const { result } = renderHook(() => useModalActions({ closeModal, onFxRatePrompt }), { wrapper })
+
+    await result.current.handleCreateIncomeBudget('Consulting income', 1, 2)
+
+    expect(createIncomeBudget).toHaveBeenCalledWith('Consulting income', 1, 2)
+    expect(closeModal).toHaveBeenCalledOnce()
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['snapshot'] })
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['events'] })
+  })
+
+  it("keeps the form open and shows Rust's refusal", async () => {
+    ;(createIncomeBudget as Mock).mockRejectedValue({ code: 'VALIDATION', message: 'This person already has an income budget.' })
+    const { result } = renderActions()
+
+    await result.current.handleCreateIncomeBudget('Consulting income', 1, 2)
+
+    expect(closeModal).not.toHaveBeenCalled()
+    expect(mockToastError).toHaveBeenCalledWith('errors.createIncomeBudget:{"error":"This person already has an income budget."}')
   })
 })
 

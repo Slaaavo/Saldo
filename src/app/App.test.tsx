@@ -149,6 +149,7 @@ vi.mock('./useModalActions', () => ({
     handleEditBalanceUpdate: mockHandleEditBalanceUpdate,
     handleDeleteEvent: mockHandleDeleteEvent,
     handleCreateAccount: mockHandleCreateAccount,
+    handleCreateIncomeBudget: vi.fn(),
     handleEditAccount: mockHandleEditAccount,
     handleDeleteAccount: mockHandleDeleteAccount,
     handleBulkUpdateSubmit: mockHandleBulkUpdateSubmit,

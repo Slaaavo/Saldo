@@ -62,6 +62,7 @@ const AppModals = ({ dbLocation }: AppModalsProps) => {
     handleDeleteEvent,
     handleDeleteSplitGroup,
     handleCreateAccount,
+    handleCreateIncomeBudget,
     handleEditAccount,
     handleDeleteAccount,
     handleBulkUpdateSubmit,
@@ -104,7 +105,15 @@ const AppModals = ({ dbLocation }: AppModalsProps) => {
       return <EditTransferModal fromEvent={modalState.fromEvent} toEvent={modalState.toEvent} onSubmit={handleEditTransfer} onClose={closeModal} />
 
     case 'createAccount':
-      return <CreateAccountModal accountType={modalState.accountType} assets={assets} onSubmit={handleCreateAccount} onClose={closeModal} />
+      return (
+        <CreateAccountModal
+          accountType={modalState.accountType}
+          assets={assets}
+          onSubmit={handleCreateAccount}
+          onSubmitIncomeBudget={handleCreateIncomeBudget}
+          onClose={closeModal}
+        />
+      )
 
     case 'createAsset':
       return <CreateAssetModal onSuccess={handleCreateAssetSuccess} onClose={closeModal} />

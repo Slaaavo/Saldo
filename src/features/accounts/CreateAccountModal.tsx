@@ -4,7 +4,8 @@ import { useQuery } from '@tanstack/react-query'
 import { PINNED_CURRENCY_CODES } from '../../shared/config/constants'
 import { toast } from 'sonner'
 import { toMinorUnits, getMinorUnitsStep } from '../../shared/utils/format'
-import type { Currency, SnapshotRow } from '../../shared/types'
+import { BUCKET_KINDS, type BucketKind, type Currency, type SnapshotRow } from '../../shared/types'
+import { cn } from '../../shared/lib/utils'
 import { listCurrencies, getConsolidationCurrency, listPersons } from '../../shared/api'
 import { useSelectedPerson } from '../../app/useSelectedPerson'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogBody, DialogFooter } from '../../shared/ui/dialog'
@@ -19,10 +20,11 @@ interface Props {
   accountType?: 'account' | 'bucket' | 'asset'
   assets?: SnapshotRow[]
   onSubmit: (name: string, currencyId: number, initialBalanceMinor?: number, accountType?: string, linkedAssetIds?: number[], iban?: string, personId?: number) => void
+  onSubmitIncomeBudget: (name: string, currencyId: number, personId: number) => void
   onClose: () => void
 }
 
-const CreateAccountModal = ({ accountType, assets, onSubmit, onClose }: Props) => {
+const CreateAccountModal = ({ accountType, assets, onSubmit, onSubmitIncomeBudget, onClose }: Props) => {
   const { t } = useTranslation()
   const { selectedPersonId } = useSelectedPerson()
   const { data: persons } = useQuery({ queryKey: ['persons'], queryFn: listPersons })
@@ -32,12 +34,18 @@ const CreateAccountModal = ({ accountType, assets, onSubmit, onClose }: Props) =
   const [linkedAssetIds, setLinkedAssetIds] = useState<number[]>([])
   const [currencies, setCurrencies] = useState<Currency[]>([])
   const [selectedCurrency, setSelectedCurrency] = useState<Currency | null>(null)
-  // undefined = auto-derive from default person; number = explicitly chosen
-  const [personIdOverride, setPersonIdOverride] = useState<number | undefined>(selectedPersonId ?? undefined)
-  const personId: number | null = personIdOverride !== undefined ? personIdOverride : (persons?.find((p) => p.isDefault)?.id ?? null)
+  const [bucketKind, setBucketKind] = useState<BucketKind>('balance')
+  const [personMissing, setPersonMissing] = useState(false)
 
   const isBucket = accountType === 'bucket'
   const isAsset = accountType === 'asset'
+  const isIncomeBudget = isBucket && bucketKind === 'incomeBudget'
+
+  // undefined = derived; number = explicitly chosen. An income budget gets no default person: its person decides whose income counts, so it is picked, not assumed.
+  const [personIdOverride, setPersonIdOverride] = useState<number | undefined>(selectedPersonId ?? undefined)
+  const derivedPersonId = isIncomeBudget ? null : (persons?.find((p) => p.isDefault)?.id ?? null)
+  const personId: number | null = personIdOverride ?? derivedPersonId
+  const showPersonSelect = !isAsset && !!persons && (isIncomeBudget || persons.length > 1)
 
   useEffect(() => {
     // Exclude custom units from currency list for accounts and buckets (not assets)
@@ -62,6 +70,11 @@ const CreateAccountModal = ({ accountType, assets, onSubmit, onClose }: Props) =
     }
     if (!selectedCurrency) {
       toast.error(t('validation.currencyRequired'))
+      return
+    }
+    if (isIncomeBudget) {
+      if (personId === null) setPersonMissing(true)
+      else onSubmitIncomeBudget(name.trim(), selectedCurrency.id, personId)
       return
     }
     let initialBalanceMinor: number | undefined
@@ -97,6 +110,31 @@ const CreateAccountModal = ({ accountType, assets, onSubmit, onClose }: Props) =
         </DialogHeader>
         <form onSubmit={handleSubmit} className="flex flex-col flex-1 overflow-hidden min-h-0 gap-4">
           <DialogBody className="flex flex-col gap-4">
+            {isBucket && (
+              <div className="flex flex-col gap-2">
+                <Label id="create-bucket-kind">{t('modals.createBucket.kind')}</Label>
+                <div role="group" aria-labelledby="create-bucket-kind" className="inline-flex w-fit gap-0.5 rounded-md bg-muted p-[3px]">
+                  {BUCKET_KINDS.map((kind) => (
+                    <button
+                      key={kind}
+                      type="button"
+                      aria-pressed={bucketKind === kind}
+                      onClick={() => {
+                        setBucketKind(kind)
+                        setPersonMissing(false)
+                      }}
+                      className={cn(
+                        'rounded-[calc(var(--radius)-2px)] px-3 py-1.5 text-sm font-semibold text-muted-foreground transition-colors hover:text-foreground',
+                        bucketKind === kind && 'bg-card text-foreground shadow-sm',
+                      )}
+                    >
+                      {t(`modals.createBucket.kinds.${kind}`)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div className="flex flex-col gap-2">
               <Label htmlFor="create-account-name">
                 {t(isAsset ? 'modals.createAsset.nameLabel' : isBucket ? 'modals.createBucket.nameLabel' : 'modals.createAccount.nameLabel')}
@@ -106,7 +144,15 @@ const CreateAccountModal = ({ accountType, assets, onSubmit, onClose }: Props) =
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder={t(isAsset ? 'modals.createAsset.namePlaceholder' : isBucket ? 'modals.createBucket.namePlaceholder' : 'modals.createAccount.namePlaceholder')}
+                placeholder={t(
+                  isAsset
+                    ? 'modals.createAsset.namePlaceholder'
+                    : isIncomeBudget
+                      ? 'modals.createBucket.incomeBudgetNamePlaceholder'
+                      : isBucket
+                        ? 'modals.createBucket.namePlaceholder'
+                        : 'modals.createAccount.namePlaceholder',
+                )}
                 required
                 autoFocus
               />
@@ -124,12 +170,25 @@ const CreateAccountModal = ({ accountType, assets, onSubmit, onClose }: Props) =
               <CurrencySelect currencies={currencies} value={selectedCurrency} onChange={setSelectedCurrency} pinnedCurrencyCodes={PINNED_CURRENCY_CODES} />
             </div>
 
-            {!isAsset && persons && persons.length > 1 && (
+            {showPersonSelect && (
               <div className="flex flex-col gap-2">
-                <Label>{t('persons.selector')}</Label>
-                <Select value={personId === null ? 'none' : String(personId)} onValueChange={(val) => setPersonIdOverride(Number(val))}>
-                  <SelectTrigger>
-                    <SelectValue />
+                <Label htmlFor="create-account-person">{t('persons.selector')}</Label>
+                <Select
+                  value={personId === null ? 'none' : String(personId)}
+                  onValueChange={(val) => {
+                    // Radix also reports '' here when the value has no matching item, so only a listed person counts.
+                    const picked = persons.find((p) => String(p.id) === val)
+                    if (!picked) return
+                    setPersonIdOverride(picked.id)
+                    setPersonMissing(false)
+                  }}
+                >
+                  <SelectTrigger
+                    id="create-account-person"
+                    aria-invalid={personMissing || undefined}
+                    aria-describedby={personMissing ? 'create-account-person-missing' : undefined}
+                  >
+                    <SelectValue>{personId === null ? <span className="text-muted-foreground">{t('modals.createBucket.pickPerson')}</span> : undefined}</SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     {persons.map((p) => (
@@ -139,21 +198,28 @@ const CreateAccountModal = ({ accountType, assets, onSubmit, onClose }: Props) =
                     ))}
                   </SelectContent>
                 </Select>
+                {personMissing && (
+                  <p id="create-account-person-missing" role="alert" className="text-xs text-destructive">
+                    {t('modals.createBucket.personRequired')}
+                  </p>
+                )}
               </div>
             )}
 
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="create-account-balance">{t(isAsset ? 'modals.createAsset.initialValue' : 'modals.createAccount.initialBalance')}</Label>
-              <CurrencyInput
-                id="create-account-balance"
-                type="number"
-                step={getMinorUnitsStep(selectedCurrency?.minorUnits ?? 0)}
-                value={balance}
-                onChange={(e) => setBalance(e.target.value)}
-                placeholder="0"
-                currencyCode={selectedCurrency?.code}
-              />
-            </div>
+            {!isIncomeBudget && (
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="create-account-balance">{t(isAsset ? 'modals.createAsset.initialValue' : 'modals.createAccount.initialBalance')}</Label>
+                <CurrencyInput
+                  id="create-account-balance"
+                  type="number"
+                  step={getMinorUnitsStep(selectedCurrency?.minorUnits ?? 0)}
+                  value={balance}
+                  onChange={(e) => setBalance(e.target.value)}
+                  placeholder="0"
+                  currencyCode={selectedCurrency?.code}
+                />
+              </div>
+            )}
 
             {!isBucket && !isAsset && assets && assets.length > 0 && (
               <div className="flex flex-col gap-2">

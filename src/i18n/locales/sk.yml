@@ -274,6 +274,13 @@ modals:
     title: Vytvoriť obálku
     nameLabel: Názov obálky
     namePlaceholder: napr. Núdzový fond
+    incomeBudgetNamePlaceholder: napr. Príjem z konzultácií
+    kind: Druh
+    kinds:
+      balance: Bežná
+      incomeBudget: Rozpočet príjmov
+    pickPerson: Vyberte osobu
+    personRequired: "Vyberte osobu, ktorej príjem táto obálka rozpočítava."
 
   createAsset:
     title: Pridať aktívum
@@ -620,6 +627,7 @@ errors:
   updateTransfer: "Nepodarilo sa aktualizovať prevod: {{error}}"
   switchBucket: "Nepodarilo sa prepnúť obálku: {{error}}"
   saveIncomeBudget: "Nepodarilo sa uložiť rozpočet príjmov: {{error}}"
+  createIncomeBudget: "Nepodarilo sa vytvoriť rozpočet príjmov: {{error}}"
 
 # ──── Uložisko dát ────
 dataStorage:
