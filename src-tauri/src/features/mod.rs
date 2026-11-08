@@ -18,6 +18,7 @@ pub use buckets::*;
 pub use csv_profiles::*;
 pub use currency::*;
 pub use ekasa::*;
+pub use income_budget::*;
 pub use partner_accounts::*;
 pub use persons::*;
 pub use settings::*;

@@ -4,6 +4,7 @@ use crate::features::assets::repository::get_use_terms;
 use crate::features::assets::resolve::{resolve_purchase, PurchaseRequest};
 use crate::features::buckets::BucketKind;
 use crate::features::currency::repository::get_consolidation_currency;
+use crate::features::income_budget::check_person_change;
 use crate::shared::{is_iso_date, validate_event_date, with_savepoint_app};
 use crate::AppState;
 use rusqlite::Connection;
@@ -233,6 +234,9 @@ pub(crate) fn update_account_with_conn(
         is_consolidation_currency(conn, account_currency_id)?,
     )?;
     with_savepoint_app(conn, || {
+        if let Some(person_id) = input.person_id {
+            check_person_change(conn, input.account_id, person_id)?;
+        }
         repository::update_account(
             conn,
             repository::UpdateAccountParams {

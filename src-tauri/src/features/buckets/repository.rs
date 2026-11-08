@@ -1,7 +1,7 @@
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 use std::collections::HashMap;
 
-use super::models::{BucketLink, LinkConflict};
+use super::models::{BucketKind, BucketLink, LinkConflict};
 use crate::shared::with_savepoint;
 
 pub struct SetBucketEventLinksParams {
@@ -36,6 +36,32 @@ pub struct CheckLinkConflictsParams {
 pub struct SetBucketEnabledParams {
     pub bucket_id: i64,
     pub enabled: bool,
+}
+
+pub struct BucketFacts {
+    pub kind: BucketKind,
+    pub person_id: Option<i64>,
+    pub currency_id: i64,
+}
+
+/// None when `bucket_id` is not a bucket.
+pub fn get_bucket_facts(
+    conn: &Connection,
+    bucket_id: i64,
+) -> rusqlite::Result<Option<BucketFacts>> {
+    conn.query_row(
+        "SELECT bucket_kind, person_id, currency_id FROM account
+         WHERE id = ?1 AND account_type = 'bucket'",
+        params![bucket_id],
+        |row| {
+            Ok(BucketFacts {
+                kind: row.get(0)?,
+                person_id: row.get(1)?,
+                currency_id: row.get(2)?,
+            })
+        },
+    )
+    .optional()
 }
 
 /// False when `bucket_id` is not a bucket. The value is absolute, so a repeated call changes

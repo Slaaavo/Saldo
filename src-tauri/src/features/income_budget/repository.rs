@@ -1,6 +1,6 @@
 use chrono::NaiveDate;
 use rusqlite::types::Type;
-use rusqlite::{named_params, params, Connection};
+use rusqlite::{named_params, params, Connection, OptionalExtension};
 
 use super::calculation::{
     evaluate, first_month_needed, BudgetCell, Evaluation, GrossInflows, YearMonth,
@@ -49,6 +49,16 @@ struct InflowsParams {
     events_until: String,
     from: YearMonth,
     to: YearMonth,
+}
+
+/// The person's income budget. There is at most one, because the unique index allows no second.
+pub fn income_budget_of(conn: &Connection, person_id: i64) -> rusqlite::Result<Option<i64>> {
+    conn.query_row(
+        "SELECT id FROM account WHERE person_id = ?1 AND bucket_kind = 'income_budget'",
+        params![person_id],
+        |row| row.get(0),
+    )
+    .optional()
 }
 
 pub fn list_cells(conn: &Connection, bucket_id: i64) -> rusqlite::Result<Vec<BudgetCell>> {

@@ -302,6 +302,30 @@ Switches a bucket on or off. Left to Spend ignores a bucket that is off. Takes `
   - `src/features/buckets/BucketSwitch.tsx`
     - → `src/features/dashboard/AccountCard/AccountCard.tsx`
 
+### `createIncomeBudget`
+
+Creates an income budget: a bucket whose value Saldo computes from typed months. Takes `{ name, currencyId, personId }` and returns the new id. Refuses an unknown person and a person who already has one.
+
+- **BE command:** `create_income_budget` → `src-tauri/src/features/income_budget/commands.rs`
+
+### `getIncomeBudget`
+
+Opens an income budget at the dashboard's moment. Takes `{ bucketId, asOf }` and returns `{ day, momentMonth, months, countedAccounts }`: the moment's day and month, the typed months, and the accounts whose incoming money counts.
+
+- **BE command:** `get_income_budget` → `src-tauri/src/features/income_budget/commands.rs`
+
+### `previewIncomeBudget`
+
+Evaluates a draft of months without saving it. Takes `{ bucketId, asOf, fromYear, toYear, months }` (at most 40 years) and returns `{ valueMinor, valuation, lines }`, one line per month of the years shown.
+
+- **BE command:** `preview_income_budget` → `src-tauri/src/features/income_budget/commands.rs`
+
+### `saveIncomeBudget`
+
+Replaces the income budget's typed months with `months`. Takes `{ bucketId, months }`; refuses a balance bucket, a repeated or malformed month and an empty cell.
+
+- **BE command:** `save_income_budget` → `src-tauri/src/features/income_budget/commands.rs`
+
 ---
 
 ## Currencies & FX Rates

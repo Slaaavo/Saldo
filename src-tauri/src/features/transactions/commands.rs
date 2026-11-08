@@ -19,6 +19,15 @@ pub enum AsOfInput {
     At { until: String },
 }
 
+impl AsOfInput {
+    pub(crate) fn into_moment(self) -> Result<Moment, AppError> {
+        match self {
+            AsOfInput::Live => Ok(Moment::live(chrono::Local::now().date_naive())),
+            AsOfInput::At { until } => Moment::at(&until),
+        }
+    }
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GetSnapshotInput {
@@ -149,10 +158,7 @@ pub fn get_accounts_snapshot(
     state: State<'_, AppState>,
     input: GetSnapshotInput,
 ) -> Result<Snapshot, AppError> {
-    let moment = match input.as_of {
-        AsOfInput::Live => Moment::live(chrono::Local::now().date_naive()),
-        AsOfInput::At { until } => Moment::at(&until)?,
-    };
+    let moment = input.as_of.into_moment()?;
     let conn = state.conn()?;
     let snapshot = repository::get_accounts_snapshot(
         &conn,

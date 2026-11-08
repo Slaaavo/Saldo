@@ -153,6 +153,38 @@ impl ConsolidationConverter<'_> {
     }
 }
 
+pub struct ValueAmountParams {
+    pub moment: Moment,
+    pub currency_id: i64,
+    pub amount_minor: i64,
+}
+
+/// Values one amount the way the snapshot values a row at the same moment.
+pub(crate) fn value_amount(
+    conn: &Connection,
+    params: ValueAmountParams,
+) -> rusqlite::Result<Valuation> {
+    let consolidation = get_consolidation_currency(conn)?;
+    let held = conn.query_row(
+        "SELECT minor_units, is_custom FROM currency WHERE id = ?1",
+        params![params.currency_id],
+        |row| {
+            Ok(Held {
+                currency_id: params.currency_id,
+                minor_units: row.get(0)?,
+                is_custom: row.get::<_, i64>(1)? != 0,
+            })
+        },
+    )?;
+    ConsolidationConverter {
+        conn,
+        consolidation: &consolidation,
+        moment: &params.moment,
+        rates: HashMap::new(),
+    }
+    .value(params.amount_minor, held)
+}
+
 pub fn get_accounts_snapshot(
     conn: &Connection,
     params: GetSnapshotParams,
