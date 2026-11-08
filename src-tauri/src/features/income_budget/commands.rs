@@ -11,6 +11,7 @@ use crate::error::AppError;
 use crate::features::accounts::repository::{create_account, CreateAccountParams};
 use crate::features::buckets::repository::{get_bucket_facts, BucketFacts};
 use crate::features::buckets::BucketKind;
+use crate::features::currency::repository::list_currencies;
 use crate::features::persons::repository::list_persons;
 use crate::features::transactions::repository::{value_amount, ValueAmountParams};
 use crate::features::transactions::AsOfInput;
@@ -118,6 +119,14 @@ pub(crate) fn create_income_budget_inner(
             .any(|person| person.id == input.person_id)
         {
             return Err(validation("Pick the person whose income this budgets."));
+        }
+        if !list_currencies(conn, Some(false))?
+            .iter()
+            .any(|currency| currency.id == input.currency_id)
+        {
+            return Err(validation(
+                "An income budget needs a real currency, not a custom unit.",
+            ));
         }
         if repository::income_budget_of(conn, input.person_id)?.is_some() {
             return Err(one_per_person());
@@ -293,6 +302,7 @@ mod tests {
     use super::*;
     use crate::db::initialize_in_memory;
     use crate::features::accounts::commands::{update_account_with_conn, UpdateAccountInput};
+    use crate::features::assets::repository::{create_custom_unit, CreateCustomUnitParams};
     use crate::features::persons::repository::{create_person, CreatePersonParams};
     use crate::features::transactions::models::SnapshotRow;
     use crate::features::transactions::repository::{create_cashflow, rows_at, CashflowEntry};
@@ -462,6 +472,40 @@ mod tests {
     }
 
     #[test]
+    fn create_refuses_a_custom_unit() {
+        let conn = initialize_in_memory().unwrap();
+        let gold = create_custom_unit(
+            &conn,
+            CreateCustomUnitParams {
+                name: "Gold".to_owned(),
+                minor_units: 3,
+            },
+        )
+        .unwrap();
+
+        let refused = create_income_budget_inner(
+            &conn,
+            CreateIncomeBudgetInput {
+                name: "Income".to_owned(),
+                currency_id: gold,
+                person_id: DEFAULT_PERSON,
+            },
+        )
+        .unwrap_err();
+
+        assert_eq!(
+            code_and_message(refused),
+            (
+                "VALIDATION".to_owned(),
+                "An income budget needs a real currency, not a custom unit.".to_owned()
+            )
+        );
+        assert!(repository::income_budget_of(&conn, DEFAULT_PERSON)
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
     fn changing_an_income_budgets_person_to_one_that_has_one_is_refused() {
         let conn = initialize_in_memory().unwrap();
         let other = person(&conn, "Other");
@@ -469,14 +513,14 @@ mod tests {
         let mine = create(&conn, DEFAULT_PERSON).unwrap();
         create(&conn, other).unwrap();
         let holiday = account(&conn, "Holiday", "bucket", EUR);
-        let move_to = |account_id: i64, person_id: i64| {
+        let move_to = |account_id: i64, person_id: Option<i64>| {
             update_account_with_conn(
                 &conn,
                 UpdateAccountInput {
                     account_id,
                     name: "Renamed".to_owned(),
                     iban: None,
-                    person_id: Some(person_id),
+                    person_id,
                     purchase_price_minor: None,
                     purchase_date: None,
                     depreciation_period_months: None,
@@ -485,16 +529,18 @@ mod tests {
             )
         };
 
-        let refused = move_to(mine, other).unwrap_err();
+        let refused = move_to(mine, Some(other)).unwrap_err();
+        let to_nobody = move_to(mine, None).unwrap_err();
 
         assert_eq!(
             code_and_message(refused),
             ("VALIDATION".to_owned(), ONE_PER_PERSON.to_owned())
         );
+        assert_eq!(to_nobody.code, "VALIDATION");
         assert_eq!(row_on_nov_8(&conn, mine).person_id, Some(DEFAULT_PERSON));
-        move_to(mine, DEFAULT_PERSON).unwrap();
-        move_to(holiday, other).unwrap();
-        move_to(mine, third).unwrap();
+        move_to(mine, Some(DEFAULT_PERSON)).unwrap();
+        move_to(holiday, Some(other)).unwrap();
+        move_to(mine, Some(third)).unwrap();
         assert_eq!(row_on_nov_8(&conn, mine).person_id, Some(third));
     }
 
