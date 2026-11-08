@@ -28,7 +28,15 @@ const BucketSwitch = ({ bucketId, bucketName, enabled }: Props) => {
     setRequested(null)
   }
 
-  return <Switch size="sm" checked={requested ?? enabled} onCheckedChange={(next) => void toggle(next)} aria-label={t('buckets.countInLeftToSpend', { name: bucketName })} />
+  return (
+    <Switch
+      size="sm"
+      checked={requested ?? enabled}
+      disabled={requested !== null}
+      onCheckedChange={(next) => void toggle(next)}
+      aria-label={t('buckets.countInLeftToSpend', { name: bucketName })}
+    />
+  )
 }
 
 export default BucketSwitch
