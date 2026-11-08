@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use crate::error::AppError;
 use crate::features::assets::repository::get_all_account_asset_link_ids;
 use crate::features::buckets::repository::list_all_latest_bucket_links;
+use crate::features::buckets::{BucketKind, BucketState};
 use crate::features::currency::models::Currency;
 use crate::features::currency::rate_age::{is_stale, rate_age_days};
 use crate::features::currency::repository::{
@@ -201,7 +202,8 @@ pub fn get_accounts_snapshot(
            a.person_id,
            a.purchase_price_minor,
            a.purchase_date,
-           a.depreciation_period_months
+           a.depreciation_period_months,
+           a.bucket_enabled
          FROM account a
          JOIN currency c ON c.id = a.currency_id
          WHERE a.account_type IN ('account', 'bucket', 'asset')
@@ -217,10 +219,18 @@ pub fn get_accounts_snapshot(
                 is_custom: row.get::<_, i64>(7)? != 0,
             };
             let balance_minor: i64 = row.get(8)?;
+            let account_type: AccountKind = row.get(2)?;
+            let bucket = match account_type {
+                AccountKind::Bucket => Some(BucketState {
+                    kind: BucketKind::Balance,
+                    enabled: row.get(13)?,
+                }),
+                AccountKind::Account | AccountKind::Asset => None,
+            };
             Ok(SnapshotRow {
                 account_id: row.get(0)?,
                 account_name: row.get(1)?,
-                account_type: row.get(2)?,
+                account_type,
                 iban: row.get(3)?,
                 balance_minor,
                 currency_code: row.get(5)?,
@@ -238,6 +248,7 @@ pub fn get_accounts_snapshot(
                 purchase_price_minor: row.get(10)?,
                 purchase_date: row.get(11)?,
                 depreciation_period_months: row.get(12)?,
+                bucket,
             })
         })?
         .collect::<rusqlite::Result<_>>()?;
@@ -932,6 +943,77 @@ mod tests {
             let err = Moment::at(until).err().expect(until);
             assert_eq!(err.code, "VALIDATION", "{until}");
         }
+    }
+
+    fn switch_off(conn: &Connection, bucket_id: i64) {
+        crate::features::buckets::repository::set_bucket_enabled(
+            conn,
+            crate::features::buckets::repository::SetBucketEnabledParams {
+                bucket_id,
+                enabled: false,
+            },
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn a_bucket_row_carries_kind_and_switch_and_an_account_row_none() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let account = mk_account(&conn, "account");
+        let asset = mk_account(&conn, "asset");
+        let on = mk_account(&conn, "bucket");
+        let off = mk_account(&conn, "bucket");
+        switch_off(&conn, off);
+
+        let rows = rows_at(&conn, "2026-03-05");
+
+        assert_eq!(row(&rows, account).bucket, None);
+        assert_eq!(row(&rows, asset).bucket, None);
+        assert_eq!(
+            row(&rows, on).bucket,
+            Some(BucketState {
+                kind: BucketKind::Balance,
+                enabled: true
+            })
+        );
+        assert_eq!(
+            row(&rows, off).bucket,
+            Some(BucketState {
+                kind: BucketKind::Balance,
+                enabled: false
+            })
+        );
+        assert_eq!(
+            serde_json::to_value(row(&rows, off)).unwrap()["bucket"],
+            serde_json::json!({ "kind": "balance", "enabled": false })
+        );
+    }
+
+    #[test]
+    fn a_switch_is_the_same_at_every_moment() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let account = mk_account_in(&conn, "EUR", "account");
+        let bucket = mk_account_in(&conn, "EUR", "bucket");
+        balance_update(&conn, account, 10_000);
+        balance_update_on(&conn, bucket, 4_000, "2026-03-01");
+        switch_off(&conn, bucket);
+
+        for snapshot in [
+            at(&conn, "2026-02-01"),
+            at(&conn, "2026-03-05"),
+            live(&conn, "2026-11-08"),
+        ] {
+            assert!(row(&snapshot.rows, bucket).is_switched_off());
+            let left = metric(&snapshot, MetricKind::LeftToSpend);
+            assert!(left
+                .counted()
+                .iter()
+                .all(|line| line.subject.account_id != bucket));
+        }
+        assert_eq!(
+            metric(&at(&conn, "2026-03-05"), MetricKind::LeftToSpend).total_minor(),
+            10_000
+        );
     }
 
     #[test]

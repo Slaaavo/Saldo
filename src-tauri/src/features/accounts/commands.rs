@@ -184,7 +184,10 @@ pub fn update_account(
     update_account_with_conn(&conn, input)
 }
 
-fn update_account_with_conn(conn: &Connection, input: UpdateAccountInput) -> Result<(), AppError> {
+pub(crate) fn update_account_with_conn(
+    conn: &Connection,
+    input: UpdateAccountInput,
+) -> Result<(), AppError> {
     if input.name.trim().is_empty() {
         return Err(AppError {
             code: "VALIDATION".into(),

@@ -250,6 +250,7 @@ pub fn run() {
             features::update_bucket_balance_update,
             features::list_links_for_event,
             features::get_latest_bucket_links,
+            features::set_bucket_enabled,
             features::update_sort_order,
             features::enter_demo_mode,
             features::exit_demo_mode,

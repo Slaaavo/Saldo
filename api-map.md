@@ -293,6 +293,12 @@ Gets the latest active bucket–account links as of a specific date.
     - → `src/features/transactions/EditBalanceUpdateModal.tsx`
     - → `src/features/transactions/CreateBalanceUpdateModal.tsx`
 
+### `setBucketEnabled`
+
+Switches a bucket on or off. Left to Spend ignores a bucket that is off. Takes `{ bucketId, enabled }`; refuses an id that is not a bucket.
+
+- **BE command:** `set_bucket_enabled` → `src-tauri/src/features/buckets/commands.rs`
+
 ---
 
 ## Currencies & FX Rates

@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::features::buckets::BucketLink;
+use crate::features::buckets::{BucketLink, BucketState};
 
 /// Flattened event with its current (latest) event_data.
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -154,6 +154,13 @@ pub struct SnapshotRow {
     pub purchase_price_minor: Option<i64>,
     pub purchase_date: Option<String>,
     pub depreciation_period_months: Option<i64>,
+    pub bucket: Option<BucketState>,
+}
+
+impl SnapshotRow {
+    pub fn is_switched_off(&self) -> bool {
+        self.bucket.is_some_and(|bucket| !bucket.enabled)
+    }
 }
 
 #[derive(Debug, Serialize, Clone, PartialEq, Eq)]
@@ -220,6 +227,7 @@ pub enum NotCountedReason {
     LinkedToAsset,
     Earmark,
     NotLiquid,
+    SwitchedOff,
 }
 
 #[derive(Debug, Serialize, Clone, Copy, PartialEq, Eq)]

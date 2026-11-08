@@ -29,6 +29,42 @@ pub struct UpdateBucketBalanceUpdateInput {
     pub linked_account_ids: Vec<i64>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetBucketEnabledInput {
+    pub bucket_id: i64,
+    pub enabled: bool,
+}
+
+#[tauri::command]
+pub fn set_bucket_enabled(
+    state: State<'_, AppState>,
+    input: SetBucketEnabledInput,
+) -> Result<(), AppError> {
+    let conn = state.conn()?;
+    set_bucket_enabled_inner(&conn, input)
+}
+
+pub(crate) fn set_bucket_enabled_inner(
+    conn: &Connection,
+    input: SetBucketEnabledInput,
+) -> Result<(), AppError> {
+    let switched = repository::set_bucket_enabled(
+        conn,
+        repository::SetBucketEnabledParams {
+            bucket_id: input.bucket_id,
+            enabled: input.enabled,
+        },
+    )?;
+    if !switched {
+        return Err(AppError {
+            code: "VALIDATION".into(),
+            message: "Only a bucket can be switched on or off.".into(),
+        });
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub fn create_bucket_balance_update(
     state: State<'_, AppState>,
@@ -256,6 +292,77 @@ mod tests {
             },
         )
         .unwrap()
+    }
+
+    fn switch_of(conn: &Connection, bucket_id: i64) -> Option<bool> {
+        crate::features::transactions::repository::rows_at(conn, "2026-11-08")
+            .into_iter()
+            .find(|row| row.account_id == bucket_id)
+            .and_then(|row| row.bucket)
+            .map(|bucket| bucket.enabled)
+    }
+
+    fn set(conn: &Connection, bucket_id: i64, enabled: bool) -> Result<(), AppError> {
+        set_bucket_enabled_inner(conn, SetBucketEnabledInput { bucket_id, enabled })
+    }
+
+    #[test]
+    fn set_bucket_enabled_is_absolute_and_idempotent() {
+        let conn = initialize_in_memory().unwrap();
+        let bucket = mk_account(&conn, "bucket");
+        assert_eq!(switch_of(&conn, bucket), Some(true));
+
+        set(&conn, bucket, false).unwrap();
+        set(&conn, bucket, false).unwrap();
+        assert_eq!(switch_of(&conn, bucket), Some(false));
+
+        set(&conn, bucket, true).unwrap();
+        set(&conn, bucket, true).unwrap();
+        assert_eq!(switch_of(&conn, bucket), Some(true));
+    }
+
+    #[test]
+    fn set_bucket_enabled_refuses_a_non_bucket() {
+        let conn = initialize_in_memory().unwrap();
+        let account = mk_account(&conn, "account");
+        let asset = mk_account(&conn, "asset");
+
+        for id in [account, asset, 99_999] {
+            let err = set(&conn, id, false).unwrap_err();
+            assert_eq!(err.code, "VALIDATION", "{id}");
+        }
+        let stored: Vec<i64> = conn
+            .prepare("SELECT bucket_enabled FROM account WHERE id IN (?1, ?2)")
+            .unwrap()
+            .query_map(params![account, asset], |row| row.get(0))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap();
+        assert_eq!(stored, [1, 1]);
+    }
+
+    #[test]
+    fn update_account_keeps_the_switch_and_the_kind() {
+        let conn = initialize_in_memory().unwrap();
+        let bucket = mk_account(&conn, "bucket");
+        set(&conn, bucket, false).unwrap();
+
+        crate::features::accounts::commands::update_account_with_conn(
+            &conn,
+            crate::features::accounts::commands::UpdateAccountInput {
+                account_id: bucket,
+                name: "Renamed".to_owned(),
+                iban: None,
+                person_id: Some(1),
+                purchase_price_minor: None,
+                purchase_date: None,
+                depreciation_period_months: None,
+                asset_use: None,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(switch_of(&conn, bucket), Some(false));
     }
 
     #[test]

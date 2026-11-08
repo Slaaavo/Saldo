@@ -12,6 +12,20 @@ pub struct BucketLink {
     pub source_currency_minor_units: i64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum BucketKind {
+    Balance,
+}
+
+/// Only bucket rows carry one. `enabled` is today's switch, also for a past moment.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BucketState {
+    pub kind: BucketKind,
+    pub enabled: bool,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct LinkConflict {

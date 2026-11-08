@@ -25,6 +25,7 @@ fn role(kind: MetricKind, row: &SnapshotRow) -> Role {
             Role::Skip(NotCountedReason::LinkedToAsset)
         }
         (Liquid | TotalBalance | LeftToSpend, Account) => Role::Add,
+        (LeftToSpend, Bucket) if row.is_switched_off() => Role::Skip(NotCountedReason::SwitchedOff),
         (LeftToSpend, Bucket) => Role::Subtract,
         (Liquid | TotalBalance | LeftToSpend, Asset) => Role::Skip(NotCountedReason::NotLiquid),
     }
@@ -200,9 +201,11 @@ struct RatedAmount<'a> {
 }
 
 /// Bucket links never warn. A link values its source account's balance at the same rate, and
-/// that account is always a row of its own, so the row warns for it.
+/// that account is always a row of its own, so the row warns for it. A switched-off bucket counts
+/// nowhere, so it does not warn either.
 pub fn rate_warnings(rows: &[SnapshotRow]) -> Vec<RateWarning> {
-    let balances = rows.iter().map(|row| RatedAmount {
+    let counted_rows = || rows.iter().filter(|row| !row.is_switched_off());
+    let balances = counted_rows().map(|row| RatedAmount {
         account_id: row.account_id,
         account_name: &row.account_name,
         native: Money {
@@ -213,8 +216,7 @@ pub fn rate_warnings(rows: &[SnapshotRow]) -> Vec<RateWarning> {
         valuation: &row.valuation,
         is_custom: row.is_custom,
     });
-    let tagged = rows
-        .iter()
+    let tagged = counted_rows()
         .flat_map(|row| &row.tagged_cashflows)
         .map(|tagged| RatedAmount {
             account_id: tagged.source_account_id,
@@ -262,7 +264,7 @@ fn rate_problem(valuation: &Valuation, is_custom: bool) -> Option<RateProblem> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::features::buckets::BucketLink;
+    use crate::features::buckets::{BucketKind, BucketLink, BucketState};
     use crate::features::transactions::models::{RateUsed, TaggedCashflows, ValuedBucketLink};
     use AccountKind::{Account, Asset, Bucket};
     use MetricKind::{LeftToSpend, Liquid, NetWorth, TotalBalance};
@@ -332,7 +334,19 @@ mod tests {
             purchase_price_minor: None,
             purchase_date: None,
             depreciation_period_months: None,
+            bucket: (account_type == Bucket).then_some(BucketState {
+                kind: BucketKind::Balance,
+                enabled: true,
+            }),
         }
+    }
+
+    fn switched_off(mut bucket: SnapshotRow) -> SnapshotRow {
+        bucket.bucket = bucket.bucket.map(|state| BucketState {
+            enabled: false,
+            ..state
+        });
+        bucket
     }
 
     fn eur(account_id: i64, account_type: AccountKind, balance_minor: i64) -> SnapshotRow {
@@ -597,6 +611,66 @@ mod tests {
             )]
         );
         assert_eq!(left.total_minor(), 1_000 + 400 - 100 - 400);
+    }
+
+    #[test]
+    fn left_to_spend_skips_a_switched_off_bucket_with_its_real_total() {
+        let usd = row(2, Account, "USD", 500, fresh(400));
+        let mut bucket = eur(6, Bucket, 100);
+        bucket.bucket_links = vec![link_from(&usd)];
+        let rows = vec![eur(1, Account, 1_000), usd, switched_off(bucket)];
+
+        let metrics = headline_metrics(&rows, &eur_currency());
+        let left = find(&metrics, LeftToSpend);
+
+        assert_eq!(counted_signed(left, 6), []);
+        assert_eq!(
+            skipped_of(left, 6),
+            [(
+                LinePart::BucketTotal,
+                money(500, "EUR"),
+                NotCountedReason::SwitchedOff
+            )]
+        );
+        assert_eq!(left.total_minor(), 1_000 + 400);
+    }
+
+    #[test]
+    fn a_switched_off_bucket_is_still_an_earmark_elsewhere() {
+        let mut rows = household();
+        rows[5] = switched_off(rows[5].clone());
+
+        let metrics = headline_metrics(&rows, &eur_currency());
+
+        let earmark = [(
+            LinePart::BucketTotal,
+            money(500, "EUR"),
+            NotCountedReason::Earmark,
+        )];
+        assert_eq!(skipped_of(find(&metrics, NetWorth), 6), earmark);
+        assert_eq!(skipped_of(find(&metrics, Liquid), 6), earmark);
+    }
+
+    #[test]
+    fn a_switched_off_bucket_raises_no_rate_warning() {
+        let mut bucket = row(6, Bucket, "GBP", 70, Valuation::NoRate);
+        bucket.tagged_cashflows = vec![tagged_from(9, "CHF", 50, Valuation::NoRate)];
+
+        let warned = |rows: &[SnapshotRow]| -> Vec<i64> {
+            rate_warnings(rows).iter().map(|w| w.account_id).collect()
+        };
+
+        assert_eq!(warned(std::slice::from_ref(&bucket)), [6, 9]);
+        assert_eq!(warned(&[switched_off(bucket)]), Vec::<i64>::new());
+    }
+
+    #[test]
+    fn left_to_spend_shows_when_every_bucket_is_off() {
+        let rows = vec![eur(1, Account, 1_000), switched_off(eur(6, Bucket, 100))];
+
+        let metrics = headline_metrics(&rows, &eur_currency());
+
+        assert_eq!(find(&metrics, LeftToSpend).total_minor(), 1_000);
     }
 
     #[test]

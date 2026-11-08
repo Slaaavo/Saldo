@@ -33,6 +33,24 @@ pub struct CheckLinkConflictsParams {
     pub proposed_account_ids: Vec<i64>,
 }
 
+pub struct SetBucketEnabledParams {
+    pub bucket_id: i64,
+    pub enabled: bool,
+}
+
+/// False when `bucket_id` is not a bucket. The value is absolute, so a repeated call changes
+/// nothing.
+pub fn set_bucket_enabled(
+    conn: &Connection,
+    params: SetBucketEnabledParams,
+) -> rusqlite::Result<bool> {
+    let changed = conn.execute(
+        "UPDATE account SET bucket_enabled = ?2 WHERE id = ?1 AND account_type = 'bucket'",
+        params![params.bucket_id, params.enabled],
+    )?;
+    Ok(changed == 1)
+}
+
 pub fn set_bucket_event_links(
     conn: &Connection,
     params: SetBucketEventLinksParams,
