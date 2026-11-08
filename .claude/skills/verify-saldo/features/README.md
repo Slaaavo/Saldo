@@ -42,7 +42,8 @@ Keep implementation details out of the map. Name only user paths, stable handles
 
 - [Balance update](./balance-update.md): set an account's balance from its card, from Bulk Balance Update, or by editing a ledger row.
 - [Dashboard snapshot, time machine and number breakdowns](./dashboard-snapshot.md): live balances and metrics, the time machine, each metric's breakdown, rate warnings, and Bulk Balance Update at its own date.
-- [Buckets](./buckets.md): create a bucket, allocate to it, link an account, and read Left to Spend.
+- [Buckets](./buckets.md): create a bucket, allocate to it, link an account, switch it off, and read Left to Spend.
+- [Income budget](./income-budget.md): a bucket computed from a month table of budgeted income against what arrived, with drag-to-fill, add-year, Save, and its effect on Left to Spend.
 - [CSV import](./csv-import.md): import cashflows from a bank CSV through the import wizard.
 - [FX rates](./fx-rates.md): list stored rates, edit one by hand, and fetch rates for a date.
 - [Demo mode](./demo-mode.md): enter and leave the seeded demo database without real data, persons, or theme leaking across.
