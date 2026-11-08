@@ -11,6 +11,7 @@ use crate::features::transactions::repository::{
     create_split_group_with_legs, rows_at, BulkCreateBalanceUpdatesParams, CashflowEntry,
     CreateBalanceUpdateParams, CreateSplitGroupWithLegsParams,
 };
+use crate::shared::MAX_AMOUNT_MINOR;
 
 const DEFAULT_PERSON: i64 = 1;
 const NO_ENTRIES: &str = "An income budget is computed from its budget and takes no entries.";
@@ -301,6 +302,30 @@ fn a_refused_write_is_a_validation_error_with_the_triggers_message() {
     assert_eq!(refusal(on_budget), validation(NO_ENTRIES));
     assert_eq!(refusal(tagged), validation(NO_TAGS));
     assert_eq!(other_constraint.code, "DB_ERROR");
+}
+
+#[test]
+fn a_month_outside_the_known_years_or_amounts_is_not_stored() {
+    let conn = initialize_in_memory().unwrap();
+    let budget = income_budget(&conn);
+    let store = |month: &str, budget_minor: i64| {
+        conn.execute(
+            "INSERT INTO income_budget_month (bucket_id, month, budget_minor) VALUES (?1, ?2, ?3)",
+            params![budget, month, budget_minor],
+        )
+    };
+
+    let refused = [
+        store("1989-12", 1),
+        store("2201-01", 1),
+        store("2026-12", MAX_AMOUNT_MINOR + 1),
+    ];
+
+    for result in refused {
+        assert!(result.is_err());
+    }
+    store("1990-01", 1).unwrap();
+    store("2200-12", MAX_AMOUNT_MINOR).unwrap();
 }
 
 #[test]

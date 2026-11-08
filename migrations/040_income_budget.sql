@@ -7,9 +7,10 @@ CREATE UNIQUE INDEX idx_account_one_income_budget_per_person
 
 CREATE TABLE income_budget_month (
   bucket_id    INTEGER NOT NULL REFERENCES account (id) ON DELETE CASCADE,
-  month        TEXT    NOT NULL CHECK (month GLOB '[0-9][0-9][0-9][0-9]-0[1-9]'
-                                    OR month GLOB '[0-9][0-9][0-9][0-9]-1[0-2]'),
-  budget_minor INTEGER NULL CHECK (budget_minor >= 0),
+  month        TEXT    NOT NULL CHECK ((month GLOB '[0-9][0-9][0-9][0-9]-0[1-9]'
+                                     OR month GLOB '[0-9][0-9][0-9][0-9]-1[0-2]')
+                                    AND CAST(substr(month, 1, 4) AS INTEGER) BETWEEN 1990 AND 2200),
+  budget_minor INTEGER NULL CHECK (budget_minor BETWEEN 0 AND 10000000000000),
   vat_bps      INTEGER NULL CHECK (vat_bps BETWEEN 0 AND 10000),
   PRIMARY KEY (bucket_id, month),
   CHECK (budget_minor IS NOT NULL OR vat_bps IS NOT NULL)
