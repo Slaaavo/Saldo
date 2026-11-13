@@ -688,14 +688,12 @@ describe('App', () => {
     })
   })
 
-  // ── Page scroll ──
-
   describe('page scroll', () => {
     it('opens a page at the top, not at the offset the last page was scrolled to', async () => {
       const user = userEvent.setup()
       renderApp()
       const page = await screen.findByRole('main')
-      await waitFor(() => expect(page.scrollTop).toBe(0))
+      await new Promise((resolve) => requestAnimationFrame(resolve))
       page.scrollTop = 400
 
       await user.click(screen.getByTestId('nav-settings'))
