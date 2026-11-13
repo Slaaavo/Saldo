@@ -139,8 +139,6 @@ describe('LedgerPage', () => {
     await waitFor(() => expect(getUnmatchedCashflowCount).toHaveBeenCalledTimes(2))
   })
 
-  // ── Filters ───────────────────────────────────────────────────────────────
-
   it('offers Clear filters only while a filter is active', async () => {
     const user = userEvent.setup()
     renderLedgerPage()

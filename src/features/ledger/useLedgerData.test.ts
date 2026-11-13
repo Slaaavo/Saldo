@@ -4,6 +4,7 @@ import { renderHook, waitFor, act } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { useLedgerData } from './useLedgerData'
 import { SelectedPersonProvider } from '../../app/SelectedPersonContext'
+import { useSelectedPerson } from '../../app/useSelectedPerson'
 import type { EventWithData } from '../../shared/types'
 import { makeRow } from '../../shared/testing/snapshotFixtures'
 
@@ -156,6 +157,32 @@ describe('useLedgerData', () => {
     await waitFor(() => {
       expect(listEvents).toHaveBeenCalledWith(expect.objectContaining({ accountIds: [1, 2, 3] }))
     })
+  })
+
+  it('drops the account selection for good when the person filter changes', async () => {
+    const { result } = renderHook(() => ({ ledger: useLedgerData(), person: useSelectedPerson() }), { wrapper: createWrapper() })
+
+    act(() => result.current.ledger.setSelectedAccountIds([5]))
+    await waitFor(() => expect(listEvents).toHaveBeenLastCalledWith({ accountIds: [5] }))
+
+    act(() => result.current.person.setSelectedPersonId(2))
+
+    await waitFor(() => expect(listEvents).toHaveBeenLastCalledWith({ personId: 2 }))
+    expect(result.current.ledger.selectedAccountIds).toEqual([])
+    expect(result.current.ledger.hasActiveFilters).toBe(false)
+
+    act(() => result.current.person.setSelectedPersonId(null))
+
+    await waitFor(() => expect(listEvents).toHaveBeenLastCalledWith({}))
+    expect(result.current.ledger.selectedAccountIds).toEqual([])
+  })
+
+  it('starts on the account the page was opened with', async () => {
+    const { result } = renderHook(() => useLedgerData({ initialAccountId: 7 }), { wrapper: createWrapper() })
+
+    await waitFor(() => expect(listEvents).toHaveBeenLastCalledWith({ accountIds: [7] }))
+    expect(result.current.selectedAccountIds).toEqual([7])
+    expect(result.current.hasActiveFilters).toBe(true)
   })
 
   it('does not pass accountIds when selectedAccountIds is empty', async () => {

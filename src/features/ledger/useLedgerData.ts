@@ -19,11 +19,9 @@ export const useLedgerData = ({ snapshot, initialAccountId }: UseLedgerDataOptio
   const [unmatchedOnly, setUnmatchedOnly] = useState(false)
   const { selectedPersonId } = useSelectedPerson()
 
-  // Another person's accounts are a different list, so the selection does not carry over. Comparing during render leaves the
-  // first render alone, which keeps the account the page was opened with.
-  const [selectionPersonId, setSelectionPersonId] = useState(selectedPersonId)
-  if (selectionPersonId !== selectedPersonId) {
-    setSelectionPersonId(selectedPersonId)
+  const [prevPersonId, setPrevPersonId] = useState(selectedPersonId)
+  if (prevPersonId !== selectedPersonId) {
+    setPrevPersonId(selectedPersonId)
     setSelectedAccountIds([])
   }
 

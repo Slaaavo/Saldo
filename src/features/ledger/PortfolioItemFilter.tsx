@@ -57,7 +57,9 @@ const PortfolioItemFilter = ({ accounts, selectedIds, onChange }: Props) => {
     <Popover>
       <PopoverTrigger asChild>
         <Button variant="outline" className="justify-between gap-2">
-          <span>{label}</span>
+          <span className="max-w-64 truncate" title={onlySelected?.accountName}>
+            {label}
+          </span>
           <ChevronDown className="size-4 opacity-50" />
         </Button>
       </PopoverTrigger>
