@@ -65,7 +65,8 @@ const AppShell = () => {
                 <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
                   <div className="flex-1 overflow-y-auto [scrollbar-gutter:stable]">
                     <div className="mx-auto max-w-5xl py-6 px-4">
-                      <div className="bg-card rounded-xl shadow-sm overflow-hidden">
+                      {/* overflow-clip keeps the rounded corners without making the card a scroll container, which would stop the sticky header */}
+                      <div className="bg-card rounded-xl shadow-sm overflow-clip">
                         <Header pageTitle={pageTitle} />
                         <Outlet />
                       </div>

@@ -19,7 +19,7 @@ const Header = ({ pageTitle }: Props) => {
   const showPersonSelector = pathname === '/dashboard' || pathname === '/ledger'
 
   return (
-    <header className="flex items-center justify-between border-b bg-card px-4 md:px-10 py-3 min-h-16">
+    <header className="sticky top-0 z-20 flex items-center justify-between border-b bg-card px-4 md:px-10 py-3 min-h-16">
       <div className="flex items-center">
         <h1 className="text-xl font-bold tracking-tight">{pageTitle}</h1>
       </div>
