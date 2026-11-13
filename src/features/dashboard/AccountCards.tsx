@@ -85,7 +85,7 @@ const AccountCards = ({
         <h2 className="text-xl font-semibold">{sectionTitle ?? t('accounts.sectionTitle')}</h2>
         <div className="flex items-center gap-2">
           {onReorder && snapshot.length > 1 && (
-            <Button onClick={onReorder} size="sm" variant="ghost">
+            <Button onClick={onReorder} size="sm" variant="ghost" title={t('common.reorder')} aria-label={t('common.reorder')}>
               <ArrowUpDown className="h-4 w-4" />
             </Button>
           )}

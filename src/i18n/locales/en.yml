@@ -179,6 +179,8 @@ ledger:
   splitGroup:
     badge: "Split ×{{n}}"
     splitLabel: "Split {{n}}"
+    showLegs: "Show legs"
+    hideLegs: "Hide legs"
 
 # ──── Ledger Page ────
 ledgerPage:
@@ -524,6 +526,10 @@ common:
   bucket: bucket
   asset: asset
   loading: Loading...
+  edit: Edit
+  delete: Delete
+  reorder: Reorder
+  moreActions: More actions
 
 # ──── Settings panel ────
 settings:

@@ -18,7 +18,7 @@ export const AccountContextMenu = ({ accountId, accountName, accountType, onRena
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon" className="h-7 w-7 -mr-2 -mt-1">
+        <Button variant="ghost" size="icon" className="h-7 w-7 -mr-2 -mt-1" title={t('common.moreActions')} aria-label={t('common.moreActions')}>
           <MoreVertical className="h-4 w-4" />
         </Button>
       </DropdownMenuTrigger>

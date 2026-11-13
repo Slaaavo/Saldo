@@ -89,7 +89,7 @@ const StandaloneEventCard = ({ ev, bucketSnap, consolidationCurrency, onEditEven
                 ev.eventType === 'revenue' ||
                 ev.eventType === 'expense' ||
                 ev.eventType === 'prepaid_expense') && (
-                <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => onEditEvent(ev)}>
+                <Button variant="ghost" size="icon" className="h-8 w-8" title={t('common.edit')} aria-label={t('common.edit')} onClick={() => onEditEvent(ev)}>
                   <Pencil className="h-4 w-4" />
                 </Button>
               )}
@@ -98,6 +98,8 @@ const StandaloneEventCard = ({ ev, bucketSnap, consolidationCurrency, onEditEven
                 variant="ghost"
                 size="icon"
                 className="h-8 w-8"
+                title={t('common.delete')}
+                aria-label={t('common.delete')}
                 onClick={() => {
                   if (ev.linkedEventId !== null && onDeleteTransferEvent) {
                     onDeleteTransferEvent(ev.id, ev.linkedEventId)

@@ -183,6 +183,8 @@ ledger:
   splitGroup:
     badge: "Rozdelené ×{{n}}"
     splitLabel: "Časť {{n}}"
+    showLegs: "Zobraziť časti"
+    hideLegs: "Skryť časti"
 
 # ──── Stránka účtovnéj knihy ────
 ledgerPage:
@@ -528,6 +530,10 @@ common:
   bucket: obálku
   asset: aktívum
   loading: Načítava sa...
+  edit: Upraviť
+  delete: Vymazať
+  reorder: Zmeniť poradie
+  moreActions: Ďalšie akcie
 # ──── Výber dátumu ────
 datePicker:
   today: Dnes

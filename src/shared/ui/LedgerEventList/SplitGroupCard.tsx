@@ -49,19 +49,31 @@ const SplitGroupCard = ({ item, isExpanded, onToggle, onEditTaxableSplitGroup, o
                   variant="ghost"
                   size="icon"
                   className="h-8 w-8"
+                  title={t('common.edit')}
+                  aria-label={t('common.edit')}
                   onClick={() => onEditTaxableSplitGroup(item.splitGroupId, item.legs[0].eventType, item.legs, item.groupNote, item.accountId)}
                 >
                   <Pencil className="h-4 w-4" />
                 </Button>
               )}
-              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => onDeleteSplitGroup?.(item.splitGroupId)}>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                title={t('common.delete')}
+                aria-label={t('common.delete')}
+                onClick={() => onDeleteSplitGroup?.(item.splitGroupId)}
+              >
                 <Trash2 className="h-4 w-4" />
               </Button>
             </div>
           </div>
         </CardContent>
         <button
-          className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-1/2 flex items-center justify-center h-5 w-5 rounded-full bg-background border border-border text-muted-foreground hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer z-10"
+          className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-1/2 flex items-center justify-center h-5 w-5 rounded-full bg-background border border-border text-muted-foreground hover:text-foreground cursor-pointer z-10"
+          title={t(isExpanded ? 'ledger.splitGroup.hideLegs' : 'ledger.splitGroup.showLegs')}
+          aria-label={t(isExpanded ? 'ledger.splitGroup.hideLegs' : 'ledger.splitGroup.showLegs')}
+          aria-expanded={isExpanded}
           onClick={onToggle}
         >
           <ChevronDown className={cn('h-3 w-3 transition-transform', isExpanded && 'rotate-180')} />
