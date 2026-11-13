@@ -194,6 +194,8 @@ ledgerPage:
   groupAccounts: "Účty"
   groupBuckets: "Obálky"
   groupAssets: "Aktíva"
+  clearFilters: "Zrušiť filtre"
+  emptyFiltered: "Týmto filtrom nezodpovedajú žiadne udalosti."
   filterType:
     all: "Všetko"
     balanceUpdates: "Aktualizácie zostatkov"

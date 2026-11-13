@@ -14,6 +14,7 @@ import { useEditEventHandler } from '../../shared/hooks/useEditEventHandler'
 import { useModal } from '../../app/useModal'
 import { LIVE } from '../../shared/utils/snapshot'
 import { useSelectedPerson } from '../../app/useSelectedPerson'
+import { X } from 'lucide-react'
 
 const LedgerPage = () => {
   const { t } = useTranslation()
@@ -42,6 +43,8 @@ const LedgerPage = () => {
     setEventTypeFilter,
     unmatchedOnly,
     setUnmatchedOnly,
+    hasActiveFilters,
+    clearFilters,
     events,
     loading,
   } = useLedgerData({
@@ -89,13 +92,19 @@ const LedgerPage = () => {
           <DatePicker value={toDate || undefined} onChange={(d) => setToDate(d)} clearable placeholder={t('ledgerPage.filterTo')} />
         </div>
         <PortfolioItemFilter accounts={snapshot} selectedIds={selectedAccountIds} onChange={setSelectedAccountIds} />
+        {hasActiveFilters && (
+          <Button variant="ghost" size="sm" onClick={clearFilters}>
+            <X className="h-4 w-4" />
+            {t('ledgerPage.clearFilters')}
+          </Button>
+        )}
         <div className="ml-auto">
           <LedgerActionButtons onAddEvents={handleAddEvents} onImportCsv={handleImportCsv} onImportEkasa={handleImportEkasa} />
         </div>
       </div>
 
       {/* Event type filter */}
-      <div className="flex items-center gap-1 mb-6">
+      <div className="flex flex-wrap items-center gap-1 mb-6">
         {(
           [
             { value: 'all', label: t('ledgerPage.filterType.all') },
@@ -126,6 +135,8 @@ const LedgerPage = () => {
 
       {loading ? (
         <p className="text-sm text-muted-foreground">&hellip;</p>
+      ) : events.length === 0 && hasActiveFilters ? (
+        <p className="text-sm text-muted-foreground">{t('ledgerPage.emptyFiltered')}</p>
       ) : (
         <LedgerEventList
           events={events}

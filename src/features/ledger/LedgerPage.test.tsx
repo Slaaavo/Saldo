@@ -133,6 +133,32 @@ describe('LedgerPage', () => {
     await waitFor(() => expect(getUnmatchedCashflowCount).toHaveBeenCalledTimes(2))
   })
 
+  // ── Filters ───────────────────────────────────────────────────────────────
+
+  it('offers Clear filters only while a filter is active', async () => {
+    const user = userEvent.setup()
+    renderLedgerPage()
+    expect(screen.queryByText('ledgerPage.clearFilters')).not.toBeInTheDocument()
+
+    await user.click(screen.getByText('ledgerPage.filterType.transfers'))
+    await waitFor(() => expect(listEvents).toHaveBeenLastCalledWith({ eventTypes: ['transfer'] }))
+
+    await user.click(screen.getByText('ledgerPage.clearFilters'))
+
+    expect(screen.queryByText('ledgerPage.clearFilters')).not.toBeInTheDocument()
+    expect(await screen.findByTestId('ledger-event-list')).toBeInTheDocument()
+  })
+
+  it('says that no events match when a filter leaves the list empty', async () => {
+    const user = userEvent.setup()
+    renderLedgerPage()
+
+    await user.click(screen.getByText('ledgerPage.filterType.transfers'))
+
+    expect(await screen.findByText('ledgerPage.emptyFiltered')).toBeInTheDocument()
+    expect(screen.queryByTestId('ledger-event-list')).not.toBeInTheDocument()
+  })
+
   // ── Modal dispatch ────────────────────────────────────────────────────────
 
   it('dispatches addEvents modal when Add Events is clicked', async () => {

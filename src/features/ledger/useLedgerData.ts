@@ -58,7 +58,19 @@ export const useLedgerData = ({ snapshot }: UseLedgerDataOptions = {}) => {
     },
   })
 
+  const hasActiveFilters = fromDate !== '' || toDate !== '' || selectedAccountIds.length > 0 || eventTypeFilter !== 'all' || unmatchedOnly
+
+  const clearFilters = () => {
+    setFromDate('')
+    setToDate('')
+    setSelectedAccountIds([])
+    setEventTypeFilter('all')
+    setUnmatchedOnly(false)
+  }
+
   return {
+    hasActiveFilters,
+    clearFilters,
     fromDate,
     setFromDate,
     toDate,

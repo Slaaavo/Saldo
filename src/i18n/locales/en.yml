@@ -190,6 +190,8 @@ ledgerPage:
   groupAccounts: "Accounts"
   groupBuckets: "Buckets"
   groupAssets: "Assets"
+  clearFilters: "Clear filters"
+  emptyFiltered: "No events match these filters."
   filterType:
     all: "All"
     balanceUpdates: "Balance Updates"
