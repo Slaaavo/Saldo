@@ -9,7 +9,7 @@ The user drags accounts into a new order in the Reorder Accounts dialog on the D
 
 ## How to get to it (user POV)
 
-- Dashboard → Accounts section → the up-down arrows button left of `Add Account` → `Reorder Accounts` dialog → drag → `Save Order`.
+- Dashboard → Accounts section → the up-down arrows button (`AXButton "Reorder"`) left of `Add Account` → `Reorder Accounts` dialog → drag → `Save Order`.
 - The person filter (`All Persons` select in the header) appears once a second person exists. Persons are created on the Persons page.
 
 ## Driving it with computer use
