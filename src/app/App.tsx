@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Outlet, useRouterState } from '@tanstack/react-router'
 import Header from '../shared/layout/Header'
@@ -52,6 +52,16 @@ const AppShell = () => {
   const _prefixMatch = PAGE_TITLE_PREFIXES.find(([prefix]) => _path.startsWith(prefix))
   const pageTitle = titleOverride ?? t(PAGE_TITLES[_path] ?? (_prefixMatch ? _prefixMatch[1] : 'sidebar.dashboard'))
 
+  // The pages scroll inside this element, not the window, so a new page would open at the last page's offset. The reset waits
+  // for the next frame, because WKWebView keeps painting the old offset when it changes in the frame that swaps the content.
+  const pageScrollRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      if (pageScrollRef.current) pageScrollRef.current.scrollTop = 0
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [_path])
+
   return (
     <SelectedPersonProvider>
       <TimeMachineProvider>
@@ -63,7 +73,7 @@ const AppShell = () => {
               <div className="flex flex-1 min-h-0 bg-background overflow-hidden">
                 <Sidebar collapsed={sidebarCollapsed} onToggleCollapse={() => setSidebarCollapsed((c) => !c)} />
                 <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-                  <div className="flex-1 overflow-y-auto [scrollbar-gutter:stable]">
+                  <main ref={pageScrollRef} className="flex-1 overflow-y-auto [scrollbar-gutter:stable]">
                     <div className="mx-auto max-w-5xl py-6 px-4">
                       {/* overflow-clip keeps the rounded corners without making the card a scroll container, which would stop the sticky header */}
                       <div className="bg-card rounded-xl shadow-sm overflow-clip">
@@ -71,7 +81,7 @@ const AppShell = () => {
                         <Outlet />
                       </div>
                     </div>
-                  </div>
+                  </main>
                 </div>
                 <AppModals dbLocation={dbLocation} />
               </div>
