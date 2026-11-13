@@ -50,7 +50,8 @@ const PortfolioItemFilter = ({ accounts, selectedIds, onChange }: Props) => {
     }
   }
 
-  const label = selectedIds.length > 0 ? t('ledgerPage.portfolioItemCount', { count: selectedIds.length }) : t('ledgerPage.portfolioItem')
+  const onlySelected = selectedIds.length === 1 ? listed.find((a) => a.accountId === selectedIds[0]) : undefined
+  const label = onlySelected ? onlySelected.accountName : selectedIds.length > 0 ? t('ledgerPage.portfolioItemCount', { count: selectedIds.length }) : t('ledgerPage.portfolioItem')
 
   return (
     <Popover>

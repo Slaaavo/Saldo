@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import type { SnapshotRow } from '../../shared/types'
 import { listEvents } from '../../shared/api'
@@ -7,41 +7,38 @@ import { useSelectedPerson } from '../../app/useSelectedPerson'
 
 interface UseLedgerDataOptions {
   snapshot?: SnapshotRow[]
+  /** The account the page opens filtered to, when the user came from that account's card. */
+  initialAccountId?: number
 }
 
-export const useLedgerData = ({ snapshot }: UseLedgerDataOptions = {}) => {
+export const useLedgerData = ({ snapshot, initialAccountId }: UseLedgerDataOptions = {}) => {
   const [fromDate, setFromDate] = useState('')
   const [toDate, setToDate] = useState('')
-  const [selectedAccountIds, setSelectedAccountIds] = useState<number[]>([])
+  const [selectedAccountIds, setSelectedAccountIds] = useState<number[]>(initialAccountId === undefined ? [] : [initialAccountId])
   const [eventTypeFilter, setEventTypeFilter] = useState<string>('all')
   const [unmatchedOnly, setUnmatchedOnly] = useState(false)
   const { selectedPersonId } = useSelectedPerson()
 
-  useEffect(() => {
-    const id = setTimeout(() => {
-      setSelectedAccountIds([])
-    }, 0)
-    return () => clearTimeout(id)
-  }, [selectedPersonId])
+  // Another person's accounts are a different list, so the selection does not carry over. Comparing during render leaves the
+  // first render alone, which keeps the account the page was opened with.
+  const [selectionPersonId, setSelectionPersonId] = useState(selectedPersonId)
+  if (selectionPersonId !== selectedPersonId) {
+    setSelectionPersonId(selectedPersonId)
+    setSelectedAccountIds([])
+  }
 
-  const accountTypeMap = useMemo(() => {
-    const map = new Map<number, string>()
-    if (snapshot) {
-      for (const row of snapshot) {
-        map.set(row.accountId, row.accountType)
-      }
-    }
-    return map
-  }, [snapshot])
+  const bucketFilterIds = useMemo(() => {
+    const bucketIds = new Set(snapshot?.filter((row) => row.accountType === 'bucket').map((row) => row.accountId))
+    return selectedAccountIds.filter((id) => bucketIds.has(id))
+  }, [snapshot, selectedAccountIds])
 
   const { data, isPending } = useQuery({
-    queryKey: ['events', 'ledger', fromDate, toDate, selectedAccountIds, eventTypeFilter, unmatchedOnly, selectedPersonId],
+    queryKey: ['events', 'ledger', fromDate, toDate, selectedAccountIds, bucketFilterIds, eventTypeFilter, unmatchedOnly, selectedPersonId],
     queryFn: async () => {
       const filter: Parameters<typeof listEvents>[0] = {}
       if (fromDate) filter.fromDate = `${fromDate}T00:00:00`
       if (toDate) filter.beforeDate = toEndOfDay(toDate)
       if (selectedAccountIds.length > 0) {
-        const bucketFilterIds = selectedAccountIds.filter((id) => accountTypeMap.get(id) === 'bucket')
         // All selected IDs go to accountIds (buckets need it for their own balance_update events)
         filter.accountIds = selectedAccountIds
         // Bucket IDs additionally go to bucketIds (for cashflows tagged to the bucket)

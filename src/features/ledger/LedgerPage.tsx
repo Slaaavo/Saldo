@@ -1,5 +1,6 @@
 import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
+import { useSearch } from '@tanstack/react-router'
 import type { EventWithData } from '../../shared/types'
 import { getUnmatchedCashflowCount } from '../../shared/api'
 import { useLedgerData } from './useLedgerData'
@@ -20,6 +21,7 @@ const LedgerPage = () => {
   const { t } = useTranslation()
   const { setModalState } = useModal()
   const { selectedPersonId } = useSelectedPerson()
+  const { accountId } = useSearch({ from: '/ledger' })
   const handleEditEvent = useEditEventHandler()
   const snapshotQuery = useSnapshotQuery(LIVE)
   const snapshot = snapshotQuery.data?.rows ?? []
@@ -49,6 +51,7 @@ const LedgerPage = () => {
     loading,
   } = useLedgerData({
     snapshot,
+    initialAccountId: accountId,
   })
 
   const handleEditTaxableSplitGroup = (splitGroupId: number, eventType: string, legs: EventWithData[], groupNote: string | null, accountId: number) => {

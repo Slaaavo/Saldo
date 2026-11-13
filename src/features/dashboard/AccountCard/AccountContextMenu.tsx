@@ -1,7 +1,7 @@
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/shared/ui/button'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/shared/ui/dropdown-menu'
-import { Link2, MoreVertical, Pencil, Trash2 } from 'lucide-react'
+import { BookOpen, Link2, MoreVertical, Pencil, Trash2 } from 'lucide-react'
 
 interface AccountContextMenuProps {
   accountId: number
@@ -10,9 +10,10 @@ interface AccountContextMenuProps {
   onRenameAccount: (accountId: number, accountName: string) => void
   onDeleteAccount: (accountId: number, accountName: string) => void
   onManageLinkedAssets?: (accountId: number, accountName: string) => void
+  onViewInLedger?: (accountId: number) => void
 }
 
-export const AccountContextMenu = ({ accountId, accountName, accountType, onRenameAccount, onDeleteAccount, onManageLinkedAssets }: AccountContextMenuProps) => {
+export const AccountContextMenu = ({ accountId, accountName, accountType, onRenameAccount, onDeleteAccount, onManageLinkedAssets, onViewInLedger }: AccountContextMenuProps) => {
   const { t } = useTranslation()
 
   return (
@@ -27,6 +28,12 @@ export const AccountContextMenu = ({ accountId, accountName, accountType, onRena
           <Pencil className="h-4 w-4" />
           {t('accounts.edit')}
         </DropdownMenuItem>
+        {onViewInLedger && (
+          <DropdownMenuItem onClick={() => onViewInLedger(accountId)}>
+            <BookOpen className="h-4 w-4" />
+            {t('accounts.viewInLedger')}
+          </DropdownMenuItem>
+        )}
         {onManageLinkedAssets && accountType === 'account' && (
           <DropdownMenuItem onClick={() => onManageLinkedAssets(accountId, accountName)}>
             <Link2 className="h-4 w-4" />

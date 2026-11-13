@@ -59,10 +59,16 @@ vi.mock('./AccountCards', () => ({
     onCreateAccount: () => void
     onReorder?: () => void
     onEditIncomeBudget?: (bucketId: number) => void
+    onViewInLedger?: (accountId: number) => void
     snapshot: SnapshotRow[]
   }) => (
     <div data-testid={`account-cards-${props.sectionTitle ?? 'unknown'}`}>
       <span data-testid="section-title">{props.sectionTitle}</span>
+      {props.onViewInLedger && (
+        <button data-testid={`view-in-ledger-${props.sectionTitle}`} onClick={() => props.onViewInLedger?.(7)}>
+          view in ledger
+        </button>
+      )}
       {props.onEditIncomeBudget && (
         <button data-testid={`edit-budget-${props.sectionTitle}`} onClick={() => props.onEditIncomeBudget?.(30)}>
           edit budget
@@ -437,6 +443,18 @@ describe('DashboardView', () => {
   })
 
   // ── Create account/bucket/asset actions ──
+
+  describe('view in ledger', () => {
+    it.each(['accounts.sectionTitle', 'buckets.sectionTitle', 'assets.sectionTitle'])('opens the ledger filtered to the account from the %s section', async (section) => {
+      const user = userEvent.setup()
+      setupApiMocks({ snapshot: [makeRow()] })
+      renderDashboard()
+
+      await user.click(await screen.findByTestId(`view-in-ledger-${section}`))
+
+      expect(mockNavigate).toHaveBeenCalledWith({ to: '/ledger', search: { accountId: 7 } })
+    })
+  })
 
   describe('section add/create buttons', () => {
     it('opens createAccount modal for accounts section', async () => {

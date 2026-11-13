@@ -79,6 +79,8 @@ const DashboardView = () => {
 
   const handleUpdateBalance = (accountId: number) => setModalState({ type: 'createBalanceUpdate', preselectedAccountId: accountId })
 
+  const handleViewInLedger = (accountId: number) => navigate({ to: '/ledger', search: { accountId } })
+
   const handleUpdateAssetValue = (accountId: number) => {
     const row = assets.find((a) => a.accountId === accountId)
     if (row?.isCustom) {
@@ -142,6 +144,7 @@ const DashboardView = () => {
             onCreateAccount={() => setModalState({ type: 'createAccount', accountType: 'account' })}
             onReorder={() => setModalState({ type: 'reorderAccounts' })}
             onManageLinkedAssets={(accountId, accountName) => setModalState({ type: 'manageLinkedAssets', accountId, accountName })}
+            onViewInLedger={handleViewInLedger}
             allAssets={assets}
             persons={persons}
           />
@@ -166,6 +169,7 @@ const DashboardView = () => {
               onDeleteAccount={handleDelete('bucket')}
               onCreateAccount={() => setModalState({ type: 'createAccount', accountType: 'bucket' })}
               onReorder={() => setModalState({ type: 'reorderBuckets' })}
+              onViewInLedger={handleViewInLedger}
               persons={persons}
             />
           </div>
@@ -186,6 +190,7 @@ const DashboardView = () => {
               onDeleteAccount={handleDelete('asset')}
               onCreateAccount={() => setModalState({ type: 'createAsset' })}
               onReorder={() => setModalState({ type: 'reorderAssets' })}
+              onViewInLedger={handleViewInLedger}
               allAccounts={accounts}
               persons={persons}
             />

@@ -50,7 +50,7 @@ const Sidebar = ({ collapsed, onToggleCollapse }: SidebarProps) => {
       to={to}
       activeProps={{ className: cn(navLinkBase, 'bg-accent text-accent-foreground') }}
       inactiveProps={{ className: cn(navLinkBase, 'text-muted-foreground hover:bg-muted hover:text-foreground') }}
-      activeOptions={{ exact: true }}
+      activeOptions={{ exact: true, includeSearch: false }}
     >
       <Icon className="h-5 w-5 shrink-0" />
       <span className={cn('overflow-hidden whitespace-nowrap transition-opacity duration-150', expanded ? 'opacity-100' : 'opacity-0 w-0')}>{t(labelKey)}</span>

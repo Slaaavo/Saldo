@@ -38,6 +38,7 @@ const ledgerRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/ledger',
   component: LedgerPage,
+  validateSearch: (search: Record<string, unknown>): { accountId?: number } => (typeof search.accountId === 'number' ? { accountId: search.accountId } : {}),
 })
 
 const fxRatesRoute = createRoute({

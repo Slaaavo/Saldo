@@ -23,6 +23,11 @@ vi.mock('react-i18next', () => {
   }
 })
 
+let search: { accountId?: number } = {}
+vi.mock('@tanstack/react-router', () => ({
+  useSearch: () => search,
+}))
+
 // ── Mock the API layer ──────────────────────────────────────────────────────
 vi.mock('../../shared/api', () => ({
   listEvents: vi.fn(),
@@ -104,6 +109,7 @@ const renderLedgerPage = () => {
 describe('LedgerPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    search = {}
     ;(listEvents as Mock).mockResolvedValue({ events: [], totalCount: 0 })
     ;(getAccountsSnapshot as Mock).mockResolvedValue(makeSnapshot())
     ;(getConsolidationCurrency as Mock).mockResolvedValue({ id: 1, code: 'EUR', name: 'Euro', minorUnits: 2, isCustom: false })
@@ -147,6 +153,18 @@ describe('LedgerPage', () => {
 
     expect(screen.queryByText('ledgerPage.clearFilters')).not.toBeInTheDocument()
     expect(await screen.findByTestId('ledger-event-list')).toBeInTheDocument()
+  })
+
+  it('opens filtered to the account it was reached from, and Clear filters shows every account again', async () => {
+    const user = userEvent.setup()
+    search = { accountId: 5 }
+    renderLedgerPage()
+
+    await waitFor(() => expect(listEvents).toHaveBeenLastCalledWith({ accountIds: [5] }))
+
+    await user.click(screen.getByText('ledgerPage.clearFilters'))
+
+    await waitFor(() => expect(listEvents).toHaveBeenLastCalledWith({}))
   })
 
   it('says that no events match when a filter leaves the list empty', async () => {

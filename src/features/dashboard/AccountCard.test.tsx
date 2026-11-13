@@ -127,6 +127,47 @@ describe('AccountCard', () => {
     expect(screen.getByRole('switch')).toBeInTheDocument()
   })
 
+  it('offers View in ledger in the card menu and passes the account on', async () => {
+    const user = userEvent.setup()
+    const onViewInLedger = vi.fn()
+    render(
+      <AccountCard
+        row={makeRow({ accountId: 7 })}
+        consolidationCurrency={EUR}
+        onUpdateBalance={() => {}}
+        onDeleteAccount={() => {}}
+        onRenameAccount={() => {}}
+        onViewInLedger={onViewInLedger}
+      />,
+      { wrapper: Providers },
+    )
+
+    await user.click(screen.getByRole('button', { name: 'common.moreActions' }))
+    await user.click(await screen.findByRole('menuitem', { name: 'accounts.viewInLedger' }))
+
+    expect(onViewInLedger).toHaveBeenCalledWith(7)
+  })
+
+  it('leaves View in ledger out of an income budget, which has no entries', async () => {
+    const user = userEvent.setup()
+    render(
+      <AccountCard
+        row={makeIncomeBudgetRow({ accountId: 30 })}
+        consolidationCurrency={EUR}
+        onUpdateBalance={() => {}}
+        onDeleteAccount={() => {}}
+        onRenameAccount={() => {}}
+        onViewInLedger={vi.fn()}
+      />,
+      { wrapper: Providers },
+    )
+
+    await user.click(screen.getByRole('button', { name: 'common.moreActions' }))
+
+    expect(await screen.findByRole('menuitem', { name: 'accounts.edit' })).toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: 'accounts.viewInLedger' })).not.toBeInTheDocument()
+  })
+
   it('keeps Update balance on a balance bucket', async () => {
     const user = userEvent.setup()
     const onUpdateBalance = vi.fn()

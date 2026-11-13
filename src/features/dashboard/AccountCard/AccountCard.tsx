@@ -21,6 +21,7 @@ interface AccountCardProps {
   onRenameAccount: (accountId: number, currentName: string) => void
   onDeleteAccount: (accountId: number, name: string) => void
   onManageLinkedAssets?: (accountId: number, accountName: string) => void
+  onViewInLedger?: (accountId: number) => void
   allAssets?: SnapshotRow[]
   allAccounts?: SnapshotRow[]
   personName?: string
@@ -35,6 +36,7 @@ const AccountCard = ({
   onRenameAccount,
   onDeleteAccount,
   onManageLinkedAssets,
+  onViewInLedger,
   allAssets,
   allAccounts,
   personName,
@@ -42,7 +44,8 @@ const AccountCard = ({
   const { t } = useTranslation()
 
   const equity = useAccountCardEquity(row, allAccounts)
-  const action = takesEntries(row)
+  const hasEntries = takesEntries(row)
+  const action = hasEntries
     ? { label: updateButtonLabel ?? t('accounts.updateBalance'), run: () => onUpdateBalance(row.accountId) }
     : onEditIncomeBudget && { label: t('incomeBudget.edit'), run: () => onEditIncomeBudget(row.accountId) }
 
@@ -65,6 +68,7 @@ const AccountCard = ({
               onRenameAccount={onRenameAccount}
               onDeleteAccount={onDeleteAccount}
               onManageLinkedAssets={onManageLinkedAssets}
+              onViewInLedger={hasEntries ? onViewInLedger : undefined}
             />
           </div>
         </div>

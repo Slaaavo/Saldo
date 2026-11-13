@@ -91,6 +91,7 @@ accounts:
   edit: Upraviť
   delete: Vymazať
   updateBalance: Aktualizovať zostatok
+  viewInLedger: Zobraziť v účtovnej knihe
   scrollLeft: Posunúť doľava
   scrollRight: Posunúť doprava
   noRateTooltip: "Bez kurzu, nezapočítava sa do súčtov"

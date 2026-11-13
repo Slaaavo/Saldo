@@ -90,6 +90,7 @@ accounts:
   edit: Edit
   delete: Delete
   updateBalance: Update Balance
+  viewInLedger: View in ledger
   scrollLeft: Scroll left
   scrollRight: Scroll right
   noRateTooltip: "No rate, not counted in totals"

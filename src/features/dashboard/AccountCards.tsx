@@ -20,6 +20,7 @@ interface Props {
   onCreateAccount: () => void
   onReorder?: () => void
   onManageLinkedAssets?: (accountId: number, accountName: string) => void
+  onViewInLedger?: (accountId: number) => void
   /** All asset rows — used to resolve asset names for the link indicator tooltip on account cards */
   allAssets?: SnapshotRow[]
   /** All account rows — used to resolve linked account balances for equity tooltip on asset cards and bucket linked-account tooltip */
@@ -42,6 +43,7 @@ const AccountCards = ({
   onCreateAccount,
   onReorder,
   onManageLinkedAssets,
+  onViewInLedger,
   allAssets,
   allAccounts,
   persons,
@@ -124,6 +126,7 @@ const AccountCards = ({
                   onRenameAccount={onRenameAccount}
                   onDeleteAccount={onDeleteAccount}
                   onManageLinkedAssets={onManageLinkedAssets}
+                  onViewInLedger={onViewInLedger}
                   allAssets={allAssets}
                   allAccounts={allAccounts}
                   personName={personName}

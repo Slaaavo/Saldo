@@ -23,4 +23,15 @@ describe('PortfolioItemFilter', () => {
     expect(screen.getByRole('button', { name: 'Checking' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Consulting income' })).not.toBeInTheDocument()
   })
+
+  it('names the account when one is selected and counts them when several are', () => {
+    const accounts = [makeRow({ accountId: 1, accountName: 'Checking' }), makeRow({ accountId: 2, accountName: 'Savings' })]
+    const { rerender } = render(<PortfolioItemFilter accounts={accounts} selectedIds={[2]} onChange={vi.fn()} />)
+
+    expect(screen.getByRole('button', { name: 'Savings' })).toBeInTheDocument()
+
+    rerender(<PortfolioItemFilter accounts={accounts} selectedIds={[1, 2]} onChange={vi.fn()} />)
+
+    expect(screen.getByRole('button', { name: 'ledgerPage.portfolioItemCount (count=2)' })).toBeInTheDocument()
+  })
 })
