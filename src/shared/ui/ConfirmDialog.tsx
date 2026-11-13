@@ -4,7 +4,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Button } from './button'
 
 const ACTIONS = {
-  delete: { titleKey: 'modals.confirm.deleteTitle', submitKey: 'modals.confirm.delete', variant: 'destructive' },
+  delete: { titleKey: 'modals.confirm.deleteTitle', submitKey: 'common.delete', variant: 'destructive' },
   confirm: { titleKey: 'modals.confirm.title', submitKey: 'modals.confirm.submit', variant: 'default' },
 } as const
 

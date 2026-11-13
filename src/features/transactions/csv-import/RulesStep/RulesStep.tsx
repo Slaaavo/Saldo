@@ -136,13 +136,39 @@ const RulesStep = ({ rules, csvHeaders, onRulesChange, onNext, onBack, onCancel 
                     {index + 1}. {rule.type === 'sign_from_column' ? t('import.rules.signFromColumnLabel') : t('import.rules.overrideDateFromDescriptionLabel')}
                   </span>
                   <div className="flex items-center gap-1">
-                    <Button type="button" variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleMoveUp(index)} disabled={index === 0}>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7"
+                      title={t('common.moveUp')}
+                      aria-label={t('common.moveUp')}
+                      onClick={() => handleMoveUp(index)}
+                      disabled={index === 0}
+                    >
                       <ChevronUp className="h-4 w-4" />
                     </Button>
-                    <Button type="button" variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleMoveDown(index)} disabled={index === rules.length - 1}>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7"
+                      title={t('common.moveDown')}
+                      aria-label={t('common.moveDown')}
+                      onClick={() => handleMoveDown(index)}
+                      disabled={index === rules.length - 1}
+                    >
                       <ChevronDown className="h-4 w-4" />
                     </Button>
-                    <Button type="button" variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => handleDelete(index)}>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 text-destructive hover:text-destructive"
+                      title={t('common.delete')}
+                      aria-label={t('common.delete')}
+                      onClick={() => handleDelete(index)}
+                    >
                       <Trash2 className="h-4 w-4" />
                     </Button>
                   </div>

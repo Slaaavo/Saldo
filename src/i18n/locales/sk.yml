@@ -339,7 +339,6 @@ modals:
     cancel: Zrušiť
     submit: Potvrdiť
     deleteTitle: Potvrdiť vymazanie
-    delete: Vymazať
     deleteAccount: 'Naozaj chcete vymazať {{entityType}} "{{name}}"? Tým sa vymažú aj všetky jeho udalosti.'
     deleteAssetWithLinks: 'Naozaj chcete vymazať {{entityType}} "{{name}}"? Nasledujúce účty sú prepojené s týmto aktívom a budú odpojené: {{accounts}}. Budú opäť zahrnuté do Voľných prostriedkov.'
     deleteEvent: Naozaj chcete vymazať túto udalosť?
@@ -534,6 +533,8 @@ common:
   edit: Upraviť
   delete: Vymazať
   reorder: Zmeniť poradie
+  moveUp: Posunúť vyššie
+  moveDown: Posunúť nižšie
   moreActions: Ďalšie akcie
 # ──── Výber dátumu ────
 datePicker:

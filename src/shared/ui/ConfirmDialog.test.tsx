@@ -12,7 +12,7 @@ describe('ConfirmDialog', () => {
     render(<ConfirmDialog action="delete" message="Delete the account?" onConfirm={onConfirm} onCancel={vi.fn()} />)
 
     expect(screen.getByRole('heading', { name: 'modals.confirm.deleteTitle' })).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'modals.confirm.delete' }))
+    await user.click(screen.getByRole('button', { name: 'common.delete' }))
 
     expect(onConfirm).toHaveBeenCalledTimes(1)
   })
@@ -22,6 +22,6 @@ describe('ConfirmDialog', () => {
 
     expect(screen.getByRole('heading', { name: 'modals.confirm.title' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'modals.confirm.submit' })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'modals.confirm.delete' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'common.delete' })).not.toBeInTheDocument()
   })
 })

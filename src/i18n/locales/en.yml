@@ -335,7 +335,6 @@ modals:
     cancel: Cancel
     submit: Confirm
     deleteTitle: Confirm deletion
-    delete: Delete
     deleteAccount: 'Are you sure you want to delete {{entityType}} "{{name}}"? This will also delete all its events.'
     deleteAssetWithLinks: 'Are you sure you want to delete {{entityType}} "{{name}}"? The following accounts are linked to this asset and will be unlinked: {{accounts}}. They will be included in Left to Spend again.'
     deleteEvent: Are you sure you want to delete this event?
@@ -530,6 +529,8 @@ common:
   edit: Edit
   delete: Delete
   reorder: Reorder
+  moveUp: Move up
+  moveDown: Move down
   moreActions: More actions
 
 # ──── Settings panel ────
