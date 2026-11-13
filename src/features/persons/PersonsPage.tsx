@@ -100,6 +100,7 @@ const PersonsPage = () => {
       )}
       {deletingPerson && (
         <ConfirmDialog
+          action="delete"
           message={t('persons.deleteConfirm', { name: deletingPerson.name })}
           onConfirm={() => handleDeleteWithError(deletingPerson.id)}
           onCancel={() => setDeletingPerson(null)}

@@ -69,7 +69,9 @@ const TaxModelsPage = () => {
         </div>
       )}
 
-      {deletingModel && <ConfirmDialog message={t('taxModels.deleteConfirm')} onConfirm={() => handleDeleteWithError(deletingModel.id)} onCancel={() => setDeletingModel(null)} />}
+      {deletingModel && (
+        <ConfirmDialog action="delete" message={t('taxModels.deleteConfirm')} onConfirm={() => handleDeleteWithError(deletingModel.id)} onCancel={() => setDeletingModel(null)} />
+      )}
     </div>
   )
 }

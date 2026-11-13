@@ -145,6 +145,7 @@ const ImportProfilesPage = () => {
 
       {deletingProfile && (
         <ConfirmDialog
+          action="delete"
           message={t('import.profiles.deleteConfirm', { name: deletingProfile.name })}
           onConfirm={() => {
             void handleDelete(deletingProfile.id)
@@ -155,6 +156,7 @@ const ImportProfilesPage = () => {
 
       {deletingEkasaProfile && (
         <ConfirmDialog
+          action="delete"
           message={t('import.ekasaProfiles.deleteConfirm', { name: resolvePersonName(deletingEkasaProfile.personId) })}
           onConfirm={() => {
             void handleDeleteEkasa(deletingEkasaProfile.id)

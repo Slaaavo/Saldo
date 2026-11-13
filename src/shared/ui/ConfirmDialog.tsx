@@ -3,16 +3,22 @@ import { Loader2 } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogBody, DialogFooter } from './dialog'
 import { Button } from './button'
 
+const ACTIONS = {
+  delete: { titleKey: 'modals.confirm.deleteTitle', submitKey: 'modals.confirm.delete', variant: 'destructive' },
+  confirm: { titleKey: 'modals.confirm.title', submitKey: 'modals.confirm.submit', variant: 'default' },
+} as const
+
 interface Props {
+  action: keyof typeof ACTIONS
   message: string
   onConfirm: () => void
   onCancel: () => void
-  confirmVariant?: 'default' | 'destructive' | 'outline' | 'secondary' | 'ghost' | 'link'
   loading?: boolean
 }
 
-const ConfirmDialog = ({ message, onConfirm, onCancel, confirmVariant = 'destructive', loading = false }: Props) => {
+const ConfirmDialog = ({ action, message, onConfirm, onCancel, loading = false }: Props) => {
   const { t } = useTranslation()
+  const { titleKey, submitKey, variant } = ACTIONS[action]
 
   return (
     <Dialog
@@ -23,7 +29,7 @@ const ConfirmDialog = ({ message, onConfirm, onCancel, confirmVariant = 'destruc
     >
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>{t('modals.confirm.title')}</DialogTitle>
+          <DialogTitle>{t(titleKey)}</DialogTitle>
         </DialogHeader>
         <DialogBody>
           <DialogDescription>{message}</DialogDescription>
@@ -32,9 +38,9 @@ const ConfirmDialog = ({ message, onConfirm, onCancel, confirmVariant = 'destruc
           <Button variant="outline" onClick={onCancel} disabled={loading}>
             {t('modals.confirm.cancel')}
           </Button>
-          <Button variant={confirmVariant} onClick={onConfirm} disabled={loading}>
+          <Button variant={variant} onClick={onConfirm} disabled={loading}>
             {loading && <Loader2 className="h-4 w-4 animate-spin" />}
-            {t('modals.confirm.submit')}
+            {t(submitKey)}
           </Button>
         </DialogFooter>
       </DialogContent>

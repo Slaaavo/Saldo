@@ -140,6 +140,7 @@ const AppModals = ({ dbLocation }: AppModalsProps) => {
     case 'confirmDeleteAccount':
       return (
         <ConfirmDialog
+          action="delete"
           message={
             modalState.accountType === 'asset' && accounts.some((a) => a.linkedAssetIds.includes(modalState.accountId))
               ? t('modals.confirm.deleteAssetWithLinks', {
@@ -162,14 +163,16 @@ const AppModals = ({ dbLocation }: AppModalsProps) => {
 
     case 'confirmDeleteEvent': {
       const deleteEventMessage = modalState.eventType === 'prepaid_expense' ? t('modals.confirm.deletePrepaidExpenseEvent') : t('modals.confirm.deleteEvent')
-      return <ConfirmDialog message={deleteEventMessage} onConfirm={() => handleDeleteEvent(modalState.eventId)} onCancel={closeModal} />
+      return <ConfirmDialog action="delete" message={deleteEventMessage} onConfirm={() => handleDeleteEvent(modalState.eventId)} onCancel={closeModal} />
     }
 
     case 'confirmDeleteSplitGroup':
-      return <ConfirmDialog message={t('modals.confirm.deleteSplitGroup')} onConfirm={() => handleDeleteSplitGroup(modalState.splitGroupId)} onCancel={closeModal} />
+      return (
+        <ConfirmDialog action="delete" message={t('modals.confirm.deleteSplitGroup')} onConfirm={() => handleDeleteSplitGroup(modalState.splitGroupId)} onCancel={closeModal} />
+      )
 
     case 'confirmDeleteTransferEvent':
-      return <ConfirmDialog message={t('modals.confirm.deleteTransferEvent')} onConfirm={() => handleDeleteEvent(modalState.eventId)} onCancel={closeModal} />
+      return <ConfirmDialog action="delete" message={t('modals.confirm.deleteTransferEvent')} onConfirm={() => handleDeleteEvent(modalState.eventId)} onCancel={closeModal} />
 
     case 'bulkUpdateBalance':
       return <BulkUpdateBalanceModal exclusions={exclusions} onSubmit={handleBulkUpdateSubmit} onClose={closeModal} />
@@ -177,8 +180,8 @@ const AppModals = ({ dbLocation }: AppModalsProps) => {
     case 'fetchFxRatePrompt':
       return (
         <ConfirmDialog
+          action="confirm"
           message={t('modals.fetchFxRatePrompt.message', { date: modalState.date })}
-          confirmVariant="default"
           loading={fetchLoading}
           onConfirm={async () => {
             setFetchLoading(true)
@@ -240,8 +243,8 @@ const AppModals = ({ dbLocation }: AppModalsProps) => {
     case 'confirmSwitchDb':
       return (
         <ConfirmDialog
+          action="confirm"
           message={t('dataStorage.confirmSwitchMessage')}
-          confirmVariant="default"
           loading={dbLocation.actionLoading}
           onConfirm={() => dbLocation.handleConfirmSwitch(modalState.folder)}
           onCancel={closeModal}
@@ -310,8 +313,8 @@ const AppModals = ({ dbLocation }: AppModalsProps) => {
     case 'confirmResetDbLocation':
       return (
         <ConfirmDialog
+          action="confirm"
           message={t('dataStorage.confirmResetMessage')}
-          confirmVariant="default"
           loading={dbLocation.actionLoading}
           onConfirm={dbLocation.handleConfirmReset}
           onCancel={closeModal}

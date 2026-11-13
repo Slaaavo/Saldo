@@ -86,6 +86,7 @@ const PartnersPage = () => {
       {editingPartner && <EditPartnerModal partner={editingPartner} onSubmit={handleUpdate} onClose={() => setEditingPartner(null)} />}
       {deletingPartner && (
         <ConfirmDialog
+          action="delete"
           message={t('partners.deleteConfirm', { name: deletingPartner.name })}
           onConfirm={() => handleDeleteWithError(deletingPartner.id)}
           onCancel={() => setDeletingPartner(null)}
