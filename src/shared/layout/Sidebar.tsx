@@ -1,8 +1,10 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { LayoutDashboard, Settings, ArrowLeftRight, ChevronsLeft, ChevronsRight, Layers, BookOpen, Users, FileText, Calculator } from 'lucide-react'
+import { LayoutDashboard, Settings, ArrowLeftRight, ChevronsLeft, ChevronsRight, Layers, BookOpen, Users, FileText, Calculator, Handshake } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
 import { cn } from '@/shared/lib/utils'
 import { Link } from '@tanstack/react-router'
+import type { LinkProps } from '@tanstack/react-router'
 import SaldoLogo from './SaldoLogo'
 import saldoLogotype from '@/assets/Saldo logotype transparent.svg'
 import saldoLogotypeDark from '@/assets/Saldo logotype transparent dark.svg'
@@ -12,34 +14,57 @@ interface SidebarProps {
   onToggleCollapse: () => void
 }
 
+interface NavItem {
+  to: LinkProps['to']
+  icon: LucideIcon
+  labelKey: string
+}
+
+const MONEY_ITEMS: NavItem[] = [
+  { to: '/dashboard', icon: LayoutDashboard, labelKey: 'sidebar.dashboard' },
+  { to: '/ledger', icon: BookOpen, labelKey: 'sidebar.ledger' },
+  { to: '/tax-models', icon: Calculator, labelKey: 'sidebar.taxModels' },
+]
+
+const SETUP_ITEMS: NavItem[] = [
+  { to: '/persons', icon: Users, labelKey: 'sidebar.persons' },
+  { to: '/partners', icon: Handshake, labelKey: 'sidebar.partners' },
+  { to: '/import-profiles', icon: FileText, labelKey: 'sidebar.importProfiles' },
+  { to: '/fx-rates', icon: ArrowLeftRight, labelKey: 'sidebar.fxRates' },
+  { to: '/units', icon: Layers, labelKey: 'sidebar.units' },
+]
+
+const SETTINGS_ITEM: NavItem = { to: '/settings', icon: Settings, labelKey: 'sidebar.settings' }
+
+const navLinkBase = 'w-full flex items-center gap-3 px-2 py-2 rounded-lg text-sm font-medium transition-colors'
+
 const Sidebar = ({ collapsed, onToggleCollapse }: SidebarProps) => {
   const { t } = useTranslation()
   const [hovered, setHovered] = useState(false)
 
   const expanded = !collapsed || (collapsed && hovered)
 
-  const navLinkBase = 'w-full flex items-center gap-3 px-2 py-2 rounded-lg text-sm font-medium transition-colors'
-
-  const navItems = [
-    { to: '/dashboard' as const, icon: LayoutDashboard, label: t('sidebar.dashboard') },
-    { to: '/ledger' as const, icon: BookOpen, label: t('sidebar.ledger') },
-    { to: '/persons' as const, icon: Users, label: t('sidebar.persons') },
-    { to: '/tax-models' as const, icon: Calculator, label: t('sidebar.taxModels') },
-    { to: '/partners' as const, icon: Users, label: t('sidebar.partners') },
-    { to: '/import-profiles' as const, icon: FileText, label: t('sidebar.importProfiles') },
-    { to: '/settings' as const, icon: Settings, label: t('sidebar.settings') },
-    { to: '/fx-rates' as const, icon: ArrowLeftRight, label: t('sidebar.fxRates') },
-    { to: '/units' as const, icon: Layers, label: t('sidebar.units') },
-  ]
+  const renderItem = ({ to, icon: Icon, labelKey }: NavItem) => (
+    <Link
+      key={to}
+      to={to}
+      activeProps={{ className: cn(navLinkBase, 'bg-accent text-accent-foreground') }}
+      inactiveProps={{ className: cn(navLinkBase, 'text-muted-foreground hover:bg-muted hover:text-foreground') }}
+      activeOptions={{ exact: true }}
+    >
+      <Icon className="h-5 w-5 shrink-0" />
+      <span className={cn('overflow-hidden whitespace-nowrap transition-opacity duration-150', expanded ? 'opacity-100' : 'opacity-0 w-0')}>{t(labelKey)}</span>
+    </Link>
+  )
 
   return (
     <nav
-      className={cn('group relative flex flex-col bg-card border-r border-border h-screen shrink-0 transition-[width] duration-150 ease-in-out', expanded ? 'w-56' : 'w-14')}
+      className={cn('group relative flex flex-col bg-card border-r border-border shrink-0 transition-[width] duration-150 ease-in-out', expanded ? 'w-56' : 'w-14')}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
       {/* App name row */}
-      <div className="flex items-center justify-center px-4 py-3 h-14">
+      <div className="flex items-center justify-center px-4 py-3 h-14 shrink-0">
         {expanded ? (
           <>
             <img src={saldoLogotype} alt="Saldo" className="h-8 w-auto dark:hidden" />
@@ -62,20 +87,10 @@ const Sidebar = ({ collapsed, onToggleCollapse }: SidebarProps) => {
         {collapsed ? <ChevronsRight className="h-3 w-3" /> : <ChevronsLeft className="h-3 w-3" />}
       </button>
 
-      {/* Nav items */}
-      <div className="flex flex-col gap-1 px-2">
-        {navItems.map(({ to, icon: Icon, label }) => (
-          <Link
-            key={to}
-            to={to}
-            activeProps={{ className: cn(navLinkBase, 'bg-accent text-accent-foreground') }}
-            inactiveProps={{ className: cn(navLinkBase, 'text-muted-foreground hover:bg-muted hover:text-foreground') }}
-            activeOptions={{ exact: true }}
-          >
-            <Icon className="h-5 w-5 shrink-0" />
-            <span className={cn('overflow-hidden whitespace-nowrap transition-opacity duration-150', expanded ? 'opacity-100' : 'opacity-0 w-0')}>{label}</span>
-          </Link>
-        ))}
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden px-2 pb-3">
+        <div className="flex flex-col gap-1">{MONEY_ITEMS.map(renderItem)}</div>
+        <div className="mt-3 flex flex-col gap-1 border-t border-border pt-3">{SETUP_ITEMS.map(renderItem)}</div>
+        <div className="mt-auto flex flex-col gap-1 pt-3">{renderItem(SETTINGS_ITEM)}</div>
       </div>
     </nav>
   )
