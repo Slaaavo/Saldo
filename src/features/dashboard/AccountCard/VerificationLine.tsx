@@ -8,13 +8,12 @@ interface Props {
   row: SnapshotRow
 }
 
-/** How the account's newest check against the bank app stands. Nothing when it was never checked. */
 export const VerificationLine = ({ row }: Props) => {
   const { t, i18n } = useTranslation()
   const { verification } = row
   if (!verification) return null
 
-  const date = formatShortDay(verification.checkedOn, i18n.language)
+  const date = formatShortDay(verification.day, i18n.language)
 
   if (verification.state === 'verified') {
     return (

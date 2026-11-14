@@ -110,7 +110,6 @@ export interface Account {
   createdAt: string
 }
 
-/** `unexplained_difference` is a gap booked from a bank check. It moves the account's balance like a cash flow and is never income. */
 export const EVENT_TYPES = ['balance_update', 'cashflow', 'transfer', 'revenue', 'expense', 'prepaid_expense', 'unexplained_difference'] as const
 
 export type EventType = (typeof EVENT_TYPES)[number]
@@ -279,8 +278,8 @@ export interface SnapshotRow {
 
 /** Whether an own account's newest check against the bank app still matches Saldo. `differenceMinor` is the bank's balance minus Saldo's side of the check. */
 export type Verification =
-  | { state: 'verified'; checkId: number; checkedOn: string }
-  | { state: 'differs'; checkId: number; checkedOn: string; differenceMinor: number; lastVerifiedOn: string | null }
+  | { state: 'verified'; checkId: number; day: string }
+  | { state: 'differs'; checkId: number; day: string; differenceMinor: number; lastVerifiedOn: string | null }
 
 export interface BookedDifference {
   eventId: number

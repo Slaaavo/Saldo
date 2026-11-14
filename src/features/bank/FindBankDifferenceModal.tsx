@@ -10,7 +10,6 @@ import { getMinorUnitsStep, toMinorUnits } from '@/shared/utils/format'
 import { useBookUnexplainedDifference, useConfirmBankMatch } from './useBankCheckMutations'
 
 interface Props {
-  /** The account's row in the live snapshot, so Saldo's balance follows every refresh. */
   row: SnapshotRow
   onClose: () => void
 }

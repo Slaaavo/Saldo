@@ -23,9 +23,6 @@ use crate::shared::{convert_balance, is_iso_date, validate_event_date};
 // Validated dates always compare below it, so the live cutoff keeps every row and every rate.
 const LIVE_EVENTS_UNTIL: &str = "9999-12-31T23:59:59";
 
-/// The event types that move an account's balance after its latest balance update, as an SQL
-/// list. Every query that sums a balance splices this in, so a new type that moves balances is
-/// added here and nowhere else.
 pub(crate) const BALANCE_FLOW_TYPES: &str = "'cashflow', 'transfer', 'unexplained_difference'";
 
 pub struct Moment {
@@ -192,6 +189,23 @@ pub(crate) fn value_amount(
     .value(params.amount_minor, held)
 }
 
+fn attach_bank_verifications(
+    conn: &Connection,
+    moment: &Moment,
+    rows: &mut [SnapshotRow],
+) -> rusqlite::Result<()> {
+    if !moment.is_live() {
+        return Ok(());
+    }
+    for row in rows
+        .iter_mut()
+        .filter(|row| row.account_type == AccountKind::Account)
+    {
+        row.verification = bank::verification_of(conn, row.account_id)?;
+    }
+    Ok(())
+}
+
 pub fn get_accounts_snapshot(
     conn: &Connection,
     params: GetSnapshotParams,
@@ -325,15 +339,7 @@ pub fn get_accounts_snapshot(
         })?
         .collect::<rusqlite::Result<_>>()?;
 
-    // A check compares with the bank app's balance now, so a past moment shows none.
-    if moment.is_live() {
-        for row in rows
-            .iter_mut()
-            .filter(|row| row.account_type == AccountKind::Account)
-        {
-            row.verification = bank::verification_of(conn, row.account_id)?;
-        }
-    }
+    attach_bank_verifications(conn, &moment, &mut rows)?;
 
     // Populate asset-link fields using a single bulk query to avoid N+1.
     let (linked_account_ids_set, account_to_assets, asset_to_accounts) =

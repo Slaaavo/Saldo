@@ -5,7 +5,7 @@ use tauri::State;
 use super::checks::verification_of;
 use super::models::{BookedDifference, Verification};
 use super::repository::{
-    self, InsertCheckParams, InsertUnexplainedDifferenceParams, SaldoSideParams,
+    self, BalanceSeenByCheckParams, InsertCheckParams, InsertUnexplainedDifferenceParams,
 };
 use crate::error::AppError;
 use crate::features::accounts::repository::get_account_type;
@@ -51,7 +51,6 @@ pub fn delete_balance_check(state: State<'_, AppState>, check_id: i64) -> Result
     delete_balance_check_inner(&conn, check_id)
 }
 
-/// Records that the bank app shows Saldo's live balance, the one the user saw.
 pub(crate) fn confirm_bank_match_inner(
     conn: &Connection,
     input: ConfirmBankMatchInput,
@@ -62,15 +61,13 @@ pub(crate) fn confirm_bank_match_inner(
             conn,
             InsertCheckParams {
                 account_id: input.account_id,
-                checked_on: live.checked_on,
+                day: live.day,
                 bank_balance_minor: live.balance_minor,
-                checked_at: None,
             },
         )?)
     })
 }
 
-/// Books bank minus Saldo as one entry dated now, then records a check that matches it.
 pub(crate) fn book_unexplained_difference_inner(
     conn: &Connection,
     input: BookUnexplainedDifferenceInput,
@@ -95,16 +92,15 @@ pub(crate) fn book_unexplained_difference_inner(
             InsertUnexplainedDifferenceParams {
                 account_id: input.account_id,
                 amount_minor,
-                event_date: unexplained_entry_date(conn, input.account_id)?,
+                event_date: entry_date_after_latest_balance_update(conn, input.account_id)?,
             },
         )?;
         let check_id = repository::insert_check(
             conn,
             InsertCheckParams {
                 account_id: input.account_id,
-                checked_on: live.checked_on,
+                day: live.day,
                 bank_balance_minor: input.bank_balance_minor,
-                checked_at: None,
             },
         )?;
         if !matches!(
@@ -119,48 +115,39 @@ pub(crate) fn book_unexplained_difference_inner(
     })
 }
 
-/// Now, or one second after a balance update dated later, such as one typed today at the
-/// picker's 23:59. That balance update sets the balance, so an entry dated before it would
-/// change nothing.
-fn unexplained_entry_date(conn: &Connection, account_id: i64) -> Result<String, AppError> {
+fn entry_date_after_latest_balance_update(
+    conn: &Connection,
+    account_id: i64,
+) -> Result<String, AppError> {
     const FORMAT: &str = "%Y-%m-%dT%H:%M:%S";
     let now = chrono::Local::now()
         .naive_local()
         .format(FORMAT)
         .to_string();
-    let Some(anchor) = repository::latest_balance_update_date(conn, account_id)? else {
+    let Some(latest_update) = repository::latest_balance_update_date(conn, account_id)? else {
         return Ok(now);
     };
-    let anchor = chrono::NaiveDateTime::parse_from_str(&anchor, FORMAT)
+    let latest_update = chrono::NaiveDateTime::parse_from_str(&latest_update, FORMAT)
         .or_else(|_| {
-            chrono::NaiveDate::parse_from_str(&anchor, "%Y-%m-%d")
+            chrono::NaiveDate::parse_from_str(&latest_update, "%Y-%m-%d")
                 .map(|day| day.and_time(chrono::NaiveTime::MIN))
         })
         .map_err(|_| validation("The account's balance update has a date Saldo cannot read."))?;
-    let after_anchor = (anchor + chrono::Duration::seconds(1))
+    let after_latest_update = (latest_update + chrono::Duration::seconds(1))
         .format(FORMAT)
         .to_string();
-    Ok(now.max(after_anchor))
+    Ok(now.max(after_latest_update))
 }
 
 pub(crate) fn delete_balance_check_inner(conn: &Connection, check_id: i64) -> Result<(), AppError> {
-    if repository::delete_check(conn, check_id)? {
-        Ok(())
-    } else {
-        Err(AppError {
-            code: "NOT_FOUND".into(),
-            message: "This check no longer exists.".into(),
-        })
-    }
+    repository::delete_check(conn, check_id)
 }
 
 struct LiveBalance {
-    checked_on: String,
+    day: String,
     balance_minor: i64,
 }
 
-/// Saldo's live balance now, read inside the write, refused when it is not the one the user
-/// looked at (an import or `saldo mcp` wrote since).
 fn live_balance_as_seen(
     conn: &Connection,
     account_id: i64,
@@ -180,13 +167,13 @@ fn live_balance_as_seen(
             })
         }
     }
-    let checked_on = local_now();
-    let balance_minor = repository::saldo_side(
+    let day = local_now();
+    let balance_minor = repository::balance_seen_by_check(
         conn,
-        SaldoSideParams {
+        BalanceSeenByCheckParams {
             account_id,
             checked_at: repository::clock_now(conn)?,
-            checked_on: checked_on.clone(),
+            day: day.clone(),
         },
     )?;
     if balance_minor != seen_balance_minor {
@@ -195,10 +182,7 @@ fn live_balance_as_seen(
             message: "The balance changed since you looked. Look at it again.".into(),
         });
     }
-    Ok(LiveBalance {
-        checked_on,
-        balance_minor,
-    })
+    Ok(LiveBalance { day, balance_minor })
 }
 
 fn validation(message: &str) -> AppError {

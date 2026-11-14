@@ -6,7 +6,6 @@ import { extractErrorMessage, hasErrorCode } from '@/shared/utils/errors'
 
 interface MatchVariables {
   accountId: number
-  /** The live balance the user looked at. The backend refuses with `CHECK_CHANGED` when it moved since. */
   seenBalanceMinor: number
 }
 
@@ -22,7 +21,6 @@ const useRefreshAfterCheck = () => {
   }
 }
 
-/** Records that the bank app shows Saldo's live balance. The toast offers Undo, which deletes the check. */
 export const useConfirmBankMatch = () => {
   const { t } = useTranslation()
   const refresh = useRefreshAfterCheck()
@@ -53,7 +51,6 @@ export const useConfirmBankMatch = () => {
   })
 }
 
-/** Books the bank's balance minus Saldo's as one unexplained difference, which also records a matching check. */
 export const useBookUnexplainedDifference = () => {
   const { t } = useTranslation()
   const refresh = useRefreshAfterCheck()

@@ -1,15 +1,8 @@
--- Migration 041: Checks against the bank app, and the unexplained difference entry.
---
--- A check stores only what the bank app showed. Whether it still matches Saldo is derived on
--- every read from the rows the check could see, so nothing here is updated after the insert.
-
 CREATE TABLE balance_check (
   id                 INTEGER PRIMARY KEY AUTOINCREMENT,
   account_id         INTEGER NOT NULL REFERENCES account (id) ON DELETE CASCADE,
-  -- UTC, same format and clock as event.created_at, so "created after the check" is a string compare.
   checked_at         TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now')),
-  -- The user's local day of the check (YYYY-MM-DD), compared with event_data.event_date.
-  checked_on         TEXT    NOT NULL CHECK (date(checked_on) IS checked_on),
+  day                TEXT    NOT NULL CHECK (date(day) IS day),
   bank_balance_minor INTEGER NOT NULL
                      CHECK (bank_balance_minor BETWEEN -10000000000000 AND 10000000000000)
 );

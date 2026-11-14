@@ -24,8 +24,7 @@ interface AccountCardProps {
   onDeleteAccount: (accountId: number, name: string) => void
   onManageLinkedAssets?: (accountId: number, accountName: string) => void
   onViewInLedger?: (accountId: number) => void
-  /** Given only in live mode. An own account's card then offers Matches bank and Find the difference. */
-  onFindBankDifference?: (accountId: number) => void
+  bankCheck?: { onFindDifference: (accountId: number) => void }
   allAssets?: SnapshotRow[]
   allAccounts?: SnapshotRow[]
   personName?: string
@@ -41,7 +40,7 @@ const AccountCard = ({
   onDeleteAccount,
   onManageLinkedAssets,
   onViewInLedger,
-  onFindBankDifference,
+  bankCheck,
   allAssets,
   allAccounts,
   personName,
@@ -53,7 +52,7 @@ const AccountCard = ({
   const action = hasEntries
     ? { label: updateButtonLabel ?? t('accounts.updateBalance'), run: () => onUpdateBalance(row.accountId) }
     : onEditIncomeBudget && { label: t('incomeBudget.edit'), run: () => onEditIncomeBudget(row.accountId) }
-  const findBankDifference = row.accountType === 'account' ? onFindBankDifference : undefined
+  const rowBankCheck = row.accountType === 'account' ? bankCheck : undefined
 
   return (
     <Card className={cn('relative w-[250px] min-w-[250px] shrink-0')}>
@@ -85,7 +84,7 @@ const AccountCard = ({
         {equity && consolidationCurrency && (
           <EquityTooltip row={row} equityMinor={equity.equityMinor} equityLinkedRows={equity.equityLinkedRows} consolidationCurrency={consolidationCurrency} />
         )}
-        {(action || findBankDifference) && (
+        {(action || rowBankCheck) && (
           <div className="mt-2 flex items-center justify-between gap-1">
             {action && (
               <button
@@ -96,7 +95,7 @@ const AccountCard = ({
                 <span className="truncate">{action.label}</span>
               </button>
             )}
-            {findBankDifference && <BankCheckButtons row={row} onFindDifference={findBankDifference} />}
+            {rowBankCheck && <BankCheckButtons row={row} onFindDifference={rowBankCheck.onFindDifference} />}
           </div>
         )}
       </CardContent>

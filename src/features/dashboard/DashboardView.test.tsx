@@ -60,7 +60,7 @@ vi.mock('./AccountCards', () => ({
     onReorder?: () => void
     onEditIncomeBudget?: (bucketId: number) => void
     onViewInLedger?: (accountId: number) => void
-    onFindBankDifference?: (accountId: number) => void
+    bankCheck?: { onFindDifference: (accountId: number) => void }
     snapshot: SnapshotRow[]
   }) => (
     <div data-testid={`account-cards-${props.sectionTitle ?? 'unknown'}`}>
@@ -70,8 +70,8 @@ vi.mock('./AccountCards', () => ({
           view in ledger
         </button>
       )}
-      {props.onFindBankDifference && (
-        <button data-testid={`find-difference-${props.sectionTitle}`} onClick={() => props.onFindBankDifference?.(7)}>
+      {props.bankCheck && (
+        <button data-testid={`find-difference-${props.sectionTitle}`} onClick={() => props.bankCheck?.onFindDifference(7)}>
           find the difference
         </button>
       )}

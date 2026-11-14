@@ -40,8 +40,8 @@ let queryClient: QueryClient
 
 const Providers = ({ children }: { children: ReactNode }) => <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
 
-const renderCard = (row: SnapshotRow, onFindBankDifference?: (accountId: number) => void) =>
-  render(<AccountCard row={row} onUpdateBalance={() => {}} onDeleteAccount={() => {}} onRenameAccount={() => {}} onFindBankDifference={onFindBankDifference} />, {
+const renderCard = (row: SnapshotRow, onFindDifference?: (accountId: number) => void) =>
+  render(<AccountCard row={row} onUpdateBalance={() => {}} onDeleteAccount={() => {}} onRenameAccount={() => {}} bankCheck={onFindDifference && { onFindDifference }} />, {
     wrapper: Providers,
   })
 
@@ -60,13 +60,13 @@ describe('the verification line', () => {
   })
 
   it('shows the day of a check that still matches', () => {
-    renderCard(checking({ verification: { state: 'verified', checkId: 1, checkedOn: '2026-11-14' } }))
+    renderCard(checking({ verification: { state: 'verified', checkId: 1, day: '2026-11-14' } }))
 
     expect(screen.getByText('bankCheck.verified (date=14 Nov)')).toBeInTheDocument()
   })
 
   it('shows the day and how far Saldo now differs, without a sign', () => {
-    renderCard(checking({ verification: { state: 'differs', checkId: 1, checkedOn: '2026-11-14', differenceMinor: -1250, lastVerifiedOn: '2026-11-01' } }))
+    renderCard(checking({ verification: { state: 'differs', checkId: 1, day: '2026-11-14', differenceMinor: -1250, lastVerifiedOn: '2026-11-01' } }))
 
     const line = screen.getByText('bankCheck.differs (date=14 Nov)', { exact: false })
     expect(line).toHaveClass('text-amber-700')

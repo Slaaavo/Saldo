@@ -10,11 +10,11 @@ use serde::Serialize;
 pub enum Verification {
     Verified {
         check_id: i64,
-        checked_on: String,
+        day: String,
     },
     Differs {
         check_id: i64,
-        checked_on: String,
+        day: String,
         /// The bank's balance minus Saldo's side of the check.
         difference_minor: i64,
         /// The day of the newest older check that still matches.

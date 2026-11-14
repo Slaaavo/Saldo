@@ -104,17 +104,21 @@ fn check_at(
     account_id: i64,
     bank_balance_minor: i64,
     checked_at: &str,
-    checked_on: &str,
+    day: &str,
 ) -> rusqlite::Result<i64> {
-    insert_check(
+    let check_id = insert_check(
         conn,
         InsertCheckParams {
             account_id,
-            checked_on: checked_on.to_owned(),
+            day: day.to_owned(),
             bank_balance_minor,
-            checked_at: Some(checked_at.to_owned()),
         },
-    )
+    )?;
+    conn.execute(
+        "UPDATE balance_check SET checked_at = ?2 WHERE id = ?1",
+        params![check_id, checked_at],
+    )?;
+    Ok(check_id)
 }
 
 fn check(conn: &Connection, account_id: i64, bank_balance_minor: i64) -> i64 {
@@ -128,21 +132,19 @@ fn verification(conn: &Connection, account_id: i64) -> Option<Verification> {
 fn verified(check_id: i64) -> Option<Verification> {
     Some(Verification::Verified {
         check_id,
-        checked_on: CHECK_DAY.to_owned(),
+        day: CHECK_DAY.to_owned(),
     })
 }
 
 fn differs(check_id: i64, difference_minor: i64) -> Option<Verification> {
     Some(Verification::Differs {
         check_id,
-        checked_on: CHECK_DAY.to_owned(),
+        day: CHECK_DAY.to_owned(),
         difference_minor,
         last_verified_on: None,
     })
 }
 
-/// An account at 7 500 when checked: 10 000 on 1 Nov, then -2 500 on 10 Nov, both written
-/// before the check.
 struct Checked {
     conn: Connection,
     account: i64,
@@ -354,7 +356,7 @@ fn differs_names_the_newest_older_check_that_still_matches() {
         verification(&conn, account),
         Some(Verification::Differs {
             check_id: newest,
-            checked_on: CHECK_DAY.to_owned(),
+            day: CHECK_DAY.to_owned(),
             difference_minor: 1_000,
             last_verified_on: Some("2026-11-01".to_owned()),
         }),
@@ -454,7 +456,7 @@ fn matches_bank_records_the_live_balance_as_a_verified_check() {
     ));
     let stored: (i64, String) = conn
         .query_row(
-            "SELECT bank_balance_minor, checked_on FROM balance_check WHERE id = ?1",
+            "SELECT bank_balance_minor, day FROM balance_check WHERE id = ?1",
             params![check_id],
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
@@ -531,7 +533,7 @@ fn booking_the_difference_books_bank_minus_saldo_and_a_matching_check() {
         row.verification,
         Some(Verification::Verified {
             check_id: booked.check_id,
-            checked_on: crate::shared::local_now(),
+            day: crate::shared::local_now(),
         })
     );
 }
@@ -720,7 +722,7 @@ fn a_live_snapshot_carries_the_verification_and_a_past_moment_does_not() {
     assert_eq!(row_of(&live, bucket).verification, None);
     assert_eq!(
         serde_json::to_value(row_of(&live, account)).unwrap()["verification"],
-        json!({ "state": "verified", "checkId": check_id, "checkedOn": CHECK_DAY })
+        json!({ "state": "verified", "checkId": check_id, "day": CHECK_DAY })
     );
 }
 
@@ -728,7 +730,7 @@ fn a_live_snapshot_carries_the_verification_and_a_past_moment_does_not() {
 fn differs_goes_on_the_wire_in_camel_case() {
     let differs = Verification::Differs {
         check_id: 3,
-        checked_on: CHECK_DAY.to_owned(),
+        day: CHECK_DAY.to_owned(),
         difference_minor: -1_250,
         last_verified_on: None,
     };
@@ -738,7 +740,7 @@ fn differs_goes_on_the_wire_in_camel_case() {
         json!({
             "state": "differs",
             "checkId": 3,
-            "checkedOn": CHECK_DAY,
+            "day": CHECK_DAY,
             "differenceMinor": -1_250,
             "lastVerifiedOn": null
         })
