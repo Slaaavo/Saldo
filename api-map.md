@@ -46,7 +46,7 @@ Reorders the listed accounts: they swap among the `sort_order` slots they alread
 
 ### `getAccountsSnapshot`
 <!-- this should go to shared -->
-Returns every account, bucket and asset balance live (no cutoff) or at a picked date or datetime, plus the headline metrics with their breakdown lines and the rate warnings. Takes `asOf` (`{ kind: 'live' }` or `{ kind: 'at', until }`) and an optional person. In a live snapshot, an own account that was checked against the bank carries `verification` (`verified` or `differs`, each with the check's local `day`, computed by `bank::repository::balance_seen_by_check`); every other row, and every row at a picked moment, carries `null`.
+Returns every account, bucket and asset balance live (no cutoff) or at a picked date or datetime, plus the headline metrics with their breakdown lines and the rate warnings. Takes `asOf` (`{ kind: 'live' }` or `{ kind: 'at', until }`) and an optional person. In a live snapshot, an own account that was checked against the bank carries `verification` for its newest check (`verified` with `checkId` and the check's local `day`, or `differs` with those and `differenceMinor`, computed by `bank::repository::balance_seen_by_check`); every other row, and every row at a picked moment, carries `null`.
 
 - **BE command:** `get_accounts_snapshot` → `src-tauri/src/features/transactions/commands.rs`
 - **Used in:**
@@ -81,7 +81,7 @@ Creates a single balance update event on an account.
 
 ### `updateEvent`
 
-Updates an existing event's amount, date, and note. Refuses an unexplained difference, which can only be deleted.
+Updates an existing event's amount, date, and note. A trigger refuses an unexplained difference with `VALIDATION`, since it can only be deleted.
 
 - **BE command:** `update_event` → `src-tauri/src/features/transactions/commands.rs`
 - **Used in:**
@@ -354,7 +354,7 @@ Records that the bank app shows Saldo's live balance for an own account. Takes `
 
 ### `bookUnexplainedDifference`
 
-Books the bank's balance minus Saldo's live balance as one `unexplained_difference` entry dated now (or one second after a later balance update), then records a check that matches it. Takes `{ accountId, bankBalanceMinor, seenBalanceMinor }` and returns `{ eventId, checkId }`. Refuses with `CHECK_CHANGED` when the live balance moved since the user looked, `NOTHING_TO_BOOK` when the bank already matches, and `VALIDATION` for an account that is not own.
+Books the bank's balance minus Saldo's live balance as one `unexplained_difference` entry dated now (or one second after a later balance update), then records a check that matches it. Takes `{ accountId, bankBalanceMinor, seenBalanceMinor }` and returns `{ eventId, checkId }`. Refuses with `CHECK_CHANGED` when the live balance moved since the user looked, `NOTHING_TO_BOOK` when the bank already matches (the dialog never sends that, so the frontend has no branch for it), `VALIDATION` for an account that is not own, and `INTERNAL` when the booked account does not match the bank afterwards.
 
 - **BE command:** `book_unexplained_difference` → `src-tauri/src/features/bank/commands.rs`
 - **Used in:**
