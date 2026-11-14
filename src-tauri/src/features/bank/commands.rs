@@ -95,7 +95,7 @@ pub(crate) fn book_unexplained_difference_inner(
             InsertUnexplainedDifferenceParams {
                 account_id: input.account_id,
                 amount_minor,
-                event_date: chrono::Local::now().format("%Y-%m-%dT%H:%M:%S").to_string(),
+                event_date: unexplained_entry_date(conn, input.account_id)?,
             },
         )?;
         let check_id = repository::insert_check(
@@ -107,18 +107,40 @@ pub(crate) fn book_unexplained_difference_inner(
                 checked_at: None,
             },
         )?;
-        // A balance update dated after now sets the balance, so an entry booked now is left out.
         if !matches!(
             verification_of(conn, input.account_id)?,
             Some(Verification::Verified { check_id: verified, .. }) if verified == check_id
         ) {
             return Err(validation(
-                "A balance update dated after now sets this account's balance, so an entry \
-                 booked now would not change it. Move that balance update first.",
+                "Saldo could not book the difference so that the account matches the bank.",
             ));
         }
         Ok(BookedDifference { event_id, check_id })
     })
+}
+
+/// Now, or one second after a balance update dated later, such as one typed today at the
+/// picker's 23:59. That balance update sets the balance, so an entry dated before it would
+/// change nothing.
+fn unexplained_entry_date(conn: &Connection, account_id: i64) -> Result<String, AppError> {
+    const FORMAT: &str = "%Y-%m-%dT%H:%M:%S";
+    let now = chrono::Local::now()
+        .naive_local()
+        .format(FORMAT)
+        .to_string();
+    let Some(anchor) = repository::latest_balance_update_date(conn, account_id)? else {
+        return Ok(now);
+    };
+    let anchor = chrono::NaiveDateTime::parse_from_str(&anchor, FORMAT)
+        .or_else(|_| {
+            chrono::NaiveDate::parse_from_str(&anchor, "%Y-%m-%d")
+                .map(|day| day.and_time(chrono::NaiveTime::MIN))
+        })
+        .map_err(|_| validation("The account's balance update has a date Saldo cannot read."))?;
+    let after_anchor = (anchor + chrono::Duration::seconds(1))
+        .format(FORMAT)
+        .to_string();
+    Ok(now.max(after_anchor))
 }
 
 pub(crate) fn delete_balance_check_inner(conn: &Connection, check_id: i64) -> Result<(), AppError> {

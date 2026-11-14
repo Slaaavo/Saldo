@@ -568,8 +568,22 @@ fn a_second_identical_booking_books_nothing() {
     assert_eq!(checks_of(&conn, account), 1);
 }
 
-#[test]
-fn booking_refuses_when_a_later_balance_update_would_hide_the_entry() {
+fn unexplained_entry_dates(conn: &Connection, account_id: i64) -> Vec<String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT ed.event_date FROM event e JOIN event_data ed ON ed.id = e.latest_data_id
+             WHERE e.account_id = ?1 AND e.event_type = 'unexplained_difference'",
+        )
+        .unwrap();
+    stmt.query_map([account_id], |row| row.get(0))
+        .unwrap()
+        .collect::<rusqlite::Result<_>>()
+        .unwrap()
+}
+
+fn booked_after_balance_update_on(
+    event_date: &str,
+) -> (Connection, i64, super::models::BookedDifference) {
     let conn = initialize_in_memory().unwrap();
     let account = mk(&conn, "account");
     create_balance_update(
@@ -577,17 +591,38 @@ fn booking_refuses_when_a_later_balance_update_would_hide_the_entry() {
         CreateBalanceUpdateParams {
             account_id: account,
             amount_minor: 10_000,
-            event_date: "2099-01-01".to_owned(),
+            event_date: event_date.to_owned(),
             note: None,
         },
     )
     .unwrap();
+    let booked = book(&conn, account, 10_000, 11_250).unwrap();
+    (conn, account, booked)
+}
 
-    let err = book(&conn, account, 10_000, 11_250).unwrap_err();
+#[test]
+fn booking_after_a_later_balance_update_dates_the_entry_one_second_after_it() {
+    let (conn, account, booked) = booked_after_balance_update_on("2099-01-01");
 
-    assert_eq!(err.code, "VALIDATION");
-    assert_eq!(events_of_type(&conn, account, "unexplained_difference"), 0);
-    assert_eq!(checks_of(&conn, account), 0);
+    assert_eq!(
+        unexplained_entry_dates(&conn, account),
+        vec!["2099-01-01T00:00:01".to_owned()]
+    );
+    assert_eq!(verification(&conn, account), verified(booked.check_id));
+    assert_eq!(row_of(&live(&conn), account).balance_minor, 11_250);
+}
+
+#[test]
+fn booking_on_a_day_with_a_balance_update_at_23_59_counts_the_entry() {
+    let today = crate::shared::local_now();
+    let (conn, account, booked) = booked_after_balance_update_on(&format!("{today}T23:59:00"));
+
+    assert_eq!(
+        unexplained_entry_dates(&conn, account),
+        vec![format!("{today}T23:59:01")],
+        "the entry sorts after the picker's 23:59 balance update"
+    );
+    assert_eq!(verification(&conn, account), verified(booked.check_id));
 }
 
 #[test]

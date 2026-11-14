@@ -1,4 +1,4 @@
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::features::transactions::repository::BALANCE_FLOW_TYPES;
 
@@ -129,6 +129,26 @@ pub fn insert_check(conn: &Connection, params: InsertCheckParams) -> rusqlite::R
 pub fn delete_check(conn: &Connection, check_id: i64) -> rusqlite::Result<bool> {
     let deleted = conn.execute("DELETE FROM balance_check WHERE id = ?1", params![check_id])?;
     Ok(deleted > 0)
+}
+
+/// The date of the balance update that sets the account's live balance, if any.
+pub fn latest_balance_update_date(
+    conn: &Connection,
+    account_id: i64,
+) -> rusqlite::Result<Option<String>> {
+    conn.query_row(
+        "SELECT ed.event_date
+         FROM event e
+         JOIN event_data ed ON ed.id = e.latest_data_id
+         WHERE e.account_id = ?1
+           AND e.deleted_at IS NULL
+           AND e.event_type = 'balance_update'
+         ORDER BY ed.event_date DESC, e.created_at DESC
+         LIMIT 1",
+        params![account_id],
+        |row| row.get(0),
+    )
+    .optional()
 }
 
 pub fn insert_unexplained_difference(
