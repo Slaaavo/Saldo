@@ -92,7 +92,7 @@ pub(crate) fn book_unexplained_difference_inner(
             InsertUnexplainedDifferenceParams {
                 account_id: input.account_id,
                 amount_minor,
-                event_date: entry_date_after_latest_balance_update(conn, input.account_id)?,
+                event_date: entry_date(conn, input.account_id)?,
             },
         )?;
         let check_id = repository::insert_check(
@@ -118,13 +118,10 @@ pub(crate) fn book_unexplained_difference_inner(
     })
 }
 
-fn entry_date_after_latest_balance_update(
-    conn: &Connection,
-    account_id: i64,
-) -> Result<String, AppError> {
+fn entry_date(conn: &Connection, account_id: i64) -> Result<String, AppError> {
     let now = chrono::Local::now().format("%Y-%m-%dT%H:%M:%S").to_string();
-    let after_latest_update = repository::second_after_latest_balance_update(conn, account_id)?;
-    Ok(after_latest_update.unwrap_or_default().max(now))
+    let latest_update = repository::latest_balance_update_date(conn, account_id)?;
+    Ok(latest_update.unwrap_or_default().max(now))
 }
 
 pub(crate) fn delete_balance_check_inner(conn: &Connection, check_id: i64) -> Result<(), AppError> {

@@ -663,12 +663,12 @@ fn booked_after_balance_update_on(
 }
 
 #[test]
-fn booking_after_a_later_balance_update_dates_the_entry_one_second_after_it() {
+fn booking_after_a_later_balance_update_dates_the_entry_at_it() {
     let (conn, account, booked) = booked_after_balance_update_on("2099-01-01");
 
     assert_eq!(
         unexplained_entry_dates(&conn, account),
-        vec!["2099-01-01T00:00:01".to_owned()]
+        vec!["2099-01-01".to_owned()]
     );
     assert_eq!(verification(&conn, account), verified(booked.check_id));
     assert_eq!(row_of(&live(&conn), account).balance_minor, 11_250);
@@ -681,10 +681,53 @@ fn booking_on_a_day_with_a_balance_update_at_23_59_counts_the_entry() {
 
     assert_eq!(
         unexplained_entry_dates(&conn, account),
-        vec![format!("{tomorrow}T23:59:01")],
-        "the entry sorts after the picker's 23:59 balance update"
+        vec![format!("{tomorrow}T23:59:00")],
+        "the entry shares the picker's 23:59 balance update and counts because it came later"
     );
     assert_eq!(verification(&conn, account), verified(booked.check_id));
+    assert_eq!(row_of(&live(&conn), account).balance_minor, 11_250);
+}
+
+#[test]
+fn a_balance_update_entered_after_a_booking_replaces_it() {
+    let tomorrow = chrono::Local::now().date_naive() + chrono::Duration::days(1);
+    let date = format!("{tomorrow}T23:59:00");
+    let (conn, account, _) = booked_after_balance_update_on(&date);
+
+    create_balance_update(
+        &conn,
+        CreateBalanceUpdateParams {
+            account_id: account,
+            amount_minor: 12_000,
+            event_date: date,
+            note: None,
+        },
+    )
+    .unwrap();
+
+    assert_eq!(row_of(&live(&conn), account).balance_minor, 12_000);
+}
+
+#[test]
+fn a_cashflow_at_the_balance_update_moment_does_not_count() {
+    let conn = initialize_in_memory().unwrap();
+    let account = mk(&conn, "account");
+    balance_update(
+        &conn,
+        account,
+        10_000,
+        "2026-11-14T23:59:00",
+        "2026-11-14T10:00:00.000",
+    );
+    cashflow(
+        &conn,
+        account,
+        -500,
+        "2026-11-14T23:59:00",
+        "2026-11-14T11:00:00.000",
+    );
+
+    assert_eq!(row_of(&live(&conn), account).balance_minor, 10_000);
 }
 
 #[test]

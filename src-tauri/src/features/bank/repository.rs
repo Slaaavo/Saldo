@@ -94,17 +94,14 @@ pub fn delete_check(conn: &Connection, check_id: i64) -> Result<(), AppError> {
     Ok(())
 }
 
-/// One second after the account's latest balance update, read from a date-only or timed date.
-pub fn second_after_latest_balance_update(
+pub fn latest_balance_update_date(
     conn: &Connection,
     account_id: i64,
 ) -> rusqlite::Result<Option<String>> {
     let latest = latest_balance_update_sql("?1", &|_, _| "1".to_owned(), "event_date");
-    conn.query_row(
-        &format!("SELECT strftime('%Y-%m-%dT%H:%M:%S', {latest}, '+1 second')"),
-        params![account_id],
-        |row| row.get(0),
-    )
+    conn.query_row(&format!("SELECT {latest}"), params![account_id], |row| {
+        row.get(0)
+    })
 }
 
 pub fn insert_unexplained_difference(

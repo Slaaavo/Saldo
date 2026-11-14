@@ -354,7 +354,7 @@ Records that the bank app shows Saldo's live balance for an own account. Takes `
 
 ### `bookUnexplainedDifference`
 
-Books the bank's balance minus Saldo's live balance as one `unexplained_difference` entry dated now (or one second after a later balance update), then records a check that matches it. Takes `{ accountId, bankBalanceMinor, seenBalanceMinor }` and returns `{ eventId, checkId }`. Refuses with `CHECK_CHANGED` when the live balance moved since the user looked, `NOTHING_TO_BOOK` when the bank already matches (the dialog never sends that, so the frontend has no branch for it), `VALIDATION` for an account that is not own, and `INTERNAL` when the booked account does not match the bank afterwards.
+Books the bank's balance minus Saldo's live balance as one `unexplained_difference` entry dated now (or at a balance update dated later), then records a check that matches it. Takes `{ accountId, bankBalanceMinor, seenBalanceMinor }` and returns `{ eventId, checkId }`. Refuses with `CHECK_CHANGED` when the live balance moved since the user looked, `NOTHING_TO_BOOK` when the bank already matches (the dialog never sends that, so the frontend has no branch for it), `VALIDATION` for an account that is not own, and `INTERNAL` when the booked account does not match the bank afterwards.
 
 - **BE command:** `book_unexplained_difference` → `src-tauri/src/features/bank/commands.rs`
 - **Used in:**
