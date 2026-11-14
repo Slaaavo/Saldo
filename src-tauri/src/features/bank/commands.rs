@@ -119,24 +119,9 @@ fn entry_date_after_latest_balance_update(
     conn: &Connection,
     account_id: i64,
 ) -> Result<String, AppError> {
-    const FORMAT: &str = "%Y-%m-%dT%H:%M:%S";
-    let now = chrono::Local::now()
-        .naive_local()
-        .format(FORMAT)
-        .to_string();
-    let Some(latest_update) = repository::latest_balance_update_date(conn, account_id)? else {
-        return Ok(now);
-    };
-    let latest_update = chrono::NaiveDateTime::parse_from_str(&latest_update, FORMAT)
-        .or_else(|_| {
-            chrono::NaiveDate::parse_from_str(&latest_update, "%Y-%m-%d")
-                .map(|day| day.and_time(chrono::NaiveTime::MIN))
-        })
-        .map_err(|_| validation("The account's balance update has a date Saldo cannot read."))?;
-    let after_latest_update = (latest_update + chrono::Duration::seconds(1))
-        .format(FORMAT)
-        .to_string();
-    Ok(now.max(after_latest_update))
+    let now = chrono::Local::now().format("%Y-%m-%dT%H:%M:%S").to_string();
+    let after_latest_update = repository::second_after_latest_balance_update(conn, account_id)?;
+    Ok(after_latest_update.unwrap_or_default().max(now))
 }
 
 pub(crate) fn delete_balance_check_inner(conn: &Connection, check_id: i64) -> Result<(), AppError> {
