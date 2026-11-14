@@ -62,8 +62,8 @@ export const useBookUnexplainedDifference = () => {
       await refresh()
     },
     onError: async (err) => {
-      if (hasErrorCode(err, 'CHECK_CHANGED') || hasErrorCode(err, 'NOTHING_TO_BOOK')) {
-        toast.error(t(hasErrorCode(err, 'CHECK_CHANGED') ? 'bankCheck.changed' : 'bankCheck.dialog.nothingToBook'))
+      if (hasErrorCode(err, 'CHECK_CHANGED')) {
+        toast.error(t('bankCheck.changed'))
         await refresh()
         return
       }

@@ -107,9 +107,12 @@ pub(crate) fn book_unexplained_difference_inner(
             verification_of(conn, input.account_id)?,
             Some(Verification::Verified { check_id: verified, .. }) if verified == check_id
         ) {
-            return Err(validation(
-                "Saldo could not book the difference so that the account matches the bank.",
-            ));
+            return Err(AppError {
+                code: "INTERNAL".into(),
+                message:
+                    "Saldo could not book the difference so that the account matches the bank."
+                        .into(),
+            });
         }
         Ok(BookedDifference { event_id, check_id })
     })

@@ -126,7 +126,6 @@ bankCheck:
     book: "Zaúčtovať ako nevysvetlený rozdiel"
     cancel: "Zrušiť"
     booked: "Nevysvetlený rozdiel je zaúčtovaný"
-    nothingToBook: "Saldo sa už zhoduje s bankou, preto sa nič nezaúčtovalo."
     failed: "Rozdiel sa nepodarilo zaúčtovať: {{error}}"
 # ──── Obálky ────
 buckets:

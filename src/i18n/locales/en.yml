@@ -124,7 +124,6 @@ bankCheck:
     book: "Book as unexplained difference"
     cancel: "Cancel"
     booked: "Booked the unexplained difference"
-    nothingToBook: "Saldo already matches the bank, so nothing was booked."
     failed: "Failed to book the difference: {{error}}"
 
 # ──── Bucket cards ────
