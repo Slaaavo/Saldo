@@ -1,3 +1,4 @@
+pub(crate) mod balance_sql;
 mod balance_updates;
 mod cashflows;
 pub(crate) mod depreciation;
@@ -42,7 +43,7 @@ pub use queries::{
 #[cfg(test)]
 pub(crate) use snapshot::rows_at;
 pub use snapshot::{get_accounts_snapshot, GetSnapshotParams, Moment};
-pub(crate) use snapshot::{value_amount, ValueAmountParams, BALANCE_FLOW_TYPES};
+pub(crate) use snapshot::{value_amount, ValueAmountParams};
 
 pub use taxable_events::{
     create_taxable_event, create_taxable_split_group_with_legs, delete_split_group,

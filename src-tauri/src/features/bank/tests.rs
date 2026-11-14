@@ -9,8 +9,8 @@ use super::commands::{
 };
 use super::models::Verification;
 use super::repository::{
-    insert_check, insert_unexplained_difference, InsertCheckParams,
-    InsertUnexplainedDifferenceParams,
+    balance_seen_by_check, clock_now, insert_check, insert_unexplained_difference,
+    BalanceSeenByCheckParams, InsertCheckParams, InsertUnexplainedDifferenceParams,
 };
 use crate::db::initialize_in_memory;
 use crate::error::AppError;
@@ -18,8 +18,9 @@ use crate::features::accounts::repository::{create_account, CreateAccountParams}
 use crate::features::buckets::BucketKind;
 use crate::features::transactions::models::{MetricKind, Snapshot, SnapshotRow};
 use crate::features::transactions::repository::{
-    create_balance_update, create_cashflow, delete_event, get_accounts_snapshot, update_event,
-    CashflowEntry, CreateBalanceUpdateParams, GetSnapshotParams, Moment, UpdateEventParams,
+    create_balance_update, create_cashflow, create_transfer, delete_event, get_accounts_snapshot,
+    update_event, CashflowEntry, CreateBalanceUpdateParams, GetSnapshotParams, Moment,
+    UpdateEventParams,
 };
 use crate::shared::is_iso_datetime;
 
@@ -350,6 +351,76 @@ fn only_the_newest_check_decides() {
         differs(newest, 1_000),
         "the 1 Nov check still matches, yet the newest check alone decides"
     );
+}
+
+#[test]
+fn a_check_made_now_sees_the_live_snapshot_balance() {
+    let conn = initialize_in_memory().unwrap();
+    let account = mk(&conn, "account");
+    let other = mk(&conn, "account");
+    let today = chrono::Local::now().date_naive();
+    let yesterday = (today - chrono::Duration::days(1)).to_string();
+    let tomorrow = (today + chrono::Duration::days(1)).to_string();
+    let earlier = "2000-01-01T08:00:00.000";
+    let later = "2000-01-01T09:00:00.000";
+    balance_update(&conn, account, 10_000, &yesterday, earlier);
+    balance_update(
+        &conn,
+        account,
+        12_000,
+        &format!("{yesterday}T18:00:00"),
+        earlier,
+    );
+    balance_update(
+        &conn,
+        account,
+        13_000,
+        &format!("{yesterday}T18:00:00"),
+        later,
+    );
+    cashflow(&conn, account, -700, &yesterday, earlier);
+    cashflow(
+        &conn,
+        account,
+        -300,
+        &format!("{yesterday}T18:00:00"),
+        later,
+    );
+    let (sent, received) = create_transfer(
+        &conn,
+        &CashflowEntry {
+            account_id: account,
+            amount_minor: -1_500,
+            event_date: format!("{today}T09:00:00"),
+            note: None,
+            counterpart_account_id: Some(other),
+            bucket_id: None,
+            original_currency_id: None,
+            original_amount_minor: None,
+            fx_rate_mantissa: None,
+            fx_rate_exponent: None,
+        },
+    )
+    .unwrap();
+    written_at(&conn, sent, later);
+    written_at(&conn, received, later);
+    cashflow(&conn, account, -400, &tomorrow, later);
+
+    let snapshot = live(&conn);
+    let checked_at = clock_now(&conn).unwrap();
+    for (id, expected_minor) in [(account, 11_100), (other, 1_500)] {
+        let seen_by_check = balance_seen_by_check(
+            &conn,
+            BalanceSeenByCheckParams {
+                account_id: id,
+                checked_at: checked_at.clone(),
+                day: crate::shared::local_now(),
+            },
+        )
+        .unwrap();
+        assert_eq!(row_of(&snapshot, id).balance_minor, expected_minor);
+        assert_eq!(seen_by_check, expected_minor, "account {id}");
+    }
 }
 
 fn events_of_type(conn: &Connection, account_id: i64, event_type: &str) -> i64 {

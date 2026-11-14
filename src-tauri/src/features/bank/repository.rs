@@ -1,7 +1,9 @@
 use rusqlite::{named_params, params, Connection, OptionalExtension};
 
 use crate::error::AppError;
-use crate::features::transactions::repository::BALANCE_FLOW_TYPES;
+use crate::features::transactions::repository::balance_sql::{
+    balance_sql, latest_balance_update_sql,
+};
 
 pub struct BalanceSeenByCheckParams {
     pub account_id: i64,
@@ -32,30 +34,11 @@ pub fn balance_seen_by_check(
     conn: &Connection,
     params: BalanceSeenByCheckParams,
 ) -> rusqlite::Result<i64> {
+    let balance = balance_sql(":account_id", |e, ed| {
+        format!("{e}.created_at <= :checked_at OR substr({ed}.event_date, 1, 10) < :day")
+    });
     conn.query_row(
-        &format!(
-            "WITH seen_by_check AS (
-               SELECT e.event_type, e.created_at, ed.event_date, ed.amount_minor
-               FROM event e
-               JOIN event_data ed ON ed.id = e.latest_data_id
-               WHERE e.account_id = :account_id
-                 AND e.deleted_at IS NULL
-                 AND (e.created_at <= :checked_at OR substr(ed.event_date, 1, 10) < :day)
-             ),
-             anchor AS (
-               SELECT event_date, amount_minor
-               FROM seen_by_check
-               WHERE event_type = 'balance_update'
-               ORDER BY event_date DESC, created_at DESC
-               LIMIT 1
-             )
-             SELECT COALESCE((SELECT amount_minor FROM anchor), 0)
-                  + COALESCE((SELECT SUM(amount_minor)
-                              FROM seen_by_check
-                              WHERE event_type IN ({BALANCE_FLOW_TYPES})
-                                AND event_date > COALESCE((SELECT event_date FROM anchor), '')),
-                             0)"
-        ),
+        &format!("SELECT {balance}"),
         named_params! {
             ":account_id": params.account_id,
             ":checked_at": params.checked_at,
@@ -115,19 +98,10 @@ pub fn latest_balance_update_date(
     conn: &Connection,
     account_id: i64,
 ) -> rusqlite::Result<Option<String>> {
-    conn.query_row(
-        "SELECT ed.event_date
-         FROM event e
-         JOIN event_data ed ON ed.id = e.latest_data_id
-         WHERE e.account_id = ?1
-           AND e.deleted_at IS NULL
-           AND e.event_type = 'balance_update'
-         ORDER BY ed.event_date DESC, e.created_at DESC
-         LIMIT 1",
-        params![account_id],
-        |row| row.get(0),
-    )
-    .optional()
+    let latest = latest_balance_update_sql("?1", &|_, _| "1".to_owned(), "event_date");
+    conn.query_row(&format!("SELECT {latest}"), params![account_id], |row| {
+        row.get(0)
+    })
 }
 
 pub fn insert_unexplained_difference(

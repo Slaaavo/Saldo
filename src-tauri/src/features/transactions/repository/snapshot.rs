@@ -20,10 +20,10 @@ use crate::features::transactions::models::{
 };
 use crate::shared::{convert_balance, is_iso_date, validate_event_date};
 
+use super::balance_sql::balance_sql;
+
 // Validated dates always compare below it, so the live cutoff keeps every row and every rate.
 const LIVE_EVENTS_UNTIL: &str = "9999-12-31T23:59:59";
-
-pub(crate) const BALANCE_FLOW_TYPES: &str = "'cashflow', 'transfer', 'unexplained_difference'";
 
 pub struct Moment {
     events_until: String,
@@ -220,6 +220,7 @@ pub fn get_accounts_snapshot(
         rates: HashMap::new(),
     };
 
+    let balance = balance_sql("a.id", |_, ed| format!("{ed}.event_date <= ?1"));
     let mut stmt = conn.prepare(&format!(
         "SELECT
            a.id AS account_id,
@@ -230,39 +231,7 @@ pub fn get_accounts_snapshot(
            c.code AS currency_code,
            c.minor_units AS currency_minor_units,
            c.is_custom AS currency_is_custom,
-           COALESCE(
-             (SELECT ed.amount_minor
-              FROM event e
-              JOIN event_data ed ON ed.id = e.latest_data_id
-              WHERE e.account_id = a.id
-                AND e.deleted_at IS NULL
-                AND e.event_type = 'balance_update'
-                AND ed.event_date <= ?1
-              ORDER BY ed.event_date DESC, e.created_at DESC
-              LIMIT 1),
-             0
-           ) + COALESCE(
-             (SELECT SUM(ed2.amount_minor)
-              FROM event e2
-              JOIN event_data ed2 ON ed2.id = e2.latest_data_id
-              WHERE e2.account_id = a.id
-                AND e2.deleted_at IS NULL
-                AND e2.event_type IN ({BALANCE_FLOW_TYPES})
-                AND ed2.event_date <= ?1
-                AND ed2.event_date > COALESCE(
-                  (SELECT ed3.event_date
-                   FROM event e3
-                   JOIN event_data ed3 ON ed3.id = e3.latest_data_id
-                   WHERE e3.account_id = a.id
-                     AND e3.deleted_at IS NULL
-                     AND e3.event_type = 'balance_update'
-                     AND ed3.event_date <= ?1
-                   ORDER BY ed3.event_date DESC, e3.created_at DESC
-                   LIMIT 1),
-                  ''
-                )),
-             0
-           ) AS balance_minor,
+           {balance} AS balance_minor,
            a.person_id,
            a.purchase_price_minor,
            a.purchase_date,
