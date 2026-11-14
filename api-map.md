@@ -46,7 +46,7 @@ Reorders the listed accounts: they swap among the `sort_order` slots they alread
 
 ### `getAccountsSnapshot`
 <!-- this should go to shared -->
-Returns every account, bucket and asset balance live (no cutoff) or at a picked date or datetime, plus the headline metrics with their breakdown lines and the rate warnings. Takes `asOf` (`{ kind: 'live' }` or `{ kind: 'at', until }`) and an optional person.
+Returns every account, bucket and asset balance live (no cutoff) or at a picked date or datetime, plus the headline metrics with their breakdown lines and the rate warnings. Takes `asOf` (`{ kind: 'live' }` or `{ kind: 'at', until }`) and an optional person. In a live snapshot, an own account that was checked against the bank carries `verification` (`verified` or `differs`); every other row, and every row at a picked moment, carries `null`.
 
 - **BE command:** `get_accounts_snapshot` → `src-tauri/src/features/transactions/commands.rs`
 - **Used in:**
@@ -81,7 +81,7 @@ Creates a single balance update event on an account.
 
 ### `updateEvent`
 
-Updates an existing event's amount, date, and note.
+Updates an existing event's amount, date, and note. Refuses an unexplained difference, which can only be deleted.
 
 - **BE command:** `update_event` → `src-tauri/src/features/transactions/commands.rs`
 - **Used in:**
@@ -337,6 +337,37 @@ Replaces the income budget's typed months with `months`. Takes `{ bucketId, mont
 - **Used in:**
   - `src/features/income-budget/useIncomeBudgetEditor.ts` (useIncomeBudgetEditor hook)
     - → `src/features/income-budget/IncomeBudgetDialog/BudgetEditor.tsx`
+
+---
+
+## Checks against the bank app
+
+### `confirmBankMatch`
+
+Records that the bank app shows Saldo's live balance for an own account. Takes `{ accountId, seenBalanceMinor }`, the balance the user looked at, and returns the new check's id. Refuses with `CHECK_CHANGED` when the live balance moved since, `VALIDATION` for an account that is not `account_type = 'account'`, and `NOT_FOUND` for an unknown account.
+
+- **BE command:** `confirm_bank_match` → `src-tauri/src/features/bank/commands.rs`
+- **Used in:**
+  - `src/features/bank/useBankCheckMutations.ts` (useConfirmBankMatch hook)
+    - → `src/features/dashboard/AccountCard/BankCheckButtons.tsx` (Matches bank)
+    - → `src/features/bank/FindBankDifferenceModal.tsx` (Mark as matching)
+
+### `bookUnexplainedDifference`
+
+Books the bank's balance minus Saldo's live balance as one `unexplained_difference` entry dated now, then records a check that matches it. Takes `{ accountId, bankBalanceMinor, seenBalanceMinor }` and returns `{ eventId, checkId }`. Refuses with `CHECK_CHANGED` when the live balance moved since the user looked, `NOTHING_TO_BOOK` when the bank already matches, and `VALIDATION` for an account that is not own or when a balance update dated after now would hide the entry.
+
+- **BE command:** `book_unexplained_difference` → `src-tauri/src/features/bank/commands.rs`
+- **Used in:**
+  - `src/features/bank/useBankCheckMutations.ts` (useBookUnexplainedDifference hook)
+    - → `src/features/bank/FindBankDifferenceModal.tsx` (Book as unexplained difference)
+
+### `deleteBalanceCheck`
+
+Deletes a check by id. Undo in the Matches bank toast calls it. Refuses an unknown id with `NOT_FOUND`.
+
+- **BE command:** `delete_balance_check` → `src-tauri/src/features/bank/commands.rs`
+- **Used in:**
+  - `src/features/bank/useBankCheckMutations.ts` (useConfirmBankMatch hook, the toast's Undo)
 
 ---
 
