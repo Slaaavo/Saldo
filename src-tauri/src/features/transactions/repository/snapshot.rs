@@ -22,6 +22,11 @@ use crate::shared::{convert_balance, is_iso_date, validate_event_date};
 // Validated dates always compare below it, so the live cutoff keeps every row and every rate.
 const LIVE_EVENTS_UNTIL: &str = "9999-12-31T23:59:59";
 
+/// The event types that move an account's balance after its latest balance update, as an SQL
+/// list. Every query that sums a balance splices this in, so a new type that moves balances is
+/// added here and nowhere else.
+pub(crate) const BALANCE_FLOW_TYPES: &str = "'cashflow', 'transfer', 'unexplained_difference'";
+
 pub struct Moment {
     events_until: String,
     age_reference: NaiveDate,
@@ -196,7 +201,7 @@ pub fn get_accounts_snapshot(
         rates: HashMap::new(),
     };
 
-    let mut stmt = conn.prepare(
+    let mut stmt = conn.prepare(&format!(
         "SELECT
            a.id AS account_id,
            a.name AS account_name,
@@ -223,7 +228,7 @@ pub fn get_accounts_snapshot(
               JOIN event_data ed2 ON ed2.id = e2.latest_data_id
               WHERE e2.account_id = a.id
                 AND e2.deleted_at IS NULL
-                AND e2.event_type IN ('cashflow', 'transfer')
+                AND e2.event_type IN ({BALANCE_FLOW_TYPES})
                 AND ed2.event_date <= ?1
                 AND ed2.event_date > COALESCE(
                   (SELECT ed3.event_date
@@ -250,7 +255,7 @@ pub fn get_accounts_snapshot(
          WHERE a.account_type IN ('account', 'bucket', 'asset')
            AND (?2 IS NULL OR a.person_id = ?2)
          ORDER BY a.account_type, a.sort_order, a.id",
-    )?;
+    ))?;
 
     let mut rows: Vec<SnapshotRow> = stmt
         .query_map(params![events_until, person_id], |row| {
