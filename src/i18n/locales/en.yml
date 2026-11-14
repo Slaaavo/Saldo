@@ -102,6 +102,32 @@ accounts:
   linkedAssetTooltip: "Secured by: {{assets}}"
   noIban: "No IBAN"
 
+# ──── Checks against the bank app ────
+bankCheck:
+  verified: "Verified {{date}}"
+  differs: "Verified {{date}} · now differs by <amount></amount>"
+  stillVerifiedTo: "Still verified to {{date}}"
+  matchesBank: "Matches bank"
+  findDifference: "Find the difference"
+  matched: "Marked as matching the bank"
+  undo: "Undo"
+  changed: "The balance changed since you looked. Look at it again."
+  failed: "Failed to record the check: {{error}}"
+  undoFailed: "Failed to undo the check: {{error}}"
+  dialog:
+    title: "Find the difference — {{name}}"
+    saldoBalance: "Balance in Saldo"
+    bankBalance: "Balance in the bank app"
+    lower: "Saldo is <amount></amount> lower than the bank."
+    higher: "Saldo is <amount></amount> higher than the bank."
+    same: "Saldo matches the bank."
+    markAsMatching: "Mark as matching"
+    book: "Book as unexplained difference"
+    cancel: "Cancel"
+    booked: "Booked the unexplained difference"
+    nothingToBook: "Saldo already matches the bank, so nothing was booked."
+    failed: "Failed to book the difference: {{error}}"
+
 # ──── Bucket cards ────
 buckets:
   sectionTitle: Buckets
@@ -203,6 +229,7 @@ ledgerPage:
     revenue: "Revenue"
     expense: "Expenses"
     prepaid_expense: "Prepaid Expenses"
+    unexplained_difference: "Unexplained Differences"
 
 # ──── Event types ────
 events:
@@ -213,6 +240,7 @@ events:
     revenue: "Revenue"
     expense: "Expense"
     prepaid_expense: "Prepaid Expense"
+    unexplained_difference: "Unexplained difference"
   counterpart: "Counterpart"
   foreignAmount: "{{amount}} {{currency}}"
   bucketTag: "Bucket: {{name}}"

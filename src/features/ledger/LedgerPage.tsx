@@ -117,6 +117,7 @@ const LedgerPage = () => {
             { value: 'revenue', label: t('ledgerPage.filterType.revenue') },
             { value: 'expense', label: t('ledgerPage.filterType.expense') },
             { value: 'prepaid_expense', label: t('ledgerPage.filterType.prepaid_expense') },
+            { value: 'unexplained_difference', label: t('ledgerPage.filterType.unexplained_difference') },
           ] as const
         ).map(({ value, label }) => (
           <Button

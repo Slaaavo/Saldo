@@ -60,6 +60,7 @@ vi.mock('./AccountCards', () => ({
     onReorder?: () => void
     onEditIncomeBudget?: (bucketId: number) => void
     onViewInLedger?: (accountId: number) => void
+    onFindBankDifference?: (accountId: number) => void
     snapshot: SnapshotRow[]
   }) => (
     <div data-testid={`account-cards-${props.sectionTitle ?? 'unknown'}`}>
@@ -67,6 +68,11 @@ vi.mock('./AccountCards', () => ({
       {props.onViewInLedger && (
         <button data-testid={`view-in-ledger-${props.sectionTitle}`} onClick={() => props.onViewInLedger?.(7)}>
           view in ledger
+        </button>
+      )}
+      {props.onFindBankDifference && (
+        <button data-testid={`find-difference-${props.sectionTitle}`} onClick={() => props.onFindBankDifference?.(7)}>
+          find the difference
         </button>
       )}
       {props.onEditIncomeBudget && (
@@ -453,6 +459,30 @@ describe('DashboardView', () => {
       await user.click(await screen.findByTestId(`view-in-ledger-${section}`))
 
       expect(mockNavigate).toHaveBeenCalledWith({ to: '/ledger', search: { accountId: 7 } })
+    })
+  })
+
+  describe('bank checks', () => {
+    it('let own account cards open Find the difference in live mode, and no other section', async () => {
+      const user = userEvent.setup()
+      setupApiMocks({ snapshot: [makeRow(), makeBucket(), makeAsset()] })
+      renderDashboard()
+
+      await user.click(await screen.findByTestId('find-difference-accounts.sectionTitle'))
+
+      expect(mockSetModalState).toHaveBeenCalledWith({ type: 'findBankDifference', accountId: 7 })
+      expect(screen.queryByTestId('find-difference-buckets.sectionTitle')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('find-difference-assets.sectionTitle')).not.toBeInTheDocument()
+    })
+
+    it('are not offered at a past moment', async () => {
+      timeMachine.asOf = { kind: 'at', until: '2026-10-20' }
+      setupApiMocks({ snapshot: [makeRow()] })
+      renderDashboard()
+
+      await screen.findByTestId('account-cards-accounts.sectionTitle')
+
+      expect(screen.queryByTestId('find-difference-accounts.sectionTitle')).not.toBeInTheDocument()
     })
   })
 

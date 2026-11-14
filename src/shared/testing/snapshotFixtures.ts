@@ -44,6 +44,7 @@ export const makeRow = (overrides?: Partial<SnapshotRow>): SnapshotRow => {
     purchaseDate: null,
     depreciationPeriodMonths: null,
     bucket: accountType === 'bucket' ? { kind: 'balance', enabled: true } : null,
+    verification: null,
     ...overrides,
   }
 }

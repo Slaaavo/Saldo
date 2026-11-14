@@ -31,6 +31,7 @@ import CreatePrepaidExpenseModal from '../features/transactions/CreatePrepaidExp
 import EditTaxableEventModal from '../features/transactions/EditTaxableEventModal'
 import EditTaxableSplitGroupModal from '../features/transactions/EditTaxableSplitGroupModal'
 import IncomeBudgetDialog from '../features/income-budget/IncomeBudgetDialog'
+import FindBankDifferenceModal from '../features/bank/FindBankDifferenceModal'
 
 interface AppModalsProps {
   dbLocation: {
@@ -239,6 +240,11 @@ const AppModals = ({ dbLocation }: AppModalsProps) => {
 
     case 'editIncomeBudget':
       return <IncomeBudgetDialog bucketId={modalState.bucketId} onClose={closeModal} />
+
+    case 'findBankDifference': {
+      const row = accounts.find((r) => r.accountId === modalState.accountId)
+      return row ? <FindBankDifferenceModal row={row} onClose={closeModal} /> : null
+    }
 
     case 'confirmSwitchDb':
       return (

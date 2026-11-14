@@ -78,6 +78,7 @@ export type ModalState =
     }
   | { type: 'manageLinkedAssets'; accountId: number; accountName: string }
   | { type: 'editIncomeBudget'; bucketId: number }
+  | { type: 'findBankDifference'; accountId: number }
   | { type: 'csvImport' }
   | { type: 'ekasaImport' }
   | { type: 'addEvents' }
@@ -109,12 +110,17 @@ export interface Account {
   createdAt: string
 }
 
+/** `unexplained_difference` is a gap booked from a bank check. It moves the account's balance like a cash flow and is never income. */
+export const EVENT_TYPES = ['balance_update', 'cashflow', 'transfer', 'revenue', 'expense', 'prepaid_expense', 'unexplained_difference'] as const
+
+export type EventType = (typeof EVENT_TYPES)[number]
+
 export interface EventWithData {
   id: number
   accountId: number
   accountName: string
   accountType: string
-  eventType: string
+  eventType: EventType
   eventDate: string
   amountMinor: number
   note: string | null
@@ -267,6 +273,18 @@ export interface SnapshotRow {
   depreciationPeriodMonths: number | null
   /** Set on bucket rows only. */
   bucket: BucketState | null
+  /** Set only on an own account that was checked against the bank, and only in a live snapshot. */
+  verification: Verification | null
+}
+
+/** Whether an own account's newest check against the bank app still matches Saldo. `differenceMinor` is the bank's balance minus Saldo's side of the check. */
+export type Verification =
+  | { state: 'verified'; checkId: number; checkedOn: string }
+  | { state: 'differs'; checkId: number; checkedOn: string; differenceMinor: number; lastVerifiedOn: string | null }
+
+export interface BookedDifference {
+  eventId: number
+  checkId: number
 }
 
 export interface Money {

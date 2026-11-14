@@ -165,6 +165,15 @@ describe('LedgerPage', () => {
     await waitFor(() => expect(listEvents).toHaveBeenLastCalledWith({}))
   })
 
+  it('filters to unexplained differences', async () => {
+    const user = userEvent.setup()
+    renderLedgerPage()
+
+    await user.click(screen.getByText('ledgerPage.filterType.unexplained_difference'))
+
+    await waitFor(() => expect(listEvents).toHaveBeenLastCalledWith({ eventTypes: ['unexplained_difference'] }))
+  })
+
   it('says that no events match when a filter leaves the list empty', async () => {
     const user = userEvent.setup()
     renderLedgerPage()

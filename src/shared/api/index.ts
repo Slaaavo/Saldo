@@ -25,6 +25,7 @@ import type {
   BudgetCell,
   IncomeBudget,
   IncomeBudgetPreview,
+  BookedDifference,
 } from '../types'
 
 export const createBalanceUpdate = (accountId: number, amountMinor: number, eventDate: string, note?: string): Promise<number> => {
@@ -276,6 +277,20 @@ export const previewIncomeBudget = (input: PreviewIncomeBudgetInput): Promise<In
 
 export const saveIncomeBudget = (bucketId: number, months: BudgetCell[]): Promise<void> => {
   return invoke<void>('save_income_budget', { input: { bucketId, months } })
+}
+
+/** Records that the bank app shows Saldo's live balance. `seenBalanceMinor` is the balance the user looked at; a moved balance fails with `CHECK_CHANGED`. Resolves to the new check's id. */
+export const confirmBankMatch = (accountId: number, seenBalanceMinor: number): Promise<number> => {
+  return invoke<number>('confirm_bank_match', { input: { accountId, seenBalanceMinor } })
+}
+
+/** Books the bank's balance minus Saldo's as one unexplained difference and records a matching check. Fails with `CHECK_CHANGED` or `NOTHING_TO_BOOK`. */
+export const bookUnexplainedDifference = (accountId: number, bankBalanceMinor: number, seenBalanceMinor: number): Promise<BookedDifference> => {
+  return invoke<BookedDifference>('book_unexplained_difference', { input: { accountId, bankBalanceMinor, seenBalanceMinor } })
+}
+
+export const deleteBalanceCheck = (checkId: number): Promise<void> => {
+  return invoke<void>('delete_balance_check', { checkId })
 }
 
 export const listLinksForEvent = (eventId: number): Promise<BucketLink[]> => {

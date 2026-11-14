@@ -54,7 +54,7 @@ describe('useEditEventHandler', () => {
     expect(mockSetModalState).toHaveBeenCalledWith({ type: 'editBalanceUpdate', event })
   })
 
-  it.each(['revenue', 'expense', 'prepaid_expense'])('opens the taxable event editor for a %s event', async (eventType) => {
+  it.each(['revenue', 'expense', 'prepaid_expense'] as const)('opens the taxable event editor for a %s event', async (eventType) => {
     const event = makeEvent({ eventType })
     await editEvent(event)
     expect(mockSetModalState).toHaveBeenCalledWith({ type: 'editTaxableEvent', event })

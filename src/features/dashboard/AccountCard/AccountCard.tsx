@@ -6,10 +6,12 @@ import { Card, CardContent } from '@/shared/ui/card'
 import { Pencil } from 'lucide-react'
 import BucketSwitch from '../../buckets/BucketSwitch'
 import { BalanceDisplay } from './BalanceDisplay'
+import { BankCheckButtons } from './BankCheckButtons'
 import { EquityTooltip } from './EquityTooltip'
 import { AccountContextMenu } from './AccountContextMenu'
 import { IbanDisplay } from './IbanDisplay'
 import { LinkedAssetIcon } from './LinkedAssetIcon'
+import { VerificationLine } from './VerificationLine'
 import { useAccountCardEquity } from './useAccountCardEquity'
 
 interface AccountCardProps {
@@ -22,6 +24,8 @@ interface AccountCardProps {
   onDeleteAccount: (accountId: number, name: string) => void
   onManageLinkedAssets?: (accountId: number, accountName: string) => void
   onViewInLedger?: (accountId: number) => void
+  /** Given only in live mode. An own account's card then offers Matches bank and Find the difference. */
+  onFindBankDifference?: (accountId: number) => void
   allAssets?: SnapshotRow[]
   allAccounts?: SnapshotRow[]
   personName?: string
@@ -37,6 +41,7 @@ const AccountCard = ({
   onDeleteAccount,
   onManageLinkedAssets,
   onViewInLedger,
+  onFindBankDifference,
   allAssets,
   allAccounts,
   personName,
@@ -48,6 +53,7 @@ const AccountCard = ({
   const action = hasEntries
     ? { label: updateButtonLabel ?? t('accounts.updateBalance'), run: () => onUpdateBalance(row.accountId) }
     : onEditIncomeBudget && { label: t('incomeBudget.edit'), run: () => onEditIncomeBudget(row.accountId) }
+  const findBankDifference = row.accountType === 'account' ? onFindBankDifference : undefined
 
   return (
     <Card className={cn('relative w-[250px] min-w-[250px] shrink-0')}>
@@ -75,17 +81,23 @@ const AccountCard = ({
         {personName && <span className="text-xs text-muted-foreground">{personName}</span>}
         {row.accountType === 'account' && <IbanDisplay iban={row.iban} />}
         <BalanceDisplay row={row} consolidationCurrency={consolidationCurrency} />
+        <VerificationLine row={row} />
         {equity && consolidationCurrency && (
           <EquityTooltip row={row} equityMinor={equity.equityMinor} equityLinkedRows={equity.equityLinkedRows} consolidationCurrency={consolidationCurrency} />
         )}
-        {action && (
-          <button
-            onClick={action.run}
-            className="mt-2 text-xs font-bold uppercase tracking-wider text-muted-foreground hover:text-primary transition-colors flex items-center gap-1"
-          >
-            <Pencil className="h-3 w-3" />
-            {action.label}
-          </button>
+        {(action || findBankDifference) && (
+          <div className="mt-2 flex items-center justify-between gap-1">
+            {action && (
+              <button
+                onClick={action.run}
+                className="min-w-0 flex-1 text-xs font-bold uppercase tracking-wider text-muted-foreground hover:text-primary transition-colors flex items-center gap-1"
+              >
+                <Pencil className="h-3 w-3 shrink-0" />
+                <span className="truncate">{action.label}</span>
+              </button>
+            )}
+            {findBankDifference && <BankCheckButtons row={row} onFindDifference={findBankDifference} />}
+          </div>
         )}
       </CardContent>
     </Card>

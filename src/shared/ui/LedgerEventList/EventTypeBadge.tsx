@@ -1,8 +1,9 @@
 import { useTranslation } from 'react-i18next'
-import { ArrowUpDown, Receipt, TrendingUp, TrendingDown } from 'lucide-react'
+import { ArrowUpDown, Receipt, Scale, TrendingUp, TrendingDown } from 'lucide-react'
+import type { EventType } from '../../types'
 
 interface Props {
-  eventType: string
+  eventType: EventType
 }
 
 const EventTypeBadge = ({ eventType }: Props) => {
@@ -49,6 +50,15 @@ const EventTypeBadge = ({ eventType }: Props) => {
       <span className="inline-flex items-center gap-1 rounded-full bg-rose-100 px-2 py-0.5 text-xs font-medium text-rose-700 dark:bg-rose-900/30 dark:text-rose-400">
         <TrendingDown className="h-3 w-3" />
         {t('events.type.prepaid_expense')}
+      </span>
+    )
+  }
+
+  if (eventType === 'unexplained_difference') {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-orange-100 px-2 py-0.5 text-xs font-medium text-orange-700 dark:bg-orange-900/30 dark:text-orange-400">
+        <Scale className="h-3 w-3" />
+        {t('events.type.unexplained_difference')}
       </span>
     )
   }
