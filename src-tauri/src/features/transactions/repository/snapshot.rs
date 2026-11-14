@@ -5,6 +5,7 @@ use std::collections::HashMap;
 
 use crate::error::AppError;
 use crate::features::assets::repository::get_all_account_asset_link_ids;
+use crate::features::bank;
 use crate::features::buckets::repository::list_all_latest_bucket_links;
 use crate::features::buckets::{BucketKind, BucketState};
 use crate::features::currency::models::Currency;
@@ -58,6 +59,10 @@ impl Moment {
 
     fn rates_until(&self) -> &str {
         &self.events_until[..10]
+    }
+
+    fn is_live(&self) -> bool {
+        self.events_until == LIVE_EVENTS_UNTIL
     }
 
     pub(crate) fn day(&self) -> NaiveDate {
@@ -315,9 +320,20 @@ pub fn get_accounts_snapshot(
                 purchase_date: row.get(11)?,
                 depreciation_period_months: row.get(12)?,
                 bucket,
+                verification: None,
             })
         })?
         .collect::<rusqlite::Result<_>>()?;
+
+    // A check compares with the bank app's balance now, so a past moment shows none.
+    if moment.is_live() {
+        for row in rows
+            .iter_mut()
+            .filter(|row| row.account_type == AccountKind::Account)
+        {
+            row.verification = bank::verification_of(conn, row.account_id)?;
+        }
+    }
 
     // Populate asset-link fields using a single bulk query to avoid N+1.
     let (linked_account_ids_set, account_to_assets, asset_to_accounts) =

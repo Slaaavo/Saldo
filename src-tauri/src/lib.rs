@@ -315,6 +315,9 @@ pub fn run() {
             features::upsert_ekasa_profile,
             features::process_receipt_file,
             features::match_ekasa_rules,
+            features::confirm_bank_match,
+            features::book_unexplained_difference,
+            features::delete_balance_check,
         ])
         .run(tauri_context())
         .expect("error while running tauri application");

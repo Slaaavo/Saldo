@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+use crate::features::bank::Verification;
 use crate::features::buckets::{BucketKind, BucketLink, BucketState};
 
 /// Flattened event with its current (latest) event_data.
@@ -155,6 +156,8 @@ pub struct SnapshotRow {
     pub purchase_date: Option<String>,
     pub depreciation_period_months: Option<i64>,
     pub bucket: Option<BucketState>,
+    /// Set only on an own account that has a check, and only in a live snapshot.
+    pub verification: Option<Verification>,
 }
 
 impl SnapshotRow {

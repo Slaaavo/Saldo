@@ -341,6 +341,7 @@ mod tests {
                 kind: BucketKind::Balance,
                 enabled: true,
             }),
+            verification: None,
         }
     }
 

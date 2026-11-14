@@ -1,5 +1,6 @@
 pub mod accounts;
 pub mod assets;
+pub mod bank;
 pub mod buckets;
 pub mod csv_profiles;
 pub mod currency;
@@ -14,6 +15,7 @@ pub mod transactions;
 
 pub use accounts::*;
 pub use assets::*;
+pub use bank::*;
 pub use buckets::*;
 pub use csv_profiles::*;
 pub use currency::*;
