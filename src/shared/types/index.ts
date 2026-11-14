@@ -110,9 +110,7 @@ export interface Account {
   createdAt: string
 }
 
-export const EVENT_TYPES = ['balance_update', 'cashflow', 'transfer', 'revenue', 'expense', 'prepaid_expense', 'unexplained_difference'] as const
-
-export type EventType = (typeof EVENT_TYPES)[number]
+export type EventType = 'balance_update' | 'cashflow' | 'transfer' | 'revenue' | 'expense' | 'prepaid_expense' | 'unexplained_difference'
 
 export interface EventWithData {
   id: number

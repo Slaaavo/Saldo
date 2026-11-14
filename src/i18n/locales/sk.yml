@@ -127,6 +127,7 @@ bankCheck:
     cancel: "Zrušiť"
     booked: "Nevysvetlený rozdiel je zaúčtovaný"
     failed: "Rozdiel sa nepodarilo zaúčtovať: {{error}}"
+
 # ──── Obálky ────
 buckets:
   sectionTitle: Obálky
