@@ -5,6 +5,6 @@ mod repository;
 #[cfg(test)]
 mod tests;
 
-pub(crate) use checks::verification_of;
+pub(crate) use checks::attach_verifications;
 pub use commands::*;
 pub use models::Verification;

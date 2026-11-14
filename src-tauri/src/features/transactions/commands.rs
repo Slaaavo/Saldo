@@ -1,6 +1,7 @@
 use chrono::{Datelike, NaiveDate};
 
 use crate::error::AppError;
+use crate::features::bank;
 use crate::features::persons::repository::{get_person_vat_payer, resolve_default_taxable_account};
 use crate::shared::with_savepoint_app;
 use crate::AppState;
@@ -160,13 +161,25 @@ pub fn get_accounts_snapshot(
 ) -> Result<Snapshot, AppError> {
     let moment = input.as_of.into_moment()?;
     let conn = state.conn()?;
-    let snapshot = repository::get_accounts_snapshot(
+    get_accounts_snapshot_inner(
         &conn,
         GetSnapshotParams {
             moment,
             person_id: input.person_id,
         },
-    )?;
+    )
+}
+
+/// The dashboard's snapshot. A live one also carries each own account's check against the bank.
+pub(crate) fn get_accounts_snapshot_inner(
+    conn: &Connection,
+    params: GetSnapshotParams,
+) -> Result<Snapshot, AppError> {
+    let live = params.moment.is_live();
+    let mut snapshot = repository::get_accounts_snapshot(conn, params)?;
+    if live {
+        bank::attach_verifications(conn, &mut snapshot.rows)?;
+    }
     Ok(snapshot)
 }
 

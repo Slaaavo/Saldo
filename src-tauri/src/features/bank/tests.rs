@@ -16,6 +16,7 @@ use crate::db::initialize_in_memory;
 use crate::error::AppError;
 use crate::features::accounts::repository::{create_account, CreateAccountParams};
 use crate::features::buckets::BucketKind;
+use crate::features::transactions::commands::get_accounts_snapshot_inner;
 use crate::features::transactions::models::{MetricKind, Snapshot, SnapshotRow};
 use crate::features::transactions::repository::{
     create_balance_update, create_cashflow, create_transfer, delete_event, get_accounts_snapshot,
@@ -442,7 +443,7 @@ fn checks_of(conn: &Connection, account_id: i64) -> i64 {
 }
 
 fn live(conn: &Connection) -> Snapshot {
-    get_accounts_snapshot(
+    get_accounts_snapshot_inner(
         conn,
         GetSnapshotParams {
             moment: Moment::live(chrono::Local::now().date_naive()),
@@ -760,15 +761,20 @@ fn a_live_snapshot_carries_the_verification_and_a_past_moment_does_not() {
     balance_update(&conn, account, 10_000, "2026-11-01", BEFORE_THE_CHECK);
     let check_id = check(&conn, account, 10_000);
 
-    let at = get_accounts_snapshot(
-        &conn,
-        GetSnapshotParams {
-            moment: Moment::at(CHECK_DAY).unwrap(),
-            person_id: None,
-        },
-    )
-    .unwrap();
-    let live = get_accounts_snapshot(
+    let snapshot = |moment| {
+        get_accounts_snapshot_inner(
+            &conn,
+            GetSnapshotParams {
+                moment,
+                person_id: None,
+            },
+        )
+        .unwrap()
+    };
+    let at = snapshot(Moment::at(CHECK_DAY).unwrap());
+    let at_the_end_of_time = snapshot(Moment::at("9999-12-31").unwrap());
+    let live = snapshot(Moment::live(NaiveDate::from_ymd_opt(2026, 11, 14).unwrap()));
+    let from_the_repository = get_accounts_snapshot(
         &conn,
         GetSnapshotParams {
             moment: Moment::live(NaiveDate::from_ymd_opt(2026, 11, 14).unwrap()),
@@ -778,6 +784,12 @@ fn a_live_snapshot_carries_the_verification_and_a_past_moment_does_not() {
     .unwrap();
 
     assert_eq!(row_of(&at, account).verification, None);
+    assert_eq!(row_of(&at_the_end_of_time, account).verification, None);
+    assert_eq!(
+        row_of(&from_the_repository, account).verification,
+        None,
+        "the snapshot repository leaves checks to the command"
+    );
     assert_eq!(row_of(&live, bucket).verification, None);
     assert_eq!(
         serde_json::to_value(row_of(&live, account)).unwrap()["verification"],

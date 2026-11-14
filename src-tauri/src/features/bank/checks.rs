@@ -2,6 +2,21 @@ use rusqlite::Connection;
 
 use super::models::Verification;
 use super::repository::{self, BalanceSeenByCheckParams};
+use crate::features::transactions::models::{AccountKind, SnapshotRow};
+
+/// Sets each own account row's verification. Call it on a live snapshot only.
+pub(crate) fn attach_verifications(
+    conn: &Connection,
+    rows: &mut [SnapshotRow],
+) -> rusqlite::Result<()> {
+    for row in rows
+        .iter_mut()
+        .filter(|row| row.account_type == AccountKind::Account)
+    {
+        row.verification = verification_of(conn, row.account_id)?;
+    }
+    Ok(())
+}
 
 pub(crate) fn verification_of(
     conn: &Connection,
