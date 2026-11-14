@@ -749,7 +749,14 @@ fn an_unexplained_difference_can_be_deleted_but_not_edited() {
     );
     delete_event(&conn, booked.event_id).unwrap();
 
-    assert_eq!(edit.unwrap_err().code, "VALIDATION");
+    let err = edit.unwrap_err();
+    assert_eq!(
+        (err.code.as_str(), err.message.as_str()),
+        (
+            "VALIDATION",
+            "An unexplained difference cannot be edited. Delete it and find the difference again."
+        )
+    );
     assert_eq!(row_of(&live(&conn), account).balance_minor, 10_000);
 }
 

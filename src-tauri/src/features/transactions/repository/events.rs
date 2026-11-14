@@ -16,31 +16,23 @@ pub fn update_event(conn: &Connection, params: UpdateEventParams) -> Result<(), 
         event_date,
         note,
     } = params;
-    let maybe_event: Option<(Option<String>, String)> = conn
+    let maybe_deleted_at: Option<Option<String>> = conn
         .query_row(
-            "SELECT deleted_at, event_type FROM event WHERE id = ?1",
+            "SELECT deleted_at FROM event WHERE id = ?1",
             params![event_id],
-            |row| Ok((row.get(0)?, row.get(1)?)),
+            |row| row.get(0),
         )
         .optional()?;
 
-    match maybe_event {
+    match maybe_deleted_at {
         None => return Err(event_not_found()),
-        Some((Some(_), _)) => {
+        Some(Some(_)) => {
             return Err(AppError {
                 code: "NOT_FOUND".into(),
                 message: "Cannot update a deleted event".into(),
             })
         }
-        Some((None, event_type)) if event_type == "unexplained_difference" => {
-            return Err(AppError {
-                code: "VALIDATION".into(),
-                message: "An unexplained difference cannot be edited. Delete it and find the \
-                          difference again."
-                    .into(),
-            })
-        }
-        Some((None, _)) => {} // active event, proceed
+        Some(None) => {} // active event, proceed
     }
 
     // Copies every column the edit does not change. prepaid_period_months is dead

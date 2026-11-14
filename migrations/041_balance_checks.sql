@@ -27,3 +27,8 @@ WHEN NEW.event_type = 'unexplained_difference'
       OR NEW.linked_event_id IS NOT NULL
       OR NOT EXISTS (SELECT 1 FROM account WHERE id = NEW.account_id AND account_type = 'account'))
 BEGIN SELECT RAISE(ABORT, 'An unexplained difference is a single entry on an own account.'); END;
+
+CREATE TRIGGER trg_unexplained_difference_not_edited BEFORE INSERT ON event_data
+WHEN EXISTS (SELECT 1 FROM event WHERE id = NEW.event_id AND event_type = 'unexplained_difference')
+ AND EXISTS (SELECT 1 FROM event_data WHERE event_id = NEW.event_id)
+BEGIN SELECT RAISE(ABORT, 'An unexplained difference cannot be edited. Delete it and find the difference again.'); END;
