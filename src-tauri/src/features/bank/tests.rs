@@ -676,12 +676,12 @@ fn booking_after_a_later_balance_update_dates_the_entry_one_second_after_it() {
 
 #[test]
 fn booking_on_a_day_with_a_balance_update_at_23_59_counts_the_entry() {
-    let today = crate::shared::local_now();
-    let (conn, account, booked) = booked_after_balance_update_on(&format!("{today}T23:59:00"));
+    let tomorrow = chrono::Local::now().date_naive() + chrono::Duration::days(1);
+    let (conn, account, booked) = booked_after_balance_update_on(&format!("{tomorrow}T23:59:00"));
 
     assert_eq!(
         unexplained_entry_dates(&conn, account),
-        vec![format!("{today}T23:59:01")],
+        vec![format!("{tomorrow}T23:59:01")],
         "the entry sorts after the picker's 23:59 balance update"
     );
     assert_eq!(verification(&conn, account), verified(booked.check_id));
