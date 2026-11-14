@@ -32,7 +32,7 @@ Preconditions: Saldo Dev in live mode on the dev DB with at least two own accoun
 
 ## Gotchas
 
-- Last driven end to end on 2026-11-14 (run `20261114-154628-feat-check-against-bank-app`): all sub-features, English and Slovak.
-- The toast auto-closes after about 4 seconds. Click Undo in the same `app_batch` as "Matches bank", or the click lands on nothing. On this run the toast did paint in the background window.
+- Last driven end to end on 2026-11-14 (run `20261114-161629-feat-check-against-bank-app`): all sub-features in English, on a fresh dev DB with two accounts made through Add Account. Slovak last driven in run `20261114-154628-feat-check-against-bank-app`.
+- The toast auto-closes after about 4 seconds. Click Undo in the same `app_batch` as "Matches bank", or the click lands on nothing. In a background window the toast may not paint at all: its "Undo" button then sits in the AX summary at the window's bottom edge (about 48×7), and a click at its center still works.
 - "Matches bank" sends the balance the card showed; when an import or `saldo mcp` wrote since, the toast says the balance changed and nothing is stored.
 - The amber line wraps to two lines on a 250 px card.
