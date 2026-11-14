@@ -108,7 +108,6 @@ accounts:
 bankCheck:
   verified: "Overené {{date}}"
   differs: "Overené {{date}} · teraz sa líši o <amount></amount>"
-  stillVerifiedTo: "Stále overené k {{date}}"
   matchesBank: "Sedí s bankou"
   findDifference: "Nájsť rozdiel"
   matched: "Označené ako zhodné s bankou"

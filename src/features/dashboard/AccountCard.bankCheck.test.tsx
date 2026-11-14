@@ -66,11 +66,10 @@ describe('the verification line', () => {
   })
 
   it('shows the day and how far Saldo now differs, without a sign', () => {
-    renderCard(checking({ verification: { state: 'differs', checkId: 1, day: '2026-11-14', differenceMinor: -1250, lastVerifiedOn: '2026-11-01' } }))
+    renderCard(checking({ verification: { state: 'differs', checkId: 1, day: '2026-11-14', differenceMinor: -1250 } }))
 
     const line = screen.getByText('bankCheck.differs (date=14 Nov)', { exact: false })
     expect(line).toHaveClass('text-amber-700')
-    expect(line).toHaveAttribute('title', 'bankCheck.stillVerifiedTo (date=1 Nov)')
     expect(line).toHaveTextContent('1250')
     expect(line).not.toHaveTextContent('-1250')
   })

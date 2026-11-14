@@ -141,7 +141,6 @@ fn differs(check_id: i64, difference_minor: i64) -> Option<Verification> {
         check_id,
         day: CHECK_DAY.to_owned(),
         difference_minor,
-        last_verified_on: None,
     })
 }
 
@@ -315,7 +314,7 @@ fn a_balance_update_written_later_counts_only_when_dated_before_the_check_day() 
 }
 
 #[test]
-fn differs_names_the_newest_older_check_that_still_matches() {
+fn only_the_newest_check_decides() {
     let conn = initialize_in_memory().unwrap();
     let account = mk(&conn, "account");
     balance_update(
@@ -333,14 +332,6 @@ fn differs_names_the_newest_older_check_that_still_matches() {
         "2026-11-01",
     )
     .unwrap();
-    check_at(
-        &conn,
-        account,
-        12_345,
-        "2026-11-05T09:00:00.000",
-        "2026-11-05",
-    )
-    .unwrap();
     cashflow(
         &conn,
         account,
@@ -349,18 +340,15 @@ fn differs_names_the_newest_older_check_that_still_matches() {
         "2026-11-10T08:00:00.000",
     );
     let newest = check(&conn, account, 7_500);
+    let verified_by_the_newest = verification(&conn, account);
 
     cashflow(&conn, account, -1_000, "2026-11-12", AFTER_THE_CHECK);
 
+    assert_eq!(verified_by_the_newest, verified(newest));
     assert_eq!(
         verification(&conn, account),
-        Some(Verification::Differs {
-            check_id: newest,
-            day: CHECK_DAY.to_owned(),
-            difference_minor: 1_000,
-            last_verified_on: Some("2026-11-01".to_owned()),
-        }),
-        "the 12 Nov row is after the 1 Nov check's day, and the 5 Nov check never matched"
+        differs(newest, 1_000),
+        "the 1 Nov check still matches, yet the newest check alone decides"
     );
 }
 
@@ -732,7 +720,6 @@ fn differs_goes_on_the_wire_in_camel_case() {
         check_id: 3,
         day: CHECK_DAY.to_owned(),
         difference_minor: -1_250,
-        last_verified_on: None,
     };
 
     assert_eq!(
@@ -741,8 +728,7 @@ fn differs_goes_on_the_wire_in_camel_case() {
             "state": "differs",
             "checkId": 3,
             "day": CHECK_DAY,
-            "differenceMinor": -1_250,
-            "lastVerifiedOn": null
+            "differenceMinor": -1_250
         })
     );
 }

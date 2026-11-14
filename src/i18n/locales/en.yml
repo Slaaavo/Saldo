@@ -106,7 +106,6 @@ accounts:
 bankCheck:
   verified: "Verified {{date}}"
   differs: "Verified {{date}} · now differs by <amount></amount>"
-  stillVerifiedTo: "Still verified to {{date}}"
   matchesBank: "Matches bank"
   findDifference: "Find the difference"
   matched: "Marked as matching the bank"

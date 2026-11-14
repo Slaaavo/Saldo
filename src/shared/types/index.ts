@@ -277,9 +277,7 @@ export interface SnapshotRow {
 }
 
 /** Whether an own account's newest check against the bank app still matches Saldo. `differenceMinor` is the bank's balance minus Saldo's side of the check. */
-export type Verification =
-  | { state: 'verified'; checkId: number; day: string }
-  | { state: 'differs'; checkId: number; day: string; differenceMinor: number; lastVerifiedOn: string | null }
+export type Verification = { state: 'verified'; checkId: number; day: string } | { state: 'differs'; checkId: number; day: string; differenceMinor: number }
 
 export interface BookedDifference {
   eventId: number

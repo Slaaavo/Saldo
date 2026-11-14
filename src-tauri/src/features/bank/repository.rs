@@ -3,8 +3,6 @@ use rusqlite::{named_params, params, Connection, OptionalExtension};
 use crate::error::AppError;
 use crate::features::transactions::repository::BALANCE_FLOW_TYPES;
 
-const CHECKS_READ_LIMIT: i64 = 20;
-
 pub struct BalanceSeenByCheckParams {
     pub account_id: i64,
     pub checked_at: String,
@@ -73,25 +71,24 @@ pub fn clock_now(conn: &Connection) -> rusqlite::Result<String> {
     })
 }
 
-pub fn newest_checks(conn: &Connection, account_id: i64) -> rusqlite::Result<Vec<StoredCheck>> {
-    let mut stmt = conn.prepare(
+pub fn newest_check(conn: &Connection, account_id: i64) -> rusqlite::Result<Option<StoredCheck>> {
+    conn.query_row(
         "SELECT id, checked_at, day, bank_balance_minor
          FROM balance_check
          WHERE account_id = ?1
          ORDER BY checked_at DESC, id DESC
-         LIMIT ?2",
-    )?;
-    let checks = stmt
-        .query_map(params![account_id, CHECKS_READ_LIMIT], |row| {
+         LIMIT 1",
+        params![account_id],
+        |row| {
             Ok(StoredCheck {
                 id: row.get(0)?,
                 checked_at: row.get(1)?,
                 day: row.get(2)?,
                 bank_balance_minor: row.get(3)?,
             })
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    Ok(checks)
+        },
+    )
+    .optional()
 }
 
 pub fn insert_check(conn: &Connection, params: InsertCheckParams) -> rusqlite::Result<i64> {

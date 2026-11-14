@@ -25,10 +25,9 @@ export const VerificationLine = ({ row }: Props) => {
   }
 
   const amount = <NumberValue value={Math.abs(verification.differenceMinor)} currencyCode={row.currencyCode} minorUnits={row.currencyMinorUnits} />
-  const stillVerifiedTo = verification.lastVerifiedOn ? t('bankCheck.stillVerifiedTo', { date: formatShortDay(verification.lastVerifiedOn, i18n.language) }) : undefined
 
   return (
-    <span className="text-xs text-amber-700 dark:text-amber-400" title={stillVerifiedTo}>
+    <span className="text-xs text-amber-700 dark:text-amber-400">
       <Trans i18nKey="bankCheck.differs" values={{ date }} components={{ amount }} />
     </span>
   )

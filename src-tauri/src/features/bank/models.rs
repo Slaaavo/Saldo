@@ -17,8 +17,6 @@ pub enum Verification {
         day: String,
         /// The bank's balance minus Saldo's side of the check.
         difference_minor: i64,
-        /// The day of the newest older check that still matches.
-        last_verified_on: Option<String>,
     },
 }
 
