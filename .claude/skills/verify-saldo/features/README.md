@@ -54,3 +54,4 @@ Keep implementation details out of the map. Name only user paths, stable handles
 - [Tax forecast](./tax-forecast.md): a tax model's sheet of the year so far and the rest of the year, Update figures, minimum tax, the revenue bracket bound, and why an entry doesn't count.
 - [Asset business use and private-use expenses](./asset-business-use.md): a mixed-use asset's purchase split, dated share changes, the lost VAT entry, and the Also used privately switch on expenses, eKasa rules and `saldo mcp` lines.
 - [Recording documents through `saldo mcp`](./mcp-recording.md): record, preview, refuse duplicates and undo invoice and eKasa receipt batches over MCP, read receipts with `read_receipt`, and the open app's refresh after an outside write.
+- [Checks against the bank app](./bank-checks.md): Matches bank with Undo, Find the difference, booking an unexplained difference, the verified and differs lines, and the ledger entry.
