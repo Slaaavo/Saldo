@@ -40,8 +40,8 @@ let queryClient: QueryClient
 
 const Providers = ({ children }: { children: ReactNode }) => <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
 
-const renderCard = (row: SnapshotRow, onFindDifference?: (accountId: number) => void) =>
-  render(<AccountCard row={row} onUpdateBalance={() => {}} onDeleteAccount={() => {}} onRenameAccount={() => {}} bankCheck={onFindDifference && { onFindDifference }} />, {
+const renderCard = (row: SnapshotRow, { live = true, onFindBankDifference = vi.fn() }: { live?: boolean; onFindBankDifference?: (accountId: number) => void } = {}) =>
+  render(<AccountCard row={row} onUpdateBalance={() => {}} onDeleteAccount={() => {}} onRenameAccount={() => {}} live={live} onFindBankDifference={onFindBankDifference} />, {
     wrapper: Providers,
   })
 
@@ -73,13 +73,19 @@ describe('the verification line', () => {
     expect(line).toHaveTextContent('1250')
     expect(line).not.toHaveTextContent('-1250')
   })
+
+  it('stays off in time-machine mode, even while the live row is still shown', () => {
+    renderCard(checking({ verification: { state: 'verified', checkId: 1, day: '2026-11-14' } }), { live: false })
+
+    expect(screen.queryByText(/bankCheck\.verified/)).not.toBeInTheDocument()
+  })
 })
 
 describe('the bank check buttons', () => {
   it('appear on an own account card in live mode', async () => {
     const user = userEvent.setup()
     const onFind = vi.fn()
-    renderCard(checking(), onFind)
+    renderCard(checking(), { onFindBankDifference: onFind })
 
     expect(screen.getByRole('button', { name: 'bankCheck.matchesBank' })).toHaveAttribute('title', 'bankCheck.matchesBank')
     await user.click(screen.getByRole('button', { name: 'bankCheck.findDifference' }))
@@ -92,14 +98,14 @@ describe('the bank check buttons', () => {
     ['an income budget', makeIncomeBudgetRow()],
     ['an asset', makeRow({ accountType: 'asset' })],
   ])('stay off %s', (_kind, row) => {
-    renderCard(row, vi.fn())
+    renderCard(row)
 
     expect(screen.queryByRole('button', { name: 'bankCheck.matchesBank' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'bankCheck.findDifference' })).not.toBeInTheDocument()
   })
 
-  it('stay off in time-machine mode, where the dashboard gives no handler', () => {
-    renderCard(checking())
+  it('stay off in time-machine mode', () => {
+    renderCard(checking(), { live: false })
 
     expect(screen.queryByRole('button', { name: 'bankCheck.matchesBank' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'accounts.updateBalance' })).toBeInTheDocument()
@@ -112,7 +118,7 @@ describe('Matches bank', () => {
     const invalidate = vi.spyOn(queryClient, 'invalidateQueries')
     ;(confirmBankMatch as Mock).mockResolvedValue(31)
     ;(deleteBalanceCheck as Mock).mockResolvedValue(undefined)
-    renderCard(checking(), vi.fn())
+    renderCard(checking())
 
     await user.click(screen.getByRole('button', { name: 'bankCheck.matchesBank' }))
 
@@ -134,7 +140,7 @@ describe('Matches bank', () => {
     const user = userEvent.setup()
     const invalidate = vi.spyOn(queryClient, 'invalidateQueries')
     ;(confirmBankMatch as Mock).mockRejectedValue({ code: 'CHECK_CHANGED', message: 'moved' })
-    renderCard(checking(), vi.fn())
+    renderCard(checking())
 
     await user.click(screen.getByRole('button', { name: 'bankCheck.matchesBank' }))
 
@@ -146,7 +152,7 @@ describe('Matches bank', () => {
   it('names any other failure', async () => {
     const user = userEvent.setup()
     ;(confirmBankMatch as Mock).mockRejectedValue({ code: 'DB_ERROR', message: 'locked' })
-    renderCard(checking(), vi.fn())
+    renderCard(checking())
 
     await user.click(screen.getByRole('button', { name: 'bankCheck.matchesBank' }))
 

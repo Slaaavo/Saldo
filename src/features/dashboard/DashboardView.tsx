@@ -81,8 +81,7 @@ const DashboardView = () => {
 
   const handleViewInLedger = (accountId: number) => navigate({ to: '/ledger', search: { accountId } })
 
-  const isLive = asOf.kind === 'live'
-  const bankCheck = isLive ? { onFindDifference: (accountId: number) => setModalState({ type: 'findBankDifference', accountId }) } : undefined
+  const handleFindBankDifference = (accountId: number) => setModalState({ type: 'findBankDifference', accountId })
 
   const handleUpdateAssetValue = (accountId: number) => {
     const row = assets.find((a) => a.accountId === accountId)
@@ -148,7 +147,8 @@ const DashboardView = () => {
             onReorder={() => setModalState({ type: 'reorderAccounts' })}
             onManageLinkedAssets={(accountId, accountName) => setModalState({ type: 'manageLinkedAssets', accountId, accountName })}
             onViewInLedger={handleViewInLedger}
-            bankCheck={bankCheck}
+            live={asOf.kind === 'live'}
+            onFindBankDifference={handleFindBankDifference}
             allAssets={assets}
             persons={persons}
           />

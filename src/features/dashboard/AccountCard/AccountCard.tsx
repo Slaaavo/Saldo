@@ -24,7 +24,9 @@ interface AccountCardProps {
   onDeleteAccount: (accountId: number, name: string) => void
   onManageLinkedAssets?: (accountId: number, accountName: string) => void
   onViewInLedger?: (accountId: number) => void
-  bankCheck?: { onFindDifference: (accountId: number) => void }
+  /** True only on the live dashboard, where own account cards show their check against the bank. */
+  live?: boolean
+  onFindBankDifference?: (accountId: number) => void
   allAssets?: SnapshotRow[]
   allAccounts?: SnapshotRow[]
   personName?: string
@@ -40,7 +42,8 @@ const AccountCard = ({
   onDeleteAccount,
   onManageLinkedAssets,
   onViewInLedger,
-  bankCheck,
+  live = false,
+  onFindBankDifference,
   allAssets,
   allAccounts,
   personName,
@@ -52,7 +55,8 @@ const AccountCard = ({
   const action = hasEntries
     ? { label: updateButtonLabel ?? t('accounts.updateBalance'), run: () => onUpdateBalance(row.accountId) }
     : onEditIncomeBudget && { label: t('incomeBudget.edit'), run: () => onEditIncomeBudget(row.accountId) }
-  const rowBankCheck = row.accountType === 'account' ? bankCheck : undefined
+  const showsBankCheck = row.accountType === 'account' && live
+  const findBankDifference = showsBankCheck ? onFindBankDifference : undefined
 
   return (
     <Card className={cn('relative w-[250px] min-w-[250px] shrink-0')}>
@@ -80,11 +84,11 @@ const AccountCard = ({
         {personName && <span className="text-xs text-muted-foreground">{personName}</span>}
         {row.accountType === 'account' && <IbanDisplay iban={row.iban} />}
         <BalanceDisplay row={row} consolidationCurrency={consolidationCurrency} />
-        <VerificationLine row={row} />
+        {showsBankCheck && <VerificationLine row={row} />}
         {equity && consolidationCurrency && (
           <EquityTooltip row={row} equityMinor={equity.equityMinor} equityLinkedRows={equity.equityLinkedRows} consolidationCurrency={consolidationCurrency} />
         )}
-        {(action || rowBankCheck) && (
+        {(action || findBankDifference) && (
           <div className="mt-2 flex items-center justify-between gap-1">
             {action && (
               <button
@@ -95,7 +99,7 @@ const AccountCard = ({
                 <span className="truncate">{action.label}</span>
               </button>
             )}
-            {rowBankCheck && <BankCheckButtons row={row} onFindDifference={rowBankCheck.onFindDifference} />}
+            {findBankDifference && <BankCheckButtons row={row} onFindDifference={findBankDifference} />}
           </div>
         )}
       </CardContent>

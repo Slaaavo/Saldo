@@ -21,7 +21,9 @@ interface Props {
   onReorder?: () => void
   onManageLinkedAssets?: (accountId: number, accountName: string) => void
   onViewInLedger?: (accountId: number) => void
-  bankCheck?: { onFindDifference: (accountId: number) => void }
+  /** True only on the live dashboard, where own account cards show their check against the bank. */
+  live?: boolean
+  onFindBankDifference?: (accountId: number) => void
   /** All asset rows — used to resolve asset names for the link indicator tooltip on account cards */
   allAssets?: SnapshotRow[]
   /** All account rows — used to resolve linked account balances for equity tooltip on asset cards and bucket linked-account tooltip */
@@ -45,7 +47,8 @@ const AccountCards = ({
   onReorder,
   onManageLinkedAssets,
   onViewInLedger,
-  bankCheck,
+  live,
+  onFindBankDifference,
   allAssets,
   allAccounts,
   persons,
@@ -129,7 +132,8 @@ const AccountCards = ({
                   onDeleteAccount={onDeleteAccount}
                   onManageLinkedAssets={onManageLinkedAssets}
                   onViewInLedger={onViewInLedger}
-                  bankCheck={bankCheck}
+                  live={live}
+                  onFindBankDifference={onFindBankDifference}
                   allAssets={allAssets}
                   allAccounts={allAccounts}
                   personName={personName}
