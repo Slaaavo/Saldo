@@ -1,12 +1,10 @@
-//! The likely causes of a gap between the bank app and Saldo: the rows whose one fix closes the
-//! whole gap, searched among the rows added or changed since the account's newest check.
-
 use std::cmp::Ordering;
+use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, HashSet};
 
 use chrono::NaiveDate;
 
-use super::models::{DifferenceCause, RowTarget, SuspectRow};
+use super::models::{BankLine, CashflowTarget, DifferenceCause, RowTarget};
 
 const NEAR_COPY_DAYS: i64 = 5;
 const STALE_IMPORT_DAYS: i64 = 3;
@@ -19,7 +17,6 @@ pub(crate) enum FlowType {
     UnexplainedDifference,
 }
 
-/// A row the live balance counts on the account.
 #[derive(Debug, Clone)]
 pub(crate) struct CountedRow {
     pub event_id: i64,
@@ -31,18 +28,14 @@ pub(crate) struct CountedRow {
     pub event_date: String,
     pub note: Option<String>,
     pub counterpart_name: Option<String>,
-    /// The later of the event's creation and its current version's, on the database clock.
     pub changed_at: String,
 }
 
-/// The import hint's facts, present only when the hint shows.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct StaleImport {
     pub newest_day: Option<String>,
 }
 
-/// The hint for an account imported from CSV before: shown when its newest cash flow or transfer
-/// dated up to `today` is more than 3 days old, or it has none.
 pub(crate) fn stale_import(newest_day: Option<String>, today: NaiveDate) -> Option<StaleImport> {
     let fresh = newest_day
         .as_deref()
@@ -51,10 +44,8 @@ pub(crate) fn stale_import(newest_day: Option<String>, today: NaiveDate) -> Opti
     (!fresh).then_some(StaleImport { newest_day })
 }
 
-/// The causes of a gap of `difference_minor` (the bank minus Saldo) among the account's counted
-/// `rows`. A unit changed after `since` is a suspect; with no check at all, every unit is.
 pub(crate) fn find_causes(
-    difference_minor: i64,
+    bank_minus_saldo_minor: i64,
     rows: Vec<CountedRow>,
     since: Option<&str>,
     stale_import: Option<StaleImport>,
@@ -65,46 +56,46 @@ pub(crate) fn find_causes(
         })
         .into_iter()
         .collect();
-    let closing_amount = match difference_minor.checked_neg() {
+    let closing_amount = match bank_minus_saldo_minor.checked_neg() {
         Some(0) | None => return causes,
         Some(amount) => amount,
     };
 
-    let units = units_of(rows);
-    let is_suspect = |unit: &Unit| since.is_none_or(|since| unit.changed_at.as_str() > since);
+    let lines = counted_lines(rows);
+    let is_suspect =
+        |counted: &CountedLine| since.is_none_or(|since| counted.changed_at.as_str() > since);
 
-    let mut near_copies: Vec<(&Unit, &Unit)> = Vec::new();
-    let mut equals_gap: Vec<&Unit> = Vec::new();
+    let mut near_copies: Vec<(&CountedLine, &CountedLine)> = Vec::new();
+    let mut equals_gap: Vec<&CountedLine> = Vec::new();
     let mut listed = HashSet::new();
-    for unit in units
+    for counted in lines
         .iter()
-        .filter(|unit| is_suspect(unit) && unit.row.amount_minor == closing_amount)
+        .filter(|counted| is_suspect(counted) && counted.line.amount_minor == closing_amount)
     {
-        match closest_twin(&units, unit) {
+        match closest_twin(&lines, counted) {
             Some(twin) => {
-                let (row, copy_of) = if is_suspect(twin) && changed_later(twin, unit) {
-                    (twin, unit)
+                let (row, copy_of) = if is_suspect(twin) && changed_later(twin, counted) {
+                    (twin, counted)
                 } else {
-                    (unit, twin)
+                    (counted, twin)
                 };
                 if listed.insert(row.key) {
                     near_copies.push((row, copy_of));
                 }
             }
-            None => equals_gap.push(unit),
+            None => equals_gap.push(counted),
         }
     }
-    let mut flipped: Vec<&Unit> = units
+    let mut flipped: Vec<(&CountedLine, BankLine<CashflowTarget>)> = lines
         .iter()
-        .filter(|unit| {
-            is_suspect(unit)
-                && unit.flippable
-                && unit.row.amount_minor.checked_mul(2) == Some(closing_amount)
+        .filter(|counted| {
+            is_suspect(counted) && counted.line.amount_minor.checked_mul(2) == Some(closing_amount)
         })
+        .filter_map(|counted| Some((counted, counted.flippable()?)))
         .collect();
 
     near_copies.sort_by(|a, b| newest_first(a.0, b.0));
-    flipped.sort_by(|a, b| newest_first(a, b));
+    flipped.sort_by(|a, b| newest_first(a.0, b.0));
     equals_gap.sort_by(|a, b| newest_first(a, b));
 
     causes.extend(
@@ -112,96 +103,123 @@ pub(crate) fn find_causes(
             .into_iter()
             .take(MAX_PER_KIND)
             .map(|(row, copy_of)| DifferenceCause::NearCopy {
-                row: row.row.clone(),
-                copy_of: copy_of.row.clone(),
+                row: row.line.clone(),
+                copy_of: copy_of.line.clone(),
             }),
     );
-    causes.extend(flipped.into_iter().take(MAX_PER_KIND).map(|unit| {
-        DifferenceCause::FlippedSign {
-            row: unit.row.clone(),
-        }
-    }));
-    causes.extend(equals_gap.into_iter().take(MAX_PER_KIND).map(|unit| {
+    causes.extend(
+        flipped
+            .into_iter()
+            .take(MAX_PER_KIND)
+            .map(|(_, row)| DifferenceCause::FlippedSign { row }),
+    );
+    causes.extend(equals_gap.into_iter().take(MAX_PER_KIND).map(|counted| {
         DifferenceCause::EqualsGap {
-            row: unit.row.clone(),
+            row: counted.line.clone(),
         }
     }));
     causes
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-enum UnitKey {
+enum LineKey {
     Event(i64),
     SplitGroup(i64),
 }
 
-/// One bank line: a standalone row, or every counted row of a split group on the account.
-struct Unit {
-    key: UnitKey,
-    row: SuspectRow,
+struct CountedLine {
+    key: LineKey,
+    line: BankLine,
     day: Option<NaiveDate>,
     changed_at: String,
-    flippable: bool,
+    has_linked_event: bool,
+    has_original_amount: bool,
 }
 
-fn units_of(rows: Vec<CountedRow>) -> Vec<Unit> {
-    let mut grouped: BTreeMap<UnitKey, Vec<CountedRow>> = BTreeMap::new();
+impl CountedLine {
+    fn flippable(&self) -> Option<BankLine<CashflowTarget>> {
+        match self.line.target {
+            RowTarget::Cashflow { event_id }
+                if !self.has_linked_event && !self.has_original_amount =>
+            {
+                Some(BankLine {
+                    target: CashflowTarget::Cashflow { event_id },
+                    event_date: self.line.event_date.clone(),
+                    amount_minor: self.line.amount_minor,
+                    note: self.line.note.clone(),
+                    counterpart_name: self.line.counterpart_name.clone(),
+                })
+            }
+            _ => None,
+        }
+    }
+}
+
+fn counted_lines(mut rows: Vec<CountedRow>) -> Vec<CountedLine> {
+    rows.sort_by_key(|row| row.event_id);
+    let mut grouped: BTreeMap<LineKey, (CountedRow, Vec<CountedRow>)> = BTreeMap::new();
     for row in rows {
         let key = match row.split_group_id {
-            Some(split_group_id) => UnitKey::SplitGroup(split_group_id),
-            None => UnitKey::Event(row.event_id),
+            Some(split_group_id) => LineKey::SplitGroup(split_group_id),
+            None => LineKey::Event(row.event_id),
         };
-        grouped.entry(key).or_default().push(row);
+        match grouped.entry(key) {
+            Entry::Vacant(group) => {
+                group.insert((row, Vec::new()));
+            }
+            Entry::Occupied(mut group) => group.get_mut().1.push(row),
+        }
     }
     grouped
         .into_iter()
-        .map(|(key, rows)| unit_of(key, rows))
+        .map(|(key, (first, rest))| counted_line(key, first, rest))
         .collect()
 }
 
-/// `rows` is never empty: every unit starts from a row.
-fn unit_of(key: UnitKey, mut rows: Vec<CountedRow>) -> Unit {
-    rows.sort_by_key(|row| row.event_id);
+fn counted_line(key: LineKey, first: CountedRow, rest: Vec<CountedRow>) -> CountedLine {
     let latest = |field: fn(&CountedRow) -> &str| {
-        rows.iter().map(field).max().unwrap_or_default().to_owned()
+        rest.iter()
+            .map(field)
+            .fold(field(&first), |a, b| a.max(b))
+            .to_owned()
     };
     let event_date = latest(|row| row.event_date.as_str());
     let changed_at = latest(|row| row.changed_at.as_str());
-    let first = &rows[0];
+    let amount_minor = first.amount_minor + rest.iter().map(|row| row.amount_minor).sum::<i64>();
     let target = match key {
-        UnitKey::SplitGroup(split_group_id) => RowTarget::SplitGroup {
+        LineKey::SplitGroup(split_group_id) => RowTarget::SplitGroup {
             split_group_id,
-            parts: u32::try_from(rows.len()).unwrap_or(u32::MAX),
+            parts: u32::try_from(1 + rest.len()).unwrap_or(u32::MAX),
         },
-        UnitKey::Event(event_id) => match first.flow {
+        LineKey::Event(event_id) => match first.flow {
             FlowType::Cashflow => RowTarget::Cashflow { event_id },
             FlowType::Transfer => RowTarget::Transfer { event_id },
             FlowType::UnexplainedDifference => RowTarget::UnexplainedDifference { event_id },
         },
     };
-    Unit {
+    CountedLine {
         key,
         day: day_of(&event_date),
         changed_at,
-        flippable: matches!(target, RowTarget::Cashflow { .. })
-            && !first.has_linked_event
-            && !first.has_original_amount,
-        row: SuspectRow {
+        has_linked_event: first.has_linked_event,
+        has_original_amount: first.has_original_amount,
+        line: BankLine {
             target,
             event_date,
-            amount_minor: rows.iter().map(|row| row.amount_minor).sum(),
-            note: first.note.clone(),
-            counterpart_name: first.counterpart_name.clone(),
+            amount_minor,
+            note: first.note,
+            counterpart_name: first.counterpart_name,
         },
     }
 }
 
-/// The counted unit other than `unit` with its amount and the closest date within 5 days of it.
-fn closest_twin<'a>(units: &'a [Unit], unit: &Unit) -> Option<&'a Unit> {
-    let day = unit.day?;
-    units
+fn closest_twin<'a>(lines: &'a [CountedLine], counted: &CountedLine) -> Option<&'a CountedLine> {
+    let day = counted.day?;
+    lines
         .iter()
-        .filter(|other| other.key != unit.key && other.row.amount_minor == unit.row.amount_minor)
+        .filter(|other| {
+            other.key != counted.key && other.line.amount_minor == counted.line.amount_minor
+        })
         .filter_map(|other| {
             let distance = (other.day? - day).num_days().abs();
             (distance <= NEAR_COPY_DAYS).then_some((distance, other))
@@ -212,18 +230,18 @@ fn closest_twin<'a>(units: &'a [Unit], unit: &Unit) -> Option<&'a Unit> {
         .map(|(_, twin)| twin)
 }
 
-fn changed_order(a: &Unit, b: &Unit) -> Ordering {
+fn changed_order(a: &CountedLine, b: &CountedLine) -> Ordering {
     (&a.changed_at, a.key).cmp(&(&b.changed_at, b.key))
 }
 
-fn changed_later(a: &Unit, b: &Unit) -> bool {
+fn changed_later(a: &CountedLine, b: &CountedLine) -> bool {
     changed_order(a, b) == Ordering::Greater
 }
 
-fn newest_first(a: &Unit, b: &Unit) -> Ordering {
-    b.row
+fn newest_first(a: &CountedLine, b: &CountedLine) -> Ordering {
+    b.line
         .event_date
-        .cmp(&a.row.event_date)
+        .cmp(&a.line.event_date)
         .then_with(|| changed_order(b, a))
 }
 
@@ -240,7 +258,6 @@ mod tests {
     const AFTER: &str = "2026-11-14T10:00:00.000";
     const LATER: &str = "2026-11-14T11:00:00.000";
 
-    /// Saldo is 12.50 lower than the bank, so a wrong spending row of -12.50 explains it.
     const GAP: i64 = 1_250;
 
     fn cashflow(event_id: i64, amount_minor: i64, day: &str, changed_at: &str) -> CountedRow {
@@ -258,8 +275,8 @@ mod tests {
         }
     }
 
-    fn suspect(target: RowTarget, amount_minor: i64, day: &str, note: &str) -> SuspectRow {
-        SuspectRow {
+    fn bank_line<T>(target: T, amount_minor: i64, day: &str, note: &str) -> BankLine<T> {
+        BankLine {
             target,
             event_date: format!("{day}T12:00:00"),
             amount_minor,
@@ -268,8 +285,8 @@ mod tests {
         }
     }
 
-    fn row(event_id: i64, amount_minor: i64, day: &str) -> SuspectRow {
-        suspect(
+    fn row(event_id: i64, amount_minor: i64, day: &str) -> BankLine {
+        bank_line(
             RowTarget::Cashflow { event_id },
             amount_minor,
             day,
@@ -277,8 +294,17 @@ mod tests {
         )
     }
 
-    fn causes_of(difference_minor: i64, rows: Vec<CountedRow>) -> Vec<DifferenceCause> {
-        find_causes(difference_minor, rows, Some(SINCE), None)
+    fn flippable_row(event_id: i64, amount_minor: i64, day: &str) -> BankLine<CashflowTarget> {
+        bank_line(
+            CashflowTarget::Cashflow { event_id },
+            amount_minor,
+            day,
+            &format!("row {event_id}"),
+        )
+    }
+
+    fn causes_of(bank_minus_saldo_minor: i64, rows: Vec<CountedRow>) -> Vec<DifferenceCause> {
+        find_causes(bank_minus_saldo_minor, rows, Some(SINCE), None)
     }
 
     #[test]
@@ -396,7 +422,7 @@ mod tests {
         assert_eq!(
             causes_of(2 * GAP, rows),
             vec![DifferenceCause::FlippedSign {
-                row: row(1, -GAP, "2026-10-20")
+                row: flippable_row(1, -GAP, "2026-10-20")
             }]
         );
     }
@@ -437,7 +463,7 @@ mod tests {
         assert_eq!(
             causes_of(GAP, vec![leg(1, -1_000), leg(2, -250)]),
             vec![DifferenceCause::EqualsGap {
-                row: suspect(
+                row: bank_line(
                     RowTarget::SplitGroup {
                         split_group_id: 7,
                         parts: 2
@@ -511,7 +537,7 @@ mod tests {
                     copy_of: row(1, -2 * GAP, "2026-11-01"),
                 },
                 DifferenceCause::FlippedSign {
-                    row: row(3, -GAP, "2026-11-10")
+                    row: flippable_row(3, -GAP, "2026-11-10")
                 },
                 DifferenceCause::EqualsGap {
                     row: row(4, -2 * GAP, "2026-11-20")

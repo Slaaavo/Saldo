@@ -39,9 +39,6 @@ pub(crate) fn balance_sql(account: &str, visible: impl Fn(&str, &str) -> String)
     )
 }
 
-/// The condition that the flow row `e` (with its current `event_data` row `ed`) counts in the
-/// account's balance under `visible`: one of `BALANCE_FLOW_TYPES` on the account, not deleted,
-/// visible, and after the account's latest visible balance update.
 pub(crate) fn counted_flow_sql(
     account: &str,
     visible: &impl Fn(&str, &str) -> String,

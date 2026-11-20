@@ -128,8 +128,6 @@ pub fn insert_unexplained_difference(
     Ok(event_id)
 }
 
-/// The rows the account's live balance counts, oldest first. A split leg's note is its group's
-/// note when the group has one.
 pub fn counted_flow_rows(conn: &Connection, account_id: i64) -> rusqlite::Result<Vec<CountedRow>> {
     let counted = counted_flow_sql("?1", &|_, _| "1".to_owned(), "e", "ed");
     let mut stmt = conn.prepare(&format!(
@@ -178,7 +176,6 @@ fn flow_type(event_type: &str) -> rusqlite::Result<FlowType> {
     }
 }
 
-/// The day of the account's newest live cash flow or transfer dated on or before `on_or_before`.
 pub fn newest_flow_day(
     conn: &Connection,
     params: NewestFlowDayParams,
@@ -196,7 +193,6 @@ pub fn newest_flow_day(
     )
 }
 
-/// Whether the account was imported from CSV before, which leaves it a preferred import profile.
 pub fn has_import_profile(conn: &Connection, account_id: i64) -> rusqlite::Result<bool> {
     conn.query_row(
         "SELECT EXISTS(SELECT 1 FROM account WHERE id = ?1 AND preferred_profile_id IS NOT NULL)",

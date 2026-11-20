@@ -8,7 +8,7 @@ use super::commands::{
     find_difference_causes_inner, BookUnexplainedDifferenceInput, ConfirmBankMatchInput,
     FindDifferenceCausesInput,
 };
-use super::models::{DifferenceCause, RowTarget, SuspectRow, Verification};
+use super::models::{BankLine, CashflowTarget, DifferenceCause, RowTarget, Verification};
 use super::repository::{
     balance_seen_by_check, clock_now, insert_check, insert_unexplained_difference,
     BalanceSeenByCheckParams, InsertCheckParams, InsertUnexplainedDifferenceParams,
@@ -982,8 +982,6 @@ fn the_storage_keeps_an_unexplained_difference_a_single_entry_on_an_own_account(
     }
 }
 
-// ---- Causes of a gap ----
-
 fn causes(
     conn: &Connection,
     account_id: i64,
@@ -1000,15 +998,23 @@ fn causes(
     )
 }
 
+fn bank_line<T>(target: T, amount_minor: i64, event_date: &str) -> BankLine<T> {
+    BankLine {
+        target,
+        event_date: event_date.to_owned(),
+        amount_minor,
+        note: None,
+        counterpart_name: None,
+    }
+}
+
+fn cashflow_line(event_id: i64, amount_minor: i64, event_date: &str) -> BankLine {
+    bank_line(RowTarget::Cashflow { event_id }, amount_minor, event_date)
+}
+
 fn equals_gap(event_id: i64, amount_minor: i64, event_date: &str) -> DifferenceCause {
     DifferenceCause::EqualsGap {
-        row: SuspectRow {
-            target: RowTarget::Cashflow { event_id },
-            event_date: event_date.to_owned(),
-            amount_minor,
-            note: None,
-            counterpart_name: None,
-        },
+        row: cashflow_line(event_id, amount_minor, event_date),
     }
 }
 
@@ -1131,19 +1137,12 @@ fn a_row_edited_after_the_newest_check_becomes_a_suspect() {
     assert_eq!(
         causes(&checked.conn, checked.account, 7_500, 10_000).unwrap(),
         vec![DifferenceCause::EqualsGap {
-            row: SuspectRow {
+            row: BankLine {
                 note: Some("edited".to_owned()),
-                ..suspect_row(checked.spending, -2_500, "2026-11-10T12:00:00")
+                ..cashflow_line(checked.spending, -2_500, "2026-11-10T12:00:00")
             }
         }]
     );
-}
-
-fn suspect_row(event_id: i64, amount_minor: i64, event_date: &str) -> SuspectRow {
-    match equals_gap(event_id, amount_minor, event_date) {
-        DifferenceCause::EqualsGap { row } => row,
-        _ => unreachable!(),
-    }
 }
 
 #[test]
@@ -1256,7 +1255,7 @@ fn a_split_group_is_one_cause_and_deleting_it_closes_the_gap() {
     assert_eq!(
         causes(&conn, account, 8_750, 10_000).unwrap(),
         vec![DifferenceCause::EqualsGap {
-            row: SuspectRow {
+            row: BankLine {
                 target: RowTarget::SplitGroup {
                     split_group_id,
                     parts: 2
@@ -1297,8 +1296,8 @@ fn deleting_a_near_copy_or_flipping_a_sign_closes_the_gap() {
     assert_eq!(
         causes(&conn, account, 7_500, 8_750).unwrap(),
         vec![DifferenceCause::NearCopy {
-            row: suspect_row(copy, -1_250, "2026-11-12T12:00:00"),
-            copy_of: suspect_row(original, -1_250, "2026-11-10T12:00:00"),
+            row: cashflow_line(copy, -1_250, "2026-11-12T12:00:00"),
+            copy_of: cashflow_line(original, -1_250, "2026-11-10T12:00:00"),
         }]
     );
     delete_event_inner(&conn, copy).unwrap();
@@ -1309,7 +1308,14 @@ fn deleting_a_near_copy_or_flipping_a_sign_closes_the_gap() {
     let [DifferenceCause::FlippedSign { row }] = listed.as_slice() else {
         panic!("expected one flipped sign, got {listed:?}");
     };
-    assert_eq!(*row, suspect_row(refund, -500, "2026-11-13T12:00:00"));
+    assert_eq!(
+        *row,
+        bank_line(
+            CashflowTarget::Cashflow { event_id: refund },
+            -500,
+            "2026-11-13T12:00:00"
+        )
+    );
     update_event(
         &conn,
         UpdateEventParams {
@@ -1326,7 +1332,7 @@ fn deleting_a_near_copy_or_flipping_a_sign_closes_the_gap() {
 #[test]
 fn causes_go_on_the_wire_in_camel_case() {
     let cause = DifferenceCause::NearCopy {
-        row: SuspectRow {
+        row: BankLine {
             target: RowTarget::SplitGroup {
                 split_group_id: 7,
                 parts: 2,
@@ -1336,7 +1342,7 @@ fn causes_go_on_the_wire_in_camel_case() {
             note: None,
             counterpart_name: Some("Lidl".to_owned()),
         },
-        copy_of: SuspectRow {
+        copy_of: BankLine {
             target: RowTarget::UnexplainedDifference { event_id: 3 },
             event_date: "2026-11-10T12:00:00".to_owned(),
             amount_minor: -1_250,
@@ -1368,5 +1374,25 @@ fn causes_go_on_the_wire_in_camel_case() {
     assert_eq!(
         serde_json::to_value(DifferenceCause::StaleImport { newest_day: None }).unwrap(),
         json!({ "kind": "staleImport", "newestDay": null })
+    );
+    assert_eq!(
+        serde_json::to_value(DifferenceCause::FlippedSign {
+            row: bank_line(
+                CashflowTarget::Cashflow { event_id: 4 },
+                -500,
+                "2026-11-13T12:00:00"
+            ),
+        })
+        .unwrap(),
+        json!({
+            "kind": "flippedSign",
+            "row": {
+                "target": { "kind": "cashflow", "eventId": 4 },
+                "eventDate": "2026-11-13T12:00:00",
+                "amountMinor": -500,
+                "note": null,
+                "counterpartName": null
+            }
+        })
     );
 }
