@@ -11,5 +11,6 @@ export const useDifferenceCauses = (accountId: number, bankBalanceMinor: number,
     queryKey: ['bank-check-causes', accountId, typedMinor, seenBalanceMinor],
     queryFn: () => findDifferenceCauses(accountId, typedMinor, seenBalanceMinor),
     enabled: Number.isFinite(typedMinor) && typedMinor !== seenBalanceMinor,
+    gcTime: 0,
   })
 }

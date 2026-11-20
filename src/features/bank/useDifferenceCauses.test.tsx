@@ -17,7 +17,7 @@ const renderCauses = () => renderHook(({ typed }: { typed: number }) => useDiffe
 
 beforeEach(() => {
   vi.clearAllMocks()
-  queryClient = new QueryClient({ defaultOptions: { queries: { retry: 0 } } })
+  queryClient = new QueryClient({ defaultOptions: { queries: { retry: 0, staleTime: Infinity } } })
   ;(findDifferenceCauses as Mock).mockResolvedValue([])
 })
 
@@ -32,6 +32,19 @@ describe('useDifferenceCauses', () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
     expect(findDifferenceCauses).toHaveBeenCalledTimes(1)
     expect(findDifferenceCauses).toHaveBeenCalledWith(7, 101250, SEEN)
+  })
+
+  it('asks again when the dialog opens again with the same balances', async () => {
+    const first = renderCauses()
+    first.rerender({ typed: 101250 })
+    await waitFor(() => expect(first.result.current.isSuccess).toBe(true))
+    first.unmount()
+
+    const second = renderCauses()
+    second.rerender({ typed: 101250 })
+    await waitFor(() => expect(second.result.current.isSuccess).toBe(true))
+
+    expect(findDifferenceCauses).toHaveBeenCalledTimes(2)
   })
 
   it('does not ask while nothing is typed or the balances match', async () => {
