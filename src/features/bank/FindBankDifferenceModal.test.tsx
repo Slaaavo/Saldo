@@ -1,18 +1,22 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest'
-import type { ReactElement, ReactNode } from 'react'
+import { Fragment, type ReactElement, type ReactNode } from 'react'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import FindBankDifferenceModal from './FindBankDifferenceModal'
 import { makeRow } from '@/shared/testing/snapshotFixtures'
-import { bookUnexplainedDifference, confirmBankMatch } from '@/shared/api'
+import { bookUnexplainedDifference, confirmBankMatch, deleteEvent, deleteSplitGroup, findDifferenceCauses, updateEvent } from '@/shared/api'
+import type { DifferenceCause, RowTarget, SuspectRow } from '@/shared/types'
 
 vi.mock('react-i18next', async () => {
   const { i18nMock, translate } = await import('@/shared/testing/i18nMock')
-  const Trans = ({ i18nKey, values, components }: { i18nKey: string; values?: Record<string, unknown>; components: { amount: ReactElement } }) => (
+  const Trans = ({ i18nKey, values, components }: { i18nKey: string; values?: Record<string, unknown>; components: Record<string, ReactElement> }) => (
     <>
-      {translate(i18nKey, values)} {components.amount}
+      {translate(i18nKey, values)}{' '}
+      {Object.entries(components).map(([name, component]) => (
+        <Fragment key={name}>{component}</Fragment>
+      ))}
     </>
   )
   return { ...i18nMock, Trans }
@@ -22,6 +26,15 @@ vi.mock('@/shared/api', () => ({
   confirmBankMatch: vi.fn(),
   bookUnexplainedDifference: vi.fn(),
   deleteBalanceCheck: vi.fn(),
+  findDifferenceCauses: vi.fn(),
+  deleteEvent: vi.fn(),
+  deleteSplitGroup: vi.fn(),
+  updateEvent: vi.fn(),
+}))
+
+const mockSetModalState = vi.fn()
+vi.mock('@/app/useModal', () => ({
+  useModal: () => ({ setModalState: mockSetModalState, closeModal: vi.fn(), modalState: { type: 'none' } }),
 }))
 
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
@@ -52,6 +65,7 @@ const difference = () => screen.getByText(/bankCheck\.dialog\.(lower|higher|same
 beforeEach(() => {
   vi.clearAllMocks()
   queryClient = new QueryClient({ defaultOptions: { queries: { retry: 0 } } })
+  ;(findDifferenceCauses as Mock).mockResolvedValue([])
 })
 
 describe('FindBankDifferenceModal', () => {
@@ -124,5 +138,127 @@ describe('FindBankDifferenceModal', () => {
     expect(onClose).toHaveBeenCalled()
     expect(bookUnexplainedDifference).not.toHaveBeenCalled()
     expect(confirmBankMatch).not.toHaveBeenCalled()
+  })
+})
+
+const suspect = <Target extends RowTarget>(
+  target: Target,
+  amountMinor: number,
+  eventDate: string,
+  labels: Partial<Pick<SuspectRow, 'note' | 'counterpartName'>> = {},
+): SuspectRow<Target> => ({
+  target,
+  eventDate,
+  amountMinor,
+  note: null,
+  counterpartName: null,
+  ...labels,
+})
+
+const copy = suspect({ kind: 'cashflow', eventId: 42 }, -1250, '2026-11-12T12:00:00', { note: 'Lidl' })
+const original = suspect({ kind: 'cashflow', eventId: 41 }, -1250, '2026-11-10T12:00:00', { note: 'Lidl' })
+const wrongSign = suspect({ kind: 'cashflow', eventId: 43 }, -625, '2026-11-13T09:30:00', { note: 'Refund' })
+
+const listCauses = (causes: DifferenceCause[]) => (findDifferenceCauses as Mock).mockResolvedValue(causes)
+
+const confirmDialog = (title: string) => screen.getByRole('dialog', { name: title })
+
+describe('FindBankDifferenceModal causes', () => {
+  it('lists the likely causes for the typed balance, each with its fix', async () => {
+    listCauses([
+      { kind: 'nearCopy', row: copy, copyOf: original },
+      { kind: 'flippedSign', row: wrongSign },
+    ])
+    renderModal()
+
+    await typeBankBalance('1012.50')
+
+    expect(await screen.findByText('bankCheck.causes.title')).toBeInTheDocument()
+    expect(findDifferenceCauses).toHaveBeenCalledWith(7, 101250, 100000)
+    const [nearCopy, flippedSign] = screen.getAllByRole('listitem')
+    expect(nearCopy).toHaveTextContent('bankCheck.causes.nearCopy (day=10 Nov)12 Nov · Lidl · -1250bankCheck.causes.deleteCopy')
+    expect(flippedSign).toHaveTextContent('bankCheck.causes.flippedSign13 Nov · Refund · -625bankCheck.causes.flipSign')
+    expect(screen.queryByText('bankCheck.causes.none')).not.toBeInTheDocument()
+  })
+
+  it('deletes a copy after a confirm and stays open with the typed balance', async () => {
+    listCauses([{ kind: 'nearCopy', row: copy, copyOf: original }])
+    ;(deleteEvent as Mock).mockResolvedValue(undefined)
+    const onClose = renderModal()
+
+    const user = await typeBankBalance('1012.50')
+    await user.click(await screen.findByRole('button', { name: 'bankCheck.causes.deleteCopy' }))
+
+    expect(deleteEvent).not.toHaveBeenCalled()
+    expect(confirmDialog('modals.confirm.deleteTitle')).toHaveTextContent('bankCheck.causes.confirm.deleteRow (row=12 Nov · Lidl) -1250')
+    await user.click(screen.getByRole('button', { name: 'common.delete' }))
+
+    await waitFor(() => expect(deleteEvent).toHaveBeenCalledWith(42))
+    expect(toast.success).toHaveBeenCalledWith('bankCheck.causes.deleted')
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'modals.confirm.deleteTitle' })).not.toBeInTheDocument())
+    expect(onClose).not.toHaveBeenCalled()
+    expect(screen.getByLabelText('bankCheck.dialog.bankBalance')).toHaveValue(1012.5)
+  })
+
+  it('flips a sign with the same date and note after a confirm', async () => {
+    listCauses([{ kind: 'flippedSign', row: wrongSign }])
+    ;(updateEvent as Mock).mockResolvedValue(undefined)
+    renderModal()
+
+    const user = await typeBankBalance('1012.50')
+    await user.click(await screen.findByRole('button', { name: 'bankCheck.causes.flipSign' }))
+
+    expect(confirmDialog('modals.confirm.title')).toHaveTextContent('bankCheck.causes.confirm.flip (row=13 Nov · Refund) -625625')
+    await user.click(screen.getByRole('button', { name: 'modals.confirm.submit' }))
+
+    await waitFor(() => expect(updateEvent).toHaveBeenCalledWith(43, 625, '2026-11-13T09:30:00', 'Refund'))
+    expect(toast.success).toHaveBeenCalledWith('bankCheck.causes.flipped')
+  })
+
+  it('says a transfer leaves both accounts and a split group goes with all its parts', async () => {
+    const transfer = suspect({ kind: 'transfer', eventId: 50 }, -1250, '2026-11-12T08:00:00', { counterpartName: 'Savings' })
+    const split = suspect({ kind: 'splitGroup', splitGroupId: 9, parts: 3 }, -1250, '2026-11-11T08:00:00', { note: 'Groceries' })
+    listCauses([
+      { kind: 'equalsGap', row: transfer },
+      { kind: 'equalsGap', row: split },
+    ])
+    ;(deleteEvent as Mock).mockResolvedValue(undefined)
+    ;(deleteSplitGroup as Mock).mockResolvedValue(undefined)
+    renderModal()
+
+    const user = await typeBankBalance('1012.50')
+    await screen.findByText('bankCheck.causes.title')
+    const [deleteTransfer, deleteSplit] = screen.getAllByRole('button', { name: 'bankCheck.causes.deleteRow' })
+
+    await user.click(deleteTransfer)
+    expect(confirmDialog('modals.confirm.deleteTitle')).toHaveTextContent('bankCheck.causes.confirm.deleteTransfer (row=12 Nov · Savings) -1250')
+    await user.click(screen.getByRole('button', { name: 'common.delete' }))
+    await waitFor(() => expect(deleteEvent).toHaveBeenCalledWith(50))
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'modals.confirm.deleteTitle' })).not.toBeInTheDocument())
+
+    await user.click(deleteSplit)
+    expect(confirmDialog('modals.confirm.deleteTitle')).toHaveTextContent('bankCheck.causes.confirm.deleteSplitGroup (row=11 Nov · Groceries, parts=3) -1250')
+    await user.click(screen.getByRole('button', { name: 'common.delete' }))
+    await waitFor(() => expect(deleteSplitGroup).toHaveBeenCalledWith(9))
+  })
+
+  it('opens CSV import on this account from the import hint', async () => {
+    listCauses([{ kind: 'staleImport', newestDay: '2026-11-12' }])
+    renderModal()
+
+    const user = await typeBankBalance('1012.50')
+    expect(await screen.findByText('bankCheck.causes.staleImport (day=12 Nov)')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'bankCheck.causes.importCsv' }))
+
+    expect(mockSetModalState).toHaveBeenCalledWith({ type: 'csvImport', preselectedAccountId: 7 })
+  })
+
+  it('says no single row explains the difference when nothing closes it', async () => {
+    renderModal()
+
+    await typeBankBalance('1012.50')
+
+    expect(await screen.findByText('bankCheck.causes.none')).toBeInTheDocument()
+    expect(screen.queryByRole('listitem')).not.toBeInTheDocument()
   })
 })

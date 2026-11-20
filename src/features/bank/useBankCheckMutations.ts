@@ -1,7 +1,8 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { bookUnexplainedDifference, confirmBankMatch, deleteBalanceCheck } from '@/shared/api'
+import { bookUnexplainedDifference, confirmBankMatch, deleteBalanceCheck, deleteEvent, deleteSplitGroup, updateEvent } from '@/shared/api'
+import type { DifferenceCause, RowTarget } from '@/shared/types'
 import { extractErrorMessage, hasErrorCode } from '@/shared/utils/errors'
 
 interface MatchVariables {
@@ -13,12 +14,44 @@ interface BookVariables extends MatchVariables {
   bankBalanceMinor: number
 }
 
+export type RowCause = Exclude<DifferenceCause, { kind: 'staleImport' }>
+
 const useRefreshAfterCheck = () => {
   const queryClient = useQueryClient()
   return async () => {
     await queryClient.invalidateQueries({ queryKey: ['snapshot'] })
     await queryClient.invalidateQueries({ queryKey: ['events'] })
+    // Not refetched: a list on screen was asked with the old seen balance and would fail with CHECK_CHANGED. Its key holds that balance, so the next ask fetches anew.
+    await queryClient.invalidateQueries({ queryKey: ['bank-check-causes'], refetchType: 'none' })
   }
+}
+
+const deleteRow = (target: RowTarget) => (target.kind === 'splitGroup' ? deleteSplitGroup(target.splitGroupId) : deleteEvent(target.eventId))
+
+const fixCause = (cause: RowCause): Promise<void> => {
+  if (cause.kind === 'flippedSign') {
+    const { target, amountMinor, eventDate, note } = cause.row
+    return updateEvent(target.eventId, -amountMinor, eventDate, note ?? undefined)
+  }
+  return deleteRow(cause.row.target)
+}
+
+/** Runs a cause's fix: deletes its row (a whole transfer or split group) or flips a cash flow's sign. */
+export const useFixDifferenceCause = () => {
+  const { t } = useTranslation()
+  const refresh = useRefreshAfterCheck()
+
+  return useMutation({
+    mutationFn: fixCause,
+    onSuccess: async (_, cause) => {
+      toast.success(t(cause.kind === 'flippedSign' ? 'bankCheck.causes.flipped' : 'bankCheck.causes.deleted'))
+      await refresh()
+    },
+    onError: async (err) => {
+      toast.error(t('bankCheck.causes.fixFailed', { error: extractErrorMessage(err) }))
+      await refresh()
+    },
+  })
 }
 
 export const useConfirmBankMatch = () => {

@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Loader2 } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogBody, DialogFooter } from './dialog'
@@ -10,7 +11,7 @@ const ACTIONS = {
 
 interface Props {
   action: keyof typeof ACTIONS
-  message: string
+  message: ReactNode
   onConfirm: () => void
   onCancel: () => void
   loading?: boolean

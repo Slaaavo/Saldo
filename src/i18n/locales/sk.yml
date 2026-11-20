@@ -127,6 +127,26 @@ bankCheck:
     cancel: "Zrušiť"
     booked: "Nevysvetlený rozdiel je zaúčtovaný"
     failed: "Rozdiel sa nepodarilo zaúčtovať: {{error}}"
+  causes:
+    title: "Pravdepodobné príčiny"
+    none: "Rozdiel nevysvetľuje žiadny jeden záznam. Zaúčtujte ho ako nevysvetlený rozdiel."
+    staleImport: "Najnovší záznam v Saldo je z {{day}}. Importujte najnovší export."
+    noImportedRows: "Saldo zatiaľ nemá na tomto účte žiadne záznamy. Importujte najnovší export."
+    importCsv: "Importovať CSV"
+    nearCopy: "Vyzerá ako kópia záznamu z {{day}}"
+    equalsGap: "Tento záznam sa presne rovná rozdielu"
+    flippedSign: "Tento záznam má možno opačné znamienko"
+    deleteCopy: "Vymazať túto kópiu"
+    deleteRow: "Vymazať tento záznam"
+    flipSign: "Otočiť znamienko"
+    deleted: "Záznam je vymazaný"
+    flipped: "Znamienko je otočené"
+    fixFailed: "Záznam sa nepodarilo opraviť: {{error}}"
+    confirm:
+      deleteRow: "Vymazať záznam {{row}} v sume <amount></amount>?"
+      deleteTransfer: "Vymazať prevod {{row}} v sume <amount></amount>? Zmizne z oboch účtov."
+      deleteSplitGroup: "Vymazať rozdelený záznam {{row}} v sume <amount></amount>? Vymažú sa všetky jeho časti ({{parts}})."
+      flip: "Zmeniť záznam {{row}} z <amount></amount> na <flipped></flipped>?"
 
 # ──── Obálky ────
 buckets:

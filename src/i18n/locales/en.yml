@@ -125,6 +125,26 @@ bankCheck:
     cancel: "Cancel"
     booked: "Booked the unexplained difference"
     failed: "Failed to book the difference: {{error}}"
+  causes:
+    title: "Likely causes"
+    none: "No single row explains the difference. Book it as an unexplained difference."
+    staleImport: "Newest row in Saldo is from {{day}}. Import the latest export."
+    noImportedRows: "Saldo has no rows on this account yet. Import the latest export."
+    importCsv: "Import CSV"
+    nearCopy: "Looks like a copy of the row from {{day}}"
+    equalsGap: "This row is exactly the difference"
+    flippedSign: "This row may have the wrong sign"
+    deleteCopy: "Delete this copy"
+    deleteRow: "Delete this row"
+    flipSign: "Flip the sign"
+    deleted: "Row deleted"
+    flipped: "Sign flipped"
+    fixFailed: "Failed to fix the row: {{error}}"
+    confirm:
+      deleteRow: "Delete the row {{row}} of <amount></amount>?"
+      deleteTransfer: "Delete the transfer {{row}} of <amount></amount>? It leaves both accounts."
+      deleteSplitGroup: "Delete the split row {{row}} of <amount></amount>? All {{parts}} parts go with it."
+      flip: "Change the row {{row}} from <amount></amount> to <flipped></flipped>?"
 
 # ──── Bucket cards ────
 buckets:

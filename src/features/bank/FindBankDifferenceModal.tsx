@@ -7,7 +7,9 @@ import { CurrencyInput } from '@/shared/ui/CurrencyInput'
 import { Label } from '@/shared/ui/label'
 import NumberValue from '@/shared/ui/NumberValue'
 import { getMinorUnitsStep, toMinorUnits } from '@/shared/utils/format'
+import DifferenceCauses from './DifferenceCauses'
 import { useBookUnexplainedDifference, useConfirmBankMatch } from './useBankCheckMutations'
+import { useDifferenceCauses } from './useDifferenceCauses'
 
 interface Props {
   row: SnapshotRow
@@ -31,6 +33,7 @@ const FindBankDifferenceModal = ({ row, onClose }: Props) => {
 
   const bankBalanceMinor = bankBalance.trim() ? toMinorUnits(bankBalance, row.currencyMinorUnits) : NaN
   const differenceMinor = Number.isFinite(bankBalanceMinor) ? bankBalanceMinor - row.balanceMinor : null
+  const causes = useDifferenceCauses(row.accountId, bankBalanceMinor, row.balanceMinor)
   const pending = confirmMatch.isPending || book.isPending
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -78,6 +81,8 @@ const FindBankDifferenceModal = ({ row, onClose }: Props) => {
             <p className="min-h-5 text-sm text-muted-foreground" aria-live="polite">
               {differenceMinor !== null && <DifferenceSentence row={row} differenceMinor={differenceMinor} />}
             </p>
+
+            {differenceMinor !== null && differenceMinor !== 0 && causes.data && <DifferenceCauses row={row} causes={causes.data} />}
           </DialogBody>
 
           <DialogFooter>
