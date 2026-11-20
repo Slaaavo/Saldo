@@ -10,11 +10,13 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogBody } from '..
 
 interface CsvImportModalProps {
   snapshot: SnapshotRow[]
+  /** The account picked when the dialog opens, as if the user picked it. */
+  preselectedAccountId?: number
   onClose: () => void
   onSuccess: () => Promise<void>
 }
 
-const CsvImportModal = ({ snapshot, onClose, onSuccess }: CsvImportModalProps) => {
+const CsvImportModal = ({ snapshot, preselectedAccountId, onClose, onSuccess }: CsvImportModalProps) => {
   const { t } = useTranslation()
 
   const {
@@ -58,7 +60,7 @@ const CsvImportModal = ({ snapshot, onClose, onSuccess }: CsvImportModalProps) =
     handleSaveNewProfile,
     handleUpdateProfile,
     goBack,
-  } = useImportWizard({ snapshot, onClose, onSuccess })
+  } = useImportWizard({ snapshot, preselectedAccountId, onClose, onSuccess })
 
   const accountOnlyRows = snapshot.filter((r) => r.accountType === 'account')
   const counterpartAccounts = accountOnlyRows.filter((r) => r.accountId !== wizardState.selectedAccountId)

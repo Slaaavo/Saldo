@@ -123,8 +123,8 @@ const rateToMantissaExponent = (rate: number): { mantissa: number; exponent: num
   return { mantissa, exponent: -decimalPlaces }
 }
 
-export const useImportWizard = (params: { snapshot: SnapshotRow[]; onClose: () => void; onSuccess: () => Promise<void> }) => {
-  const { snapshot, onClose, onSuccess } = params
+export const useImportWizard = (params: { snapshot: SnapshotRow[]; preselectedAccountId?: number; onClose: () => void; onSuccess: () => Promise<void> }) => {
+  const { snapshot, preselectedAccountId, onClose, onSuccess } = params
   const { t } = useTranslation()
 
   const [wizardState, setWizardState] = useState<WizardState>(INITIAL_WIZARD_STATE)
@@ -135,6 +135,7 @@ export const useImportWizard = (params: { snapshot: SnapshotRow[]; onClose: () =
   const [availableProfiles, setAvailableProfiles] = useState<ImportProfileRow[]>([])
   // Responses for an account the user has since switched away from are dropped.
   const selectedAccountIdRef = useRef<number | null>(null)
+  const preselectedAccountIdRef = useRef(preselectedAccountId)
 
   // Derived: selected account row from snapshot
   const selectedAccount = snapshot.find((r) => r.accountId === wizardState.selectedAccountId) ?? null
@@ -216,6 +217,14 @@ export const useImportWizard = (params: { snapshot: SnapshotRow[]; onClose: () =
     },
     [snapshot, t],
   )
+
+  // Once on mount; a later snapshot refresh must not pick the account again and reset the profile.
+  useEffect(() => {
+    const accountId = preselectedAccountIdRef.current
+    if (accountId === undefined) return
+    preselectedAccountIdRef.current = undefined
+    void handleAccountSelect(accountId)
+  }, [handleAccountSelect])
 
   const canProceedToMapping = wizardState.csvHeaders.length > 0 && wizardState.selectedAccountId !== null
 

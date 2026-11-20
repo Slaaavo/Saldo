@@ -270,6 +270,7 @@ const AppModals = ({ dbLocation }: AppModalsProps) => {
       return (
         <CsvImportModal
           snapshot={snapshot}
+          preselectedAccountId={modalState.preselectedAccountId}
           onClose={closeModal}
           onSuccess={async () => {
             await queryClient.invalidateQueries({ queryKey: ['snapshot'] })

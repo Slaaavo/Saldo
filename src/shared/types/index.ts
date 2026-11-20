@@ -79,7 +79,7 @@ export type ModalState =
   | { type: 'manageLinkedAssets'; accountId: number; accountName: string }
   | { type: 'editIncomeBudget'; bucketId: number }
   | { type: 'findBankDifference'; accountId: number }
-  | { type: 'csvImport' }
+  | { type: 'csvImport'; preselectedAccountId?: number }
   | { type: 'ekasaImport' }
   | { type: 'addEvents' }
   | { type: 'createRevenue' }

@@ -271,6 +271,23 @@ describe('useImportWizard', () => {
   describe('account switch', () => {
     const SAVINGS = makeAccount({ accountId: 2, accountName: 'Savings' })
 
+    it('picks a preselected account on open and loads its preferred profile once', async () => {
+      const PROFILE = { id: 7, name: 'Bank', columnMappingJson: JSON.stringify({ date: 'Date', amount: 'Amount' }), rules: [], createdAt: '', updatedAt: '' }
+      ;(getPreferredProfile as Mock).mockResolvedValue(PROFILE)
+      const props = { onClose: vi.fn(), onSuccess: vi.fn().mockResolvedValue(undefined) }
+      const { result, rerender } = renderHook(({ snapshot }) => useImportWizard({ snapshot, preselectedAccountId: 2, ...props }), {
+        initialProps: { snapshot: [...SNAPSHOT, SAVINGS] },
+      })
+
+      await waitFor(() => expect(result.current.wizardState.loadedProfile?.id).toBe(7))
+      expect(result.current.wizardState.selectedAccountId).toBe(2)
+      expect(listEvents).toHaveBeenCalledWith({ accountId: 2 })
+
+      rerender({ snapshot: [...SNAPSHOT, { ...SAVINGS, balanceMinor: 500 }] })
+
+      expect(getPreferredProfile).toHaveBeenCalledTimes(1)
+    })
+
     it("drops the previous account's profile when the new account has none", async () => {
       ;(getPreferredProfile as Mock).mockImplementation(async (accountId: number) =>
         accountId === 1
