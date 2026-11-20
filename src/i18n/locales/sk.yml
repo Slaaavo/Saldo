@@ -143,10 +143,10 @@ bankCheck:
     flipped: "Znamienko je otočené"
     fixFailed: "Záznam sa nepodarilo opraviť: {{error}}"
     confirm:
-      deleteRow: "Vymazať záznam {{row}} v sume <amount></amount>?"
-      deleteTransfer: "Vymazať prevod {{row}} v sume <amount></amount>? Zmizne z oboch účtov."
-      deleteSplitGroup: "Vymazať rozdelený záznam {{row}} v sume <amount></amount>? Vymažú sa všetky jeho časti ({{parts}})."
-      flip: "Zmeniť záznam {{row}} z <amount></amount> na <flipped></flipped>?"
+      deleteRow: "Vymazať záznam <row></row> v sume <amount></amount>?"
+      deleteTransfer: "Vymazať prevod <row></row> v sume <amount></amount>? Zmizne z oboch účtov."
+      deleteSplitGroup: "Vymazať rozdelený záznam <row></row> v sume <amount></amount>? Vymažú sa všetky jeho časti ({{parts}})."
+      flip: "Zmeniť záznam <row></row> z <amount></amount> na <flipped></flipped>?"
 
 # ──── Obálky ────
 buckets:

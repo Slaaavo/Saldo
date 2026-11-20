@@ -190,7 +190,7 @@ describe('FindBankDifferenceModal causes', () => {
     await user.click(await screen.findByRole('button', { name: 'bankCheck.causes.deleteCopy' }))
 
     expect(deleteEvent).not.toHaveBeenCalled()
-    expect(confirmDialog('modals.confirm.deleteTitle')).toHaveTextContent('bankCheck.causes.confirm.deleteRow (row=12 Nov · Lidl) -1250')
+    expect(confirmDialog('modals.confirm.deleteTitle')).toHaveTextContent('bankCheck.causes.confirm.deleteRow 12 Nov · Lidl-1250')
     await user.click(screen.getByRole('button', { name: 'common.delete' }))
 
     await waitFor(() => expect(deleteEvent).toHaveBeenCalledWith(42))
@@ -208,7 +208,7 @@ describe('FindBankDifferenceModal causes', () => {
     const user = await typeBankBalance('1012.50')
     await user.click(await screen.findByRole('button', { name: 'bankCheck.causes.flipSign' }))
 
-    expect(confirmDialog('modals.confirm.title')).toHaveTextContent('bankCheck.causes.confirm.flip (row=13 Nov · Refund) -625625')
+    expect(confirmDialog('modals.confirm.title')).toHaveTextContent('bankCheck.causes.confirm.flip 13 Nov · Refund-625625')
     await user.click(screen.getByRole('button', { name: 'modals.confirm.submit' }))
 
     await waitFor(() => expect(updateEvent).toHaveBeenCalledWith(43, 625, '2026-11-13T09:30:00', 'Refund'))
@@ -231,13 +231,13 @@ describe('FindBankDifferenceModal causes', () => {
     const [deleteTransfer, deleteSplit] = screen.getAllByRole('button', { name: 'bankCheck.causes.deleteRow' })
 
     await user.click(deleteTransfer)
-    expect(confirmDialog('modals.confirm.deleteTitle')).toHaveTextContent('bankCheck.causes.confirm.deleteTransfer (row=12 Nov · Savings) -1250')
+    expect(confirmDialog('modals.confirm.deleteTitle')).toHaveTextContent('bankCheck.causes.confirm.deleteTransfer 12 Nov · Savings-1250')
     await user.click(screen.getByRole('button', { name: 'common.delete' }))
     await waitFor(() => expect(deleteEvent).toHaveBeenCalledWith(50))
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'modals.confirm.deleteTitle' })).not.toBeInTheDocument())
 
     await user.click(deleteSplit)
-    expect(confirmDialog('modals.confirm.deleteTitle')).toHaveTextContent('bankCheck.causes.confirm.deleteSplitGroup (row=11 Nov · Groceries, parts=3) -1250')
+    expect(confirmDialog('modals.confirm.deleteTitle')).toHaveTextContent('bankCheck.causes.confirm.deleteSplitGroup (parts=3) 11 Nov · Groceries-1250')
     await user.click(screen.getByRole('button', { name: 'common.delete' }))
     await waitFor(() => expect(deleteSplitGroup).toHaveBeenCalledWith(9))
   })

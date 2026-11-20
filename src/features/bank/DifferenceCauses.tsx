@@ -80,21 +80,18 @@ const CauseLine = ({ cause, row, onFix }: { cause: RowCause; row: SnapshotRow; o
   )
 }
 
+const RowLabel = ({ line, language }: { line: BankLine; language: string }) => <span>{rowLabel(line, language)}</span>
+
 const FixMessage = ({ cause, row }: { cause: RowCause; row: SnapshotRow }) => {
   const { i18n } = useTranslation()
   const { target, amountMinor } = cause.row
-  const label = rowLabel(cause.row, i18n.language)
-  const values = target.kind === 'splitGroup' ? { row: label, parts: target.parts } : { row: label }
+  const label = <RowLabel line={cause.row} language={i18n.language} />
+  const amount = <Money row={row} value={amountMinor} />
   if (cause.kind === 'flippedSign') {
-    return (
-      <Trans
-        i18nKey="bankCheck.causes.confirm.flip"
-        values={values}
-        components={{ amount: <Money row={row} value={amountMinor} />, flipped: <Money row={row} value={-amountMinor} /> }}
-      />
-    )
+    return <Trans i18nKey="bankCheck.causes.confirm.flip" components={{ row: label, amount, flipped: <Money row={row} value={-amountMinor} /> }} />
   }
-  return <Trans i18nKey={DELETE_MESSAGES[target.kind]} values={values} components={{ amount: <Money row={row} value={amountMinor} /> }} />
+  const values = target.kind === 'splitGroup' ? { parts: target.parts } : undefined
+  return <Trans i18nKey={DELETE_MESSAGES[target.kind]} values={values} components={{ row: label, amount }} />
 }
 
 const DifferenceCauses = ({ row, causes }: Props) => {

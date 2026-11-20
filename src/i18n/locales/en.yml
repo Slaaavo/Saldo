@@ -141,10 +141,10 @@ bankCheck:
     flipped: "Sign flipped"
     fixFailed: "Failed to fix the row: {{error}}"
     confirm:
-      deleteRow: "Delete the row {{row}} of <amount></amount>?"
-      deleteTransfer: "Delete the transfer {{row}} of <amount></amount>? It leaves both accounts."
-      deleteSplitGroup: "Delete the split row {{row}} of <amount></amount>? All {{parts}} parts go with it."
-      flip: "Change the row {{row}} from <amount></amount> to <flipped></flipped>?"
+      deleteRow: "Delete the row <row></row> of <amount></amount>?"
+      deleteTransfer: "Delete the transfer <row></row> of <amount></amount>? It leaves both accounts."
+      deleteSplitGroup: "Delete the split row <row></row> of <amount></amount>? All {{parts}} parts go with it."
+      flip: "Change the row <row></row> from <amount></amount> to <flipped></flipped>?"
 
 # ──── Bucket cards ────
 buckets:
