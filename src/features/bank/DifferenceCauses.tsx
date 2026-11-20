@@ -65,8 +65,12 @@ const CauseLine = ({ cause, row, onFix }: { cause: RowCause; row: SnapshotRow; o
     <li className="flex items-center justify-between gap-3 rounded-md border px-3 py-2">
       <div className="flex min-w-0 flex-col">
         <span>{title}</span>
-        <span className="truncate text-muted-foreground">
-          {rowLabel(cause.row, i18n.language)} · <Money row={row} value={cause.row.amountMinor} />
+        <span className="flex min-w-0 text-muted-foreground">
+          <span className="truncate">{rowLabel(cause.row, i18n.language)}</span>
+          <span className="shrink-0 whitespace-pre">
+            {' · '}
+            <Money row={row} value={cause.row.amountMinor} />
+          </span>
         </span>
       </div>
       <Button type="button" variant="outline" size="sm" onClick={onFix}>
