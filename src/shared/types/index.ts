@@ -282,6 +282,31 @@ export interface BookedDifference {
   checkId: number
 }
 
+export type CashflowTarget = { kind: 'cashflow'; eventId: number }
+
+/** What a fix acts on. Deleting a transfer removes both legs; a split group goes with all its parts. */
+export type RowTarget =
+  | CashflowTarget
+  | { kind: 'transfer'; eventId: number }
+  | { kind: 'unexplainedDifference'; eventId: number }
+  | { kind: 'splitGroup'; splitGroupId: number; parts: number }
+
+/** One bank line as Saldo counts it. For a split group, `amountMinor` is the sum of its counted rows on the account. */
+export interface SuspectRow<Target extends RowTarget = RowTarget> {
+  target: Target
+  eventDate: string
+  amountMinor: number
+  note: string | null
+  counterpartName: string | null
+}
+
+/** A likely cause of the gap against the bank app. Every row cause closes the whole gap when fixed. */
+export type DifferenceCause =
+  | { kind: 'staleImport'; newestDay: string | null }
+  | { kind: 'nearCopy'; row: SuspectRow; copyOf: SuspectRow }
+  | { kind: 'equalsGap'; row: SuspectRow }
+  | { kind: 'flippedSign'; row: SuspectRow<CashflowTarget> }
+
 export interface Money {
   amountMinor: number
   currencyCode: string
