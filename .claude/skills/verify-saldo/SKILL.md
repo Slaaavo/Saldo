@@ -52,7 +52,7 @@ How it works: `launch.sh` runs `pnpm tauri dev --config src-tauri/tauri.dev.conf
 
 - `tauri.dev.conf.json` sets the identifier to `com.teamsumbal.saldo.dev`.
 - The plain debug binary has no bundle id, so computer use can't see its window. `runner.sh` therefore builds what `cargo run` would build, copies the binary and, when it exists, `libpdfium.dylib` into `.verify-saldo/Saldo Dev.app` (the library into `Contents/Resources/`, as in the installed app), and execs it from there with `src-tauri/` as the working directory. eKasa import and `saldo mcp` look for PDFium in that resource folder first, then fall back to `./libpdfium.dylib` in the working directory.
-- Vite and teardown on quit work as in normal `tauri dev`. Frontend edits hot-reload in the open window. A Rust edit should make `tauri dev` re-run the runner, which rebuilds and restarts the app; this hasn't been exercised yet. After one, run `wait-ready.sh` and take a fresh screenshot.
+- Vite and teardown on quit work as in normal `tauri dev`. Frontend edits hot-reload in the open window. Tauri dev rebuilds and restarts the app on every saved Rust file. Several Rust edits in a row while Saldo Dev runs can leave both the app and Vite down (`doctor.sh` reports both as FAIL; seen on 2026-11-14). After Rust edits, run `cleanup.sh` and then `launch.sh` again, wait with `wait-ready.sh`, and take a fresh screenshot.
 
 **Grant computer use once per session.** Call `request_access` with `apps: ["com.teamsumbal.saldo.dev"]`. The user approves the dialog. The app is only listed while it runs, so launch it first.
 
