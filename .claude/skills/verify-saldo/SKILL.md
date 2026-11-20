@@ -21,7 +21,7 @@ Read the [feature map](features/README.md) and pick the feature file that matche
 - **Never drive the installed app.** `/Applications/saldo.app` is `com.teamsumbal.saldo` and holds the user's real finances. Never request computer-use access to it, and never act on its windows. This skill only ever touches `com.teamsumbal.saldo.dev`.
 - **One run per machine.** Vite holds port 1420 with `strictPort`, so only one `tauri dev` can run at a time. If the port is taken, another session owns it. Wait for it to free up, and never stop a run you didn't launch.
 - **Kill by pid, never by name.** `cleanup.sh` stops only processes whose executable or working directory is inside this worktree.
-- **Sandbox.** These helpers must run with `dangerouslyDisableSandbox: true`: `launch.sh` (it starts a GUI app and writes `~/Library`), `evidence.sh` and `cleanup.sh` (they write `~/Library/Logs` and send signals), and `reset-dev-db.sh` (it writes `~/Library/Application Support`). `doctor.sh` and `wait-ready.sh` are read-only and work either way.
+- **Sandbox.** These helpers must run with `dangerouslyDisableSandbox: true`: `launch.sh` (it starts a GUI app and writes `~/Library`), `evidence.sh` and `cleanup.sh` (they write `~/Library/Logs` and send signals), `reset-dev-db.sh` (it writes `~/Library/Application Support`), and `wait-ready.sh` (inside the sandbox it cannot see `launch.sh`'s process and reports "launch.sh exited before the app came up" while the build still runs; seen on 2026-11-20). `doctor.sh` is read-only and works either way.
 - **The real DB is out of scope.** The dev app never opens the real `saldo.db` or follows the real `db-location.json`, because both belong to the `com.teamsumbal.saldo` folder. The backup rule in slavo-mode-mini applies only to plain `pnpm tauri dev`, which uses the real identifier, and this skill never runs that.
 
 ## Launch
@@ -40,7 +40,7 @@ Read the [feature map](features/README.md) and pick the feature file that matche
 until ! lsof -nP -iTCP:1420 -sTCP:LISTEN > /dev/null; do sleep 10; done
 ```
 
-**Wait until it's ready.** Run this in the foreground with a 600000 ms tool timeout:
+**Wait until it's ready.** Run this in the foreground with a 600000 ms tool timeout and the sandbox disabled:
 
 ```bash
 .claude/skills/verify-saldo/scripts/wait-ready.sh 600
@@ -141,7 +141,7 @@ All of these live in `.claude/skills/verify-saldo/scripts/` and run from any dir
 | Helper | Invocation | Sandbox |
 |---|---|---|
 | `launch.sh` | background task: `launch.sh` | off |
-| `wait-ready.sh` | `wait-ready.sh [timeout-s]` | either |
+| `wait-ready.sh` | `wait-ready.sh [timeout-s]` | off |
 | `doctor.sh` | `doctor.sh` | either |
 | `evidence.sh` | `evidence.sh dir`, `keep <name> <image>`, `db <name> <sql>`, `note <text>` | off |
 | `cleanup.sh` | `cleanup.sh` | off |

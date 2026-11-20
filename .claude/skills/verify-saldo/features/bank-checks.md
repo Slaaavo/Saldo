@@ -1,6 +1,6 @@
 # Checks against the bank app
 
-An own account's dashboard card can be checked against the user's bank app. "Matches bank" records in one click that Saldo's balance matched the bank app at that moment. "Find the difference" asks for the bank app's balance, shows how far Saldo is off, and books the gap as one "Unexplained difference" entry. The card then shows "Verified <day>", or "Verified <day> · now differs by X" when a later change broke the check. Buckets and assets have no check, and time-machine mode hides it.
+An own account's dashboard card can be checked against the user's bank app. "Matches bank" records in one click that Saldo's balance matched the bank app at that moment. "Find the difference" asks for the bank app's balance, shows how far Saldo is off, lists the likely causes with a fix for each, and books the gap as one "Unexplained difference" entry. The card then shows "Verified <day>", or "Verified <day> · now differs by X" when a later change broke the check. Buckets and assets have no check, and time-machine mode hides it.
 
 ## Sub-features
 
@@ -13,6 +13,14 @@ An own account's dashboard card can be checked against the user's bank app. "Mat
 - `BC-DIFFERS`: deleting a counted entry after a check turns the line amber: "Verified <day> · now differs by X".
 - `BC-LEDGER`: the "Unexplained Differences" type chip, the entry's badge, delete only (no pencil).
 - `BC-HIDDEN`: no line and no buttons on buckets, assets, or any card in time-machine mode.
+- `BC-CAUSE-NONE`: a gap no single row closes lists "No single row explains the difference".
+- `BC-CAUSE-EQUALS`: a row equal to the gap: "This row is exactly the difference", "Delete this row".
+- `BC-CAUSE-FLIP`: a cash flow whose flipped sign closes the gap: "This row may have the wrong sign", "Flip the sign".
+- `BC-CAUSE-COPY`: a row with the gap's amount and a twin within 5 days: "Looks like a copy of the row from <day>", "Delete this copy".
+- `BC-CAUSE-FIX`: a fix runs after a nested confirm, the dialog stays open with the typed balance, and the difference updates ("Saldo matches the bank", "Mark as matching").
+- `BC-CAUSE-WINDOW`: only rows added or changed after the account's newest check are causes.
+- `BC-CAUSE-STALE`: on an account imported from CSV whose newest row is more than 3 days old, "Newest row in Saldo is from <day>. Import the latest export." and "Import CSV", which opens CSV import with the account picked. Never on an account without an import profile.
+- `BC-CAUSE-TYPING`: the list appears once typing pauses and never shows an earlier value's causes under a newer difference.
 
 ## How to get to it (user POV)
 
@@ -31,6 +39,13 @@ Preconditions: Saldo Dev in live mode on the dev DB with at least two own accoun
 - **Dialog match.** "Find the difference" with Saldo's own balance typed: "Saldo matches the bank", button "Mark as matching". Click it: the card is green again.
 - **Hidden.** Click the "Date" label, pick a day: the cards show only "Update balance".
 - **Slovak.** Settings → click blank space above Language → `tab`, `down`, `down`, `return`. The bottom row reads "ZMENIŤ ZOSTATOK" with both icons on one line. Switch back with `up` instead of the second `down`.
+- **Causes.** Load `fixtures/check-causes.sql` while the app is down (`sqlite3 "$HOME/Library/Application Support/com.teamsumbal.saldo.dev/saldo.db" < .claude/skills/verify-saldo/fixtures/check-causes.sql`, sandbox off), then launch. Verify Causes shows 960.00 EUR and "Verified 10 Nov · now differs by 12.50 EUR"; Verify Stale shows 480.00 EUR. On Verify Causes, "Find the difference", then type, one at a time with a triple-click on the field before each, and take a second screenshot after each because the list waits for typing to pause:
+  - `961.00`: "No single row explains the difference".
+  - `1005.00`: "This row is exactly the difference", "13 Nov · verify-causes groceries · -45.00 EUR".
+  - `900.00`: "This row may have the wrong sign", "12 Nov · verify-causes parking · 30.00 EUR". "Flip the sign" → "Confirm" with "from 30.00 EUR to -30.00 EUR" → "Confirm". Result: toast "Sign flipped", Balance in Saldo 900.00, "Saldo matches the bank". `evidence.sh db` shows a second `event_data` version at -3000.
+  - `912.50`: "Looks like a copy of the row from 5 Nov", "7 Nov · verify-causes coffee again · -12.50 EUR". "Delete this copy" → "Confirm deletion" → "Delete". Result: toast "Row deleted", Saldo 912.50, "Mark as matching" → the card shows "Verified <today>".
+  - After that check, `1005.00` again lists nothing: the groceries row is older than the newest check (`BC-CAUSE-WINDOW`).
+  - On Verify Stale (scroll the cards right), any other balance lists "Newest row in Saldo is from 10 Nov. Import the latest export."; "Import CSV" opens Import CSV with "Verify Stale" and the profile "Verify CSV" picked. Cancel it.
 
 ## Gotchas
 
@@ -39,3 +54,6 @@ Preconditions: Saldo Dev in live mode on the dev DB with at least two own accoun
 - The toast auto-closes after about 4 seconds. Click Undo in the same `app_batch` as "Matches bank", or the click lands on nothing. In a background window the toast may not paint at all: its "Undo" button then sits in the AX summary at the window's bottom edge (about 48×7), and a click at its center still works.
 - "Matches bank" sends the balance the card showed; when an import or `saldo mcp` wrote since, the toast says the balance changed and nothing is stored.
 - The amber line wraps to two lines on a 250 px card.
+- Causes last driven on 2026-11-20 in runs `20261120-172204-feat-check-causes` (every `BC-CAUSE-*` path in English) and `20261120-172549-feat-check-causes` (the typing and amount-width fixes, `BC-CAUSE-WINDOW`, Slovak). The window found two defects that are now fixed: the list from the previous value showed under a new difference while typing paused, and a long note cut the amount off.
+- A fixture loaded while the app runs stays invisible: the window never gains focus in the background, so the refresh on outside writes never fires. Load it with the app down, or quit and launch again.
+- `check-causes.sql` adds nothing on a second run, so after its rows were fixed and a check marked, the causes need fresh rows (insert one dated within 5 days of 5 Nov with -1250) or `reset-dev-db.sh`.
