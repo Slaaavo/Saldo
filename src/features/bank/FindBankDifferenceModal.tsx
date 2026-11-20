@@ -82,7 +82,7 @@ const FindBankDifferenceModal = ({ row, onClose }: Props) => {
               {differenceMinor !== null && <DifferenceSentence row={row} differenceMinor={differenceMinor} />}
             </p>
 
-            {differenceMinor !== null && differenceMinor !== 0 && causes.data && <DifferenceCauses row={row} causes={causes.data} />}
+            {differenceMinor !== null && differenceMinor !== 0 && causes && <DifferenceCauses row={row} causes={causes} />}
           </DialogBody>
 
           <DialogFooter>

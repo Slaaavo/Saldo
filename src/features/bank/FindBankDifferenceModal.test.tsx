@@ -261,4 +261,17 @@ describe('FindBankDifferenceModal causes', () => {
     expect(await screen.findByText('bankCheck.causes.none')).toBeInTheDocument()
     expect(screen.queryByRole('listitem')).not.toBeInTheDocument()
   })
+
+  it('never shows the list for an earlier balance under a newer difference', async () => {
+    ;(findDifferenceCauses as Mock).mockImplementation(async (_accountId: number, typed: number) => (typed === 101200 ? [{ kind: 'nearCopy', row: copy, copyOf: original }] : []))
+    renderModal()
+
+    const user = await typeBankBalance('1012')
+    expect(await screen.findByRole('button', { name: 'bankCheck.causes.deleteCopy' })).toBeInTheDocument()
+    await user.type(screen.getByLabelText('bankCheck.dialog.bankBalance'), '5')
+
+    expect(screen.queryByText('bankCheck.causes.title')).not.toBeInTheDocument()
+    expect(await screen.findByText('bankCheck.causes.none')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'bankCheck.causes.deleteCopy' })).not.toBeInTheDocument()
+  })
 })
