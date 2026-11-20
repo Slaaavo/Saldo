@@ -5,9 +5,10 @@ use serde_json::json;
 use super::checks::verification_of;
 use super::commands::{
     book_unexplained_difference_inner, confirm_bank_match_inner, delete_balance_check_inner,
-    BookUnexplainedDifferenceInput, ConfirmBankMatchInput,
+    find_difference_causes_inner, BookUnexplainedDifferenceInput, ConfirmBankMatchInput,
+    FindDifferenceCausesInput,
 };
-use super::models::Verification;
+use super::models::{DifferenceCause, RowTarget, SuspectRow, Verification};
 use super::repository::{
     balance_seen_by_check, clock_now, insert_check, insert_unexplained_difference,
     BalanceSeenByCheckParams, InsertCheckParams, InsertUnexplainedDifferenceParams,
@@ -16,12 +17,18 @@ use crate::db::initialize_in_memory;
 use crate::error::AppError;
 use crate::features::accounts::repository::{create_account, CreateAccountParams};
 use crate::features::buckets::BucketKind;
-use crate::features::transactions::commands::get_accounts_snapshot_inner;
-use crate::features::transactions::models::{MetricKind, Snapshot, SnapshotRow};
+use crate::features::csv_profiles::repository::{
+    create_import_profile, set_preferred_profile, CreateImportProfileParams,
+    SetPreferredProfileParams,
+};
+use crate::features::transactions::commands::{
+    delete_event_inner, delete_split_group_inner, get_accounts_snapshot_inner,
+};
+use crate::features::transactions::models::{MetricKind, Snapshot, SnapshotRow, SplitGroupEntry};
 use crate::features::transactions::repository::{
-    create_balance_update, create_cashflow, create_transfer, delete_event, get_accounts_snapshot,
-    update_event, CashflowEntry, CreateBalanceUpdateParams, GetSnapshotParams, Moment,
-    UpdateEventParams,
+    create_balance_update, create_cashflow, create_split_group_with_legs, create_transfer,
+    delete_event, get_accounts_snapshot, update_event, CashflowEntry, CreateBalanceUpdateParams,
+    CreateSplitGroupWithLegsParams, GetSnapshotParams, Moment, UpdateEventParams,
 };
 use crate::shared::is_iso_datetime;
 
@@ -48,6 +55,12 @@ fn mk(conn: &Connection, account_type: &str) -> i64 {
 fn written_at(conn: &Connection, event_id: i64, created_at: &str) {
     conn.execute(
         "UPDATE event SET created_at = ?2 WHERE id = ?1",
+        params![event_id, created_at],
+    )
+    .unwrap();
+    conn.execute(
+        "UPDATE event_data SET created_at = ?2
+         WHERE id = (SELECT latest_data_id FROM event WHERE id = ?1)",
         params![event_id, created_at],
     )
     .unwrap();
@@ -967,4 +980,393 @@ fn the_storage_keeps_an_unexplained_difference_a_single_entry_on_an_own_account(
             "{case}"
         );
     }
+}
+
+// ---- Causes of a gap ----
+
+fn causes(
+    conn: &Connection,
+    account_id: i64,
+    seen_balance_minor: i64,
+    bank_balance_minor: i64,
+) -> Result<Vec<DifferenceCause>, AppError> {
+    find_difference_causes_inner(
+        conn,
+        FindDifferenceCausesInput {
+            account_id,
+            bank_balance_minor,
+            seen_balance_minor,
+        },
+    )
+}
+
+fn equals_gap(event_id: i64, amount_minor: i64, event_date: &str) -> DifferenceCause {
+    DifferenceCause::EqualsGap {
+        row: SuspectRow {
+            target: RowTarget::Cashflow { event_id },
+            event_date: event_date.to_owned(),
+            amount_minor,
+            note: None,
+            counterpart_name: None,
+        },
+    }
+}
+
+fn live_balance(conn: &Connection, account_id: i64) -> i64 {
+    row_of(&live(conn), account_id).balance_minor
+}
+
+#[test]
+fn a_row_before_the_latest_balance_update_is_neither_a_cause_nor_a_twin() {
+    let conn = initialize_in_memory().unwrap();
+    let account = mk(&conn, "account");
+    cashflow(
+        &conn,
+        account,
+        1_250,
+        "2026-11-08T12:00:00",
+        AFTER_THE_CHECK,
+    );
+    balance_update(&conn, account, 10_000, "2026-11-10", AFTER_THE_CHECK);
+
+    assert_eq!(causes(&conn, account, 10_000, 8_750).unwrap(), vec![]);
+
+    let counted = cashflow(
+        &conn,
+        account,
+        1_250,
+        "2026-11-12T12:00:00",
+        AFTER_THE_CHECK,
+    );
+
+    assert_eq!(
+        causes(&conn, account, 11_250, 10_000).unwrap(),
+        vec![equals_gap(counted, 1_250, "2026-11-12T12:00:00")]
+    );
+}
+
+#[test]
+fn a_deleted_row_is_neither_a_cause_nor_a_twin() {
+    let conn = initialize_in_memory().unwrap();
+    let account = mk(&conn, "account");
+    balance_update(&conn, account, 10_000, "2026-11-01", BEFORE_THE_CHECK);
+    let gone = cashflow(
+        &conn,
+        account,
+        -1_250,
+        "2026-11-12T12:00:00",
+        AFTER_THE_CHECK,
+    );
+    let kept = cashflow(
+        &conn,
+        account,
+        -1_250,
+        "2026-11-12T12:00:00",
+        AFTER_THE_CHECK,
+    );
+    delete_event(&conn, gone).unwrap();
+
+    assert_eq!(
+        causes(&conn, account, 8_750, 10_000).unwrap(),
+        vec![equals_gap(kept, -1_250, "2026-11-12T12:00:00")]
+    );
+}
+
+#[test]
+fn suspects_are_the_rows_changed_since_the_newest_check() {
+    let conn = initialize_in_memory().unwrap();
+    let account = mk(&conn, "account");
+    balance_update(&conn, account, 10_000, "2026-11-01", BEFORE_THE_CHECK);
+    check_at(
+        &conn,
+        account,
+        10_000,
+        "2026-11-13T09:00:00.000",
+        "2026-11-13",
+    )
+    .unwrap();
+    cashflow(
+        &conn,
+        account,
+        -1_250,
+        "2026-11-12T12:00:00",
+        "2026-11-13T12:00:00.000",
+    );
+    check(&conn, account, 8_750);
+    let after_newest = cashflow(
+        &conn,
+        account,
+        -3_000,
+        "2026-11-12T12:00:00",
+        AFTER_THE_CHECK,
+    );
+
+    assert_eq!(causes(&conn, account, 5_750, 7_000).unwrap(), vec![]);
+    assert_eq!(
+        causes(&conn, account, 5_750, 8_750).unwrap(),
+        vec![equals_gap(after_newest, -3_000, "2026-11-12T12:00:00")]
+    );
+}
+
+#[test]
+fn a_row_edited_after_the_newest_check_becomes_a_suspect() {
+    let (checked, _) = checked_at_7_500();
+
+    assert_eq!(
+        causes(&checked.conn, checked.account, 7_500, 10_000).unwrap(),
+        vec![]
+    );
+
+    update_event(
+        &checked.conn,
+        UpdateEventParams {
+            event_id: checked.spending,
+            amount_minor: -2_500,
+            event_date: "2026-11-10T12:00:00".to_owned(),
+            note: Some("edited".to_owned()),
+        },
+    )
+    .unwrap();
+
+    assert_eq!(
+        causes(&checked.conn, checked.account, 7_500, 10_000).unwrap(),
+        vec![DifferenceCause::EqualsGap {
+            row: SuspectRow {
+                note: Some("edited".to_owned()),
+                ..suspect_row(checked.spending, -2_500, "2026-11-10T12:00:00")
+            }
+        }]
+    );
+}
+
+fn suspect_row(event_id: i64, amount_minor: i64, event_date: &str) -> SuspectRow {
+    match equals_gap(event_id, amount_minor, event_date) {
+        DifferenceCause::EqualsGap { row } => row,
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn causes_refuse_a_balance_that_moved_since_the_user_looked() {
+    let conn = initialize_in_memory().unwrap();
+    let account = account_at_10_000(&conn);
+
+    assert_eq!(
+        causes(&conn, account, 9_000, 8_750).unwrap_err().code,
+        "CHECK_CHANGED"
+    );
+    assert_eq!(
+        causes(&conn, account, 10_000, crate::shared::MAX_AMOUNT_MINOR + 1)
+            .unwrap_err()
+            .code,
+        "VALIDATION"
+    );
+}
+
+fn imported(conn: &Connection, account_id: i64) {
+    let profile_id = create_import_profile(
+        conn,
+        CreateImportProfileParams {
+            name: "Bank export".to_owned(),
+            column_mapping_json: "{}".to_owned(),
+            rules: vec![],
+        },
+    )
+    .unwrap();
+    set_preferred_profile(
+        conn,
+        SetPreferredProfileParams {
+            account_id,
+            profile_id: Some(profile_id),
+        },
+    )
+    .unwrap();
+}
+
+fn days_ago(days: i64) -> String {
+    (chrono::Local::now().date_naive() - chrono::Duration::days(days)).to_string()
+}
+
+#[test]
+fn the_import_hint_shows_on_an_imported_account_whose_newest_row_is_4_days_old() {
+    let conn = initialize_in_memory().unwrap();
+    let stale = account_at_10_000(&conn);
+    let fresh = account_at_10_000(&conn);
+    let never_imported = account_at_10_000(&conn);
+    imported(&conn, stale);
+    imported(&conn, fresh);
+    for (account, newest) in [(stale, 4), (fresh, 3), (never_imported, 30)] {
+        cashflow(&conn, account, -100, &days_ago(newest), AFTER_THE_CHECK);
+        cashflow(&conn, account, 100, &days_ago(-1), AFTER_THE_CHECK);
+    }
+
+    assert_eq!(
+        causes(&conn, stale, 10_000, 10_000).unwrap(),
+        vec![DifferenceCause::StaleImport {
+            newest_day: Some(days_ago(4))
+        }]
+    );
+    assert_eq!(causes(&conn, fresh, 10_000, 10_000).unwrap(), vec![]);
+    assert_eq!(
+        causes(&conn, never_imported, 10_000, 10_000).unwrap(),
+        vec![]
+    );
+}
+
+#[test]
+fn the_import_hint_shows_on_an_imported_account_with_no_rows() {
+    let conn = initialize_in_memory().unwrap();
+    let account = account_at_10_000(&conn);
+    imported(&conn, account);
+
+    assert_eq!(
+        causes(&conn, account, 10_000, 10_000).unwrap(),
+        vec![DifferenceCause::StaleImport { newest_day: None }]
+    );
+}
+
+fn leg(amount_minor: i64) -> SplitGroupEntry {
+    SplitGroupEntry {
+        amount_minor,
+        event_date: "2026-11-12T12:00:00".to_owned(),
+        note: None,
+        counterpart_account_id: None,
+        bucket_id: None,
+        original_currency_id: None,
+        original_amount_minor: None,
+        fx_rate_mantissa: None,
+        fx_rate_exponent: None,
+    }
+}
+
+#[test]
+fn a_split_group_is_one_cause_and_deleting_it_closes_the_gap() {
+    let conn = initialize_in_memory().unwrap();
+    let account = account_at_10_000(&conn);
+    let split_group_id = create_split_group_with_legs(
+        &conn,
+        CreateSplitGroupWithLegsParams {
+            account_id: account,
+            group_note: Some("Groceries".to_owned()),
+            legs: vec![leg(-1_000), leg(-250)],
+        },
+    )
+    .unwrap();
+
+    assert_eq!(
+        causes(&conn, account, 8_750, 10_000).unwrap(),
+        vec![DifferenceCause::EqualsGap {
+            row: SuspectRow {
+                target: RowTarget::SplitGroup {
+                    split_group_id,
+                    parts: 2
+                },
+                event_date: "2026-11-12T12:00:00".to_owned(),
+                amount_minor: -1_250,
+                note: Some("Groceries".to_owned()),
+                counterpart_name: None,
+            }
+        }]
+    );
+
+    delete_split_group_inner(&conn, split_group_id).unwrap();
+
+    assert_eq!(live_balance(&conn, account), 10_000);
+}
+
+#[test]
+fn deleting_a_near_copy_or_flipping_a_sign_closes_the_gap() {
+    let conn = initialize_in_memory().unwrap();
+    let account = account_at_10_000(&conn);
+    let original = cashflow(
+        &conn,
+        account,
+        -1_250,
+        "2026-11-10T12:00:00",
+        BEFORE_THE_CHECK,
+    );
+    check(&conn, account, 8_750);
+    let copy = cashflow(
+        &conn,
+        account,
+        -1_250,
+        "2026-11-12T12:00:00",
+        AFTER_THE_CHECK,
+    );
+
+    assert_eq!(
+        causes(&conn, account, 7_500, 8_750).unwrap(),
+        vec![DifferenceCause::NearCopy {
+            row: suspect_row(copy, -1_250, "2026-11-12T12:00:00"),
+            copy_of: suspect_row(original, -1_250, "2026-11-10T12:00:00"),
+        }]
+    );
+    delete_event_inner(&conn, copy).unwrap();
+    assert_eq!(live_balance(&conn, account), 8_750);
+
+    let refund = cashflow(&conn, account, -500, "2026-11-13T12:00:00", AFTER_THE_CHECK);
+    let listed = causes(&conn, account, 8_250, 9_250).unwrap();
+    let [DifferenceCause::FlippedSign { row }] = listed.as_slice() else {
+        panic!("expected one flipped sign, got {listed:?}");
+    };
+    assert_eq!(*row, suspect_row(refund, -500, "2026-11-13T12:00:00"));
+    update_event(
+        &conn,
+        UpdateEventParams {
+            event_id: refund,
+            amount_minor: -row.amount_minor,
+            event_date: row.event_date.clone(),
+            note: row.note.clone(),
+        },
+    )
+    .unwrap();
+    assert_eq!(live_balance(&conn, account), 9_250);
+}
+
+#[test]
+fn causes_go_on_the_wire_in_camel_case() {
+    let cause = DifferenceCause::NearCopy {
+        row: SuspectRow {
+            target: RowTarget::SplitGroup {
+                split_group_id: 7,
+                parts: 2,
+            },
+            event_date: "2026-11-12T12:00:00".to_owned(),
+            amount_minor: -1_250,
+            note: None,
+            counterpart_name: Some("Lidl".to_owned()),
+        },
+        copy_of: SuspectRow {
+            target: RowTarget::UnexplainedDifference { event_id: 3 },
+            event_date: "2026-11-10T12:00:00".to_owned(),
+            amount_minor: -1_250,
+            note: Some("x".to_owned()),
+            counterpart_name: None,
+        },
+    };
+
+    assert_eq!(
+        serde_json::to_value(cause).unwrap(),
+        json!({
+            "kind": "nearCopy",
+            "row": {
+                "target": { "kind": "splitGroup", "splitGroupId": 7, "parts": 2 },
+                "eventDate": "2026-11-12T12:00:00",
+                "amountMinor": -1_250,
+                "note": null,
+                "counterpartName": "Lidl"
+            },
+            "copyOf": {
+                "target": { "kind": "unexplainedDifference", "eventId": 3 },
+                "eventDate": "2026-11-10T12:00:00",
+                "amountMinor": -1_250,
+                "note": "x",
+                "counterpartName": null
+            }
+        })
+    );
+    assert_eq!(
+        serde_json::to_value(DifferenceCause::StaleImport { newest_day: None }).unwrap(),
+        json!({ "kind": "staleImport", "newestDay": null })
+    );
 }

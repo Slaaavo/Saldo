@@ -1,3 +1,4 @@
+mod causes;
 mod checks;
 pub mod commands;
 pub mod models;

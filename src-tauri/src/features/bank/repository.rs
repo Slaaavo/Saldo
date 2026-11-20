@@ -1,8 +1,10 @@
+use rusqlite::types::Type;
 use rusqlite::{named_params, params, Connection, OptionalExtension};
 
+use super::causes::{CountedRow, FlowType};
 use crate::error::AppError;
 use crate::features::transactions::repository::balance_sql::{
-    balance_sql, latest_balance_update_sql,
+    balance_sql, counted_flow_sql, latest_balance_update_sql,
 };
 
 pub struct BalanceSeenByCheckParams {
@@ -28,6 +30,11 @@ pub struct InsertUnexplainedDifferenceParams {
     pub account_id: i64,
     pub amount_minor: i64,
     pub event_date: String,
+}
+
+pub struct NewestFlowDayParams {
+    pub account_id: i64,
+    pub on_or_before: String,
 }
 
 pub fn balance_seen_by_check(
@@ -119,4 +126,81 @@ pub fn insert_unexplained_difference(
         params![event_id, params.amount_minor, params.event_date],
     )?;
     Ok(event_id)
+}
+
+/// The rows the account's live balance counts, oldest first. A split leg's note is its group's
+/// note when the group has one.
+pub fn counted_flow_rows(conn: &Connection, account_id: i64) -> rusqlite::Result<Vec<CountedRow>> {
+    let counted = counted_flow_sql("?1", &|_, _| "1".to_owned(), "e", "ed");
+    let mut stmt = conn.prepare(&format!(
+        "SELECT e.id, e.event_type, e.split_group_id,
+                e.linked_event_id IS NOT NULL,
+                ed.original_amount_minor IS NOT NULL,
+                ed.amount_minor, ed.event_date,
+                CASE WHEN e.split_group_id IS NULL THEN ed.note ELSE COALESCE(sg.note, ed.note) END,
+                counter_a.name,
+                MAX(e.created_at, ed.created_at)
+         FROM event e
+         JOIN event_data ed ON ed.id = e.latest_data_id
+         LEFT JOIN split_group sg ON sg.id = e.split_group_id
+         LEFT JOIN account counter_a ON counter_a.id = ed.counterpart_account_id
+         WHERE {counted}
+         ORDER BY e.id"
+    ))?;
+    let rows = stmt.query_map(params![account_id], |row| {
+        let event_type: String = row.get(1)?;
+        Ok(CountedRow {
+            event_id: row.get(0)?,
+            flow: flow_type(&event_type)?,
+            split_group_id: row.get(2)?,
+            has_linked_event: row.get(3)?,
+            has_original_amount: row.get(4)?,
+            amount_minor: row.get(5)?,
+            event_date: row.get(6)?,
+            note: row.get(7)?,
+            counterpart_name: row.get(8)?,
+            changed_at: row.get(9)?,
+        })
+    })?;
+    rows.collect()
+}
+
+fn flow_type(event_type: &str) -> rusqlite::Result<FlowType> {
+    match event_type {
+        "cashflow" => Ok(FlowType::Cashflow),
+        "transfer" => Ok(FlowType::Transfer),
+        "unexplained_difference" => Ok(FlowType::UnexplainedDifference),
+        other => Err(rusqlite::Error::FromSqlConversionFailure(
+            1,
+            Type::Text,
+            format!("{other} is not a balance flow type").into(),
+        )),
+    }
+}
+
+/// The day of the account's newest live cash flow or transfer dated on or before `on_or_before`.
+pub fn newest_flow_day(
+    conn: &Connection,
+    params: NewestFlowDayParams,
+) -> rusqlite::Result<Option<String>> {
+    conn.query_row(
+        "SELECT MAX(substr(ed.event_date, 1, 10))
+         FROM event e
+         JOIN event_data ed ON ed.id = e.latest_data_id
+         WHERE e.account_id = ?1
+           AND e.deleted_at IS NULL
+           AND e.event_type IN ('cashflow', 'transfer')
+           AND substr(ed.event_date, 1, 10) <= ?2",
+        params![params.account_id, params.on_or_before],
+        |row| row.get(0),
+    )
+}
+
+/// Whether the account was imported from CSV before, which leaves it a preferred import profile.
+pub fn has_import_profile(conn: &Connection, account_id: i64) -> rusqlite::Result<bool> {
+    conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM account WHERE id = ?1 AND preferred_profile_id IS NOT NULL)",
+        params![account_id],
+        |row| row.get(0),
+    )
 }

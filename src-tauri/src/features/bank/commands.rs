@@ -2,10 +2,12 @@ use rusqlite::Connection;
 use serde::Deserialize;
 use tauri::State;
 
+use super::causes;
 use super::checks::verification_of;
-use super::models::{BookedDifference, Verification};
+use super::models::{BookedDifference, DifferenceCause, Verification};
 use super::repository::{
     self, BalanceSeenByCheckParams, InsertCheckParams, InsertUnexplainedDifferenceParams,
+    NewestFlowDayParams,
 };
 use crate::error::AppError;
 use crate::features::accounts::repository::get_account_type;
@@ -22,6 +24,14 @@ pub struct ConfirmBankMatchInput {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BookUnexplainedDifferenceInput {
+    pub account_id: i64,
+    pub bank_balance_minor: i64,
+    pub seen_balance_minor: i64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FindDifferenceCausesInput {
     pub account_id: i64,
     pub bank_balance_minor: i64,
     pub seen_balance_minor: i64,
@@ -51,6 +61,15 @@ pub fn delete_balance_check(state: State<'_, AppState>, check_id: i64) -> Result
     delete_balance_check_inner(&conn, check_id)
 }
 
+#[tauri::command]
+pub fn find_difference_causes(
+    state: State<'_, AppState>,
+    input: FindDifferenceCausesInput,
+) -> Result<Vec<DifferenceCause>, AppError> {
+    let conn = state.conn()?;
+    find_difference_causes_inner(&conn, input)
+}
+
 pub(crate) fn confirm_bank_match_inner(
     conn: &Connection,
     input: ConfirmBankMatchInput,
@@ -72,11 +91,7 @@ pub(crate) fn book_unexplained_difference_inner(
     conn: &Connection,
     input: BookUnexplainedDifferenceInput,
 ) -> Result<BookedDifference, AppError> {
-    if input.bank_balance_minor.abs() > MAX_AMOUNT_MINOR {
-        return Err(validation(
-            "The bank balance is larger than Saldo can store.",
-        ));
-    }
+    check_bank_balance(input.bank_balance_minor)?;
     with_savepoint_app(conn, || {
         let live = live_balance_as_seen(conn, input.account_id, input.seen_balance_minor)?;
         let amount_minor = input.bank_balance_minor - live.balance_minor;
@@ -126,6 +141,43 @@ fn entry_date(conn: &Connection, account_id: i64) -> Result<String, AppError> {
 
 pub(crate) fn delete_balance_check_inner(conn: &Connection, check_id: i64) -> Result<(), AppError> {
     repository::delete_check(conn, check_id)
+}
+
+pub(crate) fn find_difference_causes_inner(
+    conn: &Connection,
+    input: FindDifferenceCausesInput,
+) -> Result<Vec<DifferenceCause>, AppError> {
+    check_bank_balance(input.bank_balance_minor)?;
+    let live = live_balance_as_seen(conn, input.account_id, input.seen_balance_minor)?;
+    let today = chrono::Local::now().date_naive();
+    let stale_import = if repository::has_import_profile(conn, input.account_id)? {
+        let newest_day = repository::newest_flow_day(
+            conn,
+            NewestFlowDayParams {
+                account_id: input.account_id,
+                on_or_before: today.to_string(),
+            },
+        )?;
+        causes::stale_import(newest_day, today)
+    } else {
+        None
+    };
+    let since = repository::newest_check(conn, input.account_id)?.map(|check| check.checked_at);
+    Ok(causes::find_causes(
+        input.bank_balance_minor - live.balance_minor,
+        repository::counted_flow_rows(conn, input.account_id)?,
+        since.as_deref(),
+        stale_import,
+    ))
+}
+
+fn check_bank_balance(bank_balance_minor: i64) -> Result<(), AppError> {
+    if bank_balance_minor.abs() > MAX_AMOUNT_MINOR {
+        return Err(validation(
+            "The bank balance is larger than Saldo can store.",
+        ));
+    }
+    Ok(())
 }
 
 struct LiveBalance {

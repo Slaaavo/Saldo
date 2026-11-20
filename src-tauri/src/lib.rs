@@ -318,6 +318,7 @@ pub fn run() {
             features::confirm_bank_match,
             features::book_unexplained_difference,
             features::delete_balance_check,
+            features::find_difference_causes,
         ])
         .run(tauri_context())
         .expect("error while running tauri application");
