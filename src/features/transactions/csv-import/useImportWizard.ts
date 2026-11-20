@@ -218,7 +218,6 @@ export const useImportWizard = (params: { snapshot: SnapshotRow[]; preselectedAc
     [snapshot, t],
   )
 
-  // Once on mount; a later snapshot refresh must not pick the account again and reset the profile.
   useEffect(() => {
     const accountId = preselectedAccountIdRef.current
     if (accountId === undefined) return

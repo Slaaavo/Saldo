@@ -21,8 +21,7 @@ const useRefreshAfterCheck = () => {
   return async () => {
     await queryClient.invalidateQueries({ queryKey: ['snapshot'] })
     await queryClient.invalidateQueries({ queryKey: ['events'] })
-    // Not refetched: a list on screen was asked with the old seen balance and would fail with CHECK_CHANGED. Its key holds that balance, so the next ask fetches anew.
-    await queryClient.invalidateQueries({ queryKey: ['bank-check-causes'], refetchType: 'none' })
+    queryClient.removeQueries({ queryKey: ['bank-check-causes'] })
   }
 }
 
@@ -36,7 +35,6 @@ const fixCause = (cause: RowCause): Promise<void> => {
   return deleteRow(cause.row.target)
 }
 
-/** Runs a cause's fix: deletes its row (a whole transfer or split group) or flips a cash flow's sign. */
 export const useFixDifferenceCause = () => {
   const { t } = useTranslation()
   const refresh = useRefreshAfterCheck()

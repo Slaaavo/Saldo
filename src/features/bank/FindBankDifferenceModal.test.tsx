@@ -7,7 +7,7 @@ import { toast } from 'sonner'
 import FindBankDifferenceModal from './FindBankDifferenceModal'
 import { makeRow } from '@/shared/testing/snapshotFixtures'
 import { bookUnexplainedDifference, confirmBankMatch, deleteEvent, deleteSplitGroup, findDifferenceCauses, updateEvent } from '@/shared/api'
-import type { DifferenceCause, RowTarget, SuspectRow } from '@/shared/types'
+import type { BankLine, DifferenceCause, RowTarget } from '@/shared/types'
 
 vi.mock('react-i18next', async () => {
   const { i18nMock, translate } = await import('@/shared/testing/i18nMock')
@@ -141,12 +141,12 @@ describe('FindBankDifferenceModal', () => {
   })
 })
 
-const suspect = <Target extends RowTarget>(
+const bankLine = <Target extends RowTarget>(
   target: Target,
   amountMinor: number,
   eventDate: string,
-  labels: Partial<Pick<SuspectRow, 'note' | 'counterpartName'>> = {},
-): SuspectRow<Target> => ({
+  labels: Partial<Pick<BankLine, 'note' | 'counterpartName'>> = {},
+): BankLine<Target> => ({
   target,
   eventDate,
   amountMinor,
@@ -155,9 +155,9 @@ const suspect = <Target extends RowTarget>(
   ...labels,
 })
 
-const copy = suspect({ kind: 'cashflow', eventId: 42 }, -1250, '2026-11-12T12:00:00', { note: 'Lidl' })
-const original = suspect({ kind: 'cashflow', eventId: 41 }, -1250, '2026-11-10T12:00:00', { note: 'Lidl' })
-const wrongSign = suspect({ kind: 'cashflow', eventId: 43 }, -625, '2026-11-13T09:30:00', { note: 'Refund' })
+const copy = bankLine({ kind: 'cashflow', eventId: 42 }, -1250, '2026-11-12T12:00:00', { note: 'Lidl' })
+const original = bankLine({ kind: 'cashflow', eventId: 41 }, -1250, '2026-11-10T12:00:00', { note: 'Lidl' })
+const wrongSign = bankLine({ kind: 'cashflow', eventId: 43 }, -625, '2026-11-13T09:30:00', { note: 'Refund' })
 
 const listCauses = (causes: DifferenceCause[]) => (findDifferenceCauses as Mock).mockResolvedValue(causes)
 
@@ -216,8 +216,8 @@ describe('FindBankDifferenceModal causes', () => {
   })
 
   it('says a transfer leaves both accounts and a split group goes with all its parts', async () => {
-    const transfer = suspect({ kind: 'transfer', eventId: 50 }, -1250, '2026-11-12T08:00:00', { counterpartName: 'Savings' })
-    const split = suspect({ kind: 'splitGroup', splitGroupId: 9, parts: 3 }, -1250, '2026-11-11T08:00:00', { note: 'Groceries' })
+    const transfer = bankLine({ kind: 'transfer', eventId: 50 }, -1250, '2026-11-12T08:00:00', { counterpartName: 'Savings' })
+    const split = bankLine({ kind: 'splitGroup', splitGroupId: 9, parts: 3 }, -1250, '2026-11-11T08:00:00', { note: 'Groceries' })
     listCauses([
       { kind: 'equalsGap', row: transfer },
       { kind: 'equalsGap', row: split },

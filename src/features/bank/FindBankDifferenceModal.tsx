@@ -31,14 +31,15 @@ const FindBankDifferenceModal = ({ row, onClose }: Props) => {
   const confirmMatch = useConfirmBankMatch()
   const book = useBookUnexplainedDifference()
 
-  const bankBalanceMinor = bankBalance.trim() ? toMinorUnits(bankBalance, row.currencyMinorUnits) : NaN
-  const differenceMinor = Number.isFinite(bankBalanceMinor) ? bankBalanceMinor - row.balanceMinor : null
+  const parsedMinor = toMinorUnits(bankBalance, row.currencyMinorUnits)
+  const bankBalanceMinor = Number.isFinite(parsedMinor) ? parsedMinor : null
+  const differenceMinor = bankBalanceMinor === null ? null : bankBalanceMinor - row.balanceMinor
   const causes = useDifferenceCauses(row.accountId, bankBalanceMinor, row.balanceMinor)
   const pending = confirmMatch.isPending || book.isPending
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    if (differenceMinor === null || pending) return
+    if (bankBalanceMinor === null || pending) return
     const seen = { accountId: row.accountId, seenBalanceMinor: row.balanceMinor }
     if (differenceMinor === 0) {
       confirmMatch.mutate(seen, { onSuccess: onClose })

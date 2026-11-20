@@ -13,7 +13,13 @@ let queryClient: QueryClient
 
 const Providers = ({ children }: { children: ReactNode }) => <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
 
-const renderCauses = () => renderHook(({ typed }: { typed: number }) => useDifferenceCauses(7, typed, SEEN), { wrapper: Providers, initialProps: { typed: NaN } })
+interface Typed {
+  typed: number | null
+}
+
+const nothingTyped: Typed = { typed: null }
+
+const renderCauses = () => renderHook(({ typed }: Typed) => useDifferenceCauses(7, typed, SEEN), { wrapper: Providers, initialProps: nothingTyped })
 
 beforeEach(() => {
   vi.clearAllMocks()

@@ -294,7 +294,6 @@ export const deleteBalanceCheck = (checkId: number): Promise<void> => {
   return invoke<void>('delete_balance_check', { checkId })
 }
 
-/** The likely causes of the gap between the bank's balance and Saldo's, each closing the whole gap when fixed. Fails with `CHECK_CHANGED` like the checks. */
 export const findDifferenceCauses = (accountId: number, bankBalanceMinor: number, seenBalanceMinor: number): Promise<DifferenceCause[]> => {
   return invoke<DifferenceCause[]>('find_difference_causes', { input: { accountId, bankBalanceMinor, seenBalanceMinor } })
 }

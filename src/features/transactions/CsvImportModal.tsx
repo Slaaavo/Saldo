@@ -10,7 +10,6 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogBody } from '..
 
 interface CsvImportModalProps {
   snapshot: SnapshotRow[]
-  /** The account picked when the dialog opens, as if the user picked it. */
   preselectedAccountId?: number
   onClose: () => void
   onSuccess: () => Promise<void>

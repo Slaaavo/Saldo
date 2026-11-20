@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Trans, useTranslation } from 'react-i18next'
-import type { DifferenceCause, RowTarget, SnapshotRow, SuspectRow } from '@/shared/types'
+import type { BankLine, DifferenceCause, RowTarget, SnapshotRow } from '@/shared/types'
 import { useModal } from '@/app/useModal'
 import { Button } from '@/shared/ui/button'
 import ConfirmDialog from '@/shared/ui/ConfirmDialog'
@@ -34,7 +34,7 @@ const isStaleImport = (cause: DifferenceCause): cause is StaleImportCause => cau
 
 const dayOf = (date: string, language: string) => formatShortDay(date.slice(0, 10), language)
 
-const rowLabel = (suspect: SuspectRow, language: string) => [dayOf(suspect.eventDate, language), suspect.note ?? suspect.counterpartName].filter(Boolean).join(' · ')
+const rowLabel = (line: BankLine, language: string) => [dayOf(line.eventDate, language), line.note ?? line.counterpartName].filter(Boolean).join(' · ')
 
 const causeKey = (cause: RowCause) => {
   const { target } = cause.row
@@ -97,7 +97,6 @@ const FixMessage = ({ cause, row }: { cause: RowCause; row: SnapshotRow }) => {
   return <Trans i18nKey={DELETE_MESSAGES[target.kind]} values={values} components={{ amount: <Money row={row} value={amountMinor} /> }} />
 }
 
-/** The likely causes of a gap, each with the one fix that closes it. The fixes run after a confirm and leave the dialog open. */
 const DifferenceCauses = ({ row, causes }: Props) => {
   const { t } = useTranslation()
   const fix = useFixDifferenceCause()
