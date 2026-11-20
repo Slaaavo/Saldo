@@ -86,6 +86,8 @@ Updates an existing event's amount, date, and note. A trigger refuses an unexpla
 - **BE command:** `update_event` → `src-tauri/src/features/transactions/commands.rs`
 - **Used in:**
   - `src/app/useModalActions.ts` (useModalActions hook)
+  - `src/features/bank/useBankCheckMutations.ts` (useFixDifferenceCause hook)
+    - → `src/features/bank/DifferenceCauses.tsx` (Flip the sign, with the negated amount and the same date and note)
 
 ### `deleteEvent`
 
@@ -94,6 +96,8 @@ Deletes an event by ID.
 - **BE command:** `delete_event` → `src-tauri/src/features/transactions/commands.rs`
 - **Used in:**
   - `src/app/useModalActions.ts` (useModalActions hook)
+  - `src/features/bank/useBankCheckMutations.ts` (useFixDifferenceCause hook)
+    - → `src/features/bank/DifferenceCauses.tsx` (Delete this copy, Delete this row: a cash flow, a transfer with both legs, an unexplained difference)
 
 ### `getEventById`
 
@@ -159,6 +163,8 @@ Deletes a split group and all its legs.
 - **Used in:**
   - `src/app/useModalActions.ts` (useModalActions hook)
     - → `src/app/AppModals.tsx` (AppModals)
+  - `src/features/bank/useBankCheckMutations.ts` (useFixDifferenceCause hook)
+    - → `src/features/bank/DifferenceCauses.tsx` (Delete this copy, Delete this row on a split group)
 
 ### `createTaxableEvent`
 
@@ -368,6 +374,15 @@ Deletes a check by id. Undo in the Matches bank toast calls it. Refuses an unkno
 - **BE command:** `delete_balance_check` → `src-tauri/src/features/bank/commands.rs`
 - **Used in:**
   - `src/features/bank/useBankCheckMutations.ts` (useConfirmBankMatch hook, the toast's Undo)
+
+### `findDifferenceCauses`
+
+Lists the likely causes of the gap between the typed bank balance and Saldo's live balance. Takes `{ accountId, bankBalanceMinor, seenBalanceMinor }` and returns `DifferenceCause[]`: the import hint (`staleImport`) first, then near-copies, flipped signs and rows equal to the gap, newest first and at most 5 of each. Every row cause closes the whole gap when its fix runs, and names its `target` (a cash flow, a transfer, an unexplained difference or a whole split group). With no gap it returns only the import hint. Refuses with `CHECK_CHANGED` when the live balance moved since the user looked, `VALIDATION` for a bank balance larger than Saldo can store or an account that is not own, and `NOT_FOUND` for an unknown account.
+
+- **BE command:** `find_difference_causes` → `src-tauri/src/features/bank/commands.rs`
+- **Used in:**
+  - `src/features/bank/useDifferenceCauses.ts` (useDifferenceCauses hook, query key `['bank-check-causes', accountId, bankBalanceMinor, seenBalanceMinor]`, asked once typing pauses for 300 ms)
+    - → `src/features/bank/FindBankDifferenceModal.tsx` (FindBankDifferenceModal, rendered by `DifferenceCauses.tsx`)
 
 ---
 
@@ -705,6 +720,7 @@ Gets the CSV import profile preferred for a specific account.
 - **BE command:** `get_preferred_profile` → `src-tauri/src/features/csv_profiles/commands.rs`
 - **Used in:**
   - `src/features/transactions/csv-import/useImportWizard.ts` (useImportWizard hook → CsvImportModal)
+    - also on open, for the account in the `csvImport` modal state's `preselectedAccountId`, which the import hint in `src/features/bank/DifferenceCauses.tsx` sets
 
 ### `setPreferredProfile`
 
