@@ -24,15 +24,7 @@ pub(crate) fn latest_balance_update_sql(
 /// The account's balance under the predicate `visible(event_alias, event_data_alias)`.
 pub(crate) fn balance_sql(account: &str, visible: impl Fn(&str, &str) -> String) -> String {
     let anchor_amount = latest_balance_update_sql(account, &visible, "amount_minor");
-    let anchor_date = anchor_sql(account, &visible, "ed3.event_date", "e3", "ed3");
-    let anchor_moment = anchor_sql(
-        account,
-        &visible,
-        "ed3.event_date, e3.created_at, e3.id",
-        "e3",
-        "ed3",
-    );
-    let flow_visible = visible("e2", "ed2");
+    let counted = counted_flow_sql(account, &visible, "e2", "ed2");
     format!(
         "COALESCE(
            {anchor_amount},
@@ -41,18 +33,41 @@ pub(crate) fn balance_sql(account: &str, visible: impl Fn(&str, &str) -> String)
            (SELECT SUM(ed2.amount_minor)
             FROM event e2
             JOIN event_data ed2 ON ed2.id = e2.latest_data_id
-            WHERE e2.account_id = {account}
-              AND e2.deleted_at IS NULL
-              AND e2.event_type IN ({BALANCE_FLOW_TYPES})
+            WHERE {counted}),
+           0
+         )"
+    )
+}
+
+/// The condition that the flow row `e` (with its current `event_data` row `ed`) counts in the
+/// account's balance under `visible`: one of `BALANCE_FLOW_TYPES` on the account, not deleted,
+/// visible, and after the account's latest visible balance update.
+pub(crate) fn counted_flow_sql(
+    account: &str,
+    visible: &impl Fn(&str, &str) -> String,
+    e: &str,
+    ed: &str,
+) -> String {
+    let anchor_date = anchor_sql(account, visible, "ed3.event_date", "e3", "ed3");
+    let anchor_moment = anchor_sql(
+        account,
+        visible,
+        "ed3.event_date, e3.created_at, e3.id",
+        "e3",
+        "ed3",
+    );
+    let flow_visible = visible(e, ed);
+    format!(
+        "{e}.account_id = {account}
+              AND {e}.deleted_at IS NULL
+              AND {e}.event_type IN ({BALANCE_FLOW_TYPES})
               AND ({flow_visible})
-              AND (ed2.event_date > COALESCE(
+              AND ({ed}.event_date > COALESCE(
                      {anchor_date},
                      ''
                    )
-                   OR (e2.event_type = 'unexplained_difference'
-                       AND (ed2.event_date, e2.created_at, e2.id) > {anchor_moment}))),
-           0
-         )"
+                   OR ({e}.event_type = 'unexplained_difference'
+                       AND ({ed}.event_date, {e}.created_at, {e}.id) > {anchor_moment}))"
     )
 }
 
