@@ -138,6 +138,13 @@ fn verified(check_id: i64) -> Option<Verification> {
     })
 }
 
+fn verified_today(check_id: i64) -> Option<Verification> {
+    Some(Verification::Verified {
+        check_id,
+        day: crate::shared::local_now(),
+    })
+}
+
 fn differs(check_id: i64, difference_minor: i64) -> Option<Verification> {
     Some(Verification::Differs {
         check_id,
@@ -670,7 +677,10 @@ fn booking_after_a_later_balance_update_dates_the_entry_at_it() {
         unexplained_entry_dates(&conn, account),
         vec!["2099-01-01".to_owned()]
     );
-    assert_eq!(verification(&conn, account), verified(booked.check_id));
+    assert_eq!(
+        verification(&conn, account),
+        verified_today(booked.check_id)
+    );
     assert_eq!(row_of(&live(&conn), account).balance_minor, 11_250);
 }
 
@@ -684,7 +694,10 @@ fn booking_on_a_day_with_a_balance_update_at_23_59_counts_the_entry() {
         vec![format!("{tomorrow}T23:59:00")],
         "the entry shares the picker's 23:59 balance update and counts because it came later"
     );
-    assert_eq!(verification(&conn, account), verified(booked.check_id));
+    assert_eq!(
+        verification(&conn, account),
+        verified_today(booked.check_id)
+    );
     assert_eq!(row_of(&live(&conn), account).balance_minor, 11_250);
 }
 
