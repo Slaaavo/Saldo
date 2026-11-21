@@ -31,10 +31,8 @@ import type {
 } from '../types'
 import { isBreakingChecksError } from '../utils/errors'
 
-/** Asks the user whether a change may turn these ✓ Verified checks to differs. Resolves to `true` to make the change anyway. */
 export type AskToBreakChecks = (checks: BrokenCheck[]) => Promise<boolean>
 
-/** The user kept a ✓ Verified check by declining a change that would break it. Nothing was written. */
 export class ChangeDeclined extends Error {
   constructor() {
     super('The change was declined to keep a verified bank check.')
@@ -42,7 +40,6 @@ export class ChangeDeclined extends Error {
   }
 }
 
-/** For writers that never ask, such as CSV import: a late bank row is meant to make a check differ. */
 export const allowBreakingChecks: AskToBreakChecks = async () => true
 
 const invokeGuarded = async <T>(command: string, args: Record<string, unknown>, ask: AskToBreakChecks): Promise<T> => {

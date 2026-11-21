@@ -88,7 +88,6 @@ pub fn newest_check(conn: &Connection, account_id: i64) -> rusqlite::Result<Opti
     .optional()
 }
 
-/// Own accounts with at least one check, in the dashboard's order.
 pub fn checked_accounts(conn: &Connection) -> rusqlite::Result<Vec<CheckedAccount>> {
     let mut stmt = conn.prepare(
         "SELECT a.id, a.name, c.code, c.minor_units

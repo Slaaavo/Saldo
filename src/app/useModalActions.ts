@@ -58,7 +58,6 @@ export const useModalActions = ({ closeModal, onFxRatePrompt }: UseModalActionsO
     }
   }
 
-  // The balance-update handlers let a failed or declined save reach the modal, which re-enables its Save button and reports a failure.
   const handleCreateBalanceUpdate = async (accountId: number, amountMinor: number, eventDate: string, note: string): Promise<void> => {
     await createBalanceUpdate(accountId, amountMinor, eventDate, note || null, ask)
     closeModal()

@@ -24,14 +24,12 @@ impl From<bool> for BreakingChecks {
     }
 }
 
-/// A verified check that a write would make differ.
 #[derive(Debug, Serialize, Clone, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct BrokenCheck {
     pub account_id: i64,
     pub account_name: String,
     pub day: String,
-    /// The bank's balance minus Saldo's side of the check after the write.
     pub difference_minor: i64,
     pub currency_code: String,
     pub currency_minor_units: i64,
@@ -73,8 +71,6 @@ impl Serialize for WriteError {
     }
 }
 
-/// Runs `write` in one savepoint and, unless the caller allows it, rolls it back when it turns an
-/// account whose newest check matched into one whose check differs.
 pub(crate) fn guard_verified_checks<T>(
     conn: &Connection,
     breaking: BreakingChecks,
