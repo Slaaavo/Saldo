@@ -4,7 +4,9 @@ use std::collections::{BTreeMap, HashSet};
 
 use chrono::NaiveDate;
 
-use super::models::{BankLine, CashflowTarget, DifferenceCause, RowTarget};
+use super::models::{
+    BankLine, CashflowTarget, DifferenceCause, RowTarget, UnexplainedDifferenceTarget,
+};
 
 const NEAR_COPY_DAYS: i64 = 5;
 const STALE_IMPORT_DAYS: i64 = 3;
@@ -61,7 +63,14 @@ pub(crate) fn find_causes(
         Some(amount) => amount,
     };
 
-    let lines = counted_lines(rows);
+    let (booked, lines): (Vec<CountedLine>, Vec<CountedLine>) = counted_lines(rows)
+        .into_iter()
+        .partition(|counted| counted.booked_difference().is_some());
+    let mut explained: Vec<(&CountedLine, BankLine<UnexplainedDifferenceTarget>)> = booked
+        .iter()
+        .filter(|counted| counted.line.amount_minor == closing_amount)
+        .filter_map(|counted| Some((counted, counted.booked_difference()?)))
+        .collect();
     let is_suspect =
         |counted: &CountedLine| since.is_none_or(|since| counted.changed_at.as_str() > since);
 
@@ -94,10 +103,17 @@ pub(crate) fn find_causes(
         .filter_map(|counted| Some((counted, counted.flippable()?)))
         .collect();
 
+    explained.sort_by(|a, b| newest_first(a.0, b.0));
     near_copies.sort_by(|a, b| newest_first(a.0, b.0));
     flipped.sort_by(|a, b| newest_first(a.0, b.0));
     equals_gap.sort_by(|a, b| newest_first(a, b));
 
+    causes.extend(
+        explained
+            .into_iter()
+            .take(MAX_PER_KIND)
+            .map(|(_, row)| DifferenceCause::BookedDifferenceExplained { row }),
+    );
     causes.extend(
         near_copies
             .into_iter()
@@ -142,15 +158,28 @@ impl CountedLine {
             RowTarget::Cashflow { event_id }
                 if !self.has_linked_event && !self.has_original_amount =>
             {
-                Some(BankLine {
-                    target: CashflowTarget::Cashflow { event_id },
-                    event_date: self.line.event_date.clone(),
-                    amount_minor: self.line.amount_minor,
-                    note: self.line.note.clone(),
-                    counterpart_name: self.line.counterpart_name.clone(),
-                })
+                Some(self.line_with(CashflowTarget::Cashflow { event_id }))
             }
             _ => None,
+        }
+    }
+
+    fn booked_difference(&self) -> Option<BankLine<UnexplainedDifferenceTarget>> {
+        match self.line.target {
+            RowTarget::UnexplainedDifference { event_id } => Some(
+                self.line_with(UnexplainedDifferenceTarget::UnexplainedDifference { event_id }),
+            ),
+            _ => None,
+        }
+    }
+
+    fn line_with<T>(&self, target: T) -> BankLine<T> {
+        BankLine {
+            target,
+            event_date: self.line.event_date.clone(),
+            amount_minor: self.line.amount_minor,
+            note: self.line.note.clone(),
+            counterpart_name: self.line.counterpart_name.clone(),
         }
     }
 }
@@ -272,6 +301,28 @@ mod tests {
             note: Some(format!("row {event_id}")),
             counterpart_name: None,
             changed_at: changed_at.to_owned(),
+        }
+    }
+
+    fn booked(event_id: i64, amount_minor: i64, day: &str, changed_at: &str) -> CountedRow {
+        CountedRow {
+            flow: FlowType::UnexplainedDifference,
+            note: None,
+            ..cashflow(event_id, amount_minor, day, changed_at)
+        }
+    }
+
+    fn explained(event_id: i64, amount_minor: i64, day: &str) -> DifferenceCause {
+        DifferenceCause::BookedDifferenceExplained {
+            row: BankLine {
+                note: None,
+                ..bank_line(
+                    UnexplainedDifferenceTarget::UnexplainedDifference { event_id },
+                    amount_minor,
+                    day,
+                    "",
+                )
+            },
         }
     }
 
@@ -515,12 +566,56 @@ mod tests {
     }
 
     #[test]
-    fn the_import_hint_comes_first_then_copies_flipped_signs_and_rows_equal_to_the_gap() {
+    fn a_booked_difference_that_closes_the_gap_is_listed_even_when_booked_before_the_check() {
+        let rows = vec![
+            booked(1, -GAP, "2026-11-12", BEFORE),
+            cashflow(2, -GAP, "2026-11-11", AFTER),
+        ];
+
+        assert_eq!(
+            causes_of(GAP, rows),
+            vec![
+                explained(1, -GAP, "2026-11-12"),
+                DifferenceCause::EqualsGap {
+                    row: row(2, -GAP, "2026-11-11")
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn a_booked_difference_of_another_amount_is_not_listed() {
+        let rows = vec![booked(1, -3_000, "2026-11-12", AFTER)];
+
+        assert_eq!(causes_of(GAP, rows), vec![]);
+    }
+
+    #[test]
+    fn an_unexplained_difference_is_never_a_copy_a_flipped_sign_or_a_row_equal_to_the_gap() {
+        let rows = vec![
+            booked(1, -GAP, "2026-11-12", AFTER),
+            booked(2, -2 * GAP, "2026-11-12", AFTER),
+            booked(3, -2 * GAP, "2026-11-10", AFTER),
+        ];
+
+        assert_eq!(
+            causes_of(2 * GAP, rows),
+            vec![
+                explained(2, -2 * GAP, "2026-11-12"),
+                explained(3, -2 * GAP, "2026-11-10"),
+            ]
+        );
+    }
+
+    #[test]
+    fn the_hint_comes_first_then_booked_differences_copies_flipped_signs_and_rows_equal_to_the_gap()
+    {
         let rows = vec![
             cashflow(1, -2 * GAP, "2026-11-01", BEFORE),
             cashflow(2, -2 * GAP, "2026-11-03", AFTER),
             cashflow(3, -GAP, "2026-11-10", AFTER),
             cashflow(4, -2 * GAP, "2026-11-20", AFTER),
+            booked(5, -2 * GAP, "2026-10-01", BEFORE),
         ];
         let hint = StaleImport {
             newest_day: Some("2026-11-12".to_owned()),
@@ -532,6 +627,7 @@ mod tests {
                 DifferenceCause::StaleImport {
                     newest_day: Some("2026-11-12".to_owned())
                 },
+                explained(5, -2 * GAP, "2026-10-01"),
                 DifferenceCause::NearCopy {
                     row: row(2, -2 * GAP, "2026-11-03"),
                     copy_of: row(1, -2 * GAP, "2026-11-01"),

@@ -34,10 +34,22 @@ pub struct BookedDifference {
     rename_all_fields = "camelCase"
 )]
 pub enum DifferenceCause {
-    StaleImport { newest_day: Option<String> },
-    NearCopy { row: BankLine, copy_of: BankLine },
-    EqualsGap { row: BankLine },
-    FlippedSign { row: BankLine<CashflowTarget> },
+    StaleImport {
+        newest_day: Option<String>,
+    },
+    BookedDifferenceExplained {
+        row: BankLine<UnexplainedDifferenceTarget>,
+    },
+    NearCopy {
+        row: BankLine,
+        copy_of: BankLine,
+    },
+    EqualsGap {
+        row: BankLine,
+    },
+    FlippedSign {
+        row: BankLine<CashflowTarget>,
+    },
 }
 
 #[derive(Debug, Serialize, Clone, PartialEq, Eq)]
@@ -71,4 +83,14 @@ pub enum RowTarget {
 )]
 pub enum CashflowTarget {
     Cashflow { event_id: i64 },
+}
+
+#[derive(Debug, Serialize, Clone, Copy, PartialEq, Eq)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum UnexplainedDifferenceTarget {
+    UnexplainedDifference { event_id: i64 },
 }

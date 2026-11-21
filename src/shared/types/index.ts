@@ -284,11 +284,9 @@ export interface BookedDifference {
 
 export type CashflowTarget = { kind: 'cashflow'; eventId: number }
 
-export type RowTarget =
-  | CashflowTarget
-  | { kind: 'transfer'; eventId: number }
-  | { kind: 'unexplainedDifference'; eventId: number }
-  | { kind: 'splitGroup'; splitGroupId: number; parts: number }
+export type UnexplainedDifferenceTarget = { kind: 'unexplainedDifference'; eventId: number }
+
+export type RowTarget = CashflowTarget | { kind: 'transfer'; eventId: number } | UnexplainedDifferenceTarget | { kind: 'splitGroup'; splitGroupId: number; parts: number }
 
 export interface BankLine<Target extends RowTarget = RowTarget> {
   target: Target
@@ -300,6 +298,7 @@ export interface BankLine<Target extends RowTarget = RowTarget> {
 
 export type DifferenceCause =
   | { kind: 'staleImport'; newestDay: string | null }
+  | { kind: 'bookedDifferenceExplained'; row: BankLine<UnexplainedDifferenceTarget> }
   | { kind: 'nearCopy'; row: BankLine; copyOf: BankLine }
   | { kind: 'equalsGap'; row: BankLine }
   | { kind: 'flippedSign'; row: BankLine<CashflowTarget> }

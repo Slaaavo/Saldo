@@ -16,6 +16,7 @@ interface Props {
 }
 
 const FIX_BUTTONS: Record<RowCause['kind'], string> = {
+  bookedDifferenceExplained: 'bankCheck.causes.deleteBookedDifference',
   nearCopy: 'bankCheck.causes.deleteCopy',
   equalsGap: 'bankCheck.causes.deleteRow',
   flippedSign: 'bankCheck.causes.flipSign',
@@ -23,7 +24,7 @@ const FIX_BUTTONS: Record<RowCause['kind'], string> = {
 
 const DELETE_MESSAGES: Record<RowTarget['kind'], string> = {
   cashflow: 'bankCheck.causes.confirm.deleteRow',
-  unexplainedDifference: 'bankCheck.causes.confirm.deleteRow',
+  unexplainedDifference: 'bankCheck.causes.confirm.deleteBookedDifference',
   transfer: 'bankCheck.causes.confirm.deleteTransfer',
   splitGroup: 'bankCheck.causes.confirm.deleteSplitGroup',
 }
@@ -33,6 +34,12 @@ const isRowCause = (cause: DifferenceCause): cause is RowCause => cause.kind !==
 const isStaleImport = (cause: DifferenceCause): cause is StaleImportCause => cause.kind === 'staleImport'
 
 const dayOf = (date: string, language: string) => formatShortDay(date.slice(0, 10), language)
+
+const titleDay = (cause: RowCause) => {
+  if (cause.kind === 'nearCopy') return cause.copyOf.eventDate
+  if (cause.kind === 'bookedDifferenceExplained') return cause.row.eventDate
+  return null
+}
 
 const rowLabel = (line: BankLine, language: string) => [dayOf(line.eventDate, language), line.note ?? line.counterpartName].filter(Boolean).join(' · ')
 
@@ -60,7 +67,8 @@ const StaleImportLine = ({ cause, row }: { cause: StaleImportCause; row: Snapsho
 
 const CauseLine = ({ cause, row, onFix }: { cause: RowCause; row: SnapshotRow; onFix: () => void }) => {
   const { t, i18n } = useTranslation()
-  const title = cause.kind === 'nearCopy' ? t('bankCheck.causes.nearCopy', { day: dayOf(cause.copyOf.eventDate, i18n.language) }) : t(`bankCheck.causes.${cause.kind}`)
+  const day = titleDay(cause)
+  const title = day ? t(`bankCheck.causes.${cause.kind}`, { day: dayOf(day, i18n.language) }) : t(`bankCheck.causes.${cause.kind}`)
   return (
     <li className="flex items-center justify-between gap-3 rounded-md border px-3 py-2">
       <div className="flex min-w-0 flex-col">

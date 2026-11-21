@@ -39,6 +39,21 @@ describe('DifferenceCauses confirm', () => {
     })
   }
 
+  it('says a booked difference is explained now and names its day in the confirm', async () => {
+    renderCause(
+      {
+        kind: 'bookedDifferenceExplained',
+        row: { target: { kind: 'unexplainedDifference', eventId: 60 }, eventDate: '2026-11-14T10:00:00', amountMinor: -1250, note: null, counterpartName: null },
+      },
+      'en',
+    )
+
+    expect(screen.getByText('The difference booked on 14 Nov is explained now')).toBeInTheDocument()
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Delete the booked difference' }))
+
+    expect(screen.getByRole('dialog')).toHaveTextContent('Delete the unexplained difference of -12.50 EUR booked on 14 Nov?')
+  })
+
   it('names the row as the list does when flipping, in Slovak', async () => {
     renderCause({ kind: 'flippedSign', row: lineWithNote('Platba <VS 2026001>') }, 'sk')
 

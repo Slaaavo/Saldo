@@ -200,6 +200,33 @@ describe('FindBankDifferenceModal causes', () => {
     expect(screen.getByLabelText('bankCheck.dialog.bankBalance')).toHaveValue(1012.5)
   })
 
+  it('lists a booked difference the real row explains first and deletes it after a confirm, staying open', async () => {
+    const booked = bankLine({ kind: 'unexplainedDifference', eventId: 60 }, -1250, '2026-11-14T10:00:00')
+    const real = bankLine({ kind: 'cashflow', eventId: 61 }, -1250, '2026-11-13T12:00:00', { note: 'Card' })
+    listCauses([
+      { kind: 'bookedDifferenceExplained', row: booked },
+      { kind: 'equalsGap', row: real },
+    ])
+    ;(deleteEvent as Mock).mockResolvedValue(undefined)
+    const onClose = renderModal()
+
+    const user = await typeBankBalance('1012.50')
+    await screen.findByText('bankCheck.causes.title')
+    const [explained, equalsGap] = screen.getAllByRole('listitem')
+    expect(explained).toHaveTextContent('bankCheck.causes.bookedDifferenceExplained (day=14 Nov)14 Nov · -1250bankCheck.causes.deleteBookedDifference')
+    expect(equalsGap).toHaveTextContent('bankCheck.causes.equalsGap13 Nov · Card · -1250bankCheck.causes.deleteRow')
+    await user.click(screen.getByRole('button', { name: 'bankCheck.causes.deleteBookedDifference' }))
+
+    expect(confirmDialog('modals.confirm.deleteTitle')).toHaveTextContent('bankCheck.causes.confirm.deleteBookedDifference 14 Nov-1250')
+    await user.click(screen.getByRole('button', { name: 'common.delete' }))
+
+    await waitFor(() => expect(deleteEvent).toHaveBeenCalledWith(60))
+    expect(toast.success).toHaveBeenCalledWith('bankCheck.causes.deleted')
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'modals.confirm.deleteTitle' })).not.toBeInTheDocument())
+    expect(onClose).not.toHaveBeenCalled()
+    expect(screen.getByLabelText('bankCheck.dialog.bankBalance')).toHaveValue(1012.5)
+  })
+
   it('flips a sign with the same date and note after a confirm', async () => {
     listCauses([{ kind: 'flippedSign', row: wrongSign }])
     ;(updateEvent as Mock).mockResolvedValue(undefined)

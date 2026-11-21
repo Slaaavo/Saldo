@@ -8,7 +8,9 @@ use super::commands::{
     find_difference_causes_inner, BookUnexplainedDifferenceInput, ConfirmBankMatchInput,
     FindDifferenceCausesInput,
 };
-use super::models::{BankLine, CashflowTarget, DifferenceCause, RowTarget, Verification};
+use super::models::{
+    BankLine, CashflowTarget, DifferenceCause, RowTarget, UnexplainedDifferenceTarget, Verification,
+};
 use super::repository::{
     balance_seen_by_check, clock_now, insert_check, insert_unexplained_difference,
     BalanceSeenByCheckParams, InsertCheckParams, InsertUnexplainedDifferenceParams,
@@ -1330,6 +1332,42 @@ fn deleting_a_near_copy_or_flipping_a_sign_closes_the_gap() {
 }
 
 #[test]
+fn a_booked_difference_the_real_row_explains_is_listed_first_and_deleting_it_closes_the_gap() {
+    let conn = initialize_in_memory().unwrap();
+    let account = account_at_10_000(&conn);
+    let booked = book(&conn, account, 10_000, 8_750).unwrap();
+    written_at(&conn, booked.event_id, BEFORE_THE_CHECK);
+    conn.execute(
+        "UPDATE balance_check SET checked_at = ?2 WHERE id = ?1",
+        params![booked.check_id, CHECKED_AT],
+    )
+    .unwrap();
+    let [booked_on] = unexplained_entry_dates(&conn, account).try_into().unwrap();
+    let day_before = format!("{}T12:00:00", days_ago(1));
+    let real = cashflow(&conn, account, -1_250, &day_before, AFTER_THE_CHECK);
+
+    assert_eq!(
+        causes(&conn, account, 7_500, 8_750).unwrap(),
+        vec![
+            DifferenceCause::BookedDifferenceExplained {
+                row: bank_line(
+                    UnexplainedDifferenceTarget::UnexplainedDifference {
+                        event_id: booked.event_id
+                    },
+                    -1_250,
+                    &booked_on,
+                ),
+            },
+            equals_gap(real, -1_250, &day_before),
+        ]
+    );
+
+    delete_event_inner(&conn, booked.event_id).unwrap();
+
+    assert_eq!(live_balance(&conn, account), 8_750);
+}
+
+#[test]
 fn causes_go_on_the_wire_in_camel_case() {
     let cause = DifferenceCause::NearCopy {
         row: BankLine {
@@ -1390,6 +1428,26 @@ fn causes_go_on_the_wire_in_camel_case() {
                 "target": { "kind": "cashflow", "eventId": 4 },
                 "eventDate": "2026-11-13T12:00:00",
                 "amountMinor": -500,
+                "note": null,
+                "counterpartName": null
+            }
+        })
+    );
+    assert_eq!(
+        serde_json::to_value(DifferenceCause::BookedDifferenceExplained {
+            row: bank_line(
+                UnexplainedDifferenceTarget::UnexplainedDifference { event_id: 5 },
+                -1_250,
+                "2026-11-14T10:00:00"
+            ),
+        })
+        .unwrap(),
+        json!({
+            "kind": "bookedDifferenceExplained",
+            "row": {
+                "target": { "kind": "unexplainedDifference", "eventId": 5 },
+                "eventDate": "2026-11-14T10:00:00",
+                "amountMinor": -1_250,
                 "note": null,
                 "counterpartName": null
             }
