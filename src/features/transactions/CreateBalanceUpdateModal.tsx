@@ -4,6 +4,7 @@ import { toast } from 'sonner'
 import type { SnapshotRow } from '../../shared/types'
 import { todayIso, withDefaultTime, toMinorUnits, getMinorUnitsStep } from '../../shared/utils/format'
 import { extractErrorMessage } from '../../shared/utils/errors'
+import { ChangeDeclined } from '../../shared/api'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogBody, DialogFooter } from '../../shared/ui/dialog'
 import { Button } from '../../shared/ui/button'
 import { CurrencyInput } from '../../shared/ui/CurrencyInput'
@@ -106,7 +107,7 @@ const CreateBalanceUpdateModal = ({ accounts, preselectedAccountId, onSubmit, on
     try {
       await onSubmit(accountId, amountMinor, date, note)
     } catch (err) {
-      toast.error(t('errors.createBalanceUpdate', { error: extractErrorMessage(err) }))
+      if (!(err instanceof ChangeDeclined)) toast.error(t('errors.createBalanceUpdate', { error: extractErrorMessage(err) }))
     } finally {
       setSubmitting(false)
     }

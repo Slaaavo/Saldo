@@ -150,6 +150,10 @@ bankCheck:
       deleteTransfer: "Vymazať prevod <row></row> v sume <amount></amount>? Zmizne z oboch účtov."
       deleteSplitGroup: "Vymazať rozdelený záznam <row></row> v sume <amount></amount>? Vymažú sa všetky jeho časti ({{parts}})."
       flip: "Zmeniť záznam <row></row> z <amount></amount> na <flipped></flipped>?"
+  breaks:
+    title: "Zmeniť overený účet?"
+    line: "Účet <account></account> sa {{day}} zhodoval s aplikáciou banky. Po tejto zmene sa bude líšiť o <amount></amount>."
+    submit: "Aj tak zmeniť"
 
 # ──── Obálky ────
 buckets:

@@ -27,17 +27,36 @@ import type {
   IncomeBudgetPreview,
   BookedDifference,
   DifferenceCause,
+  BrokenCheck,
 } from '../types'
+import { isBreakingChecksError } from '../utils/errors'
 
-export const createBalanceUpdate = (accountId: number, amountMinor: number, eventDate: string, note?: string): Promise<number> => {
-  return invoke('create_balance_update', {
-    input: {
-      accountId,
-      amountMinor,
-      eventDate,
-      note: note ?? null,
-    },
-  })
+/** Asks the user whether a change may turn these ✓ Verified checks to differs. Resolves to `true` to make the change anyway. */
+export type AskToBreakChecks = (checks: BrokenCheck[]) => Promise<boolean>
+
+/** The user kept a ✓ Verified check by declining a change that would break it. Nothing was written. */
+export class ChangeDeclined extends Error {
+  constructor() {
+    super('The change was declined to keep a verified bank check.')
+    this.name = 'ChangeDeclined'
+  }
+}
+
+/** For writers that never ask, such as CSV import: a late bank row is meant to make a check differ. */
+export const allowBreakingChecks: AskToBreakChecks = async () => true
+
+const invokeGuarded = async <T>(command: string, args: Record<string, unknown>, ask: AskToBreakChecks): Promise<T> => {
+  try {
+    return await invoke<T>(command, { ...args, allowBreakingChecks: false })
+  } catch (err) {
+    if (!isBreakingChecksError(err)) throw err
+    if (!(await ask(err.checks))) throw new ChangeDeclined()
+    return invoke<T>(command, { ...args, allowBreakingChecks: true })
+  }
+}
+
+export const createBalanceUpdate = (accountId: number, amountMinor: number, eventDate: string, note: string | null, ask: AskToBreakChecks): Promise<number> => {
+  return invokeGuarded('create_balance_update', { input: { accountId, amountMinor, eventDate, note } }, ask)
 }
 
 export const getAccountsSnapshot = (asOf: AsOf, personId?: number): Promise<Snapshot> => {
@@ -156,23 +175,16 @@ export const deleteAccount = (accountId: number): Promise<void> => {
   return invoke('delete_account', { accountId })
 }
 
-export const updateEvent = (eventId: number, amountMinor: number, eventDate: string, note?: string): Promise<void> => {
-  return invoke('update_event', {
-    input: {
-      eventId,
-      amountMinor,
-      eventDate,
-      note: note ?? null,
-    },
-  })
+export const updateEvent = (eventId: number, amountMinor: number, eventDate: string, note: string | null, ask: AskToBreakChecks): Promise<void> => {
+  return invokeGuarded('update_event', { input: { eventId, amountMinor, eventDate, note } }, ask)
 }
 
-export const deleteEvent = (eventId: number): Promise<void> => {
-  return invoke('delete_event', { eventId })
+export const deleteEvent = (eventId: number, ask: AskToBreakChecks): Promise<void> => {
+  return invokeGuarded('delete_event', { eventId }, ask)
 }
 
-export const deleteSplitGroup = (splitGroupId: number): Promise<void> => {
-  return invoke('delete_split_group', { splitGroupId })
+export const deleteSplitGroup = (splitGroupId: number, ask: AskToBreakChecks): Promise<void> => {
+  return invokeGuarded('delete_split_group', { splitGroupId }, ask)
 }
 
 // Fetches the counterpart leg of a transfer for the edit-transfer modal.
@@ -181,25 +193,31 @@ export const getEventById = (eventId: number): Promise<EventWithData | null> => 
   return invoke('get_event_by_id', { eventId })
 }
 
-export const updateTransfer = (payload: {
-  fromEventId: number
-  toEventId: number
-  fromDate: string
-  toDate: string
-  amountMinor: number
-  toAmountMinor: number
-  note: string | null
-  originalCurrencyId: number | null
-  fxRateMantissa: number | null
-  fxRateExponent: number | null
-}): Promise<void> => {
-  return invoke('update_transfer', { input: payload })
+export const updateTransfer = (
+  payload: {
+    fromEventId: number
+    toEventId: number
+    fromDate: string
+    toDate: string
+    amountMinor: number
+    toAmountMinor: number
+    note: string | null
+    originalCurrencyId: number | null
+    fxRateMantissa: number | null
+    fxRateExponent: number | null
+  },
+  ask: AskToBreakChecks,
+): Promise<void> => {
+  return invokeGuarded('update_transfer', { input: payload }, ask)
 }
 
-export const bulkCreateBalanceUpdates = (entries: { accountId: number; amountMinor: number }[], eventDate: string, note?: string): Promise<number[]> => {
-  return invoke('bulk_create_balance_updates', {
-    input: { entries, eventDate, note: note ?? null },
-  })
+export const bulkCreateBalanceUpdates = (
+  entries: { accountId: number; amountMinor: number }[],
+  eventDate: string,
+  note: string | null,
+  ask: AskToBreakChecks,
+): Promise<number[]> => {
+  return invokeGuarded('bulk_create_balance_updates', { input: { entries, eventDate, note } }, ask)
 }
 
 export const listCurrencies = (includeCustom?: boolean): Promise<Currency[]> => {

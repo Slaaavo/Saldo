@@ -9,6 +9,7 @@ import {
   createPartnerAccount,
   updateAccount,
   updateEvent,
+  allowBreakingChecks,
   bulkCreateCashflows,
   createSplitGroup,
   listImportProfiles,
@@ -680,7 +681,7 @@ export const useImportWizard = (params: { snapshot: SnapshotRow[]; preselectedAc
       for (const row of nearDateSkipped) {
         const matchedEvent = existingEvents.find((e) => e.id === row.nearDateDuplicateEventId)
         if (matchedEvent) {
-          await updateEvent(matchedEvent.id, matchedEvent.amountMinor, row.date, matchedEvent.note ?? undefined)
+          await updateEvent(matchedEvent.id, matchedEvent.amountMinor, row.date, matchedEvent.note ?? null, allowBreakingChecks)
           committedRowIndexes.add(row.index)
         }
       }

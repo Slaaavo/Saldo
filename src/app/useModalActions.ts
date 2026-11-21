@@ -18,12 +18,14 @@ import {
   createBucketBalanceUpdate,
   updateBucketBalanceUpdate,
   updateTransfer,
+  ChangeDeclined,
 } from '../shared/api'
 import type { AssetUseTerms } from '../shared/types'
 import { extractErrorMessage } from '../shared/utils/errors'
 import { useSnapshotQuery } from '../shared/hooks/useSnapshotQuery'
 import { useConsolidationCurrencyQuery } from '../shared/hooks/useConsolidationCurrencyQuery'
 import { LIVE } from '../shared/utils/snapshot'
+import { useAskToBreakChecks } from './useAskToBreakChecks'
 
 interface UseModalActionsOptions {
   closeModal: () => void
@@ -33,6 +35,7 @@ interface UseModalActionsOptions {
 export const useModalActions = ({ closeModal, onFxRatePrompt }: UseModalActionsOptions) => {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
+  const ask = useAskToBreakChecks()
   const snapshotQuery = useSnapshotQuery(LIVE)
   const snapshot = snapshotQuery.data?.rows ?? []
   const consolidationCurrencyQuery = useConsolidationCurrencyQuery()
@@ -55,9 +58,9 @@ export const useModalActions = ({ closeModal, onFxRatePrompt }: UseModalActionsO
     }
   }
 
-  // The balance-update handlers let a failed save reach the modal, which reports it and re-enables its Save button.
+  // The balance-update handlers let a failed or declined save reach the modal, which re-enables its Save button and reports a failure.
   const handleCreateBalanceUpdate = async (accountId: number, amountMinor: number, eventDate: string, note: string): Promise<void> => {
-    await createBalanceUpdate(accountId, amountMinor, eventDate, note || undefined)
+    await createBalanceUpdate(accountId, amountMinor, eventDate, note || null, ask)
     closeModal()
     await queryClient.invalidateQueries({ queryKey: ['snapshot'] })
     await queryClient.invalidateQueries({ queryKey: ['events'] })
@@ -65,7 +68,7 @@ export const useModalActions = ({ closeModal, onFxRatePrompt }: UseModalActionsO
   }
 
   const handleEditBalanceUpdate = async (eventId: number, amountMinor: number, eventDate: string, note: string): Promise<void> => {
-    await updateEvent(eventId, amountMinor, eventDate, note || undefined)
+    await updateEvent(eventId, amountMinor, eventDate, note || null, ask)
     closeModal()
     await queryClient.invalidateQueries({ queryKey: ['snapshot'] })
     await queryClient.invalidateQueries({ queryKey: ['events'] })
@@ -73,23 +76,25 @@ export const useModalActions = ({ closeModal, onFxRatePrompt }: UseModalActionsO
 
   const handleDeleteEvent = async (eventId: number) => {
     try {
-      await deleteEvent(eventId)
+      await deleteEvent(eventId, ask)
       closeModal()
       await queryClient.invalidateQueries({ queryKey: ['snapshot'] })
       await queryClient.invalidateQueries({ queryKey: ['events'] })
     } catch (err) {
-      toast.error(t('errors.deleteEvent', { error: extractErrorMessage(err) }))
+      if (err instanceof ChangeDeclined) closeModal()
+      else toast.error(t('errors.deleteEvent', { error: extractErrorMessage(err) }))
     }
   }
 
   const handleDeleteSplitGroup = async (splitGroupId: number) => {
     try {
-      await deleteSplitGroup(splitGroupId)
+      await deleteSplitGroup(splitGroupId, ask)
       closeModal()
       await queryClient.invalidateQueries({ queryKey: ['snapshot'] })
       await queryClient.invalidateQueries({ queryKey: ['events'] })
     } catch (err) {
-      toast.error(t('errors.deleteSplitGroup', { error: extractErrorMessage(err) }))
+      if (err instanceof ChangeDeclined) closeModal()
+      else toast.error(t('errors.deleteSplitGroup', { error: extractErrorMessage(err) }))
     }
   }
 
@@ -161,7 +166,7 @@ export const useModalActions = ({ closeModal, onFxRatePrompt }: UseModalActionsO
   }
 
   const handleBulkUpdateSubmit = async (updates: { accountId: number; amountMinor: number }[], eventDate: string, note: string) => {
-    await bulkCreateBalanceUpdates(updates, eventDate, note || undefined)
+    await bulkCreateBalanceUpdates(updates, eventDate, note || null, ask)
     closeModal()
     await queryClient.invalidateQueries({ queryKey: ['snapshot'] })
     await queryClient.invalidateQueries({ queryKey: ['events'] })
@@ -235,12 +240,12 @@ export const useModalActions = ({ closeModal, onFxRatePrompt }: UseModalActionsO
     fxRateExponent: number | null
   }) => {
     try {
-      await updateTransfer(payload)
+      await updateTransfer(payload, ask)
       closeModal()
       await queryClient.invalidateQueries({ queryKey: ['snapshot'] })
       await queryClient.invalidateQueries({ queryKey: ['events'] })
     } catch (err) {
-      toast.error(t('errors.updateTransfer', { error: extractErrorMessage(err) }))
+      if (!(err instanceof ChangeDeclined)) toast.error(t('errors.updateTransfer', { error: extractErrorMessage(err) }))
     }
   }
 

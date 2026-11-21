@@ -4,6 +4,7 @@ import { toast } from 'sonner'
 import { ChevronDown, ChevronRight, Link2 } from 'lucide-react'
 import { withDefaultTime, todayIso, toMinorUnits, getMinorUnitsStep } from '../../shared/utils/format'
 import { extractErrorMessage } from '../../shared/utils/errors'
+import { ChangeDeclined } from '../../shared/api'
 import { useSnapshotQuery } from '../../shared/hooks/useSnapshotQuery'
 import { takesEntries } from '../../shared/utils/snapshot'
 import type { SnapshotRow } from '../../shared/types'
@@ -90,7 +91,7 @@ const BulkUpdateBalanceModal = ({ exclusions, onSubmit, onClose }: Props) => {
     try {
       await onSubmit(updates, date, note)
     } catch (err) {
-      toast.error(t('errors.updateBalances', { error: extractErrorMessage(err) }))
+      if (!(err instanceof ChangeDeclined)) toast.error(t('errors.updateBalances', { error: extractErrorMessage(err) }))
       setSubmitting(false)
     }
   }

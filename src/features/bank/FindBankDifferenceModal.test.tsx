@@ -5,6 +5,7 @@ import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import FindBankDifferenceModal from './FindBankDifferenceModal'
+import { BreakingChecksProvider } from '@/app/BreakingChecksContext'
 import { makeRow } from '@/shared/testing/snapshotFixtures'
 import { bookUnexplainedDifference, confirmBankMatch, deleteEvent, deleteSplitGroup, findDifferenceCauses, updateEvent } from '@/shared/api'
 import type { BankLine, DifferenceCause, RowTarget } from '@/shared/types'
@@ -45,7 +46,11 @@ vi.mock('@/shared/ui/NumberValue', () => ({
 
 let queryClient: QueryClient
 
-const Providers = ({ children }: { children: ReactNode }) => <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+const Providers = ({ children }: { children: ReactNode }) => (
+  <QueryClientProvider client={queryClient}>
+    <BreakingChecksProvider>{children}</BreakingChecksProvider>
+  </QueryClientProvider>
+)
 
 const checking = makeRow({ accountId: 7, accountName: 'Checking', balanceMinor: 100000 })
 
@@ -193,7 +198,7 @@ describe('FindBankDifferenceModal causes', () => {
     expect(confirmDialog('modals.confirm.deleteTitle')).toHaveTextContent('bankCheck.causes.confirm.deleteRow 12 Nov · Lidl-1250')
     await user.click(screen.getByRole('button', { name: 'common.delete' }))
 
-    await waitFor(() => expect(deleteEvent).toHaveBeenCalledWith(42))
+    await waitFor(() => expect(deleteEvent).toHaveBeenCalledWith(42, expect.any(Function)))
     expect(toast.success).toHaveBeenCalledWith('bankCheck.causes.deleted')
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'modals.confirm.deleteTitle' })).not.toBeInTheDocument())
     expect(onClose).not.toHaveBeenCalled()
@@ -220,7 +225,7 @@ describe('FindBankDifferenceModal causes', () => {
     expect(confirmDialog('modals.confirm.deleteTitle')).toHaveTextContent('bankCheck.causes.confirm.deleteBookedDifference 14 Nov-1250')
     await user.click(screen.getByRole('button', { name: 'common.delete' }))
 
-    await waitFor(() => expect(deleteEvent).toHaveBeenCalledWith(60))
+    await waitFor(() => expect(deleteEvent).toHaveBeenCalledWith(60, expect.any(Function)))
     expect(toast.success).toHaveBeenCalledWith('bankCheck.causes.deleted')
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'modals.confirm.deleteTitle' })).not.toBeInTheDocument())
     expect(onClose).not.toHaveBeenCalled()
@@ -238,7 +243,7 @@ describe('FindBankDifferenceModal causes', () => {
     expect(confirmDialog('modals.confirm.title')).toHaveTextContent('bankCheck.causes.confirm.flip 13 Nov · Refund-625625')
     await user.click(screen.getByRole('button', { name: 'modals.confirm.submit' }))
 
-    await waitFor(() => expect(updateEvent).toHaveBeenCalledWith(43, 625, '2026-11-13T09:30:00', 'Refund'))
+    await waitFor(() => expect(updateEvent).toHaveBeenCalledWith(43, 625, '2026-11-13T09:30:00', 'Refund', expect.any(Function)))
     expect(toast.success).toHaveBeenCalledWith('bankCheck.causes.flipped')
   })
 
@@ -260,13 +265,13 @@ describe('FindBankDifferenceModal causes', () => {
     await user.click(deleteTransfer)
     expect(confirmDialog('modals.confirm.deleteTitle')).toHaveTextContent('bankCheck.causes.confirm.deleteTransfer 12 Nov · Savings-1250')
     await user.click(screen.getByRole('button', { name: 'common.delete' }))
-    await waitFor(() => expect(deleteEvent).toHaveBeenCalledWith(50))
+    await waitFor(() => expect(deleteEvent).toHaveBeenCalledWith(50, expect.any(Function)))
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'modals.confirm.deleteTitle' })).not.toBeInTheDocument())
 
     await user.click(deleteSplit)
     expect(confirmDialog('modals.confirm.deleteTitle')).toHaveTextContent('bankCheck.causes.confirm.deleteSplitGroup (parts=3) 11 Nov · Groceries-1250')
     await user.click(screen.getByRole('button', { name: 'common.delete' }))
-    await waitFor(() => expect(deleteSplitGroup).toHaveBeenCalledWith(9))
+    await waitFor(() => expect(deleteSplitGroup).toHaveBeenCalledWith(9, expect.any(Function)))
   })
 
   it('opens CSV import on this account from the import hint', async () => {

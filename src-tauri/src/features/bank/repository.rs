@@ -37,6 +37,13 @@ pub struct NewestFlowDayParams {
     pub on_or_before: String,
 }
 
+pub struct CheckedAccount {
+    pub id: i64,
+    pub name: String,
+    pub currency_code: String,
+    pub currency_minor_units: i64,
+}
+
 pub fn balance_seen_by_check(
     conn: &Connection,
     params: BalanceSeenByCheckParams,
@@ -79,6 +86,27 @@ pub fn newest_check(conn: &Connection, account_id: i64) -> rusqlite::Result<Opti
         },
     )
     .optional()
+}
+
+/// Own accounts with at least one check, in the dashboard's order.
+pub fn checked_accounts(conn: &Connection) -> rusqlite::Result<Vec<CheckedAccount>> {
+    let mut stmt = conn.prepare(
+        "SELECT a.id, a.name, c.code, c.minor_units
+         FROM account a
+         JOIN currency c ON c.id = a.currency_id
+         WHERE a.account_type = 'account'
+           AND EXISTS (SELECT 1 FROM balance_check bc WHERE bc.account_id = a.id)
+         ORDER BY a.sort_order, a.id",
+    )?;
+    let accounts = stmt.query_map([], |row| {
+        Ok(CheckedAccount {
+            id: row.get(0)?,
+            name: row.get(1)?,
+            currency_code: row.get(2)?,
+            currency_minor_units: row.get(3)?,
+        })
+    })?;
+    accounts.collect()
 }
 
 pub fn insert_check(conn: &Connection, params: InsertCheckParams) -> rusqlite::Result<i64> {

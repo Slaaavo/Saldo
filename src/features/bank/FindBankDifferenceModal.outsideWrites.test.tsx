@@ -4,6 +4,7 @@ import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryCache, QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query'
 import FindBankDifferenceModal from './FindBankDifferenceModal'
+import { BreakingChecksProvider } from '@/app/BreakingChecksContext'
 import { useRefreshOnExternalWrites } from '@/app/useRefreshOnExternalWrites'
 import { makeRow } from '@/shared/testing/snapshotFixtures'
 import { findDifferenceCauses, getDbDataVersion } from '@/shared/api'
@@ -80,7 +81,11 @@ const DialogOnLiveSnapshot = () => {
   return snapshot.data ? <FindBankDifferenceModal row={snapshot.data} onClose={vi.fn()} /> : null
 }
 
-const Providers = ({ children }: { children: ReactNode }) => <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+const Providers = ({ children }: { children: ReactNode }) => (
+  <QueryClientProvider client={queryClient}>
+    <BreakingChecksProvider>{children}</BreakingChecksProvider>
+  </QueryClientProvider>
+)
 
 const difference = () => screen.getByText(/bankCheck\.dialog\.(lower|higher|same)/)
 

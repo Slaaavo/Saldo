@@ -11,6 +11,7 @@ import { useDemoMode } from '../features/settings/useDemoMode'
 import DemoModeBanner from '../features/settings/DemoModeBanner'
 import { Toaster } from 'sonner'
 import { ModalProvider } from './ModalContext'
+import { BreakingChecksProvider } from './BreakingChecksContext'
 import { useModal } from './useModal'
 import { DemoProvider } from './DemoContext'
 import { TimeMachineProvider } from './TimeMachineContext'
@@ -88,9 +89,11 @@ const App = () => {
   return (
     <ThemeProvider>
       <ModalProvider>
-        <PageHeaderProvider>
-          <AppShell />
-        </PageHeaderProvider>
+        <BreakingChecksProvider>
+          <PageHeaderProvider>
+            <AppShell />
+          </PageHeaderProvider>
+        </BreakingChecksProvider>
       </ModalProvider>
     </ThemeProvider>
   )

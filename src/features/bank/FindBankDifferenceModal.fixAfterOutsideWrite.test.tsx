@@ -4,6 +4,7 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryCache, QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query'
 import FindBankDifferenceModal from './FindBankDifferenceModal'
+import { BreakingChecksProvider } from '@/app/BreakingChecksContext'
 import { makeRow } from '@/shared/testing/snapshotFixtures'
 import { deleteEvent, findDifferenceCauses } from '@/shared/api'
 import type { DifferenceCause } from '@/shared/types'
@@ -77,7 +78,11 @@ const DialogOnLiveSnapshot = () => {
   )
 }
 
-const Providers = ({ children }: { children: ReactNode }) => <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+const Providers = ({ children }: { children: ReactNode }) => (
+  <QueryClientProvider client={queryClient}>
+    <BreakingChecksProvider>{children}</BreakingChecksProvider>
+  </QueryClientProvider>
+)
 
 const listedRows = () => screen.queryAllByRole('listitem').map((item) => item.textContent)
 

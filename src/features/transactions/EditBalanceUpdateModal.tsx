@@ -4,6 +4,7 @@ import { toast } from 'sonner'
 import type { EventWithData, SnapshotRow } from '../../shared/types'
 import { fromMinorUnits, toMinorUnits, getMinorUnitsStep } from '../../shared/utils/format'
 import { extractErrorMessage } from '../../shared/utils/errors'
+import { ChangeDeclined } from '../../shared/api'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogBody, DialogFooter } from '../../shared/ui/dialog'
 import { Button } from '../../shared/ui/button'
 import { CurrencyInput } from '../../shared/ui/CurrencyInput'
@@ -84,7 +85,7 @@ const EditBalanceUpdateModal = ({ event, accounts, onSubmit, onBucketSubmit, onC
     try {
       await onSubmit(event.id, amountMinor, date, note)
     } catch (err) {
-      toast.error(t('errors.updateEvent', { error: extractErrorMessage(err) }))
+      if (!(err instanceof ChangeDeclined)) toast.error(t('errors.updateEvent', { error: extractErrorMessage(err) }))
     } finally {
       setSubmitting(false)
     }

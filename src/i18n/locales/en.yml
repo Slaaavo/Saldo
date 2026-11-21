@@ -148,6 +148,10 @@ bankCheck:
       deleteTransfer: "Delete the transfer <row></row> of <amount></amount>? It leaves both accounts."
       deleteSplitGroup: "Delete the split row <row></row> of <amount></amount>? All {{parts}} parts go with it."
       flip: "Change the row <row></row> from <amount></amount> to <flipped></flipped>?"
+  breaks:
+    title: "Change a verified account?"
+    line: "<account></account> matched the bank app on {{day}}. After this change it differs by <amount></amount>."
+    submit: "Change anyway"
 
 # ──── Bucket cards ────
 buckets:

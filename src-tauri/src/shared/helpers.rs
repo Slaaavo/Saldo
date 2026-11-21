@@ -24,7 +24,7 @@ where
 /// first avoids it.
 const BEGIN_WRITE: &str = "BEGIN IMMEDIATE";
 
-fn run_in_savepoint<T, E, F>(conn: &Connection, f: F) -> Result<T, E>
+pub(crate) fn run_in_savepoint<T, E, F>(conn: &Connection, f: F) -> Result<T, E>
 where
     E: From<rusqlite::Error>,
     F: FnOnce() -> Result<T, E>,

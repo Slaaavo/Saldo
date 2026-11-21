@@ -1,7 +1,7 @@
 use chrono::{Datelike, NaiveDate};
 
 use crate::error::AppError;
-use crate::features::bank;
+use crate::features::bank::{self, WriteError};
 use crate::features::persons::repository::{get_person_vat_payer, resolve_default_taxable_account};
 use crate::shared::with_savepoint_app;
 use crate::AppState;
@@ -123,11 +123,21 @@ pub struct BulkCreateBalanceUpdatesInput {
 pub fn create_balance_update(
     state: State<'_, AppState>,
     input: CreateBalanceUpdateInput,
+    allow_breaking_checks: bool,
+) -> Result<i64, WriteError> {
+    let conn = state.conn()?;
+    bank::guard_verified_checks(&conn, allow_breaking_checks.into(), || {
+        create_balance_update_inner(&conn, input)
+    })
+}
+
+pub(crate) fn create_balance_update_inner(
+    conn: &Connection,
+    input: CreateBalanceUpdateInput,
 ) -> Result<i64, AppError> {
     crate::shared::validate_event_date(&input.event_date)?;
-    let conn = state.conn()?;
     if let Some(account_type) =
-        crate::features::accounts::repository::get_account_type(&conn, input.account_id)?
+        crate::features::accounts::repository::get_account_type(conn, input.account_id)?
     {
         if account_type == "partner" {
             return Err(AppError {
@@ -143,7 +153,7 @@ pub fn create_balance_update(
         }
     }
     let event_id = repository::create_balance_update(
-        &conn,
+        conn,
         repository::CreateBalanceUpdateParams {
             account_id: input.account_id,
             amount_minor: input.amount_minor,
@@ -207,33 +217,51 @@ pub fn list_events(
 }
 
 #[tauri::command]
-pub fn update_event(state: State<'_, AppState>, input: UpdateEventInput) -> Result<(), AppError> {
-    crate::shared::validate_event_date(&input.event_date)?;
+pub fn update_event(
+    state: State<'_, AppState>,
+    input: UpdateEventInput,
+    allow_breaking_checks: bool,
+) -> Result<(), WriteError> {
     let conn = state.conn()?;
-    repository::check_event_not_system_generated(&conn, input.event_id)?;
+    bank::guard_verified_checks(&conn, allow_breaking_checks.into(), || {
+        update_event_inner(&conn, input)
+    })
+}
+
+pub(crate) fn update_event_inner(
+    conn: &Connection,
+    input: UpdateEventInput,
+) -> Result<(), AppError> {
+    crate::shared::validate_event_date(&input.event_date)?;
+    repository::check_event_not_system_generated(conn, input.event_id)?;
     repository::check_event_split_group_date_conflict(
-        &conn,
+        conn,
         repository::CheckEventSplitGroupDateConflictParams {
             event_id: input.event_id,
             new_date: input.event_date.clone(),
         },
     )?;
     repository::update_event(
-        &conn,
+        conn,
         repository::UpdateEventParams {
             event_id: input.event_id,
             amount_minor: input.amount_minor,
             event_date: input.event_date,
             note: input.note,
         },
-    )?;
-    Ok(())
+    )
 }
 
 #[tauri::command]
-pub fn delete_event(state: State<'_, AppState>, event_id: i64) -> Result<(), AppError> {
+pub fn delete_event(
+    state: State<'_, AppState>,
+    event_id: i64,
+    allow_breaking_checks: bool,
+) -> Result<(), WriteError> {
     let conn = state.conn()?;
-    delete_event_inner(&conn, event_id)
+    bank::guard_verified_checks(&conn, allow_breaking_checks.into(), || {
+        delete_event_inner(&conn, event_id)
+    })
 }
 
 pub(crate) fn delete_event_inner(conn: &Connection, event_id: i64) -> Result<(), AppError> {
@@ -252,9 +280,15 @@ pub(crate) fn delete_event_inner(conn: &Connection, event_id: i64) -> Result<(),
 }
 
 #[tauri::command]
-pub fn delete_split_group(state: State<'_, AppState>, split_group_id: i64) -> Result<(), AppError> {
+pub fn delete_split_group(
+    state: State<'_, AppState>,
+    split_group_id: i64,
+    allow_breaking_checks: bool,
+) -> Result<(), WriteError> {
     let conn = state.conn()?;
-    delete_split_group_inner(&conn, split_group_id)
+    bank::guard_verified_checks(&conn, allow_breaking_checks.into(), || {
+        delete_split_group_inner(&conn, split_group_id)
+    })
 }
 
 pub(crate) fn delete_split_group_inner(
@@ -269,6 +303,17 @@ pub(crate) fn delete_split_group_inner(
 pub fn bulk_create_balance_updates(
     state: State<'_, AppState>,
     input: BulkCreateBalanceUpdatesInput,
+    allow_breaking_checks: bool,
+) -> Result<Vec<i64>, WriteError> {
+    let conn = state.conn()?;
+    bank::guard_verified_checks(&conn, allow_breaking_checks.into(), || {
+        bulk_create_balance_updates_inner(&conn, input)
+    })
+}
+
+pub(crate) fn bulk_create_balance_updates_inner(
+    conn: &Connection,
+    input: BulkCreateBalanceUpdatesInput,
 ) -> Result<Vec<i64>, AppError> {
     crate::shared::validate_event_date(&input.event_date)?;
     if input.entries.is_empty() {
@@ -277,10 +322,9 @@ pub fn bulk_create_balance_updates(
             message: "At least one balance entry is required".into(),
         });
     }
-    let conn = state.conn()?;
     for entry in &input.entries {
         if let Some(account_type) =
-            crate::features::accounts::repository::get_account_type(&conn, entry.account_id)?
+            crate::features::accounts::repository::get_account_type(conn, entry.account_id)?
         {
             if account_type == "partner" {
                 return Err(AppError {
@@ -296,7 +340,7 @@ pub fn bulk_create_balance_updates(
         .map(|e| (e.account_id, e.amount_minor))
         .collect();
     let ids = repository::bulk_create_balance_updates(
-        &conn,
+        conn,
         repository::BulkCreateBalanceUpdatesParams {
             entries,
             event_date: input.event_date,
@@ -509,9 +553,12 @@ pub async fn get_event_by_id(
 pub fn update_transfer(
     state: State<'_, AppState>,
     input: UpdateTransferInput,
-) -> Result<(), AppError> {
+    allow_breaking_checks: bool,
+) -> Result<(), WriteError> {
     let conn = state.conn()?;
-    update_transfer_with_conn(&conn, input)
+    bank::guard_verified_checks(&conn, allow_breaking_checks.into(), || {
+        update_transfer_with_conn(&conn, input)
+    })
 }
 
 fn update_transfer_with_conn(

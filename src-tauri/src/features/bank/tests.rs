@@ -8,6 +8,7 @@ use super::commands::{
     find_difference_causes_inner, BookUnexplainedDifferenceInput, ConfirmBankMatchInput,
     FindDifferenceCausesInput,
 };
+use super::guard::{guard_verified_checks, BreakingChecks, BrokenCheck, WriteError};
 use super::models::{
     BankLine, CashflowTarget, DifferenceCause, RowTarget, UnexplainedDifferenceTarget, Verification,
 };
@@ -24,7 +25,9 @@ use crate::features::csv_profiles::repository::{
     SetPreferredProfileParams,
 };
 use crate::features::transactions::commands::{
-    delete_event_inner, delete_split_group_inner, get_accounts_snapshot_inner,
+    bulk_create_balance_updates_inner, create_balance_update_inner, delete_event_inner,
+    delete_split_group_inner, get_accounts_snapshot_inner, update_event_inner, BulkBalanceEntry,
+    BulkCreateBalanceUpdatesInput, CreateBalanceUpdateInput, UpdateEventInput,
 };
 use crate::features::transactions::models::{MetricKind, Snapshot, SnapshotRow, SplitGroupEntry};
 use crate::features::transactions::repository::{
@@ -1451,6 +1454,308 @@ fn causes_go_on_the_wire_in_camel_case() {
                 "note": null,
                 "counterpartName": null
             }
+        })
+    );
+}
+
+fn named_account(conn: &Connection, name: &str) -> i64 {
+    create_account(
+        conn,
+        CreateAccountParams {
+            name: name.to_owned(),
+            currency_id: 1,
+            account_type: "account".to_owned(),
+            person_id: Some(DEFAULT_PERSON),
+            ..Default::default()
+        },
+    )
+    .unwrap()
+}
+
+fn edit(event_id: i64, amount_minor: i64, note: Option<&str>) -> UpdateEventInput {
+    UpdateEventInput {
+        event_id,
+        amount_minor,
+        event_date: "2026-11-10T12:00:00".to_owned(),
+        note: note.map(str::to_owned),
+    }
+}
+
+fn new_balance(account_id: i64, amount_minor: i64, event_date: &str) -> CreateBalanceUpdateInput {
+    CreateBalanceUpdateInput {
+        account_id,
+        amount_minor,
+        event_date: event_date.to_owned(),
+        note: None,
+    }
+}
+
+fn refused<T: std::fmt::Debug>(result: Result<T, WriteError>) -> Vec<BrokenCheck> {
+    match result {
+        Err(WriteError::BreaksVerifiedChecks(checks)) => checks,
+        other => panic!("expected a refusal, got {other:?}"),
+    }
+}
+
+fn broken(account_id: i64, account_name: &str, difference_minor: i64) -> BrokenCheck {
+    BrokenCheck {
+        account_id,
+        account_name: account_name.to_owned(),
+        day: CHECK_DAY.to_owned(),
+        difference_minor,
+        currency_code: "EUR".to_owned(),
+        currency_minor_units: 2,
+    }
+}
+
+fn versions_of(conn: &Connection, event_id: i64) -> Vec<(i64, Option<String>)> {
+    let mut stmt = conn
+        .prepare("SELECT amount_minor, note FROM event_data WHERE event_id = ?1 ORDER BY id")
+        .unwrap();
+    let versions = stmt
+        .query_map(params![event_id], |row| Ok((row.get(0)?, row.get(1)?)))
+        .unwrap();
+    versions.collect::<rusqlite::Result<_>>().unwrap()
+}
+
+#[test]
+fn a_change_that_makes_a_verified_check_differ_is_refused_and_leaves_the_row_as_it_was() {
+    let (checked, _) = checked_at_7_500();
+    let conn = &checked.conn;
+
+    let checks = refused(guard_verified_checks(conn, BreakingChecks::Refuse, || {
+        update_event_inner(conn, edit(checked.spending, -3_000, None))
+    }));
+
+    assert_eq!(checks, vec![broken(checked.account, "Test account", 500)]);
+    assert_eq!(versions_of(conn, checked.spending), vec![(-2_500, None)]);
+}
+
+#[test]
+fn the_same_change_allowed_is_saved_and_the_check_differs() {
+    let (checked, check_id) = checked_at_7_500();
+    let conn = &checked.conn;
+
+    guard_verified_checks(conn, BreakingChecks::Allow, || {
+        update_event_inner(conn, edit(checked.spending, -3_000, None))
+    })
+    .unwrap();
+
+    assert_eq!(verification(conn, checked.account), differs(check_id, 500));
+}
+
+#[test]
+fn a_note_edit_of_a_counted_row_is_saved_without_asking() {
+    let (checked, _) = checked_at_7_500();
+    let conn = &checked.conn;
+
+    guard_verified_checks(conn, BreakingChecks::Refuse, || {
+        update_event_inner(conn, edit(checked.spending, -2_500, Some("Groceries")))
+    })
+    .unwrap();
+
+    assert_eq!(
+        versions_of(conn, checked.spending),
+        vec![(-2_500, None), (-2_500, Some("Groceries".to_owned()))]
+    );
+}
+
+#[test]
+fn a_change_on_an_account_whose_check_already_differs_is_saved_without_asking() {
+    let conn = initialize_in_memory().unwrap();
+    let account = mk(&conn, "account");
+    balance_update(&conn, account, 10_000, "2026-11-01", BEFORE_THE_CHECK);
+    let spending = cashflow(
+        &conn,
+        account,
+        -2_500,
+        "2026-11-10T12:00:00",
+        BEFORE_THE_CHECK,
+    );
+    let check_id = check(&conn, account, 7_000);
+
+    guard_verified_checks(&conn, BreakingChecks::Refuse, || {
+        update_event_inner(&conn, edit(spending, -2_000, None))
+    })
+    .unwrap();
+
+    assert_eq!(verification(&conn, account), differs(check_id, -1_000));
+}
+
+#[test]
+fn a_balance_update_dated_before_the_check_day_is_refused_and_one_on_the_day_is_not() {
+    let (checked, check_id) = checked_at_7_500();
+    let conn = &checked.conn;
+
+    let checks = refused(guard_verified_checks(conn, BreakingChecks::Refuse, || {
+        create_balance_update_inner(conn, new_balance(checked.account, 9_000, "2026-11-12"))
+    }));
+    guard_verified_checks(conn, BreakingChecks::Refuse, || {
+        create_balance_update_inner(conn, new_balance(checked.account, 9_000, CHECK_DAY))
+    })
+    .unwrap();
+
+    assert_eq!(
+        checks,
+        vec![broken(checked.account, "Test account", -1_500)]
+    );
+    assert_eq!(
+        verification(conn, checked.account),
+        verified(check_id),
+        "the refused balance update was rolled back and the one on the day is not seen by the check"
+    );
+}
+
+#[test]
+fn deleting_a_transfer_between_two_verified_accounts_names_both() {
+    let conn = initialize_in_memory().unwrap();
+    let current = named_account(&conn, "Tatra");
+    let savings = named_account(&conn, "Savings");
+    balance_update(&conn, current, 10_000, "2026-11-01", BEFORE_THE_CHECK);
+    balance_update(&conn, savings, 5_000, "2026-11-01", BEFORE_THE_CHECK);
+    let (_, received) = create_transfer(
+        &conn,
+        &CashflowEntry {
+            account_id: current,
+            amount_minor: -1_000,
+            event_date: "2026-11-10T12:00:00".to_owned(),
+            note: None,
+            counterpart_account_id: Some(savings),
+            bucket_id: None,
+            original_currency_id: None,
+            original_amount_minor: None,
+            fx_rate_mantissa: None,
+            fx_rate_exponent: None,
+        },
+    )
+    .unwrap();
+    check(&conn, current, 9_000);
+    check(&conn, savings, 6_000);
+
+    let checks = refused(guard_verified_checks(&conn, BreakingChecks::Refuse, || {
+        delete_event_inner(&conn, received)
+    }));
+
+    assert_eq!(
+        checks,
+        vec![
+            broken(current, "Tatra", -1_000),
+            broken(savings, "Savings", 1_000)
+        ]
+    );
+}
+
+#[test]
+fn deleting_a_counted_split_group_is_refused() {
+    let conn = initialize_in_memory().unwrap();
+    let account = account_at_10_000(&conn);
+    let split_group_id = create_split_group_with_legs(
+        &conn,
+        CreateSplitGroupWithLegsParams {
+            account_id: account,
+            group_note: None,
+            legs: vec![leg(-1_000), leg(-250)],
+        },
+    )
+    .unwrap();
+    check(&conn, account, 8_750);
+
+    let checks = refused(guard_verified_checks(&conn, BreakingChecks::Refuse, || {
+        delete_split_group_inner(&conn, split_group_id)
+    }));
+
+    assert_eq!(checks, vec![broken(account, "Test account", -1_250)]);
+}
+
+#[test]
+fn a_bulk_balance_update_dated_before_the_check_day_names_each_broken_account() {
+    let conn = initialize_in_memory().unwrap();
+    let current = named_account(&conn, "Tatra");
+    let savings = named_account(&conn, "Savings");
+    let cash = named_account(&conn, "Cash");
+    for account in [current, savings, cash] {
+        balance_update(&conn, account, 10_000, "2026-11-01", BEFORE_THE_CHECK);
+        check(&conn, account, 10_000);
+    }
+    let entry = |account_id, amount_minor| BulkBalanceEntry {
+        account_id,
+        amount_minor,
+    };
+
+    let checks = refused(guard_verified_checks(&conn, BreakingChecks::Refuse, || {
+        bulk_create_balance_updates_inner(
+            &conn,
+            BulkCreateBalanceUpdatesInput {
+                entries: vec![
+                    entry(current, 9_000),
+                    entry(savings, 12_000),
+                    entry(cash, 10_000),
+                ],
+                event_date: "2026-11-12".to_owned(),
+                note: None,
+            },
+        )
+    }));
+
+    assert_eq!(
+        checks,
+        vec![
+            broken(current, "Tatra", 1_000),
+            broken(savings, "Savings", -2_000)
+        ]
+    );
+}
+
+#[test]
+fn a_write_that_fails_on_its_own_returns_its_error_as_code_and_message() {
+    let (checked, _) = checked_at_7_500();
+    let conn = &checked.conn;
+
+    let error = guard_verified_checks(conn, BreakingChecks::Refuse, || {
+        update_event_inner(
+            conn,
+            UpdateEventInput {
+                event_date: "2026-11-1".to_owned(),
+                ..edit(checked.spending, -3_000, None)
+            },
+        )
+    })
+    .unwrap_err();
+
+    assert!(matches!(&error, WriteError::App(_)), "{error:?}");
+    assert_eq!(
+        serde_json::to_value(&error).unwrap(),
+        json!({
+            "code": "VALIDATION",
+            "message": "event_date must be a valid date in YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS format"
+        })
+    );
+}
+
+#[test]
+fn a_refusal_goes_on_the_wire_with_the_broken_checks() {
+    let refusal = WriteError::BreaksVerifiedChecks(vec![BrokenCheck {
+        account_id: 3,
+        account_name: "Tatra".to_owned(),
+        day: "2026-11-14".to_owned(),
+        difference_minor: -1_250,
+        currency_code: "EUR".to_owned(),
+        currency_minor_units: 2,
+    }]);
+
+    assert_eq!(
+        serde_json::to_value(refusal).unwrap(),
+        json!({
+            "code": "BREAKS_VERIFIED_CHECKS",
+            "message": "This change makes a verified bank check differ.",
+            "checks": [{
+                "accountId": 3,
+                "accountName": "Tatra",
+                "day": "2026-11-14",
+                "differenceMinor": -1_250,
+                "currencyCode": "EUR",
+                "currencyMinorUnits": 2
+            }]
         })
     );
 }

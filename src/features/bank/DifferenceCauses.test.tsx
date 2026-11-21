@@ -7,6 +7,7 @@ import { I18nextProvider } from 'react-i18next'
 import en from '@/i18n/locales/en.yml'
 import sk from '@/i18n/locales/sk.yml'
 import DifferenceCauses from './DifferenceCauses'
+import { BreakingChecksProvider } from '@/app/BreakingChecksContext'
 import { makeRow } from '@/shared/testing/snapshotFixtures'
 import type { DifferenceCause } from '@/shared/types'
 
@@ -20,7 +21,9 @@ const renderCause = (cause: DifferenceCause, lng: 'en' | 'sk') => {
   render(
     <I18nextProvider i18n={i18n}>
       <QueryClientProvider client={new QueryClient()}>
-        <DifferenceCauses row={makeRow({ accountId: 7, balanceMinor: 100000 })} causes={[cause]} />
+        <BreakingChecksProvider>
+          <DifferenceCauses row={makeRow({ accountId: 7, balanceMinor: 100000 })} causes={[cause]} />
+        </BreakingChecksProvider>
       </QueryClientProvider>
     </I18nextProvider>,
   )

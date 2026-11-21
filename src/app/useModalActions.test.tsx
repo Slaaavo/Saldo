@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { Currency, SnapshotRow } from '../shared/types'
 import { makeRow, makeSnapshot } from '../shared/testing/snapshotFixtures'
 import { useModalActions } from './useModalActions'
+import { BreakingChecksProvider } from './BreakingChecksContext'
 import { createBalanceUpdate, updateEvent, createBucketBalanceUpdate, listFxRates, updateAccount, setAccountAssetLinks, createIncomeBudget } from '../shared/api'
 
 vi.mock('../shared/api', () => ({
@@ -48,10 +49,18 @@ vi.mock('../shared/hooks/useConsolidationCurrencyQuery', () => ({
 const closeModal = vi.fn()
 const onFxRatePrompt = vi.fn()
 
+const providers = (queryClient: QueryClient) => {
+  const Providers = ({ children }: { children: React.ReactNode }) => (
+    <QueryClientProvider client={queryClient}>
+      <BreakingChecksProvider>{children}</BreakingChecksProvider>
+    </QueryClientProvider>
+  )
+  return Providers
+}
+
 const renderActions = () => {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: 0 } } })
-  const wrapper = ({ children }: { children: React.ReactNode }) => <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
-  return renderHook(() => useModalActions({ closeModal, onFxRatePrompt }), { wrapper })
+  return renderHook(() => useModalActions({ closeModal, onFxRatePrompt }), { wrapper: providers(queryClient) })
 }
 
 describe('useModalActions error messages', () => {
@@ -83,8 +92,7 @@ describe('useModalActions handleCreateIncomeBudget', () => {
     ;(createIncomeBudget as Mock).mockResolvedValue(31)
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: 0 } } })
     const invalidate = vi.spyOn(queryClient, 'invalidateQueries')
-    const wrapper = ({ children }: { children: React.ReactNode }) => <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
-    const { result } = renderHook(() => useModalActions({ closeModal, onFxRatePrompt }), { wrapper })
+    const { result } = renderHook(() => useModalActions({ closeModal, onFxRatePrompt }), { wrapper: providers(queryClient) })
 
     await result.current.handleCreateIncomeBudget('Consulting income', 1, 2)
 

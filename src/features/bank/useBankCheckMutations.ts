@@ -1,7 +1,8 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { bookUnexplainedDifference, confirmBankMatch, deleteBalanceCheck, deleteEvent, deleteSplitGroup, updateEvent } from '@/shared/api'
+import { useAskToBreakChecks } from '@/app/useAskToBreakChecks'
+import { bookUnexplainedDifference, ChangeDeclined, confirmBankMatch, deleteBalanceCheck, deleteEvent, deleteSplitGroup, updateEvent, type AskToBreakChecks } from '@/shared/api'
 import type { DifferenceCause, RowTarget } from '@/shared/types'
 import { extractErrorMessage, hasErrorCode } from '@/shared/utils/errors'
 
@@ -25,27 +26,29 @@ const useRefreshAfterCheck = () => {
   }
 }
 
-const deleteRow = (target: RowTarget) => (target.kind === 'splitGroup' ? deleteSplitGroup(target.splitGroupId) : deleteEvent(target.eventId))
+const deleteRow = (target: RowTarget, ask: AskToBreakChecks) => (target.kind === 'splitGroup' ? deleteSplitGroup(target.splitGroupId, ask) : deleteEvent(target.eventId, ask))
 
-const fixCause = (cause: RowCause): Promise<void> => {
+const fixCause = (cause: RowCause, ask: AskToBreakChecks): Promise<void> => {
   if (cause.kind === 'flippedSign') {
     const { target, amountMinor, eventDate, note } = cause.row
-    return updateEvent(target.eventId, -amountMinor, eventDate, note ?? undefined)
+    return updateEvent(target.eventId, -amountMinor, eventDate, note, ask)
   }
-  return deleteRow(cause.row.target)
+  return deleteRow(cause.row.target, ask)
 }
 
 export const useFixDifferenceCause = () => {
   const { t } = useTranslation()
   const refresh = useRefreshAfterCheck()
+  const ask = useAskToBreakChecks()
 
   return useMutation({
-    mutationFn: fixCause,
+    mutationFn: (cause: RowCause) => fixCause(cause, ask),
     onSuccess: async (_, cause) => {
       toast.success(t(cause.kind === 'flippedSign' ? 'bankCheck.causes.flipped' : 'bankCheck.causes.deleted'))
       await refresh()
     },
     onError: async (err) => {
+      if (err instanceof ChangeDeclined) return
       toast.error(t('bankCheck.causes.fixFailed', { error: extractErrorMessage(err) }))
       await refresh()
     },
