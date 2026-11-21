@@ -23,6 +23,14 @@ An own account's dashboard card can be checked against the user's bank app. "Mat
 - `BC-CAUSE-TYPING`: the list appears once typing pauses and never shows an earlier value's causes under a newer difference.
 - `BC-CAUSE-BOOKED`: a booked unexplained difference that closes the gap is listed first, even when older than the newest check: "The unexplained difference dated <day> is explained now", "Delete the booked difference". `<day>` is the entry's date, the one the ledger shows (a later balance update's day when the booking was dated at it). The real row that arrived later shows as "This row is exactly the difference", never as a copy.
 
+- `BC-GUARD-NOTE`: changing only the note of a row a ✓ Verified check counted saves without asking.
+- `BC-GUARD-DELETE`: deleting a counted row shows "Change a verified account?" above the delete confirm: "<account> matched the bank app on <day>. After this change it differs by X." Cancel closes both, deletes nothing and shows no toast. "Change anyway" deletes, and the card turns amber.
+- `BC-GUARD-EDIT`: changing a counted balance update's amount asks on Save; Cancel keeps Edit Balance Update open with the typed amount and Save enabled.
+- `BC-GUARD-TWO`: deleting or editing a transfer between two ✓ Verified accounts lists both accounts.
+- `BC-GUARD-NEW-BU`: a new balance update dated before the check's day asks; one dated on the check's day or later saves without asking.
+- `BC-GUARD-AMBER`: on an account whose card already shows "now differs by", changes save without asking.
+- `BC-GUARD-FIX`: a fix in Find the difference that breaks a ✓ Verified check asks first, for example "Delete the booked difference" on a booking the check counted.
+
 ## How to get to it (user POV)
 
 - Dashboard → Accounts → an own account's card → bottom row, right side: the double-check icon ("Matches bank") and the scale icon ("Find the difference").
@@ -49,7 +57,17 @@ Preconditions: Saldo Dev in live mode on the dev DB with at least two own accoun
   - On Verify Stale (scroll the cards right), any other balance lists "Newest row in Saldo is from 10 Nov. Import the latest export."; "Import CSV" opens Import CSV with "Verify Stale" and the profile "Verify CSV" picked. Cancel it.
 - **Booked difference explained.** On a verified account, "Find the difference" with a balance 12.50 below Saldo's, then "Book as unexplained difference". Quit, insert the real row the import would bring (`INSERT INTO event (account_id, event_type) SELECT id, 'cashflow' FROM account WHERE name = '<account>'; INSERT INTO event_data (event_id, amount_minor, event_date, note) SELECT max(id), -1250, '<yesterday>T12:00:00', 'verify-causes card payment' FROM event;`, sandbox off), launch. The card says "now differs by 12.50 EUR". "Find the difference" with the bank balance typed again: first "The unexplained difference dated <today> is explained now" with "Delete the booked difference", then "This row is exactly the difference" for the card payment. "Delete the booked difference" → "Delete the unexplained difference of -12.50 EUR dated <today>?" → "Delete". Result: "Saldo matches the bank"; `evidence.sh db` shows the `unexplained_difference` deleted and the card payment live.
 
+- **Verified rows.** Load `fixtures/verified-rows.sql` while the app is down (as for Causes), then launch. Its four accounts sort first: Verify Guard 987.50, Verify Guard Two 400.00 and Verify Guard Three 300.00 show "Verified 10 Nov", Verify Booked 675.00 shows "Verified 8 Nov". Drive the dialogs with full-screen control (see Gotchas).
+  - Verify Guard → `⋮` → View in ledger → pencil on the 1 Nov balance update → change only the note → Save: saved, no warning (`BC-GUARD-NOTE`).
+  - Trash on the 5 Nov coffee → Delete: "Change a verified account?" with "Verify Guard matched the bank app on 10 Nov. After this change it differs by 12.50 EUR." Cancel: the row stays, no toast (`BC-GUARD-DELETE`).
+  - Pencil on the balance update → amount 990 → Save → the warning ("differs by 10.00 EUR") → Cancel: the dialog stays with 990. Save → Change anyway: the card shows "Verified 10 Nov · now differs by 10.00 EUR" (`BC-GUARD-EDIT`). Then delete the coffee: no warning (`BC-GUARD-AMBER`).
+  - Ledger → Transfers → trash on the 6 Nov transfer → Delete: the warning lists Verify Guard Two and Verify Guard Three, each "differs by 100.00 EUR". Cancel (`BC-GUARD-TWO`).
+  - Verify Guard Two → Update balance dated 9 Nov: the warning; dated today: saves without asking (`BC-GUARD-NEW-BU`).
+  - Verify Booked → Find the difference → `687.50` → "Delete the booked difference" → Delete → the warning ("Verify Booked matched the bank app on 8 Nov … differs by 12.50 EUR") → Change anyway: "Saldo matches the bank" (`BC-GUARD-FIX`).
+
 ## Gotchas
+
+- On 2026-11-21 (macOS Darwin 27.2) background input dismissed Radix dialogs: a background click on a dialog's title, label or input, or a keystroke into its focused field, closed the dialog without saving, on master too (run `20261121-173353-HEAD`). Button clicks mostly worked, but a dialog that opens right after a click (the verified-row warning) was lost about half the time. Drive dialog steps with full-screen control. Run `20261121-172150-feat-verified-row-warning` drove `BC-GUARD-NOTE` and `BC-GUARD-DELETE` in the background.
 
 - Last driven end to end on 2026-11-14 (run `20261114-161629-feat-check-against-bank-app`): all sub-features in English, on a fresh dev DB with two accounts made through Add Account. `BC-LATER-UPDATE` and the Slovak layout last driven in run `20261114-200106-feat-check-against-bank-app`.
 - An entry booked before 2026-11-14 20:00 on a dev DB may be dated one second after a 23:59 balance update (the first rule) and stays on top of a later balance update. Run `reset-dev-db.sh` or use another account.

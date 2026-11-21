@@ -73,25 +73,31 @@ Lists events with optional filtering by account(s), bucket(s), date range, event
 
 ### `createBalanceUpdate`
 
-Creates a single balance update event on an account.
+Creates a single balance update event on an account. Guarded: takes `ask` (see below).
 
 - **BE command:** `create_balance_update` → `src-tauri/src/features/transactions/commands.rs`
 - **Used in:**
   - `src/app/useModalActions.ts` (useModalActions hook)
 
+### Guarded writes (`ask`)
+
+`createBalanceUpdate`, `updateEvent`, `deleteEvent`, `deleteSplitGroup`, `updateTransfer` and `bulkCreateBalanceUpdates` take a required last argument `ask: AskToBreakChecks`. Each calls its command with `allowBreakingChecks: false`. When the write would turn a ✓ Verified account's check to differs, the command rolls back and refuses with `BREAKS_VERIFIED_CHECKS` and the broken checks (`BrokenCheck[]`: account, check day, difference after the change). The wrapper then awaits `ask(checks)`: `true` repeats the call with `allowBreakingChecks: true`, `false` throws `ChangeDeclined` and nothing is written. React callers pass `useAskToBreakChecks()`; CSV import passes `allowBreakingChecks`, which always says yes.
+
 ### `updateEvent`
 
-Updates an existing event's amount, date, and note. A trigger refuses an unexplained difference with `VALIDATION`, since it can only be deleted.
+Updates an existing event's amount, date, and note. A trigger refuses an unexplained difference with `VALIDATION`, since it can only be deleted. Guarded: takes `ask`.
 
 - **BE command:** `update_event` → `src-tauri/src/features/transactions/commands.rs`
 - **Used in:**
   - `src/app/useModalActions.ts` (useModalActions hook)
   - `src/features/bank/useBankCheckMutations.ts` (useFixDifferenceCause hook)
     - → `src/features/bank/DifferenceCauses.tsx` (Flip the sign, with the negated amount and the same date and note)
+  - `src/features/transactions/csv-import/useImportWizard.ts` (useImportWizard hook: moves a near-date duplicate to the bank's date, with `allowBreakingChecks`)
+    - → `src/features/transactions/CsvImportModal.tsx` (CsvImportModal)
 
 ### `deleteEvent`
 
-Deletes an event by ID.
+Deletes an event by ID. Guarded: takes `ask`.
 
 - **BE command:** `delete_event` → `src-tauri/src/features/transactions/commands.rs`
 - **Used in:**
@@ -111,7 +117,7 @@ Retrieves a single event with all its data. For transfers, includes counterpart 
 
 ### `bulkCreateBalanceUpdates`
 
-Creates multiple balance updates across accounts on the same date with a shared note.
+Creates multiple balance updates across accounts on the same date with a shared note. Guarded: takes `ask`.
 
 - **BE command:** `bulk_create_balance_updates` → `src-tauri/src/features/transactions/commands.rs`
 - **Used in:**
@@ -119,7 +125,7 @@ Creates multiple balance updates across accounts on the same date with a shared 
 
 ### `updateTransfer`
 
-Updates a transfer between two accounts (both legs' amounts, dates, FX rates).
+Updates a transfer between two accounts (both legs' amounts, dates, FX rates). Guarded: takes `ask`.
 
 - **BE command:** `update_transfer` → `src-tauri/src/features/transactions/commands.rs`
 - **Used in:**
@@ -157,7 +163,7 @@ Creates a split group with multiple legs for splitting one transaction across ca
 
 ### `deleteSplitGroup`
 
-Deletes a split group and all its legs.
+Deletes a split group and all its legs. Guarded: takes `ask`.
 
 - **BE command:** `delete_split_group` → `src-tauri/src/features/transactions/commands.rs`
 - **Used in:**
