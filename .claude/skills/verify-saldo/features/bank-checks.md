@@ -24,7 +24,7 @@ An own account's dashboard card can be checked against the user's bank app. "Mat
 - `BC-CAUSE-BOOKED`: a booked unexplained difference that closes the gap is listed first, even when older than the newest check: "The unexplained difference dated <day> is explained now", "Delete the booked difference". `<day>` is the entry's date, the one the ledger shows (a later balance update's day when the booking was dated at it). The real row that arrived later shows as "This row is exactly the difference", never as a copy.
 
 - `BC-GUARD-NOTE`: changing only the note of a row a ✓ Verified check counted saves without asking.
-- `BC-GUARD-DELETE`: deleting a counted row shows "Change a verified account?" above the delete confirm: "<account> matched the bank app on <day>. After this change it differs by X." Cancel closes both, deletes nothing and shows no toast. "Change anyway" deletes, and the card turns amber.
+- `BC-GUARD-DELETE`: deleting a counted row shows "Change a verified account?" above the delete confirm: "<account> matched the bank app on <day>. After this change it differs by X." Cancel closes both, deletes nothing and shows no toast. "Change anyway" is disabled for its first 600 ms, so a double-click on Delete cannot answer it; after that it deletes, and the card turns amber.
 - `BC-GUARD-EDIT`: changing a counted balance update's amount asks on Save; Cancel keeps Edit Balance Update open with the typed amount and Save enabled.
 - `BC-GUARD-TWO`: deleting or editing a transfer between two ✓ Verified accounts lists both accounts.
 - `BC-GUARD-NEW-BU`: a new balance update dated before the check's day asks; one dated on the check's day or later saves without asking.
