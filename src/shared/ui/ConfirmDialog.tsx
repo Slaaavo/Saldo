@@ -1,13 +1,13 @@
-import type { ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Loader2 } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogBody, DialogFooter } from './dialog'
 import { Button } from './button'
 
 const ACTIONS = {
-  delete: { titleKey: 'modals.confirm.deleteTitle', submitKey: 'common.delete', variant: 'destructive' },
-  confirm: { titleKey: 'modals.confirm.title', submitKey: 'modals.confirm.submit', variant: 'default' },
-  breakChecks: { titleKey: 'bankCheck.breaks.title', submitKey: 'bankCheck.breaks.submit', variant: 'destructive' },
+  delete: { titleKey: 'modals.confirm.deleteTitle', submitKey: 'common.delete', variant: 'destructive', submitAfterMs: 0 },
+  confirm: { titleKey: 'modals.confirm.title', submitKey: 'modals.confirm.submit', variant: 'default', submitAfterMs: 0 },
+  breakChecks: { titleKey: 'bankCheck.breaks.title', submitKey: 'bankCheck.breaks.submit', variant: 'destructive', submitAfterMs: 600 },
 } as const
 
 interface Props {
@@ -20,7 +20,14 @@ interface Props {
 
 const ConfirmDialog = ({ action, message, onConfirm, onCancel, loading = false }: Props) => {
   const { t } = useTranslation()
-  const { titleKey, submitKey, variant } = ACTIONS[action]
+  const { titleKey, submitKey, variant, submitAfterMs } = ACTIONS[action]
+  const [submitReady, setSubmitReady] = useState(submitAfterMs === 0)
+
+  useEffect(() => {
+    if (submitReady) return
+    const timer = setTimeout(() => setSubmitReady(true), submitAfterMs)
+    return () => clearTimeout(timer)
+  }, [submitReady, submitAfterMs])
 
   return (
     <Dialog
@@ -40,7 +47,7 @@ const ConfirmDialog = ({ action, message, onConfirm, onCancel, loading = false }
           <Button variant="outline" onClick={onCancel} disabled={loading}>
             {t('modals.confirm.cancel')}
           </Button>
-          <Button variant={variant} onClick={onConfirm} disabled={loading}>
+          <Button variant={variant} onClick={onConfirm} disabled={loading || !submitReady}>
             {loading && <Loader2 className="h-4 w-4 animate-spin" />}
             {t(submitKey)}
           </Button>

@@ -117,7 +117,9 @@ describe('a change that would break a verified check', () => {
     expect(allowedFlags('update_event')).toEqual([false])
 
     await user.click(screen.getByRole('button', { name: 'Save' }))
-    await user.click(within(await warning()).getByRole('button', { name: 'Change anyway' }))
+    const changeAnyway = within(await warning()).getByRole('button', { name: 'Change anyway' })
+    await waitFor(() => expect(changeAnyway).toBeEnabled())
+    await user.click(changeAnyway)
 
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
     expect(allowedFlags('update_event')).toEqual([false, false, true])

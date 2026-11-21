@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import i18next from 'i18next'
 import { I18nextProvider } from 'react-i18next'
@@ -48,7 +48,28 @@ describe('BreakingChecksDialog', () => {
     expect(onCancel).toHaveBeenCalledOnce()
     expect(onConfirm).not.toHaveBeenCalled()
 
-    await user.click(screen.getByRole('button', { name: 'Change anyway' }))
+    const changeAnyway = screen.getByRole('button', { name: 'Change anyway' })
+    await waitFor(() => expect(changeAnyway).toBeEnabled())
+    await user.click(changeAnyway)
     expect(onConfirm).toHaveBeenCalledOnce()
+  })
+
+  it('ignores Change anyway until a double-click on the button beneath it is over', () => {
+    vi.useFakeTimers()
+    try {
+      const { onConfirm } = renderDialog('en')
+      const changeAnyway = screen.getByRole('button', { name: 'Change anyway' })
+
+      fireEvent.click(changeAnyway)
+      act(() => vi.advanceTimersByTime(500))
+      fireEvent.click(changeAnyway)
+      expect(onConfirm).not.toHaveBeenCalled()
+
+      act(() => vi.advanceTimersByTime(100))
+      fireEvent.click(changeAnyway)
+      expect(onConfirm).toHaveBeenCalledOnce()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
