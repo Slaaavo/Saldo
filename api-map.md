@@ -381,7 +381,7 @@ Lists the likely causes of the gap between the typed bank balance and Saldo's li
 
 - **BE command:** `find_difference_causes` → `src-tauri/src/features/bank/commands.rs`
 - **Used in:**
-  - `src/features/bank/useDifferenceCauses.ts` (useDifferenceCauses hook, query key `['bank-check-causes', accountId, bankBalanceMinor, seenBalanceMinor]`, asked once typing pauses for 300 ms)
+  - `src/features/bank/useDifferenceCauses.ts` (useDifferenceCauses hook, query key `['bank-check-causes', accountId, bankBalanceMinor, seenBalanceMinor]`, asked once typing pauses for 300 ms; on `CHECK_CHANGED` it refreshes `['snapshot']` and shows no list instead of an error)
     - → `src/features/bank/FindBankDifferenceModal.tsx` (FindBankDifferenceModal, rendered by `DifferenceCauses.tsx`)
 
 ---
