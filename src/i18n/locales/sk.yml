@@ -133,7 +133,7 @@ bankCheck:
     staleImport: "Najnovší záznam v Saldo je z {{day}}. Importujte najnovší export."
     noImportedRows: "Saldo zatiaľ nemá na tomto účte žiadne záznamy. Importujte najnovší export."
     importCsv: "Importovať CSV"
-    bookedDifferenceExplained: "Rozdiel zaúčtovaný {{day}} je už vysvetlený"
+    bookedDifferenceExplained: "Nevysvetlený rozdiel z {{day}} je už vysvetlený"
     nearCopy: "Vyzerá ako kópia záznamu z {{day}}"
     equalsGap: "Tento záznam sa presne rovná rozdielu"
     flippedSign: "Tento záznam má možno opačné znamienko"
@@ -146,7 +146,7 @@ bankCheck:
     fixFailed: "Záznam sa nepodarilo opraviť: {{error}}"
     confirm:
       deleteRow: "Vymazať záznam <row></row> v sume <amount></amount>?"
-      deleteBookedDifference: "Vymazať nevysvetlený rozdiel <amount></amount> zaúčtovaný <row></row>?"
+      deleteBookedDifference: "Vymazať nevysvetlený rozdiel <amount></amount> z <row></row>?"
       deleteTransfer: "Vymazať prevod <row></row> v sume <amount></amount>? Zmizne z oboch účtov."
       deleteSplitGroup: "Vymazať rozdelený záznam <row></row> v sume <amount></amount>? Vymažú sa všetky jeho časti ({{parts}})."
       flip: "Zmeniť záznam <row></row> z <amount></amount> na <flipped></flipped>?"

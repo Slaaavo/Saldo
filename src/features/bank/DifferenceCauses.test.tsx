@@ -48,10 +48,10 @@ describe('DifferenceCauses confirm', () => {
       'en',
     )
 
-    expect(screen.getByText('The difference booked on 14 Nov is explained now')).toBeInTheDocument()
+    expect(screen.getByText('The unexplained difference dated 14 Nov is explained now')).toBeInTheDocument()
     await userEvent.setup().click(screen.getByRole('button', { name: 'Delete the booked difference' }))
 
-    expect(screen.getByRole('dialog')).toHaveTextContent('Delete the unexplained difference of -12.50 EUR booked on 14 Nov?')
+    expect(screen.getByRole('dialog')).toHaveTextContent('Delete the unexplained difference of -12.50 EUR dated 14 Nov?')
   })
 
   it('names the row as the list does when flipping, in Slovak', async () => {
