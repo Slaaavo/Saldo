@@ -21,6 +21,7 @@ An own account's dashboard card can be checked against the user's bank app. "Mat
 - `BC-CAUSE-WINDOW`: only rows added or changed after the account's newest check are causes.
 - `BC-CAUSE-STALE`: on an account imported from CSV whose newest row is more than 3 days old, "Newest row in Saldo is from <day>. Import the latest export." and "Import CSV", which opens CSV import with the account picked. Never on an account without an import profile.
 - `BC-CAUSE-TYPING`: the list appears once typing pauses and never shows an earlier value's causes under a newer difference.
+- `BC-CAUSE-BOOKED`: a booked unexplained difference that closes the gap is listed first, even when older than the newest check: "The difference booked on <day> is explained now", "Delete the booked difference". The real row that arrived later shows as "This row is exactly the difference", never as a copy.
 
 ## How to get to it (user POV)
 
@@ -46,6 +47,7 @@ Preconditions: Saldo Dev in live mode on the dev DB with at least two own accoun
   - `912.50`: "Looks like a copy of the row from 5 Nov", "7 Nov · verify-causes coffee again · -12.50 EUR". "Delete this copy" → "Confirm deletion" → "Delete". Result: toast "Row deleted", Saldo 912.50, "Mark as matching" → the card shows "Verified <today>".
   - After that check, `1005.00` again lists nothing: the groceries row is older than the newest check (`BC-CAUSE-WINDOW`).
   - On Verify Stale (scroll the cards right), any other balance lists "Newest row in Saldo is from 10 Nov. Import the latest export."; "Import CSV" opens Import CSV with "Verify Stale" and the profile "Verify CSV" picked. Cancel it.
+- **Booked difference explained.** On a verified account, "Find the difference" with a balance 12.50 below Saldo's, then "Book as unexplained difference". Quit, insert the real row the import would bring (`INSERT INTO event (account_id, event_type) SELECT id, 'cashflow' FROM account WHERE name = '<account>'; INSERT INTO event_data (event_id, amount_minor, event_date, note) SELECT max(id), -1250, '<yesterday>T12:00:00', 'verify-causes card payment' FROM event;`, sandbox off), launch. The card says "now differs by 12.50 EUR". "Find the difference" with the bank balance typed again: first "The difference booked on <today> is explained now" with "Delete the booked difference", then "This row is exactly the difference" for the card payment. "Delete the booked difference" → "Delete the unexplained difference of -12.50 EUR booked on <today>?" → "Delete". Result: "Saldo matches the bank"; `evidence.sh db` shows the `unexplained_difference` deleted and the card payment live.
 
 ## Gotchas
 
@@ -54,6 +56,6 @@ Preconditions: Saldo Dev in live mode on the dev DB with at least two own accoun
 - The toast auto-closes after about 4 seconds. Click Undo in the same `app_batch` as "Matches bank", or the click lands on nothing. In a background window the toast may not paint at all: its "Undo" button then sits in the AX summary at the window's bottom edge (about 48×7), and a click at its center still works.
 - "Matches bank" sends the balance the card showed; when an import or `saldo mcp` wrote since, the toast says the balance changed and nothing is stored.
 - The amber line wraps to two lines on a 250 px card.
-- Causes last driven on 2026-11-20 in runs `20261120-172204-feat-check-causes` (every `BC-CAUSE-*` path in English) and `20261120-172549-feat-check-causes` (the typing and amount-width fixes, `BC-CAUSE-WINDOW`, Slovak). The window found two defects that are now fixed: the list from the previous value showed under a new difference while typing paused, and a long note cut the amount off.
+- Causes last driven on 2026-11-20 in runs `20261120-172204-feat-check-causes` (every `BC-CAUSE-*` path in English) and `20261120-172549-feat-check-causes` (the typing and amount-width fixes, `BC-CAUSE-WINDOW`, Slovak). The window found two defects that are now fixed: the list from the previous value showed under a new difference while typing paused, and a long note cut the amount off. The final code's fix loop and `BC-CAUSE-BOOKED` last driven on 2026-11-21 in runs `20261121-084157-feat-check-causes` and `20261121-085318`/`085352-feat-check-causes` (the booking, then the explained booked difference after a relaunch).
 - A fixture loaded while the app runs stays invisible: the window never gains focus in the background, so the refresh on outside writes never fires. Load it with the app down, or quit and launch again.
 - `check-causes.sql` adds nothing on a second run, so after its rows were fixed and a check marked, the causes need fresh rows (insert one dated within 5 days of 5 Nov with -1250) or `reset-dev-db.sh`.
