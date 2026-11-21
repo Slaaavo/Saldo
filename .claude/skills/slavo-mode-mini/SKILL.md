@@ -21,10 +21,14 @@ This skill adapts `~/.claude/skills/slavo-mode/SKILL.md` to Saldo, a solo side p
 ## Worktrees
 
 - Work in a git worktree on a new branch off `master`, so several sessions can run at once. Use `EnterWorktree`, or the worktree the app made for the session. The user also commits in the main checkout while you work.
-- A new worktree has no `node_modules`. Run `pnpm install`. The lockfile is `pnpm-lock.yaml`. Never use npm or yarn.
-- A new worktree also has no `src-tauri/libpdfium.dylib`, because it is gitignored. Copy it from `src-tauri/` in the main checkout. The macOS Tauri config bundles it, and eKasa receipt import loads it at runtime.
-- Only one `tauri dev` can run on this machine, because Vite holds port 1420 with `strictPort`. That includes `verify-saldo` runs. If the port is taken, another session is running the app. Wait and retry. Never stop a run you did not launch.
-- Inside the Bash sandbox, pnpm 12 rejects the proxy's TLS certificate. Run `pnpm install` with the sandbox disabled.
+- Set up the worktree and run the app per the worktree bullets of `worker.md` in this folder. They are written for agents and apply to you too.
+
+## Agents
+
+poteto-mode's `worker.md` gives every agent Vestberry's GitLab and MR rules, and no agent reads this skill. So every agent you start, an `Agent` subagent or a `Workflow` agent, gets these two lines first in its kickoff. The second line names this folder's `worker.md` by its absolute path.
+
+1. `Read ~/.claude/skills/pstack/skills/poteto-mode/worker.md before anything else.`
+2. `Then read <this folder>/worker.md. It overrides worker.md where they differ.`
 
 ## Real database
 
@@ -60,13 +64,12 @@ Done means all three:
 Applies to every code change you write, whatever the playbook.
 
 - Run the `interrogate` skill (`~/.claude/skills/pstack/skills/interrogate/SKILL.md`) on the branch diff against `master` before you post the description, after `unslop` and `no-comments`. Take its intent from the request. This replaces Feature step 7's "if the design is contested".
-- Fix the **Act on** findings before you post the description. Ask about one that is a business-logic call, per Business logic.
-- List the **Consider** findings in your reply for the user to decide, with the reviewers that raised each one. Leave out its other sections.
+- Fix each finding it verified before you post the description. Ask about one that is a business-logic call, per Business logic. Leave out its Intent and Dropped sections.
 - On requested changes, run it again on what changed since the last run before you post the updated description.
 
 ## Landing
 
-This replaces poteto-mode's Opening a MR, Babysit, and Shipping playbooks. Their commit and prose rules still apply, except that commit summaries are plain sentences, not Conventional Commits.
+This replaces poteto-mode's Opening an MR, Babysit, and Shipping playbooks. Their commit and prose rules still apply, except that commit summaries are plain sentences, not Conventional Commits.
 
 1. Commit on the worktree branch. Follow the `commit-message` skill, but skip its JIRA key and branch-name check, because Saldo has no Jira. Saldo's husky pre-commit hook runs `lint-staged`, then `cargo fmt` and `cargo clippy -- -D warnings` in `src-tauri/`. Run `cargo fmt` there before you stage. The hook's `cargo fmt` rewrites files after staging, so its fixes stay out of the commit. Never bypass the hook with `--no-verify`.
 2. Post the description in chat. It is the MR description you would have written: `## Decisions` first, then the sections from `playbooks/opening-a-pr.md`. Put the branch name and the commit list above it.
@@ -80,7 +83,8 @@ List each choice that the user cannot predict from the request and the diff. Tha
 
 ## Posting
 
-- Post to GitHub (issues, pull requests, releases, comments) only when the request says to. Otherwise put the draft in chat.
+- Post to GitHub (issues, pull requests, releases, comments) only when the request says "post", "send", or "push". Otherwise draft it in a Claude Doc, one doc per deliverable and one section per target. Read the doc back before you post, since the user may have edited it.
+- The description in Landing stays in chat. The user approves it there, and it is posted nowhere else.
 
 ## Explaining
 
