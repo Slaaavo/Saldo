@@ -21,7 +21,7 @@ const useRefreshAfterCheck = () => {
   return async () => {
     await queryClient.invalidateQueries({ queryKey: ['snapshot'] })
     await queryClient.invalidateQueries({ queryKey: ['events'] })
-    queryClient.removeQueries({ queryKey: ['bank-check-causes'] })
+    await queryClient.invalidateQueries({ queryKey: ['bank-check-causes'] })
   }
 }
 
