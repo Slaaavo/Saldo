@@ -44,8 +44,6 @@ export class ChangeDeclined extends Error {
   }
 }
 
-export const allowBreakingChecks: AskToBreakChecks = async () => true
-
 const invokeGuarded = async <T>(command: string, args: Record<string, unknown>, ask: AskToBreakChecks): Promise<T> => {
   try {
     return await invoke<T>(command, { ...args, allowBreakingChecks: false })
