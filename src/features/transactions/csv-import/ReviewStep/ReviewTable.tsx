@@ -1,5 +1,5 @@
-import { Fragment } from 'react'
-import { useTranslation } from 'react-i18next'
+import { Fragment, type ReactElement, type ReactNode } from 'react'
+import { Trans, useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 import type { ImportRow, IbanMatchResult } from '../types'
 import type { SnapshotRow } from '../../../../shared/types'
@@ -38,9 +38,19 @@ const BUCKET_NONE = '__none__'
 
 const dayOf = (eventDate: string) => eventDate.substring(0, 10)
 
-const hintOf = (t: TFunction, row: ImportRow): string | null => {
+const hintOf = (t: TFunction, row: ImportRow, money: (valueMinor: number) => ReactElement): ReactNode => {
   const { verdict } = row
   switch (verdict.kind) {
+    case 'holdPosted':
+      return row.isSelected
+        ? t('import.reviewStep.holdPosted.staysPending', { day: dayOf(verdict.eventDate) })
+        : t('import.reviewStep.holdPosted.posts', { day: dayOf(verdict.eventDate) })
+    case 'holdPostedAtOtherAmount':
+      return row.isSelected ? (
+        <Trans i18nKey="import.reviewStep.holdPostedAtOtherAmount.posts" components={{ hold: money(verdict.holdAmountMinor), posted: money(row.amountMinor) }} />
+      ) : (
+        <Trans i18nKey="import.reviewStep.holdPostedAtOtherAmount.stays" components={{ hold: money(verdict.holdAmountMinor) }} />
+      )
     case 'completesTransfer':
       if (row.splitLegs !== null) return null
       return t('import.reviewStep.completesTransfer', { account: verdict.accountName, day: dayOf(verdict.eventDate) })
@@ -91,6 +101,7 @@ export const ReviewTable = ({
   onRemoveLeg,
 }: ReviewTableProps) => {
   const { t } = useTranslation()
+  const money = (valueMinor: number) => <NumberValue value={valueMinor} minorUnits={selectedAccountMinorUnits} currencyCode={selectedAccountCurrencyCode} />
 
   return (
     <div className="border border-border rounded-[var(--radius)] bg-background overflow-hidden">
@@ -114,7 +125,9 @@ export const ReviewTable = ({
           <tbody>
             {rows.map((row) => {
               const isSplit = row.splitLegs !== null
-              const hint = hintOf(t, row)
+              // Posting a hold at another amount keeps the hold's own bucket and takes no split.
+              const postsHold = row.verdict.kind === 'holdPostedAtOtherAmount'
+              const hint = hintOf(t, row, money)
               const cell = cn('px-2 py-2', hint === null && 'border-b border-border group-last:border-b-0')
               return (
                 <Fragment key={row.index}>
@@ -142,12 +155,17 @@ export const ReviewTable = ({
                       )}
                     </td>
                     <td className={cell}>
+                      {row.pending && (
+                        <span className="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200">
+                          {t('import.reviewStep.cardHold')}
+                        </span>
+                      )}
                       <span className="text-muted-foreground truncate block" title={row.note ?? ''}>
                         {row.note ?? '—'}
                       </span>
                     </td>
                     <td className={cell}>
-                      {isSplit ? (
+                      {isSplit || postsHold ? (
                         <span className="text-muted-foreground">—</span>
                       ) : (
                         <Select
@@ -173,6 +191,8 @@ export const ReviewTable = ({
                         <Button type="button" variant="ghost" size="sm" className="h-7 text-xs px-2" onClick={() => onSplitCancel(row.index)}>
                           {t('import.reviewStep.split.cancelButton')}
                         </Button>
+                      ) : postsHold ? (
+                        <span className="text-muted-foreground">—</span>
                       ) : (
                         <Button type="button" variant="ghost" size="sm" className="h-7 text-xs px-2" onClick={() => onSplitOpen(row.index)}>
                           {t('import.reviewStep.split.splitButton')}

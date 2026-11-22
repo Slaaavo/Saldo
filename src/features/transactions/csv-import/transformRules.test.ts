@@ -10,6 +10,7 @@ const emptyMapping: ColumnMapping = {
   note: null,
   currency: null,
   fxRate: null,
+  card: null,
 }
 
 describe('applyRules', () => {
@@ -174,6 +175,32 @@ describe('applyRules', () => {
       ]
       const result = applyRules(rows, rules, emptyMapping)
       expect(result[0].__overrideDateString).toBeNull()
+    })
+  })
+
+  describe('pending_from_column and declined_from_column', () => {
+    const STATES: CsvRow[] = [{ Stav: ' Autorizovaná ' }, { Stav: 'Zúčtovaná' }, { Stav: 'ZAMIETNUTÁ' }, {}]
+    const rule = (type: 'pending_from_column' | 'declined_from_column', pattern: string, column = 'Stav'): ImportRule => ({ type, sortOrder: 0, column, pattern })
+    const flags = (rows: CsvRow[], rules: ImportRule[]) => applyRules(rows, rules, emptyMapping).map((r) => [r.__pending, r.__declined])
+
+    it('marks a row pending or declined when its trimmed cell matches the pattern, ignoring case', () => {
+      expect(flags(STATES, [rule('pending_from_column', '^autorizovaná$'), rule('declined_from_column', '^Zamietnutá$')])).toEqual([
+        [true, false],
+        [false, false],
+        [false, true],
+        [false, false],
+      ])
+    })
+
+    it('matches a current account description that starts with a card payment', () => {
+      const rows: CsvRow[] = [{ Popis: 'Platba kartou SLOVNAFT' }, { Popis: 'Prevod Platba kartou' }]
+
+      expect(flags(rows, [rule('pending_from_column', '^Platba kartou', 'Popis')]).map(([pending]) => pending)).toEqual([true, false])
+    })
+
+    it('leaves a rule with an invalid or empty pattern, or a missing column, inert', () => {
+      expect(flags(STATES, [rule('pending_from_column', '[invalid(('), rule('declined_from_column', '')])).toEqual(STATES.map(() => [false, false]))
+      expect(flags(STATES, [rule('declined_from_column', '.', 'Missing')])).toEqual(STATES.map(() => [false, false]))
     })
   })
 })

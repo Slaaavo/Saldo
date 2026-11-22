@@ -758,6 +758,7 @@ import:
       currency: "Currency"
       fxRate: "FX Rate"
       note: "Note"
+      card: "Card number"
     skip: "— skip —"
     required: "(required)"
     autoDetected: "Auto-detected"
@@ -765,6 +766,8 @@ import:
   reviewStep:
     summary: "New rows: {{newCount}}. Already in Saldo: {{knownCount}}."
     unparseableRows: "Skipped rows: {{count}} (the date or amount could not be read)"
+    declinedRows_one: "{{count}} declined payment skipped"
+    declinedRows_other: "{{count}} declined payments skipped"
     balanceWarning: "Balance update exists on {{dates}}"
     selectAll: "Select All"
     alreadyInSaldo: "{{count}} already in Saldo"
@@ -772,6 +775,17 @@ import:
     transferLeg:
       moves: "Transfer with {{account}}, moves from {{from}} to {{to}}"
       stays: "Transfer with {{account}} dated {{from}}"
+    cardHold: "Card hold"
+    holdPosted:
+      posts: "Posts the card hold dated {{day}}"
+      staysPending: "Imported as a new row; the card hold dated {{day}} stays pending"
+    holdPostedAtOtherAmount:
+      posts: "Card hold posted: <hold></hold> → <posted></posted>"
+      stays: "The card hold stays at <hold></hold> and this row is skipped"
+    cancelledHolds:
+      title: "Cancelled card holds"
+      description: "The bank no longer lists these card holds. Ticked ones are removed from Saldo."
+      remove: "Remove the card hold dated {{day}}"
     changedDuringReview: "Saldo changed during the review. Check the updated list and import again."
     newPartner: "New partner"
     createPartner: "Create Partner"
@@ -799,6 +813,9 @@ import:
       minLegsError: "Row {{date}}: a split needs at least two parts"
       validationBanner: "Some split groups are incomplete"
   success: "Imported {{count}} transactions"
+  removedHolds_one: "Removed {{count}} cancelled card hold"
+  removedHolds_other: "Removed {{count}} cancelled card holds"
+  successAndRemovedHolds: "Imported {{count}} transactions. Cancelled card holds removed: {{removed}}"
   nothingNew: "Nothing new to import"
   error: "Failed to import transactions"
   next: "Next"
@@ -812,6 +829,8 @@ import:
   saveStep:
     title: "Import Successful"
     success: "Imported {{count}} transactions"
+    removedHolds_one: "Removed {{count}} cancelled card hold"
+    removedHolds_other: "Removed {{count}} cancelled card holds"
     savePrompt: "Save this configuration as a profile?"
     changedPrompt: "You made changes to the \"{{name}}\" profile."
     profileName: "Profile name"
@@ -881,6 +900,13 @@ import:
           asterisk:
             meaning: "A literal asterisk"
             example: "{{pattern}} matches {{text}}"
+    pendingFromColumnLabel: "Card hold from column"
+    declinedFromColumnLabel: "Declined payment from column"
+    columnPattern:
+      column: "Column"
+      pattern: "Pattern (regex, ignores case)"
+      pendingExample: "A row is a card hold when the cell matches. Example: ^Autorizovaná$ for a card export's state column, ^Platba kartou for a current account's description"
+      declinedExample: "A row is skipped as a declined payment when the cell matches. Example: ^Zamietnutá$"
     invalidRegex: "Invalid regex pattern"
     unmatchedColumn: "Column \"{{name}}\" not found in CSV"
 

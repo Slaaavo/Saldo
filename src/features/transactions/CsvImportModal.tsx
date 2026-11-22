@@ -40,6 +40,7 @@ const CsvImportModal = ({ snapshot, preselectedAccountId, onClose, onSuccess }: 
     setRules,
     handleProfileSelect,
     handleToggleRow,
+    handleToggleCancelledHold,
     handleSelectAll,
     handleDeselectAll,
     handleBucketChange,
@@ -111,6 +112,9 @@ const CsvImportModal = ({ snapshot, preselectedAccountId, onClose, onSuccess }: 
             <ReviewStep
               importRows={wizardState.importRows}
               unparseableRowCount={wizardState.unparseableRowCount}
+              declinedRowCount={wizardState.declinedRowCount}
+              cancelledHolds={wizardState.cancelledHolds}
+              onToggleCancelledHold={handleToggleCancelledHold}
               selectedCount={selectedCount}
               canApplyReview={canApplyReview}
               balanceWarningDates={balanceWarningDates}
@@ -145,6 +149,7 @@ const CsvImportModal = ({ snapshot, preselectedAccountId, onClose, onSuccess }: 
           {wizardState.step === 'save-profile' && (
             <SaveProfileStep
               importedCount={wizardState.importedCount ?? 0}
+              removedHoldCount={wizardState.removedHoldCount ?? 0}
               loadedProfileName={wizardState.loadedProfile?.name ?? null}
               onSaveNew={handleSaveNewProfile}
               onUpdate={handleUpdateProfile}

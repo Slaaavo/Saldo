@@ -1,4 +1,4 @@
-import type { ImportRule, SignFromColumnParams, OverrideDateFromDescriptionParams } from '../../../shared/types'
+import type { ImportRule, SignFromColumnParams, OverrideDateFromDescriptionParams, ColumnPatternParams } from '../../../shared/types'
 import type { CsvRow, ColumnMapping, TransformedCsvRow } from './types'
 import { parseDateString } from './csvParser'
 
@@ -16,6 +16,8 @@ export const applyRules = (
       ...row,
       __negateAmount: false,
       __overrideDateString: null,
+      __pending: false,
+      __declined: false,
     } as TransformedCsvRow
 
     for (const rule of sortedRules) {
@@ -23,11 +25,26 @@ export const applyRules = (
         applySignFromColumn(transformed, rule as typeof rule & SignFromColumnParams)
       } else if (rule.type === 'override_date_from_description') {
         applyOverrideDateFromDescription(transformed, rule as typeof rule & OverrideDateFromDescriptionParams)
+      } else if (rule.type === 'pending_from_column') {
+        if (cellMatches(transformed, rule)) transformed.__pending = true
+      } else if (rule.type === 'declined_from_column') {
+        if (cellMatches(transformed, rule)) transformed.__declined = true
       }
     }
 
     return transformed
   })
+}
+
+// An empty or invalid pattern leaves the rule inert: an empty one would match every row.
+const cellMatches = (row: TransformedCsvRow, rule: ColumnPatternParams): boolean => {
+  const cell = row[rule.column]
+  if (cell === undefined || rule.pattern === '') return false
+  try {
+    return new RegExp(rule.pattern, 'i').test(cell.trim())
+  } catch {
+    return false
+  }
 }
 
 const applySignFromColumn = (row: TransformedCsvRow, rule: { typeColumn: string; negativeType: string }): void => {

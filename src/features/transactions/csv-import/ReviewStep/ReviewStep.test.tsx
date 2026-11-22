@@ -5,6 +5,7 @@ import { I18nextProvider } from 'react-i18next'
 import i18n from '../../../../i18n'
 import type { ImportVerdict } from '../../../../shared/types'
 import type { ImportRow } from '../types'
+import { formatAmount } from '../../../../shared/utils/format'
 import ReviewStep, { type ReviewStepProps } from './ReviewStep'
 
 const makeImportRow = (index: number, date: string, note: string, verdict: ImportVerdict, isSelected: boolean): ImportRow => ({
@@ -18,6 +19,8 @@ const makeImportRow = (index: number, date: string, note: string, verdict: Impor
   fxRateExponent: null,
   rawIban: null,
   ibanMatch: { type: 'none' },
+  card: null,
+  pending: false,
   verdict,
   isSelected,
   bucketId: null,
@@ -41,6 +44,9 @@ const reviewProps = (overrides?: Partial<ReviewStepProps>): ReviewStepProps => {
   return {
     importRows: ROWS,
     unparseableRowCount: 0,
+    declinedRowCount: 0,
+    cancelledHolds: [],
+    onToggleCancelledHold: vi.fn(),
     selectedCount: 2,
     canApplyReview: true,
     balanceWarningDates: [],
@@ -157,5 +163,73 @@ describe('ReviewStep', () => {
     renderReview({ selectedCount: 3 })
 
     expect(screen.getByRole('button', { name: 'Import 3 rows' })).toBeEnabled()
+  })
+
+  describe('card holds', () => {
+    const eur = (minor: number) => formatAmount(minor, 2, undefined, 'EUR')
+    const pendingRow = { ...makeImportRow(0, '2026-09-14', 'Tchibo', { kind: 'new' }, true), pending: true }
+    const postedRow = makeImportRow(1, '2026-09-15', 'Tchibo booked', { kind: 'holdPosted', eventId: 60, eventDate: '2026-09-14T12:00:00', note: 'Tchibo' }, false)
+    const otherAmountRow = {
+      ...makeImportRow(2, '2026-04-30', 'GitHub', { kind: 'holdPostedAtOtherAmount', eventId: 61, eventDate: '2026-04-30T12:00:00', note: 'GitHub', holdAmountMinor: -3300 }, true),
+      amountMinor: -3299,
+    }
+    const HOLD_ROWS: ImportRow[] = [pendingRow, postedRow, otherAmountRow]
+
+    it('marks a pending row as a card hold', () => {
+      renderReview({ importRows: [pendingRow] })
+
+      expect(screen.getByText('Card hold')).toBeVisible()
+    })
+
+    it('says a folded booked row posts the card hold it matched', async () => {
+      renderReview({ importRows: HOLD_ROWS })
+
+      await userEvent.click(screen.getByRole('button', { name: '1 already in Saldo' }))
+
+      expect(screen.getByText('Posts the card hold dated 2026-09-14')).toBeVisible()
+    })
+
+    it('shows a hold posted at another amount among the new rows as its old and new amount, with no bucket or split', () => {
+      const { rerender } = renderReview({ importRows: HOLD_ROWS })
+
+      expect(screen.getByText('New rows: 2. Already in Saldo: 1.')).toBeInTheDocument()
+      expect(screen.getByText(/^Card hold posted:/)).toHaveTextContent(`Card hold posted: ${eur(-3300)} → ${eur(-3299)}`)
+      expect(screen.getAllByRole('button', { name: 'Split' })).toHaveLength(1)
+
+      rerender({ importRows: HOLD_ROWS.map((row) => (row.index === 2 ? { ...row, isSelected: false } : row)) })
+
+      expect(screen.getByText(/^The card hold stays at/)).toHaveTextContent(`The card hold stays at ${eur(-3300)} and this row is skipped`)
+    })
+
+    it('lists the cancelled holds ticked for removal and toggles one', async () => {
+      const { props } = renderReview({
+        cancelledHolds: [
+          { eventId: 70, eventDate: '2026-09-10T12:00:00', amountMinor: -1250, note: 'Shop', remove: true },
+          { eventId: 71, eventDate: '2026-09-11T12:00:00', amountMinor: -400, note: null, remove: false },
+        ],
+      })
+
+      expect(screen.getByText('Cancelled card holds')).toBeVisible()
+      expect(screen.getByText('The bank no longer lists these card holds. Ticked ones are removed from Saldo.')).toBeVisible()
+      expect(screen.getByText(eur(-1250))).toBeVisible()
+      expect(screen.getByRole('checkbox', { name: 'Remove the card hold dated 2026-09-10' })).toBeChecked()
+      expect(screen.getByRole('checkbox', { name: 'Remove the card hold dated 2026-09-11' })).not.toBeChecked()
+
+      await userEvent.click(screen.getByRole('checkbox', { name: 'Remove the card hold dated 2026-09-10' }))
+
+      expect(props.onToggleCancelledHold).toHaveBeenCalledWith(70)
+    })
+
+    it('shows no cancelled holds section when the bank dropped none', () => {
+      renderReview()
+
+      expect(screen.queryByText('Cancelled card holds')).not.toBeInTheDocument()
+    })
+
+    it('counts the declined payments it skipped', () => {
+      renderReview({ declinedRowCount: 2 })
+
+      expect(screen.getByText('2 declined payments skipped')).toBeVisible()
+    })
   })
 })

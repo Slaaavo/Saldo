@@ -1,17 +1,21 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ChevronRight } from 'lucide-react'
-import type { ImportRow } from '../types'
+import type { CancelledHoldRow, ImportRow } from '../types'
 import { isNewRow } from '../verdicts'
 import { cn } from '../../../../shared/lib/utils'
 import { Button } from '../../../../shared/ui/button'
 import { Checkbox } from '../../../../shared/ui/checkbox'
 import { DialogFooter } from '../../../../shared/ui/dialog'
 import { ReviewTable, type ReviewTableProps } from './ReviewTable'
+import { CancelledHoldsSection } from './CancelledHoldsSection'
 
 export interface ReviewStepProps extends Omit<ReviewTableProps, 'rows' | 'rowsShowingIbanActions'> {
   importRows: ImportRow[]
   unparseableRowCount: number
+  declinedRowCount: number
+  cancelledHolds: CancelledHoldRow[]
+  onToggleCancelledHold: (eventId: number) => void
   selectedCount: number
   canApplyReview: boolean
   balanceWarningDates: string[]
@@ -39,6 +43,9 @@ const rowsShowingIbanActions = (rowsInShownOrder: ImportRow[]): Set<number> => {
 const ReviewStep = ({
   importRows,
   unparseableRowCount,
+  declinedRowCount,
+  cancelledHolds,
+  onToggleCancelledHold,
   selectedCount,
   canApplyReview,
   balanceWarningDates,
@@ -83,6 +90,10 @@ const ReviewStep = ({
           </div>
         )}
 
+        {declinedRowCount > 0 && (
+          <div className="rounded-md border border-border bg-muted/40 p-3 text-sm text-muted-foreground">{t('import.reviewStep.declinedRows', { count: declinedRowCount })}</div>
+        )}
+
         {balanceWarningDates.length > 0 && (
           <div className="rounded-md border border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950 p-3 text-sm text-blue-800 dark:text-blue-200">
             {t('import.reviewStep.balanceWarning', {
@@ -118,6 +129,15 @@ const ReviewStep = ({
             </Button>
             {showKnownRows && <ReviewTable rows={knownRows} rowsShowingIbanActions={ibanActionRows} {...tableProps} />}
           </div>
+        )}
+
+        {cancelledHolds.length > 0 && (
+          <CancelledHoldsSection
+            holds={cancelledHolds}
+            currencyCode={tableProps.selectedAccountCurrencyCode}
+            minorUnits={tableProps.selectedAccountMinorUnits}
+            onToggle={onToggleCancelledHold}
+          />
         )}
       </div>
 

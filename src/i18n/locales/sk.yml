@@ -742,6 +742,7 @@ import:
       currency: "Mena"
       fxRate: "Kurz meny"
       note: "Poznámka"
+      card: "Číslo karty"
     skip: "— preskočiť —"
     required: "(povinné)"
     autoDetected: "Automaticky rozpoznané"
@@ -749,6 +750,9 @@ import:
   reviewStep:
     summary: "Nové riadky: {{newCount}}. Už v Saldo: {{knownCount}}."
     unparseableRows: "Preskočené riadky: {{count}} (nepodarilo sa načítať dátum alebo sumu)"
+    declinedRows_one: "Preskočená {{count}} zamietnutá platba"
+    declinedRows_few: "Preskočené {{count}} zamietnuté platby"
+    declinedRows_other: "Preskočených {{count}} zamietnutých platieb"
     balanceWarning: "Aktualizácia zostatku existuje k {{dates}}"
     selectAll: "Vybrať všetko"
     alreadyInSaldo_one: "{{count}} riadok je už v Saldo"
@@ -758,6 +762,17 @@ import:
     transferLeg:
       moves: "Prevod s účtom {{account}}, presunie sa z {{from}} na {{to}}"
       stays: "Prevod s účtom {{account}} zo dňa {{from}}"
+    cardHold: "Blokácia na karte"
+    holdPosted:
+      posts: "Zaúčtuje blokáciu na karte zo dňa {{day}}"
+      staysPending: "Importuje sa ako nový riadok; blokácia na karte zo dňa {{day}} zostáva"
+    holdPostedAtOtherAmount:
+      posts: "Blokácia na karte zaúčtovaná: <hold></hold> → <posted></posted>"
+      stays: "Blokácia na karte zostáva na <hold></hold> a tento riadok sa preskočí"
+    cancelledHolds:
+      title: "Zrušené blokácie na karte"
+      description: "Banka tieto blokácie na karte už neuvádza. Označené Saldo odstráni."
+      remove: "Odstrániť blokáciu na karte zo dňa {{day}}"
     changedDuringReview: "Saldo sa počas kontroly zmenilo. Skontrolujte aktualizovaný zoznam a importujte znova."
     newPartner: "Nový partner"
     createPartner: "Vytvoriť partnera"
@@ -785,6 +800,10 @@ import:
       minLegsError: "Riadok {{date}}: rozdelenie musí mať aspoň dve časti"
       validationBanner: "Niektoré skupiny rozdelenia sú neúplné"
   success: "Importovaných {{count}} transakcií"
+  removedHolds_one: "Odstránená {{count}} zrušená blokácia na karte"
+  removedHolds_few: "Odstránené {{count}} zrušené blokácie na karte"
+  removedHolds_other: "Odstránených {{count}} zrušených blokácií na karte"
+  successAndRemovedHolds: "Importovaných {{count}} transakcií. Odstránené zrušené blokácie na karte: {{removed}}"
   nothingNew: "Nič nové na import"
   error: "Nepodarilo sa importovať transakcie"
   next: "Ďalej"
@@ -798,6 +817,9 @@ import:
   saveStep:
     title: "Import úspešný"
     success: "Importovaných {{count}} transakcií"
+    removedHolds_one: "Odstránená {{count}} zrušená blokácia na karte"
+    removedHolds_few: "Odstránené {{count}} zrušené blokácie na karte"
+    removedHolds_other: "Odstránených {{count}} zrušených blokácií na karte"
     savePrompt: "Uložiť túto konfiguráciu ako profil?"
     changedPrompt: "Zmenili ste profil „{{name}}\""
     profileName: "Názov profilu"
@@ -867,6 +889,13 @@ import:
           asterisk:
             meaning: "Doslovná hviezdička"
             example: "{{pattern}} zodpovedá {{text}}"
+    pendingFromColumnLabel: "Blokácia na karte podľa stĺpca"
+    declinedFromColumnLabel: "Zamietnutá platba podľa stĺpca"
+    columnPattern:
+      column: "Stĺpec"
+      pattern: "Vzor (regulárny výraz, bez ohľadu na veľkosť písmen)"
+      pendingExample: "Riadok je blokácia na karte, keď bunka zodpovedá vzoru. Príklad: ^Autorizovaná$ pre stĺpec so stavom v exporte karty, ^Platba kartou pre popis bežného účtu"
+      declinedExample: "Riadok sa preskočí ako zamietnutá platba, keď bunka zodpovedá vzoru. Príklad: ^Zamietnutá$"
     invalidRegex: "Neplatný regulárny výraz"
     unmatchedColumn: "Stĺpec „{{name}}\" sa nenašiel v CSV"
 

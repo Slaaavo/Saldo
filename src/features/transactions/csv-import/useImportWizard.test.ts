@@ -1,6 +1,16 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest'
 import { renderHook, act, waitFor } from '@testing-library/react'
-import type { CsvImportPreview, Currency, ImportProfileRow, ImportVerdict, IncomingRowInput, PreviewCsvImportInput, SnapshotRow } from '../../../shared/types'
+import type {
+  CancelledHold,
+  CsvImportPreview,
+  Currency,
+  ImportProfileRow,
+  ImportRule,
+  ImportVerdict,
+  IncomingRowInput,
+  PreviewCsvImportInput,
+  SnapshotRow,
+} from '../../../shared/types'
 import { toast } from 'sonner'
 import { useImportWizard } from './useImportWizard'
 import { makeIncomeBudgetRow, makeRow } from '../../../shared/testing/snapshotFixtures'
@@ -59,13 +69,14 @@ const IN_SALDO: ImportVerdict = { kind: 'inSaldo', eventId: 40, eventDate: '2026
 const TRANSFER_LEG: ImportVerdict = { kind: 'transferLeg', eventId: 41, otherAccountName: 'Savings', eventDate: '2026-02-27T12:00:00' }
 const COMPLETES_TRANSFER: ImportVerdict = { kind: 'completesTransfer', eventId: 42, accountId: 2, accountName: 'Savings', eventDate: '2026-03-01T12:00:00', note: null }
 
-const answerPreviews = (...answers: Array<{ verdicts: ImportVerdict[]; token?: string; balanceUpdateDays?: string[] }>) => {
+const answerPreviews = (...answers: Array<{ verdicts: ImportVerdict[]; token?: string; balanceUpdateDays?: string[]; cancelledHolds?: CancelledHold[] }>) => {
   let call = 0
   ;(previewCsvImport as Mock).mockImplementation(async ({ rows }: PreviewCsvImportInput): Promise<CsvImportPreview> => {
     const answer = answers[call++]
     return {
       rows: rows.map((row, i) => ({ index: row.index, verdict: answer?.verdicts[i] ?? { kind: 'new' } })),
       balanceUpdateDays: answer?.balanceUpdateDays ?? [],
+      cancelledHolds: answer?.cancelledHolds ?? [],
       reviewToken: answer?.token ?? `token-${call}`,
     }
   })
@@ -75,7 +86,7 @@ const previewedRows = (call: number) => (previewCsvImport as Mock).mock.calls[ca
 
 const setupMocks = () => {
   answerPreviews()
-  ;(applyCsvImport as Mock).mockResolvedValue({ imported: 1 })
+  ;(applyCsvImport as Mock).mockResolvedValue({ imported: 1, removedHolds: 0 })
   ;(listPartnerAccounts as Mock).mockResolvedValue([])
   ;(listCurrencies as Mock).mockResolvedValue([EUR, JPY])
   ;(listImportProfiles as Mock).mockResolvedValue([])
@@ -134,7 +145,16 @@ describe('useImportWizard', () => {
       act(() => wizard.result.current.setRules([{ type: 'sign_from_column', sortOrder: 0, typeColumn: 'Typ', negativeType: 'D' }]))
       await act(() => wizard.result.current.goToReview())
 
-      const none = { counterpartAccountId: null, namesUnknownAccount: false, originalCurrencyId: null, originalAmountMinor: null, fxRateMantissa: null, fxRateExponent: null }
+      const none = {
+        counterpartAccountId: null,
+        namesUnknownAccount: false,
+        originalCurrencyId: null,
+        originalAmountMinor: null,
+        fxRateMantissa: null,
+        fxRateExponent: null,
+        card: null,
+        pending: false,
+      }
       expect(previewCsvImport).toHaveBeenCalledWith({
         accountId: 1,
         rows: [
@@ -189,6 +209,118 @@ describe('useImportWizard', () => {
 
       expect(result.current.wizardState.step).toBe('mapping')
       expect(toast.error).toHaveBeenCalledWith('errors.loadData')
+    })
+  })
+
+  describe('card holds', () => {
+    const CARD_EXPORT = [
+      'Dátum transakcie,Suma EUR,Názov obchodníka,Číslo karty,Stav transakcie',
+      '14.09.2026,-78.96,Tchibo,433703******2103,Autorizovaná',
+      '20.09.2026,-0.50,ZSSK,433703******2103,Zamietnutá',
+      '15.09.2026,-0.50,ZSSK,433703******9999,Zúčtovaná',
+    ].join('\n')
+    const STATE_RULES: ImportRule[] = [
+      { type: 'pending_from_column', sortOrder: 0, column: 'Stav transakcie', pattern: '^Autorizovaná$' },
+      { type: 'declined_from_column', sortOrder: 1, column: 'Stav transakcie', pattern: '^Zamietnutá$' },
+    ]
+    const HOLD_POSTED: ImportVerdict = { kind: 'holdPosted', eventId: 60, eventDate: '2026-09-14T12:00:00', note: 'Tchibo' }
+    const HOLD_AT_OTHER_AMOUNT: ImportVerdict = { kind: 'holdPostedAtOtherAmount', eventId: 61, eventDate: '2026-04-30T12:00:00', note: 'GitHub', holdAmountMinor: -3300 }
+    const cancelledHold = (eventId: number): CancelledHold => ({ eventId, eventDate: '2026-09-10T12:00:00', amountMinor: -1250, note: 'Shop' })
+
+    const renderCardExportAtReview = async () => {
+      const wizard = renderWizard()
+      await act(() => wizard.result.current.handleFileSelect(csvFile(CARD_EXPORT)))
+      await act(() => wizard.result.current.handleAccountSelect(1))
+      act(() => wizard.result.current.goToMapping())
+      act(() => wizard.result.current.setRules(STATE_RULES))
+      await act(() => wizard.result.current.goToReview())
+      return wizard
+    }
+
+    it('sends each row with its card and whether it is pending, and skips declined rows before the preview', async () => {
+      const { result } = await renderCardExportAtReview()
+
+      expect(previewedRows(0).map((r: IncomingRowInput) => [r.index, r.eventDate, r.card, r.pending])).toEqual([
+        [0, '2026-09-14T12:00:00', '433703******2103', true],
+        [2, '2026-09-15T12:00:00', '433703******9999', false],
+      ])
+      expect(result.current.wizardState.declinedRowCount).toBe(1)
+      expect(result.current.wizardState.unparseableRowCount).toBe(0)
+      expect(result.current.wizardState.importRows.map((r) => r.index)).toEqual([0, 2])
+    })
+
+    it('leaves a hold posted at the same amount unticked and ticks a hold posted at another amount', async () => {
+      answerPreviews({ verdicts: [HOLD_POSTED, HOLD_AT_OTHER_AMOUNT] })
+      const { result } = await renderCardExportAtReview()
+
+      expect(result.current.wizardState.importRows.map((r) => [r.verdict.kind, r.isSelected])).toEqual([
+        ['holdPosted', false],
+        ['holdPostedAtOtherAmount', true],
+      ])
+    })
+
+    it('sends one removal choice per cancelled hold, keeping a choice across a new preview and ticking a hold new to it', async () => {
+      answerPreviews(
+        { verdicts: [], cancelledHolds: [cancelledHold(70), cancelledHold(71)], token: 'old' },
+        { verdicts: [], cancelledHolds: [cancelledHold(71), cancelledHold(72)], token: 'new' },
+      )
+      ;(applyCsvImport as Mock).mockRejectedValueOnce({ code: 'IMPORT_CHANGED', message: 'Saldo changed' })
+      const { result } = await renderCardExportAtReview()
+      expect(result.current.wizardState.cancelledHolds.map((h) => [h.eventId, h.remove])).toEqual([
+        [70, true],
+        [71, true],
+      ])
+
+      act(() => result.current.handleToggleCancelledHold(71))
+      await act(() => result.current.handleImport())
+
+      expect((applyCsvImport as Mock).mock.calls[0][0]).toMatchObject({
+        reviewToken: 'old',
+        cancelledHolds: [
+          { eventId: 70, remove: true },
+          { eventId: 71, remove: false },
+        ],
+      })
+
+      await act(() => result.current.handleImport())
+
+      expect((applyCsvImport as Mock).mock.calls[1][0]).toMatchObject({
+        reviewToken: 'new',
+        cancelledHolds: [
+          { eventId: 71, remove: false },
+          { eventId: 72, remove: true },
+        ],
+      })
+    })
+
+    it('says what an import that only removed cancelled holds did instead of nothing new', async () => {
+      const profile: ImportProfileRow = {
+        id: 8,
+        name: 'Card',
+        columnMappingJson: JSON.stringify({ date: 'Dátum transakcie', amount: 'Suma EUR', partner: null, note: null, currency: null, fxRate: null, card: null }),
+        rules: [],
+        createdAt: '',
+        updatedAt: '',
+      }
+      ;(getPreferredProfile as Mock).mockResolvedValue(profile)
+      ;(applyCsvImport as Mock).mockResolvedValue({ imported: 0, removedHolds: 2 })
+      answerPreviews({ verdicts: [IN_SALDO, IN_SALDO, IN_SALDO], cancelledHolds: [cancelledHold(70), cancelledHold(71)] })
+      const { result, onClose } = await renderAtReview(CARD_EXPORT)
+
+      await act(() => result.current.handleImport())
+
+      expect(toast.info).not.toHaveBeenCalled()
+      expect(toast.success).toHaveBeenCalledWith('import.removedHolds')
+      expect(onClose).toHaveBeenCalled()
+    })
+
+    it('shows the removed holds on the save-profile step', async () => {
+      ;(applyCsvImport as Mock).mockResolvedValue({ imported: 1, removedHolds: 2 })
+      const { result } = await renderAtReview('Date,Amount\n2026-03-01,-10.00')
+
+      await act(() => result.current.handleImport())
+
+      expect(result.current.wizardState).toMatchObject({ step: 'save-profile', importedCount: 1, removedHoldCount: 2 })
     })
   })
 
@@ -253,6 +385,7 @@ describe('useImportWizard', () => {
           { index: 1, selected: true, bucketId: 10, split: null },
           { index: 2, selected: false, bucketId: null, split: null },
         ],
+        cancelledHolds: [],
         reviewToken: 'reviewed',
       })
     })
@@ -267,7 +400,7 @@ describe('useImportWizard', () => {
         updatedAt: '',
       }
       ;(getPreferredProfile as Mock).mockResolvedValue(PROFILE)
-      ;(applyCsvImport as Mock).mockResolvedValue({ imported: 0 })
+      ;(applyCsvImport as Mock).mockResolvedValue({ imported: 0, removedHolds: 0 })
       answerPreviews({ verdicts: [IN_SALDO, TRANSFER_LEG] })
       const { result, onClose, onSuccess } = await renderAtReview('Date,Amount\n2026-03-02,-10.00\n2026-03-01,20.00')
       expect(result.current.selectedCount).toBe(0)
@@ -352,6 +485,42 @@ describe('useImportWizard', () => {
       await act(() => result.current.handleFileSelect(csvFile(CSV)))
 
       expect(result.current.wizardState.columnMapping).toMatchObject({ date: 'Datum', amount: 'Suma', note: 'Popis' })
+    })
+
+    it('loads a profile saved before the card field existed and matches its hold rules to the file headers', async () => {
+      const savedBeforeCards: ImportProfileRow = {
+        id: 9,
+        name: 'Tatra card',
+        columnMappingJson: JSON.stringify({ date: 'Dátum transakcie', amount: 'Suma EUR', partner: null, note: 'Názov obchodníka', currency: null, fxRate: null }),
+        rules: [
+          { id: 2, profileId: 9, ruleType: 'pending_from_column', sortOrder: 0, paramsJson: JSON.stringify({ column: 'stav transakcie', pattern: '^Autorizovaná$' }) },
+          { id: 3, profileId: 9, ruleType: 'declined_from_column', sortOrder: 1, paramsJson: JSON.stringify({ column: 'Gone', pattern: '^Zamietnutá$' }) },
+        ],
+        createdAt: '',
+        updatedAt: '',
+      }
+      ;(getPreferredProfile as Mock).mockResolvedValue(savedBeforeCards)
+      const { result } = renderWizard()
+
+      await act(() => result.current.handleAccountSelect(1))
+      await act(() =>
+        result.current.handleFileSelect(csvFile('Dátum transakcie,Suma EUR,Názov obchodníka,Číslo karty,Stav transakcie\n14.09.2026,-1.00,Shop,433703******2103,Autorizovaná')),
+      )
+      act(() => result.current.goToMapping())
+
+      expect(result.current.wizardState.columnMapping).toEqual({
+        date: 'Dátum transakcie',
+        amount: 'Suma EUR',
+        partner: null,
+        note: 'Názov obchodníka',
+        currency: null,
+        fxRate: null,
+        card: null,
+      })
+      expect(result.current.wizardState.rules).toEqual([
+        { type: 'pending_from_column', sortOrder: 0, column: 'Stav transakcie', pattern: '^Autorizovaná$' },
+        { type: 'declined_from_column', sortOrder: 1, column: '', pattern: '^Zamietnutá$' },
+      ])
     })
   })
 

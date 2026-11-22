@@ -141,7 +141,7 @@ Creates a cashflow event (income/expense or transfer with optional FX conversion
 
 ### `previewCsvImport`
 
-Matches a CSV file's parsed rows against the account's live rows and returns a verdict per row (`new`, `completesTransfer`, `inSaldo`, `transferLeg`), the rows' days that have a balance update, and a review token. Writes nothing.
+Matches a CSV file's parsed rows against the account's live rows and returns a verdict per row (`new`, `completesTransfer`, `inSaldo`, `transferLeg`, `holdPosted`, `holdPostedAtOtherAmount`), the rows' days that have a balance update, the pending card holds the file no longer lists (`cancelledHolds`), and a review token. Each row carries its masked card number and whether the profile's rule marks it pending; the wizard never sends rows its declined rule matches. Writes nothing.
 
 - **BE command:** `preview_csv_import` → `src-tauri/src/features/csv_import/commands.rs`
 - **Used in:**
@@ -150,7 +150,7 @@ Matches a CSV file's parsed rows against the account's live rows and returns a v
 
 ### `applyCsvImport`
 
-Writes a reviewed CSV import in one transaction: the ticked rows (plain, transfer pair, completed transfer or split group), the bank facts of matched rows, and claimed transfer legs moved to the importing bank's day. Refuses with `IMPORT_CHANGED` when the review token no longer matches. Never asks before breaking a verified check.
+Writes a reviewed CSV import in one transaction: the ticked rows (plain, transfer pair, completed transfer or split group), the bank facts of matched rows, claimed transfer legs moved to the importing bank's day, card holds the bank booked posted in place, and the cancelled holds the review left ticked (`cancelledHolds`, one choice per previewed hold) removed. Returns how many entries it created and how many holds it removed. Refuses with `IMPORT_CHANGED` when the review token no longer matches. Never asks before breaking a verified check.
 
 - **BE command:** `apply_csv_import` → `src-tauri/src/features/csv_import/commands.rs`
 - **Used in:**
