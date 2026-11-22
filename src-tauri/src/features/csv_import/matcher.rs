@@ -4,6 +4,8 @@ use std::collections::HashMap;
 use chrono::NaiveDate;
 
 const NEAR_DAYS: i64 = 5;
+/// A run of 3 or more spaces marks a card hold's text in a bank export.
+const HOLD_PADDING: &str = "   ";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum Counterpart {
@@ -49,6 +51,10 @@ pub(crate) struct IncomingRow {
     pub original_amount_minor: Option<i64>,
     pub fx_rate_mantissa: Option<i64>,
     pub fx_rate_exponent: Option<i64>,
+    /// The bank's masked card number, when the row names one.
+    pub card: Option<String>,
+    /// A card hold the bank has not booked yet.
+    pub pending: bool,
 }
 
 impl IncomingRow {
@@ -57,29 +63,85 @@ impl IncomingRow {
     }
 }
 
+/// Where a bank line stands after the last import that listed it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum BankState {
+    /// Booked when an import first saw it, or recorded before Saldo knew card holds.
+    Booked,
+    /// A card hold the bank listed as pending in an export whose newest row is dated `seen_to`.
+    Pending { seen_to: NaiveDate },
+    /// A card hold an import posted, which moved the entry's amount by `change_minor`.
+    Posted { change_minor: i64 },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct BankFacts {
     pub day: NaiveDate,
     pub amount_minor: i64,
+    pub text: Option<String>,
+    pub card: Option<String>,
+    pub state: BankState,
 }
 
 #[derive(Debug, Clone, Hash)]
 pub(crate) struct Recorded {
+    /// A split group's lowest live leg, which holds the group's bank facts.
     pub bank_entry_event_id: i64,
     pub latest_data_id: i64,
+    pub split_group_id: Option<i64>,
     pub event_date: String,
     pub day: NaiveDate,
+    /// A split group's total.
     pub amount_minor: i64,
+    /// A split group's own note.
     pub note: Option<String>,
     pub bank: Option<BankFacts>,
 }
 
 impl Recorded {
     fn key(&self) -> (NaiveDate, i64) {
-        match self.bank {
+        match &self.bank {
             Some(bank) => (bank.day, bank.amount_minor),
             None => (self.day, self.amount_minor),
         }
+    }
+
+    fn card(&self) -> Option<&str> {
+        self.bank.as_ref()?.card.as_deref()
+    }
+
+    fn state(&self) -> Option<BankState> {
+        Some(self.bank.as_ref()?.state)
+    }
+
+    fn is_pending_hold(&self) -> bool {
+        matches!(self.state(), Some(BankState::Pending { .. }))
+    }
+
+    /// The note the entry keeps when the bank books its line with `booked_text`: the booked text
+    /// while the note is still the bank's text or carries a hold's padding, else the user's note.
+    pub(crate) fn note_once_booked(&self, booked_text: Option<&str>) -> Option<String> {
+        let padded = self
+            .note
+            .as_deref()
+            .is_some_and(|note| note.contains(HOLD_PADDING));
+        let the_banks = self
+            .bank
+            .as_ref()
+            .is_some_and(|bank| bank.text == self.note);
+        if padded || the_banks {
+            booked_text.map(str::to_owned)
+        } else {
+            self.note.clone()
+        }
+    }
+}
+
+/// Two cards are the same card unless both are known and differ.
+fn cards_fit(row: &IncomingRow, recorded: &Recorded) -> bool {
+    match (row.card.as_deref(), recorded.card()) {
+        (Some(row_card), Some(recorded_card)) => row_card == recorded_card,
+        _ => true,
     }
 }
 
@@ -113,13 +175,25 @@ pub(crate) enum Match<'a> {
         other_account_name: &'a str,
     },
     CompletesTransfer(&'a CounterpartCashflow),
+    /// The booked line of this pending hold, at the hold's amount.
+    HoldPosted(&'a Recorded),
+    /// The booked line of this pending hold, at another amount.
+    HoldPostedAtOtherAmount(&'a Recorded),
+}
+
+pub(crate) struct Matched<'a> {
+    /// In the order of the rows.
+    pub rows: Vec<Match<'a>>,
+    /// The pending holds on days the file covers that it no longer lists, though it is newer than
+    /// the last export that did.
+    pub cancelled_holds: Vec<&'a Recorded>,
 }
 
 pub(crate) fn match_rows<'a>(
     rows: &[IncomingRow],
     items: &'a [LedgerItem],
     cashflows: &'a [CounterpartCashflow],
-) -> Vec<Match<'a>> {
+) -> Matched<'a> {
     let mut file_order: Vec<usize> = (0..rows.len()).collect();
     file_order.sort_by_key(|&position| rows[position].index);
     let mut matches = vec![Match::New; rows.len()];
@@ -133,8 +207,14 @@ pub(crate) fn match_rows<'a>(
         &mut used,
         &mut matches,
     );
+    claim_holds_booked_on_another_day(rows, &file_order, items, &mut used, &mut matches);
+    claim_posted_holds_listed_again(rows, &file_order, items, &mut used, &mut matches);
+    claim_holds_booked_at_another_amount(rows, items, &mut used, &mut matches);
     claim_mutually_unique_cashflows(rows, cashflows, &mut matches);
-    matches
+    Matched {
+        cancelled_holds: cancelled_holds(rows, items, &used),
+        rows: matches,
+    }
 }
 
 fn claim_legs_to_named_accounts<'a>(
@@ -173,12 +253,6 @@ fn claim_same_day_and_amount<'a>(
             .or_default()
             .push(item);
     }
-    for candidates in by_key.values_mut() {
-        candidates.sort_by_key(|&item| {
-            let recorded = &items[item].recorded;
-            (recorded.bank.is_none(), recorded.bank_entry_event_id)
-        });
-    }
     for &position in file_order {
         if !matches!(matches[position], Match::New) {
             continue;
@@ -187,14 +261,179 @@ fn claim_same_day_and_amount<'a>(
         let Some(candidates) = by_key.get(&row.key()) else {
             continue;
         };
-        if let Some(&item) = candidates
+        let taken = candidates
             .iter()
-            .find(|&&item| !used[item] && row.counterpart.may_claim(&items[item]))
-        {
+            .copied()
+            .filter(|&item| {
+                !used[item]
+                    && row.counterpart.may_claim(&items[item])
+                    && cards_fit(row, &items[item].recorded)
+            })
+            .min_by_key(|&item| {
+                let recorded = &items[item].recorded;
+                (
+                    same_day_preference(row, recorded),
+                    recorded.bank_entry_event_id,
+                )
+            });
+        if let Some(item) = taken {
             used[item] = true;
-            matches[position] = Match::InSaldo(&items[item].recorded);
+            let recorded = &items[item].recorded;
+            matches[position] = if !row.pending && recorded.is_pending_hold() {
+                Match::HoldPosted(recorded)
+            } else {
+                Match::InSaldo(recorded)
+            };
         }
     }
+}
+
+/// A row takes an entry whose bank line is in the row's own state first (booked or pending), then
+/// one in the other state, then one no import has seen.
+fn same_day_preference(row: &IncomingRow, recorded: &Recorded) -> u8 {
+    match recorded.state() {
+        Some(BankState::Pending { .. }) if row.pending => 0,
+        Some(BankState::Booked | BankState::Posted { .. }) if !row.pending => 0,
+        Some(_) => 1,
+        None => 2,
+    }
+}
+
+fn claim_holds_booked_on_another_day<'a>(
+    rows: &[IncomingRow],
+    file_order: &[usize],
+    items: &'a [LedgerItem],
+    used: &mut [bool],
+    matches: &mut [Match<'a>],
+) {
+    for &position in file_order {
+        let row = &rows[position];
+        if row.pending || !matches!(matches[position], Match::New) {
+            continue;
+        }
+        let claimed = claim_closest(row, items, used, |recorded| {
+            recorded.is_pending_hold() && recorded.key().1 == row.amount_minor
+        });
+        if let Some(hold) = claimed {
+            matches[position] = Match::HoldPosted(hold);
+        }
+    }
+}
+
+/// A pending row of an export older than the one that posted its hold: the hold's amount before
+/// the posting is the row's.
+fn claim_posted_holds_listed_again<'a>(
+    rows: &[IncomingRow],
+    file_order: &[usize],
+    items: &'a [LedgerItem],
+    used: &mut [bool],
+    matches: &mut [Match<'a>],
+) {
+    for &position in file_order {
+        let row = &rows[position];
+        if !row.pending || !matches!(matches[position], Match::New) {
+            continue;
+        }
+        let claimed = claim_closest(row, items, used, |recorded| {
+            let Some(BankState::Posted { change_minor }) = recorded.state() else {
+                return false;
+            };
+            recorded.key().1.checked_sub(change_minor) == Some(row.amount_minor)
+        });
+        if let Some(posted) = claimed {
+            matches[position] = Match::InSaldo(posted);
+        }
+    }
+}
+
+/// The unused entry that `fits` with a bank line within 5 days of the row and a card that fits,
+/// closest day first, then lowest id.
+fn claim_closest<'a>(
+    row: &IncomingRow,
+    items: &'a [LedgerItem],
+    used: &mut [bool],
+    fits: impl Fn(&Recorded) -> bool,
+) -> Option<&'a Recorded> {
+    let (item, recorded) = items
+        .iter()
+        .enumerate()
+        .filter(|&(item, ledger_item)| {
+            let recorded = &ledger_item.recorded;
+            !used[item]
+                && row.counterpart.may_claim(ledger_item)
+                && cards_fit(row, recorded)
+                && days_apart(row.day, recorded.key().0) <= NEAR_DAYS
+                && fits(recorded)
+        })
+        .map(|(item, ledger_item)| (item, &ledger_item.recorded))
+        .min_by_key(|(_, recorded)| {
+            (
+                days_apart(row.day, recorded.key().0),
+                recorded.bank_entry_event_id,
+            )
+        })?;
+    used[item] = true;
+    Some(recorded)
+}
+
+fn claim_holds_booked_at_another_amount<'a>(
+    rows: &[IncomingRow],
+    items: &'a [LedgerItem],
+    used: &mut [bool],
+    matches: &mut [Match<'a>],
+) {
+    let candidates_of = (0..rows.len())
+        .filter(|&position| {
+            let row = &rows[position];
+            !row.pending && row.card.is_some() && matches!(matches[position], Match::New)
+        })
+        .map(|position| {
+            let row = &rows[position];
+            let holds = items
+                .iter()
+                .enumerate()
+                .filter(|&(item, ledger_item)| {
+                    let hold = &ledger_item.recorded;
+                    let (day, amount_minor) = hold.key();
+                    !used[item]
+                        && hold.is_pending_hold()
+                        && hold.split_group_id.is_none()
+                        && row.counterpart.may_claim(ledger_item)
+                        && hold.card() == row.card.as_deref()
+                        && day == row.day
+                        && amount_minor.signum() == row.amount_minor.signum()
+                        && amount_minor != row.amount_minor
+                })
+                .map(|(item, _)| item)
+                .collect();
+            (position, holds)
+        })
+        .collect();
+    for (position, item) in only_candidates_of_each_other(candidates_of, items.len()) {
+        used[item] = true;
+        matches[position] = Match::HoldPostedAtOtherAmount(&items[item].recorded);
+    }
+}
+
+fn cancelled_holds<'a>(
+    rows: &[IncomingRow],
+    items: &'a [LedgerItem],
+    used: &[bool],
+) -> Vec<&'a Recorded> {
+    let days = || rows.iter().map(|row| row.day);
+    let (Some(oldest), Some(newest)) = (days().min(), days().max()) else {
+        return Vec::new();
+    };
+    items
+        .iter()
+        .zip(used)
+        .filter(|&(ledger_item, &used)| !used && ledger_item.transfer_leg.is_none())
+        .map(|(ledger_item, _)| &ledger_item.recorded)
+        .filter(|hold| match hold.state() {
+            Some(BankState::Pending { seen_to }) => hold.key().0 >= oldest && newest > seen_to,
+            _ => false,
+        })
+        .collect()
 }
 
 fn claim_near_legs_for_rows_naming_no_known_account<'a>(
@@ -281,19 +520,29 @@ fn claim_mutually_unique_cashflows<'a>(
             Some((position, candidates))
         })
         .collect();
-    let mut claimants = vec![0usize; cashflows.len()];
+    for (position, cashflow) in only_candidates_of_each_other(candidates_of, cashflows.len()) {
+        matches[position] = Match::CompletesTransfer(&cashflows[cashflow]);
+    }
+}
+
+/// The pairs of a row and a target where each is the other's only candidate.
+fn only_candidates_of_each_other(
+    candidates_of: Vec<(usize, Vec<usize>)>,
+    targets: usize,
+) -> Vec<(usize, usize)> {
+    let mut claimants = vec![0usize; targets];
     for (_, candidates) in &candidates_of {
-        for &cashflow in candidates {
-            claimants[cashflow] += 1;
+        for &target in candidates {
+            claimants[target] += 1;
         }
     }
-    for (position, candidates) in candidates_of {
-        if let [cashflow] = candidates[..] {
-            if claimants[cashflow] == 1 {
-                matches[position] = Match::CompletesTransfer(&cashflows[cashflow]);
-            }
-        }
-    }
+    candidates_of
+        .into_iter()
+        .filter_map(|(position, candidates)| match candidates[..] {
+            [target] if claimants[target] == 1 => Some((position, target)),
+            _ => None,
+        })
+        .collect()
 }
 
 fn near_without_bank_entry(row: &IncomingRow, leg: &Recorded) -> bool {
@@ -304,4 +553,452 @@ fn near_without_bank_entry(row: &IncomingRow, leg: &Recorded) -> bool {
 
 fn days_apart(a: NaiveDate, b: NaiveDate) -> i64 {
     (a - b).num_days().abs()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const CARD: &str = "433703******2103";
+    const SECOND_CARD: &str = "433703******7708";
+    const DEBIT_CARD: &str = "423473******0501";
+
+    fn date(day: &str) -> NaiveDate {
+        NaiveDate::parse_from_str(day, "%Y-%m-%d").unwrap()
+    }
+
+    fn row(index: u32, day: &str, amount_minor: i64) -> IncomingRow {
+        IncomingRow {
+            index,
+            event_date: format!("{day}T12:00:00"),
+            day: date(day),
+            amount_minor,
+            note: Some(format!("row {index}")),
+            counterpart: Counterpart::None,
+            original_currency_id: None,
+            original_amount_minor: None,
+            fx_rate_mantissa: None,
+            fx_rate_exponent: None,
+            card: None,
+            pending: false,
+        }
+    }
+
+    fn booked(card: &str, row: IncomingRow) -> IncomingRow {
+        IncomingRow {
+            card: Some(card.to_owned()),
+            ..row
+        }
+    }
+
+    fn pending(card: &str, row: IncomingRow) -> IncomingRow {
+        IncomingRow {
+            pending: true,
+            ..booked(card, row)
+        }
+    }
+
+    fn typed(id: i64, day: &str, amount_minor: i64) -> LedgerItem {
+        LedgerItem {
+            recorded: Recorded {
+                bank_entry_event_id: id,
+                latest_data_id: id,
+                split_group_id: None,
+                event_date: format!("{day}T12:00:00"),
+                day: date(day),
+                amount_minor,
+                note: None,
+                bank: None,
+            },
+            transfer_leg: None,
+        }
+    }
+
+    fn with_bank(
+        id: i64,
+        day: &str,
+        amount_minor: i64,
+        card: Option<&str>,
+        state: BankState,
+    ) -> LedgerItem {
+        let mut item = typed(id, day, amount_minor);
+        item.recorded.bank = Some(BankFacts {
+            day: date(day),
+            amount_minor,
+            text: None,
+            card: card.map(str::to_owned),
+            state,
+        });
+        item
+    }
+
+    fn hold(id: i64, day: &str, amount_minor: i64, card: &str, seen_to: &str) -> LedgerItem {
+        with_bank(
+            id,
+            day,
+            amount_minor,
+            Some(card),
+            BankState::Pending {
+                seen_to: date(seen_to),
+            },
+        )
+    }
+
+    fn booked_entry(id: i64, day: &str, amount_minor: i64, card: &str) -> LedgerItem {
+        with_bank(id, day, amount_minor, Some(card), BankState::Booked)
+    }
+
+    fn split(mut item: LedgerItem) -> LedgerItem {
+        item.recorded.split_group_id = Some(item.recorded.bank_entry_event_id);
+        item
+    }
+
+    fn outcome(rows: &[IncomingRow], items: &[LedgerItem]) -> (Vec<String>, Vec<i64>) {
+        let matched = match_rows(rows, items, &[]);
+        let verdicts = matched
+            .rows
+            .iter()
+            .map(|matched| match matched {
+                Match::New => "new".to_owned(),
+                Match::InSaldo(recorded) => format!("in Saldo {}", recorded.bank_entry_event_id),
+                Match::HoldPosted(hold) => format!("posts {}", hold.bank_entry_event_id),
+                Match::HoldPostedAtOtherAmount(hold) => {
+                    format!("posts {} at another amount", hold.bank_entry_event_id)
+                }
+                Match::TransferLeg { leg, .. } => format!("leg {}", leg.bank_entry_event_id),
+                Match::CompletesTransfer(cashflow) => {
+                    format!("completes {}", cashflow.recorded.bank_entry_event_id)
+                }
+            })
+            .collect();
+        let cancelled = matched
+            .cancelled_holds
+            .iter()
+            .map(|hold| hold.bank_entry_event_id)
+            .collect();
+        (verdicts, cancelled)
+    }
+
+    fn verdicts(rows: &[IncomingRow], items: &[LedgerItem]) -> Vec<String> {
+        outcome(rows, items).0
+    }
+
+    #[test]
+    fn a_booked_row_posts_the_hold_with_its_card_day_and_amount() {
+        let items = [hold(1, "2026-10-25", -1_999, CARD, "2026-10-25")];
+
+        assert_eq!(
+            verdicts(&[booked(CARD, row(0, "2026-10-25", -1_999))], &items),
+            ["posts 1"]
+        );
+    }
+
+    #[test]
+    fn two_tickets_of_one_day_on_two_cards_post_their_own_holds() {
+        let items = [
+            hold(1, "2026-10-20", -50, CARD, "2026-10-25"),
+            hold(2, "2026-10-20", -50, SECOND_CARD, "2026-10-25"),
+        ];
+        let rows = [
+            booked(SECOND_CARD, row(0, "2026-10-20", -50)),
+            booked(CARD, row(1, "2026-10-20", -50)),
+        ];
+
+        assert_eq!(verdicts(&rows, &items), ["posts 2", "posts 1"]);
+    }
+
+    #[test]
+    fn a_hold_on_another_card_is_never_posted_and_a_covering_export_cancels_it() {
+        let items = [hold(1, "2026-10-20", -50, CARD, "2026-10-25")];
+        let rows = [
+            booked(SECOND_CARD, row(0, "2026-10-20", -50)),
+            booked(SECOND_CARD, row(1, "2026-10-31", -1_000)),
+        ];
+
+        assert_eq!(outcome(&rows, &items), (vec!["new".into(); 2], vec![1]));
+    }
+
+    #[test]
+    fn a_row_with_no_card_posts_a_hold_with_one() {
+        let items = [hold(1, "2026-10-20", -50, CARD, "2026-10-25")];
+
+        assert_eq!(verdicts(&[row(0, "2026-10-20", -50)], &items), ["posts 1"]);
+    }
+
+    #[test]
+    fn a_hold_booked_up_to_five_days_later_posts_closest_first() {
+        let items = [
+            hold(1, "2026-09-10", -7_896, CARD, "2026-09-16"),
+            hold(2, "2026-09-14", -7_896, CARD, "2026-09-16"),
+        ];
+
+        assert_eq!(
+            verdicts(&[booked(CARD, row(0, "2026-09-15", -7_896))], &items),
+            ["posts 2"]
+        );
+        assert_eq!(
+            verdicts(&[booked(CARD, row(0, "2026-09-20", -7_896))], &items[..1]),
+            ["new"],
+            "six days after the hold"
+        );
+    }
+
+    #[test]
+    fn a_same_day_entry_wins_over_a_hold_of_another_day() {
+        let items = [
+            hold(1, "2026-09-14", -7_896, CARD, "2026-09-16"),
+            booked_entry(2, "2026-09-15", -7_896, CARD),
+        ];
+
+        assert_eq!(
+            verdicts(&[booked(CARD, row(0, "2026-09-15", -7_896))], &items),
+            ["in Saldo 2"]
+        );
+    }
+
+    #[test]
+    fn a_row_takes_an_entry_in_its_own_state_first() {
+        let items = [
+            typed(1, "2026-10-20", -50),
+            hold(2, "2026-10-20", -50, CARD, "2026-10-25"),
+            booked_entry(3, "2026-10-20", -50, CARD),
+        ];
+
+        assert_eq!(
+            verdicts(&[pending(CARD, row(0, "2026-10-20", -50))], &items),
+            ["in Saldo 2"]
+        );
+        assert_eq!(
+            verdicts(&[booked(CARD, row(0, "2026-10-20", -50))], &items),
+            ["in Saldo 3"]
+        );
+        assert_eq!(
+            verdicts(
+                &[
+                    booked(CARD, row(0, "2026-10-20", -50)),
+                    booked(CARD, row(1, "2026-10-20", -50)),
+                    booked(CARD, row(2, "2026-10-20", -50)),
+                ],
+                &items
+            ),
+            ["in Saldo 3", "posts 2", "in Saldo 1"]
+        );
+    }
+
+    #[test]
+    fn a_pending_row_imported_again_is_its_own_hold() {
+        let items = [hold(1, "2026-10-31", -1_200, DEBIT_CARD, "2026-11-01")];
+
+        assert_eq!(
+            outcome(&[pending(DEBIT_CARD, row(0, "2026-10-31", -1_200))], &items),
+            (vec!["in Saldo 1".to_owned()], vec![])
+        );
+    }
+
+    #[test]
+    fn a_hold_booked_at_another_amount_on_its_day_and_card_is_repriced() {
+        let items = [hold(1, "2026-04-30", -3_300, DEBIT_CARD, "2026-05-01")];
+
+        assert_eq!(
+            verdicts(&[booked(DEBIT_CARD, row(0, "2026-04-30", -3_299))], &items),
+            ["posts 1 at another amount"]
+        );
+    }
+
+    #[test]
+    fn a_hold_at_another_amount_is_refused_unless_each_is_the_others_only_candidate() {
+        let github = || booked(DEBIT_CARD, row(0, "2026-04-30", -3_299));
+        let two_holds = [
+            hold(1, "2026-04-30", -3_300, DEBIT_CARD, "2026-05-01"),
+            hold(2, "2026-04-30", -3_400, DEBIT_CARD, "2026-05-01"),
+        ];
+        let one_hold = [hold(1, "2026-04-30", -3_300, DEBIT_CARD, "2026-05-01")];
+        let two_rows = [github(), booked(DEBIT_CARD, row(1, "2026-04-30", -3_250))];
+
+        assert_eq!(verdicts(&[github()], &two_holds), ["new"]);
+        assert_eq!(verdicts(&two_rows, &one_hold), ["new", "new"]);
+    }
+
+    #[test]
+    fn a_hold_at_another_amount_needs_the_same_known_card_day_and_sign() {
+        let items = [hold(1, "2026-04-30", -3_300, DEBIT_CARD, "2026-05-01")];
+        let refused = [
+            ("no card", row(0, "2026-04-30", -3_299)),
+            ("another card", booked(CARD, row(0, "2026-04-30", -3_299))),
+            (
+                "another day",
+                booked(DEBIT_CARD, row(0, "2026-05-01", -3_299)),
+            ),
+            ("a refund", booked(DEBIT_CARD, row(0, "2026-04-30", 3_299))),
+            (
+                "a pending row",
+                pending(DEBIT_CARD, row(0, "2026-04-30", -3_299)),
+            ),
+        ];
+
+        for (case, row) in refused {
+            assert_eq!(verdicts(&[row], &items), ["new"], "{case}");
+        }
+    }
+
+    #[test]
+    fn a_split_hold_posts_at_its_amount_but_is_never_repriced() {
+        let items = [split(hold(
+            1,
+            "2026-04-30",
+            -3_300,
+            DEBIT_CARD,
+            "2026-04-30",
+        ))];
+        let later = booked(DEBIT_CARD, row(1, "2026-05-02", -500));
+
+        assert_eq!(
+            verdicts(&[booked(DEBIT_CARD, row(0, "2026-04-30", -3_300))], &items),
+            ["posts 1"]
+        );
+        assert_eq!(
+            outcome(
+                &[booked(DEBIT_CARD, row(0, "2026-04-30", -3_299)), later],
+                &items
+            ),
+            (vec!["new".to_owned(), "new".to_owned()], vec![1]),
+            "the newer export no longer lists the hold"
+        );
+    }
+
+    #[test]
+    fn an_older_export_imported_after_the_posting_finds_the_posted_entry() {
+        let tchibo = with_bank(
+            1,
+            "2026-09-15",
+            -7_896,
+            Some(CARD),
+            BankState::Posted { change_minor: 0 },
+        );
+        let github = with_bank(
+            2,
+            "2026-04-30",
+            -3_299,
+            Some(DEBIT_CARD),
+            BankState::Posted { change_minor: 1 },
+        );
+
+        assert_eq!(
+            verdicts(&[pending(CARD, row(0, "2026-09-14", -7_896))], &[tchibo]),
+            ["in Saldo 1"]
+        );
+        assert_eq!(
+            verdicts(
+                &[pending(DEBIT_CARD, row(0, "2026-04-30", -3_300))],
+                &[github.clone()]
+            ),
+            ["in Saldo 2"]
+        );
+        assert_eq!(
+            verdicts(
+                &[pending(DEBIT_CARD, row(0, "2026-04-30", -3_400))],
+                &[github]
+            ),
+            ["new"],
+            "a hold of neither amount is another purchase"
+        );
+    }
+
+    #[test]
+    fn only_a_newer_export_covering_the_holds_day_cancels_it() {
+        let items = [hold(1, "2026-10-25", -1_999, CARD, "2026-10-25")];
+        let other = |index, day| row(index, day, -500);
+
+        let cancelled = |rows: &[IncomingRow]| outcome(rows, &items).1;
+        assert_eq!(
+            cancelled(&[other(0, "2026-10-20"), other(1, "2026-10-31")]),
+            [1]
+        );
+        assert_eq!(
+            cancelled(&[other(0, "2026-10-25"), other(1, "2026-10-31")]),
+            [1],
+            "a file starting on the hold's day covers it"
+        );
+        assert_eq!(
+            cancelled(&[other(0, "2026-10-20"), other(1, "2026-10-25")]),
+            Vec::<i64>::new(),
+            "no newer than the export that listed it"
+        );
+        assert_eq!(
+            cancelled(&[other(0, "2026-10-26"), other(1, "2026-10-31")]),
+            Vec::<i64>::new(),
+            "starts after the hold's day"
+        );
+        assert_eq!(cancelled(&[]), Vec::<i64>::new());
+    }
+
+    #[test]
+    fn a_hold_the_file_still_lists_or_posts_is_not_cancelled() {
+        let items = [
+            hold(1, "2026-10-25", -1_999, CARD, "2026-10-25"),
+            hold(2, "2026-10-26", -2_500, CARD, "2026-10-26"),
+        ];
+        let rows = [
+            booked(CARD, row(0, "2026-10-25", -1_999)),
+            pending(CARD, row(1, "2026-10-26", -2_500)),
+            booked(CARD, row(2, "2026-10-31", -500)),
+        ];
+
+        assert_eq!(
+            outcome(&rows, &items),
+            (
+                vec!["posts 1".into(), "in Saldo 2".into(), "new".into()],
+                vec![]
+            )
+        );
+    }
+
+    #[test]
+    fn a_pending_transfer_leg_is_never_cancelled() {
+        let mut leg = hold(1, "2026-10-25", -1_999, CARD, "2026-10-25");
+        leg.transfer_leg = Some(TransferLeg {
+            other_account_id: 9,
+            other_account_name: "Savings".to_owned(),
+            other_account_has_iban: true,
+            created_at: "2026-10-25T10:00:00.000".to_owned(),
+        });
+
+        assert_eq!(
+            outcome(&[booked(CARD, row(0, "2026-10-31", -500))], &[leg]).1,
+            Vec::<i64>::new()
+        );
+    }
+
+    #[test]
+    fn a_note_follows_the_booked_text_only_while_it_is_the_banks() {
+        let with_note = |note: Option<&str>, bank_text: Option<&str>| {
+            let mut item = hold(1, "2026-10-25", -1_999, CARD, "2026-10-25");
+            item.recorded.note = note.map(str::to_owned);
+            item.recorded.bank.as_mut().unwrap().text = bank_text.map(str::to_owned);
+            item.recorded
+        };
+        let hold_text = "BUDE DOPLNENÝ PO ZÚČT.";
+        let booked_text = Some("TCHIBO PRAHA");
+
+        assert_eq!(
+            with_note(Some(hold_text), Some(hold_text)).note_once_booked(booked_text),
+            booked_text.map(str::to_owned)
+        );
+        assert_eq!(
+            with_note(Some("TCHIBO    "), None).note_once_booked(booked_text),
+            booked_text.map(str::to_owned),
+            "a hold's padding"
+        );
+        assert_eq!(
+            with_note(Some("coffee for the office"), Some(hold_text)).note_once_booked(booked_text),
+            Some("coffee for the office".to_owned())
+        );
+        assert_eq!(
+            typed(1, "2026-10-25", -1_999)
+                .recorded
+                .note_once_booked(booked_text),
+            None,
+            "an entry no import has seen keeps no note"
+        );
+    }
 }

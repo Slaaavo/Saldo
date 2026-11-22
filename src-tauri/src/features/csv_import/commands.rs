@@ -5,14 +5,20 @@ use chrono::NaiveDate;
 use rusqlite::Connection;
 use tauri::State;
 
-use super::matcher::{self, Counterpart, CounterpartCashflow, IncomingRow, LedgerItem, Match};
-use super::models::{
-    ApplyCsvImportInput, CsvImportPreview, CsvImportResult, IncomingRowInput,
-    PreviewCsvImportInput, RowChoice, RowPreview, Verdict,
+use super::matcher::{
+    self, BankState, Counterpart, CounterpartCashflow, IncomingRow, LedgerItem, Match, Recorded,
 };
-use super::repository::{self, CounterpartCashflowsParams, InsertBankEntryParams};
+use super::models::{
+    ApplyCsvImportInput, CancelledHold, CancelledHoldChoice, CsvImportPreview, CsvImportResult,
+    IncomingRowInput, PreviewCsvImportInput, RowChoice, RowPreview, Verdict,
+};
+use super::repository::{
+    self, CounterpartCashflowsParams, InsertBankEntryParams, PostHoldParams, SeeHoldUntilParams,
+    SetSplitGroupNoteParams,
+};
 use crate::error::AppError;
 use crate::features::accounts::repository::get_account_type;
+use crate::features::transactions::commands::{delete_event_inner, delete_split_group_inner};
 use crate::features::transactions::models::SplitGroupEntry;
 use crate::features::transactions::repository::{
     complete_transfer, create_cashflow_or_transfer, create_split_group_with_legs, update_event,
@@ -48,7 +54,7 @@ pub(crate) fn preview_csv_import_inner(
 ) -> Result<CsvImportPreview, AppError> {
     with_read_txn(conn, || {
         let read = read_import(conn, input.account_id, &input.rows)?;
-        let matches = matcher::match_rows(&read.rows, &read.items, &read.cashflows);
+        let matched = matcher::match_rows(&read.rows, &read.items, &read.cashflows);
         let update_days: HashSet<NaiveDate> =
             repository::balance_update_days(conn, input.account_id)?
                 .into_iter()
@@ -58,7 +64,7 @@ pub(crate) fn preview_csv_import_inner(
             rows: read
                 .rows
                 .iter()
-                .zip(&matches)
+                .zip(&matched.rows)
                 .map(|(row, &matched)| RowPreview {
                     index: row.index,
                     verdict: verdict_of(matched),
@@ -68,6 +74,16 @@ pub(crate) fn preview_csv_import_inner(
                 .into_iter()
                 .filter(|day| update_days.contains(day))
                 .map(|day| day.format("%Y-%m-%d").to_string())
+                .collect(),
+            cancelled_holds: matched
+                .cancelled_holds
+                .iter()
+                .map(|hold| CancelledHold {
+                    event_id: hold.bank_entry_event_id,
+                    event_date: hold.event_date.clone(),
+                    amount_minor: hold.amount_minor,
+                    note: hold.note.clone(),
+                })
                 .collect(),
             review_token: review_token(input.account_id, &read),
         })
@@ -87,18 +103,32 @@ pub(crate) fn apply_csv_import_inner(
             message: "Saldo changed since this import was reviewed. Review it again.".into(),
         });
     }
-    let matches = matcher::match_rows(&read.rows, &read.items, &read.cashflows);
+    let matched = matcher::match_rows(&read.rows, &read.items, &read.cashflows);
+    let removals = parse_removals(&matched.cancelled_holds, input.cancelled_holds)?;
+    let writer = Writer {
+        conn,
+        account_id: input.account_id,
+        newest_day: read.rows.iter().map(|row| row.day).max(),
+    };
     let mut imported = 0;
-    for ((row, &matched), choice) in read.rows.iter().zip(&matches).zip(choices) {
-        imported += write_row(conn, input.account_id, row, matched, choice)?;
+    for ((row, &matched), choice) in read.rows.iter().zip(&matched.rows).zip(choices) {
+        imported += writer.write_row(row, matched, choice)?;
+    }
+    let removed_holds = removals.len() as u32;
+    for hold in removals {
+        writer.remove_cancelled_hold(hold)?;
     }
     txn.finish(Finish::Commit)?;
-    Ok(CsvImportResult { imported })
+    Ok(CsvImportResult {
+        imported,
+        removed_holds,
+    })
 }
 
+/// The row's tick and its split, if it has one. What a tick does depends on the row's verdict.
 enum Choice {
-    Skip,
-    Create { bucket_id: Option<i64> },
+    Unticked,
+    Ticked { bucket_id: Option<i64> },
     Split(Vec<SplitLeg>),
 }
 
@@ -178,6 +208,13 @@ fn parse_rows(
                 original_amount_minor: row.original_amount_minor,
                 fx_rate_mantissa: row.fx_rate_mantissa,
                 fx_rate_exponent: row.fx_rate_exponent,
+                card: row
+                    .card
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|card| !card.is_empty())
+                    .map(str::to_owned),
+                pending: row.pending,
             })
         })
         .collect()
@@ -262,10 +299,10 @@ fn parse_choice(
     choice: RowChoice,
 ) -> Result<Choice, AppError> {
     if !choice.selected {
-        return Ok(Choice::Skip);
+        return Ok(Choice::Unticked);
     }
     let Some(legs) = choice.split else {
-        return Ok(Choice::Create {
+        return Ok(Choice::Ticked {
             bucket_id: choice.bucket_id,
         });
     };
@@ -289,67 +326,266 @@ fn parse_choice(
         .map(Choice::Split)
 }
 
-fn write_row(
-    conn: &Connection,
+fn parse_removals<'a>(
+    cancelled_holds: &[&'a Recorded],
+    choices: Vec<CancelledHoldChoice>,
+) -> Result<Vec<&'a Recorded>, AppError> {
+    let mut remove: HashMap<i64, bool> = HashMap::new();
+    for choice in choices {
+        if remove.insert(choice.event_id, choice.remove).is_some() {
+            return Err(validation(format!(
+                "Cancelled hold {} has two choices",
+                choice.event_id
+            )));
+        }
+    }
+    if remove.len() != cancelled_holds.len() {
+        return Err(validation(
+            "Every cancelled card hold needs exactly one choice",
+        ));
+    }
+    cancelled_holds
+        .iter()
+        .filter_map(|&hold| match remove.get(&hold.bank_entry_event_id) {
+            None => Some(Err(validation(format!(
+                "Cancelled hold {} has no choice",
+                hold.bank_entry_event_id
+            )))),
+            Some(true) => Some(Ok(hold)),
+            Some(false) => None,
+        })
+        .collect()
+}
+
+struct Writer<'c> {
+    conn: &'c Connection,
     account_id: i64,
-    row: &IncomingRow,
-    matched: Match<'_>,
-    choice: Choice,
-) -> Result<u32, AppError> {
-    match (choice, matched) {
-        (Choice::Skip, Match::New | Match::CompletesTransfer(_)) => Ok(0),
-        (Choice::Skip, Match::InSaldo(recorded)) => {
-            if recorded.bank.is_none() {
-                record_bank_entry(conn, recorded.bank_entry_event_id, row)?;
+    /// The newest row day of the file, which a pending row records as its hold's `seen_to`.
+    newest_day: Option<NaiveDate>,
+}
+
+impl Writer<'_> {
+    fn write_row(
+        &self,
+        row: &IncomingRow,
+        matched: Match<'_>,
+        choice: Choice,
+    ) -> Result<u32, AppError> {
+        let conn = self.conn;
+        match (choice, matched) {
+            (
+                Choice::Unticked,
+                Match::New | Match::CompletesTransfer(_) | Match::HoldPostedAtOtherAmount(_),
+            ) => Ok(0),
+            (Choice::Unticked, Match::InSaldo(recorded)) => {
+                self.see_again(row, recorded)?;
+                Ok(0)
             }
-            Ok(0)
+            (Choice::Unticked, Match::HoldPosted(hold)) => {
+                self.post_hold(row, hold, hold.amount_minor)?;
+                Ok(0)
+            }
+            (Choice::Ticked { .. }, Match::HoldPostedAtOtherAmount(hold)) => {
+                self.post_hold(row, hold, row.amount_minor)?;
+                Ok(0)
+            }
+            (Choice::Split(_), Match::HoldPostedAtOtherAmount(_)) => Err(validation(format!(
+                "Row {} posts a card hold at another amount and cannot be split",
+                row.index
+            ))),
+            (Choice::Unticked, Match::TransferLeg { leg, .. }) => {
+                update_event(
+                    conn,
+                    UpdateEventParams {
+                        event_id: leg.bank_entry_event_id,
+                        amount_minor: leg.amount_minor,
+                        event_date: row.event_date.clone(),
+                        note: leg.note.clone(),
+                    },
+                )?;
+                self.record_bank_entry(leg.bank_entry_event_id, row)?;
+                Ok(0)
+            }
+            (Choice::Ticked { bucket_id }, Match::CompletesTransfer(cashflow)) => {
+                let leg_id = complete_transfer(
+                    conn,
+                    &cashflow_entry(self.account_id, row, bucket_id),
+                    cashflow.recorded.bank_entry_event_id,
+                )?;
+                self.record_bank_entry(leg_id, row)?;
+                Ok(1)
+            }
+            (
+                Choice::Ticked { bucket_id },
+                Match::New | Match::InSaldo(_) | Match::TransferLeg { .. } | Match::HoldPosted(_),
+            ) => {
+                let (event_id, _) = create_cashflow_or_transfer(
+                    conn,
+                    &cashflow_entry(self.account_id, row, bucket_id),
+                )?;
+                self.record_bank_entry(event_id, row)?;
+                Ok(1)
+            }
+            (
+                Choice::Split(legs),
+                Match::New
+                | Match::InSaldo(_)
+                | Match::TransferLeg { .. }
+                | Match::CompletesTransfer(_)
+                | Match::HoldPosted(_),
+            ) => {
+                let leg_count = legs.len() as u32;
+                let split_group_id = create_split_group_with_legs(
+                    conn,
+                    CreateSplitGroupWithLegsParams {
+                        account_id: self.account_id,
+                        group_note: row.note.clone(),
+                        legs: split_entries(row, legs)?,
+                    },
+                )?;
+                self.record_bank_entry(repository::lowest_leg_id(conn, split_group_id)?, row)?;
+                Ok(leg_count)
+            }
         }
-        (Choice::Skip, Match::TransferLeg { leg, .. }) => {
-            update_event(
-                conn,
+    }
+
+    /// An entry the row's bank line is already recorded for, or that no import has seen yet.
+    fn see_again(&self, row: &IncomingRow, recorded: &Recorded) -> Result<(), AppError> {
+        match (
+            recorded.bank.as_ref().map(|bank| bank.state),
+            self.hold_seen_to(row),
+        ) {
+            (None, _) => self.record_bank_entry(recorded.bank_entry_event_id, row)?,
+            (Some(BankState::Pending { .. }), Some(seen_to)) => repository::see_hold_until(
+                self.conn,
+                SeeHoldUntilParams {
+                    event_id: recorded.bank_entry_event_id,
+                    seen_to,
+                },
+            )?,
+            (Some(_), _) => {}
+        }
+        if !row.pending {
+            let note = recorded.note_once_booked(row.note.as_deref());
+            if note != recorded.note {
+                self.set_note(recorded, note)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Updates the hold in place to the booked line: its date, the note rule and `amount_minor`
+    /// (a split group keeps its legs' amounts), then its bank entry.
+    fn post_hold(
+        &self,
+        row: &IncomingRow,
+        hold: &Recorded,
+        amount_minor: i64,
+    ) -> Result<(), AppError> {
+        let conn = self.conn;
+        let note = hold.note_once_booked(row.note.as_deref());
+        match hold.split_group_id {
+            None => {
+                if (amount_minor, &row.event_date, &note)
+                    != (hold.amount_minor, &hold.event_date, &hold.note)
+                {
+                    update_event(
+                        conn,
+                        UpdateEventParams {
+                            event_id: hold.bank_entry_event_id,
+                            amount_minor,
+                            event_date: row.event_date.clone(),
+                            note,
+                        },
+                    )?;
+                }
+            }
+            Some(split_group_id) => {
+                for leg in repository::live_legs(conn, split_group_id)? {
+                    if leg.event_date != row.event_date {
+                        update_event(
+                            conn,
+                            UpdateEventParams {
+                                event_id: leg.event_id,
+                                amount_minor: leg.amount_minor,
+                                event_date: row.event_date.clone(),
+                                note: leg.note,
+                            },
+                        )?;
+                    }
+                }
+                if note != hold.note {
+                    self.set_note(hold, note)?;
+                }
+            }
+        }
+        repository::post_hold(
+            conn,
+            PostHoldParams {
+                event_id: hold.bank_entry_event_id,
+                day: row.day,
+                amount_minor: row.amount_minor,
+                text: row.note.clone(),
+                card: row.card.clone(),
+                posting_change_minor: match hold.split_group_id {
+                    None => amount_minor - hold.amount_minor,
+                    Some(_) => 0,
+                },
+            },
+        )?;
+        Ok(())
+    }
+
+    fn set_note(&self, recorded: &Recorded, note: Option<String>) -> Result<(), AppError> {
+        match recorded.split_group_id {
+            None => update_event(
+                self.conn,
                 UpdateEventParams {
-                    event_id: leg.bank_entry_event_id,
-                    amount_minor: leg.amount_minor,
-                    event_date: row.event_date.clone(),
-                    note: leg.note.clone(),
+                    event_id: recorded.bank_entry_event_id,
+                    amount_minor: recorded.amount_minor,
+                    event_date: recorded.event_date.clone(),
+                    note,
                 },
-            )?;
-            record_bank_entry(conn, leg.bank_entry_event_id, row)?;
-            Ok(0)
-        }
-        (Choice::Create { bucket_id }, Match::CompletesTransfer(cashflow)) => {
-            let leg_id = complete_transfer(
-                conn,
-                &cashflow_entry(account_id, row, bucket_id),
-                cashflow.recorded.bank_entry_event_id,
-            )?;
-            record_bank_entry(conn, leg_id, row)?;
-            Ok(1)
-        }
-        (Choice::Create { bucket_id }, _) => {
-            let (event_id, _) =
-                create_cashflow_or_transfer(conn, &cashflow_entry(account_id, row, bucket_id))?;
-            record_bank_entry(conn, event_id, row)?;
-            Ok(1)
-        }
-        (
-            Choice::Split(legs),
-            Match::New
-            | Match::InSaldo(_)
-            | Match::TransferLeg { .. }
-            | Match::CompletesTransfer(_),
-        ) => {
-            let leg_count = legs.len() as u32;
-            let split_group_id = create_split_group_with_legs(
-                conn,
-                CreateSplitGroupWithLegsParams {
-                    account_id,
-                    group_note: row.note.clone(),
-                    legs: split_entries(row, legs)?,
+            ),
+            Some(split_group_id) => repository::set_split_group_note(
+                self.conn,
+                SetSplitGroupNoteParams {
+                    split_group_id,
+                    note,
                 },
-            )?;
-            record_bank_entry(conn, repository::lowest_leg_id(conn, split_group_id)?, row)?;
-            Ok(leg_count)
+            )
+            .map_err(AppError::from),
+        }
+    }
+
+    fn remove_cancelled_hold(&self, hold: &Recorded) -> Result<(), AppError> {
+        match hold.split_group_id {
+            None => delete_event_inner(self.conn, hold.bank_entry_event_id)?,
+            Some(split_group_id) => delete_split_group_inner(self.conn, split_group_id)?,
+        }
+        repository::cancel_hold(self.conn, hold.bank_entry_event_id)?;
+        Ok(())
+    }
+
+    fn record_bank_entry(&self, event_id: i64, row: &IncomingRow) -> rusqlite::Result<()> {
+        repository::insert_bank_entry(
+            self.conn,
+            InsertBankEntryParams {
+                event_id,
+                day: row.day,
+                amount_minor: row.amount_minor,
+                text: row.note.clone(),
+                card: row.card.clone(),
+                hold_seen_to: self.hold_seen_to(row),
+            },
+        )
+    }
+
+    fn hold_seen_to(&self, row: &IncomingRow) -> Option<NaiveDate> {
+        if row.pending {
+            self.newest_day
+        } else {
+            None
         }
     }
 }
@@ -414,18 +650,6 @@ fn original_share(original: i64, leg_amount: i64, row_amount: i64) -> i128 {
     div_round_i128(numerator * denominator.signum(), denominator.abs())
 }
 
-fn record_bank_entry(conn: &Connection, event_id: i64, row: &IncomingRow) -> rusqlite::Result<()> {
-    repository::insert_bank_entry(
-        conn,
-        InsertBankEntryParams {
-            event_id,
-            day: row.day,
-            amount_minor: row.amount_minor,
-            text: row.note.clone(),
-        },
-    )
-}
-
 fn verdict_of(matched: Match<'_>) -> Verdict {
     match matched {
         Match::New => Verdict::New,
@@ -448,6 +672,17 @@ fn verdict_of(matched: Match<'_>) -> Verdict {
             account_name: cashflow.account_name.clone(),
             event_date: cashflow.recorded.event_date.clone(),
             note: cashflow.recorded.note.clone(),
+        },
+        Match::HoldPosted(hold) => Verdict::HoldPosted {
+            event_id: hold.bank_entry_event_id,
+            event_date: hold.event_date.clone(),
+            note: hold.note.clone(),
+        },
+        Match::HoldPostedAtOtherAmount(hold) => Verdict::HoldPostedAtOtherAmount {
+            event_id: hold.bank_entry_event_id,
+            event_date: hold.event_date.clone(),
+            note: hold.note.clone(),
+            hold_amount_minor: hold.amount_minor,
         },
     }
 }

@@ -3,8 +3,8 @@ use serde_json::json;
 
 use super::commands::{apply_csv_import_inner, preview_csv_import_inner};
 use super::models::{
-    ApplyCsvImportInput, CsvImportPreview, CsvImportResult, IncomingRowInput,
-    PreviewCsvImportInput, RowChoice, RowPreview, SplitLegChoice, Verdict,
+    ApplyCsvImportInput, CancelledHold, CancelledHoldChoice, CsvImportPreview, CsvImportResult,
+    IncomingRowInput, PreviewCsvImportInput, RowChoice, RowPreview, SplitLegChoice, Verdict,
 };
 use crate::db::initialize_in_memory;
 use crate::error::AppError;
@@ -76,6 +76,8 @@ fn row(index: u32, day: &str, amount_minor: i64) -> IncomingRowInput {
         original_amount_minor: None,
         fx_rate_mantissa: None,
         fx_rate_exponent: None,
+        card: None,
+        pending: false,
     }
 }
 
@@ -139,7 +141,9 @@ fn default_choices(preview: &CsvImportPreview) -> Vec<RowChoice> {
             index: row.index,
             selected: matches!(
                 row.verdict,
-                Verdict::New | Verdict::CompletesTransfer { .. }
+                Verdict::New
+                    | Verdict::CompletesTransfer { .. }
+                    | Verdict::HoldPostedAtOtherAmount { .. }
             ),
             bucket_id: None,
             split: None,
@@ -160,17 +164,53 @@ fn apply(
             account_id,
             rows: rows.to_vec(),
             choices,
+            cancelled_holds: vec![],
             review_token,
         },
     )
 }
 
-fn import(conn: &Connection, account_id: i64, rows: &[IncomingRowInput]) -> u32 {
+/// Applies the review with every cancelled hold ticked for removal or every one unticked.
+fn apply_reviewed(
+    conn: &Connection,
+    account_id: i64,
+    rows: &[IncomingRowInput],
+    reviewed: &CsvImportPreview,
+    choices: Vec<RowChoice>,
+    remove_cancelled_holds: bool,
+) -> Result<CsvImportResult, AppError> {
+    apply_csv_import_inner(
+        conn,
+        ApplyCsvImportInput {
+            account_id,
+            rows: rows.to_vec(),
+            choices,
+            cancelled_holds: reviewed
+                .cancelled_holds
+                .iter()
+                .map(|hold| CancelledHoldChoice {
+                    event_id: hold.event_id,
+                    remove: remove_cancelled_holds,
+                })
+                .collect(),
+            review_token: reviewed.review_token.clone(),
+        },
+    )
+}
+
+/// Imports with the review's default ticks, every cancelled hold removed.
+fn import_with_defaults(
+    conn: &Connection,
+    account_id: i64,
+    rows: &[IncomingRowInput],
+) -> CsvImportResult {
     let reviewed = preview(conn, account_id, rows);
     let choices = default_choices(&reviewed);
-    apply(conn, account_id, rows, choices, reviewed.review_token)
-        .unwrap()
-        .imported
+    apply_reviewed(conn, account_id, rows, &reviewed, choices, true).unwrap()
+}
+
+fn import(conn: &Connection, account_id: i64, rows: &[IncomingRowInput]) -> u32 {
+    import_with_defaults(conn, account_id, rows).imported
 }
 
 fn everything(conn: &Connection) -> Vec<String> {
@@ -187,8 +227,13 @@ fn everything(conn: &Connection) -> Vec<String> {
              FROM event_data
              UNION ALL
              SELECT 'bank ' || event_id || ' ' || day || ' ' || amount_minor || ' '
-                    || IFNULL(text, '-')
+                    || IFNULL(text, '-') || ' ' || IFNULL(card, '-') || ' '
+                    || IFNULL(hold_seen_to, '-') || ' ' || IFNULL(posted_at, '-') || ' '
+                    || IFNULL(posting_change_minor, '-') || ' ' || IFNULL(cancelled_at, '-')
              FROM bank_entry
+             UNION ALL
+             SELECT 'split ' || id || ' ' || IFNULL(note, '-')
+             FROM split_group
              ORDER BY 1",
         )
         .unwrap();
@@ -1485,6 +1530,760 @@ fn an_import_runs_on_the_demo_database() {
     ));
 }
 
+const CARD: &str = "433703******2103";
+const SECOND_CARD: &str = "433703******7708";
+const DEBIT_CARD: &str = "423473******0501";
+const HOLD_TEXT: &str = "BUDE DOPLNENÝ PO ZÚČT.";
+
+/// A card row as the wizard sends it: the card, the pending flag, the bank's text.
+fn card_row(
+    index: u32,
+    day: &str,
+    amount_minor: i64,
+    card: &str,
+    state: CardRow,
+) -> IncomingRowInput {
+    IncomingRowInput {
+        note: Some(match state {
+            CardRow::Pending => HOLD_TEXT.to_owned(),
+            CardRow::Booked(text) => text.to_owned(),
+        }),
+        card: Some(card.to_owned()),
+        pending: matches!(state, CardRow::Pending),
+        ..row(index, day, amount_minor)
+    }
+}
+
+#[derive(Clone, Copy)]
+enum CardRow {
+    Pending,
+    Booked(&'static str),
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct HoldState {
+    card: Option<String>,
+    hold_seen_to: Option<String>,
+    posted: bool,
+    posting_change_minor: Option<i64>,
+    cancelled: bool,
+}
+
+fn hold_state(conn: &Connection, event_id: i64) -> HoldState {
+    conn.query_row(
+        "SELECT card, hold_seen_to, posted_at IS NOT NULL, posting_change_minor,
+                cancelled_at IS NOT NULL
+         FROM bank_entry WHERE event_id = ?1",
+        params![event_id],
+        |row| {
+            Ok(HoldState {
+                card: row.get(0)?,
+                hold_seen_to: row.get(1)?,
+                posted: row.get(2)?,
+                posting_change_minor: row.get(3)?,
+                cancelled: row.get(4)?,
+            })
+        },
+    )
+    .unwrap()
+}
+
+fn pending_until(card: &str, seen_to: &str) -> HoldState {
+    HoldState {
+        card: Some(card.to_owned()),
+        hold_seen_to: Some(seen_to.to_owned()),
+        posted: false,
+        posting_change_minor: None,
+        cancelled: false,
+    }
+}
+
+fn posted_with(card: &str, posting_change_minor: i64) -> HoldState {
+    HoldState {
+        card: Some(card.to_owned()),
+        hold_seen_to: None,
+        posted: true,
+        posting_change_minor: Some(posting_change_minor),
+        cancelled: false,
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct Entry {
+    event_date: String,
+    amount_minor: i64,
+    note: Option<String>,
+    counterpart_account_id: Option<i64>,
+    bucket_id: Option<i64>,
+    deleted: bool,
+}
+
+fn entry(conn: &Connection, event_id: i64) -> Entry {
+    conn.query_row(
+        "SELECT ed.event_date, ed.amount_minor, ed.note, ed.counterpart_account_id, ed.bucket_id,
+                e.deleted_at IS NOT NULL
+         FROM event e JOIN event_data ed ON ed.id = e.latest_data_id
+         WHERE e.id = ?1",
+        params![event_id],
+        |row| {
+            Ok(Entry {
+                event_date: row.get(0)?,
+                amount_minor: row.get(1)?,
+                note: row.get(2)?,
+                counterpart_account_id: row.get(3)?,
+                bucket_id: row.get(4)?,
+                deleted: row.get(5)?,
+            })
+        },
+    )
+    .unwrap()
+}
+
+fn event_ids(conn: &Connection) -> Vec<i64> {
+    live(conn)
+        .into_iter()
+        .map(|(event_id, _)| event_id)
+        .collect()
+}
+
+fn ticked(index: u32, selected: bool) -> RowChoice {
+    RowChoice {
+        selected,
+        ..choice(index)
+    }
+}
+
+/// The card account after the 16 Sep export: Tchibo pending on the 14th, a booked row on the 16th.
+fn tchibo_held(conn: &Connection) -> (i64, i64) {
+    let card_account = own_without_iban(conn, "Card");
+    import(
+        conn,
+        card_account,
+        &[
+            card_row(0, "2026-09-14", -7_896, CARD, CardRow::Pending),
+            card_row(1, "2026-09-16", -500, CARD, CardRow::Booked("BILLA")),
+        ],
+    );
+    let hold = live(conn)[0].0;
+    (card_account, hold)
+}
+
+#[test]
+fn a_pending_row_is_recorded_as_a_hold_seen_to_the_files_newest_day() {
+    let conn = initialize_in_memory().unwrap();
+    let (_, hold) = tchibo_held(&conn);
+    let billa = live(&conn)[1].0;
+
+    assert_eq!(hold_state(&conn, hold), pending_until(CARD, "2026-09-16"));
+    assert_eq!(
+        hold_state(&conn, billa),
+        HoldState {
+            card: Some(CARD.to_owned()),
+            hold_seen_to: None,
+            posted: false,
+            posting_change_minor: None,
+            cancelled: false,
+        }
+    );
+}
+
+#[test]
+fn a_pending_export_imported_again_changes_nothing_and_a_newer_one_sees_the_hold_longer() {
+    let conn = initialize_in_memory().unwrap();
+    let (card_account, hold) = tchibo_held(&conn);
+    let first = [
+        card_row(0, "2026-09-14", -7_896, CARD, CardRow::Pending),
+        card_row(1, "2026-09-16", -500, CARD, CardRow::Booked("BILLA")),
+    ];
+    let before = everything(&conn);
+
+    assert_eq!(import(&conn, card_account, &first), 0);
+    assert_eq!(everything(&conn), before);
+
+    let newer = [
+        card_row(0, "2026-09-14", -7_896, CARD, CardRow::Pending),
+        card_row(1, "2026-09-18", -900, CARD, CardRow::Booked("LIDL")),
+    ];
+    assert_eq!(import(&conn, card_account, &newer), 1);
+    assert_eq!(hold_state(&conn, hold), pending_until(CARD, "2026-09-18"));
+    assert_eq!(event_ids(&conn).len(), 3);
+}
+
+#[test]
+fn a_hold_booked_a_day_later_is_posted_in_place_and_keeps_its_bucket_and_partner() {
+    let conn = initialize_in_memory().unwrap();
+    let card_account = own_without_iban(&conn, "Card");
+    let landlord = partner(&conn);
+    let groceries = account(&conn, "Groceries", "bucket", BucketKind::Balance);
+    let held = [to(
+        landlord,
+        card_row(0, "2026-09-14", -7_896, CARD, CardRow::Pending),
+    )];
+    let reviewed = preview(&conn, card_account, &held);
+    apply(
+        &conn,
+        card_account,
+        &held,
+        vec![RowChoice {
+            bucket_id: Some(groceries),
+            ..choice(0)
+        }],
+        reviewed.review_token,
+    )
+    .unwrap();
+    let hold = live(&conn)[0].0;
+    let booked = [card_row(
+        0,
+        "2026-09-15",
+        -7_896,
+        CARD,
+        CardRow::Booked("TCHIBO PRAHA"),
+    )];
+
+    let reviewed = preview(&conn, card_account, &booked);
+    let result = apply_reviewed(
+        &conn,
+        card_account,
+        &booked,
+        &reviewed,
+        default_choices(&reviewed),
+        true,
+    )
+    .unwrap();
+
+    assert_eq!(
+        reviewed.rows[0].verdict,
+        Verdict::HoldPosted {
+            event_id: hold,
+            event_date: "2026-09-14T12:00:00".to_owned(),
+            note: Some(HOLD_TEXT.to_owned()),
+        }
+    );
+    assert_eq!(
+        result,
+        CsvImportResult {
+            imported: 0,
+            removed_holds: 0
+        }
+    );
+    assert_eq!(event_ids(&conn), [hold]);
+    assert_eq!(
+        entry(&conn, hold),
+        Entry {
+            event_date: "2026-09-15T12:00:00".to_owned(),
+            amount_minor: -7_896,
+            note: Some("TCHIBO PRAHA".to_owned()),
+            counterpart_account_id: Some(landlord),
+            bucket_id: Some(groceries),
+            deleted: false,
+        }
+    );
+    assert_eq!(
+        bank_entry(&conn, hold),
+        Some((
+            "2026-09-15".to_owned(),
+            -7_896,
+            Some("TCHIBO PRAHA".to_owned())
+        ))
+    );
+    assert_eq!(hold_state(&conn, hold), posted_with(CARD, 0));
+
+    let before = everything(&conn);
+    assert_eq!(import(&conn, card_account, &booked), 0);
+    assert_eq!(everything(&conn), before, "the same export again");
+}
+
+#[test]
+fn a_note_the_user_wrote_stays_when_the_hold_posts() {
+    let conn = initialize_in_memory().unwrap();
+    let (card_account, hold) = tchibo_held(&conn);
+    update_event(
+        &conn,
+        UpdateEventParams {
+            event_id: hold,
+            amount_minor: -7_896,
+            event_date: "2026-09-14T12:00:00".to_owned(),
+            note: Some("coffee for the office".to_owned()),
+        },
+    )
+    .unwrap();
+
+    import(
+        &conn,
+        card_account,
+        &[card_row(
+            0,
+            "2026-09-15",
+            -7_896,
+            CARD,
+            CardRow::Booked("TCHIBO PRAHA"),
+        )],
+    );
+
+    assert_eq!(
+        entry(&conn, hold).note.as_deref(),
+        Some("coffee for the office")
+    );
+    assert_eq!(hold_state(&conn, hold), posted_with(CARD, 0));
+}
+
+#[test]
+fn a_padded_note_imported_before_holds_were_known_takes_the_booked_text() {
+    let conn = initialize_in_memory().unwrap();
+    let card_account = own_without_iban(&conn, "Card");
+    let legacy = create_cashflow(
+        &conn,
+        &CashflowEntry {
+            note: Some("TCHIBO        ".to_owned()),
+            ..cashflow_entry(card_account, "2026-10-31T12:00:00", -1_999)
+        },
+    )
+    .unwrap();
+    let typed = cashflow(&conn, card_account, "2026-10-31T12:00:00", -500);
+    let booked = [
+        card_row(
+            0,
+            "2026-10-31",
+            -1_999,
+            CARD,
+            CardRow::Booked("TCHIBO PRAHA"),
+        ),
+        card_row(1, "2026-10-31", -500, CARD, CardRow::Booked("BILLA")),
+    ];
+
+    assert_eq!(import(&conn, card_account, &booked), 0);
+
+    assert_eq!(entry(&conn, legacy).note.as_deref(), Some("TCHIBO PRAHA"));
+    assert_eq!(entry(&conn, typed).note.as_deref(), Some("typed by hand"));
+    let before = everything(&conn);
+    import(&conn, card_account, &booked);
+    assert_eq!(everything(&conn), before);
+}
+
+/// The current account after the 1 May export: GitHub pending at 33.00 on 30 Apr.
+fn github_held(conn: &Connection) -> (i64, i64) {
+    let checking = own(conn, "Checking");
+    import(
+        conn,
+        checking,
+        &[card_row(
+            0,
+            "2026-04-30",
+            -3_300,
+            DEBIT_CARD,
+            CardRow::Pending,
+        )],
+    );
+    (checking, live(conn)[0].0)
+}
+
+fn github_booked() -> [IncomingRowInput; 2] {
+    [
+        card_row(
+            0,
+            "2026-04-30",
+            -3_299,
+            DEBIT_CARD,
+            CardRow::Booked("GITHUB, INC."),
+        ),
+        card_row(1, "2026-05-02", -1_000, DEBIT_CARD, CardRow::Booked("BOLT")),
+    ]
+}
+
+#[test]
+fn a_hold_booked_at_another_amount_is_repriced_in_place_when_ticked() {
+    let conn = initialize_in_memory().unwrap();
+    let (checking, hold) = github_held(&conn);
+    let groceries = account(&conn, "Groceries", "bucket", BucketKind::Balance);
+    let booked = github_booked();
+    let reviewed = preview(&conn, checking, &booked);
+
+    let choices = vec![
+        RowChoice {
+            bucket_id: Some(groceries),
+            ..choice(0)
+        },
+        choice(1),
+    ];
+    let result = apply_reviewed(&conn, checking, &booked, &reviewed, choices, true).unwrap();
+
+    assert_eq!(
+        reviewed.rows[0].verdict,
+        Verdict::HoldPostedAtOtherAmount {
+            event_id: hold,
+            event_date: "2026-04-30T12:00:00".to_owned(),
+            note: Some(HOLD_TEXT.to_owned()),
+            hold_amount_minor: -3_300,
+        }
+    );
+    assert!(reviewed.cancelled_holds.is_empty());
+    assert_eq!(result.imported, 1, "only the Bolt row is new");
+    assert_eq!(
+        entry(&conn, hold),
+        Entry {
+            event_date: "2026-04-30T12:00:00".to_owned(),
+            amount_minor: -3_299,
+            note: Some("GITHUB, INC.".to_owned()),
+            counterpart_account_id: None,
+            bucket_id: None,
+            deleted: false,
+        },
+        "the hold keeps its own bucket"
+    );
+    assert_eq!(hold_state(&conn, hold), posted_with(DEBIT_CARD, 1));
+
+    let before = everything(&conn);
+    assert_eq!(import(&conn, checking, &booked), 0);
+    assert_eq!(everything(&conn), before, "the same export again");
+}
+
+#[test]
+fn an_unticked_hold_at_another_amount_stays_pending_and_the_row_is_skipped() {
+    let conn = initialize_in_memory().unwrap();
+    let (checking, hold) = github_held(&conn);
+    let booked = github_booked();
+    let before = entry(&conn, hold);
+    let reviewed = preview(&conn, checking, &booked);
+
+    apply_reviewed(
+        &conn,
+        checking,
+        &booked,
+        &reviewed,
+        vec![ticked(0, false), choice(1)],
+        true,
+    )
+    .unwrap();
+
+    assert_eq!(entry(&conn, hold), before);
+    assert_eq!(
+        hold_state(&conn, hold),
+        pending_until(DEBIT_CARD, "2026-04-30")
+    );
+    assert_eq!(event_ids(&conn).len(), 2, "the hold and the Bolt row");
+}
+
+#[test]
+fn a_hold_posting_at_another_amount_cannot_be_split() {
+    let conn = initialize_in_memory().unwrap();
+    let (checking, _) = github_held(&conn);
+    let booked = github_booked();
+    let reviewed = preview(&conn, checking, &booked);
+    let before = everything(&conn);
+
+    let refused = apply_reviewed(
+        &conn,
+        checking,
+        &booked,
+        &reviewed,
+        vec![choice(1), split_choice(0, &[(-3_000, None), (-299, None)])],
+        true,
+    )
+    .unwrap_err();
+
+    assert_eq!(refused.code, "VALIDATION");
+    assert_eq!(everything(&conn), before);
+}
+
+#[test]
+fn ticking_a_posted_hold_adds_a_row_and_leaves_the_hold_pending() {
+    let conn = initialize_in_memory().unwrap();
+    let (card_account, hold) = tchibo_held(&conn);
+    let booked = [card_row(
+        0,
+        "2026-09-15",
+        -7_896,
+        CARD,
+        CardRow::Booked("TCHIBO PRAHA"),
+    )];
+    let reviewed = preview(&conn, card_account, &booked);
+
+    let result = apply_reviewed(
+        &conn,
+        card_account,
+        &booked,
+        &reviewed,
+        vec![choice(0)],
+        true,
+    )
+    .unwrap();
+
+    assert_eq!(result.imported, 1);
+    assert_eq!(event_ids(&conn).len(), 3);
+    assert_eq!(hold_state(&conn, hold), pending_until(CARD, "2026-09-16"));
+    assert_eq!(entry(&conn, hold).note.as_deref(), Some(HOLD_TEXT));
+}
+
+/// The card account after the 25 Oct export: a hold of 19.99 and a booked row.
+fn held_on_25_oct(conn: &Connection) -> (i64, i64) {
+    let card_account = own_without_iban(conn, "Card");
+    import(
+        conn,
+        card_account,
+        &[
+            card_row(0, "2026-10-25", -1_999, CARD, CardRow::Pending),
+            card_row(1, "2026-10-25", -500, CARD, CardRow::Booked("BILLA")),
+        ],
+    );
+    (card_account, live(conn)[0].0)
+}
+
+fn export_of_31_oct() -> [IncomingRowInput; 2] {
+    [
+        card_row(0, "2026-10-25", -500, CARD, CardRow::Booked("BILLA")),
+        card_row(1, "2026-10-31", -1_200, CARD, CardRow::Booked("LIDL")),
+    ]
+}
+
+#[test]
+fn a_hold_a_newer_covering_export_no_longer_lists_is_removed_when_ticked() {
+    let conn = initialize_in_memory().unwrap();
+    let (card_account, hold) = held_on_25_oct(&conn);
+    let newer = export_of_31_oct();
+
+    let reviewed = preview(&conn, card_account, &newer);
+    let result = apply_reviewed(
+        &conn,
+        card_account,
+        &newer,
+        &reviewed,
+        default_choices(&reviewed),
+        true,
+    )
+    .unwrap();
+
+    assert_eq!(
+        reviewed.cancelled_holds,
+        [CancelledHold {
+            event_id: hold,
+            event_date: "2026-10-25T12:00:00".to_owned(),
+            amount_minor: -1_999,
+            note: Some(HOLD_TEXT.to_owned()),
+        }]
+    );
+    assert_eq!(
+        result,
+        CsvImportResult {
+            imported: 1,
+            removed_holds: 1
+        }
+    );
+    assert!(entry(&conn, hold).deleted);
+    assert_eq!(
+        hold_state(&conn, hold),
+        HoldState {
+            card: Some(CARD.to_owned()),
+            hold_seen_to: None,
+            posted: false,
+            posting_change_minor: None,
+            cancelled: true,
+        }
+    );
+
+    let before = everything(&conn);
+    let again = preview(&conn, card_account, &newer);
+    assert!(again.cancelled_holds.is_empty());
+    assert_eq!(import(&conn, card_account, &newer), 0);
+    assert_eq!(everything(&conn), before, "the same export again");
+}
+
+#[test]
+fn an_unticked_cancelled_hold_is_kept_pending() {
+    let conn = initialize_in_memory().unwrap();
+    let (card_account, hold) = held_on_25_oct(&conn);
+    let newer = export_of_31_oct();
+    let reviewed = preview(&conn, card_account, &newer);
+
+    let result = apply_reviewed(
+        &conn,
+        card_account,
+        &newer,
+        &reviewed,
+        default_choices(&reviewed),
+        false,
+    )
+    .unwrap();
+
+    assert_eq!(result.removed_holds, 0);
+    assert!(!entry(&conn, hold).deleted);
+    assert_eq!(hold_state(&conn, hold), pending_until(CARD, "2026-10-25"));
+}
+
+#[test]
+fn a_cancelled_split_hold_is_removed_as_a_whole() {
+    let conn = initialize_in_memory().unwrap();
+    let card_account = own_without_iban(&conn, "Card");
+    let held = [card_row(0, "2026-10-25", -1_999, CARD, CardRow::Pending)];
+    let reviewed = preview(&conn, card_account, &held);
+    apply(
+        &conn,
+        card_account,
+        &held,
+        vec![split_choice(0, &[(-1_500, None), (-499, None)])],
+        reviewed.review_token,
+    )
+    .unwrap();
+    let legs = event_ids(&conn);
+    let newer = export_of_31_oct();
+
+    let reviewed = preview(&conn, card_account, &newer);
+    let result = apply_reviewed(
+        &conn,
+        card_account,
+        &newer,
+        &reviewed,
+        default_choices(&reviewed),
+        true,
+    )
+    .unwrap();
+
+    assert_eq!(
+        reviewed.cancelled_holds,
+        [CancelledHold {
+            event_id: legs[0],
+            event_date: "2026-10-25T12:00:00".to_owned(),
+            amount_minor: -1_999,
+            note: Some(HOLD_TEXT.to_owned()),
+        }]
+    );
+    assert_eq!(result.removed_holds, 1);
+    assert!(legs.iter().all(|&leg| entry(&conn, leg).deleted));
+    assert!(hold_state(&conn, legs[0]).cancelled);
+}
+
+#[test]
+fn the_cancelled_hold_choices_must_be_the_reviews() {
+    let conn = initialize_in_memory().unwrap();
+    let (card_account, hold) = held_on_25_oct(&conn);
+    let newer = export_of_31_oct();
+    let reviewed = preview(&conn, card_account, &newer);
+    let remove = |event_id| CancelledHoldChoice {
+        event_id,
+        remove: true,
+    };
+    let cases = [
+        ("no choice", vec![]),
+        ("another entry", vec![remove(hold + 100)]),
+        ("two choices", vec![remove(hold), remove(hold)]),
+        ("an extra choice", vec![remove(hold), remove(hold + 100)]),
+    ];
+    let before = everything(&conn);
+
+    for (case, cancelled_holds) in cases {
+        let refused = apply_csv_import_inner(
+            &conn,
+            ApplyCsvImportInput {
+                account_id: card_account,
+                rows: newer.to_vec(),
+                choices: default_choices(&reviewed),
+                cancelled_holds,
+                review_token: reviewed.review_token.clone(),
+            },
+        )
+        .unwrap_err();
+
+        assert_eq!(refused.code, "VALIDATION", "{case}: {}", refused.message);
+        assert_eq!(everything(&conn), before, "{case} wrote something");
+    }
+}
+
+#[test]
+fn a_hold_seen_again_since_the_review_refuses_the_import() {
+    let conn = initialize_in_memory().unwrap();
+    let (card_account, _) = held_on_25_oct(&conn);
+    let newer = export_of_31_oct();
+    let reviewed = preview(&conn, card_account, &newer);
+    import(
+        &conn,
+        card_account,
+        &[
+            card_row(0, "2026-10-25", -1_999, CARD, CardRow::Pending),
+            card_row(1, "2026-10-26", -700, CARD, CardRow::Booked("BOLT")),
+        ],
+    );
+    let before = everything(&conn);
+
+    let refused = apply_reviewed(
+        &conn,
+        card_account,
+        &newer,
+        &reviewed,
+        default_choices(&reviewed),
+        true,
+    )
+    .unwrap_err();
+
+    assert_eq!(refused.code, "IMPORT_CHANGED");
+    assert_eq!(everything(&conn), before);
+}
+
+#[test]
+fn the_25_oct_then_31_oct_card_exports_post_every_hold_in_place() {
+    let conn = initialize_in_memory().unwrap();
+    let card_account = own_without_iban(&conn, "Card");
+    let pending =
+        |index, day, amount_minor, card| card_row(index, day, amount_minor, card, CardRow::Pending);
+    let booked = |index, day, amount_minor, card, text| {
+        card_row(index, day, amount_minor, card, CardRow::Booked(text))
+    };
+    let of_25_oct = [
+        booked(0, "2026-10-22", -2_450, CARD, "SHELL"),
+        pending(1, "2026-10-23", -50, CARD),
+        pending(2, "2026-10-23", -50, SECOND_CARD),
+        pending(3, "2026-10-24", -7_896, CARD),
+        pending(4, "2026-10-25", -1_999, SECOND_CARD),
+        pending(5, "2026-10-25", -315, CARD),
+    ];
+    let of_31_oct = [
+        booked(0, "2026-10-22", -2_450, CARD, "SHELL"),
+        booked(1, "2026-10-23", -50, SECOND_CARD, "ZSSK"),
+        booked(2, "2026-10-23", -50, CARD, "ZSSK"),
+        booked(3, "2026-10-25", -7_896, CARD, "TCHIBO"),
+        booked(4, "2026-10-25", -1_999, SECOND_CARD, "DM DROGERIE"),
+        booked(5, "2026-10-25", -315, CARD, "KAUFLAND"),
+        booked(6, "2026-10-30", -1_200, CARD, "LIDL"),
+        pending(7, "2026-10-31", -4_000, CARD),
+    ];
+    assert_eq!(import(&conn, card_account, &of_25_oct), 6);
+    let holds: Vec<i64> = event_ids(&conn)[1..].to_vec();
+
+    let reviewed = preview(&conn, card_account, &of_31_oct);
+    let posted: Vec<i64> = reviewed
+        .rows
+        .iter()
+        .filter_map(|row| match row.verdict {
+            Verdict::HoldPosted { event_id, .. } => Some(event_id),
+            _ => None,
+        })
+        .collect();
+    let result = apply_reviewed(
+        &conn,
+        card_account,
+        &of_31_oct,
+        &reviewed,
+        default_choices(&reviewed),
+        true,
+    )
+    .unwrap();
+
+    assert_eq!(posted, [holds[1], holds[0], holds[2], holds[3], holds[4]]);
+    assert!(reviewed.cancelled_holds.is_empty());
+    assert_eq!(result.imported, 2, "Lidl and the new hold");
+    assert_eq!(event_ids(&conn).len(), 8);
+    assert_eq!(
+        entry(&conn, holds[2]).event_date,
+        "2026-10-25T12:00:00",
+        "Tchibo moves to its booked day"
+    );
+    assert!(holds.iter().all(|&hold| hold_state(&conn, hold).posted));
+
+    let before = everything(&conn);
+    assert_eq!(import(&conn, card_account, &of_31_oct), 0);
+    assert_eq!(everything(&conn), before, "the 31 Oct export again");
+    assert_eq!(import(&conn, card_account, &of_25_oct), 0);
+    assert_eq!(everything(&conn), before, "the older 25 Oct export again");
+}
+
 #[test]
 fn the_storage_keeps_a_bank_entry_in_one_hold_state() {
     let conn = initialize_in_memory().unwrap();
@@ -1553,12 +2352,14 @@ fn the_wire_shapes_are_the_ones_the_wizard_sends_and_reads() {
         "rows": [{
             "index": 7, "eventDate": "2026-03-01T12:00:00", "amountMinor": -1000, "note": null,
             "counterpartAccountId": 5, "namesUnknownAccount": false, "originalCurrencyId": 2,
-            "originalAmountMinor": -3333, "fxRateMantissa": 3333, "fxRateExponent": -3
+            "originalAmountMinor": -3333, "fxRateMantissa": 3333, "fxRateExponent": -3,
+            "card": "433703******2103", "pending": true
         }],
         "choices": [{
             "index": 7, "selected": true, "bucketId": null,
             "split": [{ "amountMinor": -600, "note": "a", "counterpartAccountId": null, "bucketId": 9 }]
         }],
+        "cancelledHolds": [{ "eventId": 12, "remove": false }],
         "reviewToken": "token"
     }))
     .unwrap();
@@ -1569,10 +2370,27 @@ fn the_wire_shapes_are_the_ones_the_wizard_sends_and_reads() {
             input.rows[0].counterpart_account_id,
             input.rows[0].names_unknown_account,
             input.rows[0].fx_rate_exponent,
+            input.rows[0].card.as_deref(),
+            input.rows[0].pending,
             input.choices[0].split.as_ref().unwrap()[0].bucket_id,
+            (
+                input.cancelled_holds[0].event_id,
+                input.cancelled_holds[0].remove
+            ),
             input.review_token.as_str(),
         ),
-        (4, 7, Some(5), false, Some(-3), Some(9), "token")
+        (
+            4,
+            7,
+            Some(5),
+            false,
+            Some(-3),
+            Some("433703******2103"),
+            true,
+            Some(9),
+            (12, false),
+            "token"
+        )
     );
 
     let preview = CsvImportPreview {
@@ -1581,6 +2399,12 @@ fn the_wire_shapes_are_the_ones_the_wizard_sends_and_reads() {
             verdict: Verdict::New,
         }],
         balance_update_days: vec!["2026-03-01".to_owned()],
+        cancelled_holds: vec![CancelledHold {
+            event_id: 12,
+            event_date: "2026-03-01T12:33:53".to_owned(),
+            amount_minor: -3_300,
+            note: Some("GITHUB".to_owned()),
+        }],
         review_token: "token".to_owned(),
     };
     let verdicts = [
@@ -1601,6 +2425,17 @@ fn the_wire_shapes_are_the_ones_the_wizard_sends_and_reads() {
             other_account_name: "Checking".to_owned(),
             event_date: "2026-03-01T12:00:00".to_owned(),
         },
+        Verdict::HoldPosted {
+            event_id: 5,
+            event_date: "2026-09-14T12:00:00".to_owned(),
+            note: Some("TCHIBO".to_owned()),
+        },
+        Verdict::HoldPostedAtOtherAmount {
+            event_id: 6,
+            event_date: "2026-04-30T12:33:53".to_owned(),
+            note: None,
+            hold_amount_minor: -3_300,
+        },
     ];
 
     assert_eq!(
@@ -1608,6 +2443,8 @@ fn the_wire_shapes_are_the_ones_the_wizard_sends_and_reads() {
         json!({
             "rows": [{ "index": 7, "verdict": { "kind": "new" } }],
             "balanceUpdateDays": ["2026-03-01"],
+            "cancelledHolds": [{ "eventId": 12, "eventDate": "2026-03-01T12:33:53",
+                                 "amountMinor": -3300, "note": "GITHUB" }],
             "reviewToken": "token"
         })
     );
@@ -1618,11 +2455,19 @@ fn the_wire_shapes_are_the_ones_the_wizard_sends_and_reads() {
               "eventDate": "2026-03-03T12:00:00", "note": null },
             { "kind": "inSaldo", "eventId": 3, "eventDate": "2026-03-01T12:00:00", "note": "rent" },
             { "kind": "transferLeg", "eventId": 4, "otherAccountName": "Checking",
-              "eventDate": "2026-03-01T12:00:00" }
+              "eventDate": "2026-03-01T12:00:00" },
+            { "kind": "holdPosted", "eventId": 5, "eventDate": "2026-09-14T12:00:00",
+              "note": "TCHIBO" },
+            { "kind": "holdPostedAtOtherAmount", "eventId": 6, "eventDate": "2026-04-30T12:33:53",
+              "note": null, "holdAmountMinor": -3300 }
         ])
     );
     assert_eq!(
-        serde_json::to_value(CsvImportResult { imported: 3 }).unwrap(),
-        json!({ "imported": 3 })
+        serde_json::to_value(CsvImportResult {
+            imported: 3,
+            removed_holds: 1
+        })
+        .unwrap(),
+        json!({ "imported": 3, "removedHolds": 1 })
     );
 }

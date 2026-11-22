@@ -18,6 +18,10 @@ pub struct IncomingRowInput {
     pub original_amount_minor: Option<i64>,
     pub fx_rate_mantissa: Option<i64>,
     pub fx_rate_exponent: Option<i64>,
+    /// The masked card number the row names, such as `433703******2103`.
+    pub card: Option<String>,
+    /// The profile's pending rule marks the row as a card hold the bank has not booked.
+    pub pending: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -34,7 +38,22 @@ pub struct CsvImportPreview {
     pub rows: Vec<RowPreview>,
     /// The rows' days (`YYYY-MM-DD`) on which the account has a live balance update, sorted.
     pub balance_update_days: Vec<String>,
+    /// Pending card holds the bank no longer lists: the file covers their day and is newer than
+    /// the last export that listed them.
+    pub cancelled_holds: Vec<CancelledHold>,
     pub review_token: String,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct CancelledHold {
+    /// A split group's lowest live leg.
+    pub event_id: i64,
+    pub event_date: String,
+    /// The ledger amount, a split group's total.
+    pub amount_minor: i64,
+    /// A split group's own note.
+    pub note: Option<String>,
 }
 
 #[derive(Debug, Serialize, PartialEq, Eq)]
@@ -75,6 +94,20 @@ pub enum Verdict {
         other_account_name: String,
         event_date: String,
     },
+    /// The booked line of the pending card hold `event_id`, at its amount and up to 5 days later.
+    HoldPosted {
+        event_id: i64,
+        event_date: String,
+        note: Option<String>,
+    },
+    /// The booked line of the pending card hold `event_id`, on its day at another amount.
+    /// `hold_amount_minor` is the hold's ledger amount.
+    HoldPostedAtOtherAmount {
+        event_id: i64,
+        event_date: String,
+        note: Option<String>,
+        hold_amount_minor: i64,
+    },
 }
 
 #[derive(Debug, Deserialize)]
@@ -85,18 +118,38 @@ pub struct ApplyCsvImportInput {
     pub rows: Vec<IncomingRowInput>,
     /// Exactly one per row index.
     pub choices: Vec<RowChoice>,
+    /// Exactly one per cancelled hold of the preview.
+    pub cancelled_holds: Vec<CancelledHoldChoice>,
     /// From the preview the user reviewed.
     pub review_token: String,
 }
 
+/// What `selected` does depends on the row's verdict:
+///
+/// | verdict | unselected | selected |
+/// |---|---|---|
+/// | `new` | skip | create |
+/// | `completesTransfer` | skip | complete the transfer |
+/// | `inSaldo` | record the bank facts and hold state, take the booked text | create a new row too |
+/// | `transferLeg` | move the leg | create a new row |
+/// | `holdPosted` | post the hold in place | create a new row, the hold stays pending |
+/// | `holdPostedAtOtherAmount` | leave the hold, skip the row | post the hold at the row's amount |
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RowChoice {
     pub index: u32,
     pub selected: bool,
-    /// Ignored when `split` is set.
+    /// Ignored when `split` is set, and when the row posts a hold at another amount.
     pub bucket_id: Option<i64>,
+    /// Refused on a row that posts a hold at another amount.
     pub split: Option<Vec<SplitLegChoice>>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CancelledHoldChoice {
+    pub event_id: i64,
+    pub remove: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -113,4 +166,6 @@ pub struct SplitLegChoice {
 pub struct CsvImportResult {
     /// Entries created: one per plain row, one per split leg.
     pub imported: u32,
+    /// Cancelled holds removed: one per plain entry or split group.
+    pub removed_holds: u32,
 }
