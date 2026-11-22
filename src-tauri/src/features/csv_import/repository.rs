@@ -22,6 +22,7 @@ pub fn ledger_items(conn: &Connection, account_id: i64) -> rusqlite::Result<Vec<
                 ed.event_date AS event_date, ed.amount_minor AS amount_minor, ed.note AS note,
                 be.day AS bank_day, be.amount_minor AS bank_amount_minor,
                 other.id AS other_account_id, other.name AS other_account_name,
+                COALESCE(other.iban, '') <> '' AS other_account_has_iban,
                 e.created_at AS created_at
          FROM event e
          JOIN event_data ed ON ed.id = e.latest_data_id
@@ -33,7 +34,8 @@ pub fn ledger_items(conn: &Connection, account_id: i64) -> rusqlite::Result<Vec<
          WHERE e.account_id = ?1
            AND e.deleted_at IS NULL
            AND e.split_group_id IS NULL
-           AND e.event_type IN ('cashflow', 'transfer')",
+           AND e.event_type IN ('cashflow', 'transfer')
+         ORDER BY e.id",
     )?;
     let mut items: Vec<LedgerItem> = singles
         .query_map(params![account_id], |row| {
@@ -42,6 +44,7 @@ pub fn ledger_items(conn: &Connection, account_id: i64) -> rusqlite::Result<Vec<
                 Some(other_account_id) => Some(TransferLeg {
                     other_account_id,
                     other_account_name: row.get("other_account_name")?,
+                    other_account_has_iban: row.get("other_account_has_iban")?,
                     created_at: row.get("created_at")?,
                 }),
                 None => None,
@@ -75,7 +78,8 @@ pub fn ledger_items(conn: &Connection, account_id: i64) -> rusqlite::Result<Vec<
          JOIN event lead ON lead.id = groups.lead_id
          JOIN event_data ed ON ed.id = lead.latest_data_id
          JOIN split_group sg ON sg.id = groups.split_group_id
-         LEFT JOIN bank_entry be ON be.event_id = lead.id",
+         LEFT JOIN bank_entry be ON be.event_id = lead.id
+         ORDER BY lead.id",
     )?;
     let split_groups = groups.query_map(params![account_id], |row| {
         Ok(LedgerItem {
@@ -115,7 +119,8 @@ pub fn counterpart_cashflows(
            AND NOT EXISTS (
                SELECT 1 FROM taxable_cashflow_link tcl WHERE tcl.cashflow_event_id = e.id
            )
-           AND (ed.counterpart_account_id IS NULL OR ed.counterpart_account_id = ?2)",
+           AND (ed.counterpart_account_id IS NULL OR ed.counterpart_account_id = ?2)
+         ORDER BY e.id",
     )?;
     let rows = stmt.query_map(params![account_id, importing_account_id], |row| {
         Ok(CounterpartCashflow {

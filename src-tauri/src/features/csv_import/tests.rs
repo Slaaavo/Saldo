@@ -8,7 +8,7 @@ use super::models::{
 };
 use crate::db::initialize_in_memory;
 use crate::error::AppError;
-use crate::features::accounts::repository::{create_account, CreateAccountParams};
+use crate::features::accounts::repository::{create_account, delete_account, CreateAccountParams};
 use crate::features::buckets::BucketKind;
 use crate::features::partner_accounts::repository::{
     create_partner_account, CreatePartnerAccountParams,
@@ -24,6 +24,16 @@ const DEFAULT_PERSON: i64 = 1;
 const UNKNOWN_ACCOUNT_ID: i64 = 9_999;
 
 fn own(conn: &Connection, name: &str) -> i64 {
+    let id = account(conn, name, "account", BucketKind::Balance);
+    conn.execute(
+        "UPDATE account SET iban = ?1 WHERE id = ?2",
+        params![format!("SK00TEST{id:016}"), id],
+    )
+    .unwrap();
+    id
+}
+
+fn own_without_iban(conn: &Connection, name: &str) -> i64 {
     account(conn, name, "account", BucketKind::Balance)
 }
 
@@ -61,6 +71,7 @@ fn row(index: u32, day: &str, amount_minor: i64) -> IncomingRowInput {
         amount_minor,
         note: Some(format!("row {index}")),
         counterpart_account_id: None,
+        names_unknown_account: false,
         original_currency_id: None,
         original_amount_minor: None,
         fx_rate_mantissa: None,
@@ -71,6 +82,13 @@ fn row(index: u32, day: &str, amount_minor: i64) -> IncomingRowInput {
 fn to(counterpart_account_id: i64, row: IncomingRowInput) -> IncomingRowInput {
     IncomingRowInput {
         counterpart_account_id: Some(counterpart_account_id),
+        ..row
+    }
+}
+
+fn to_unknown_iban(row: IncomingRowInput) -> IncomingRowInput {
+    IncomingRowInput {
+        names_unknown_account: true,
         ..row
     }
 }
@@ -444,6 +462,29 @@ fn leg(amount_minor: i64) -> SplitGroupEntry {
         fx_rate_mantissa: None,
         fx_rate_exponent: None,
     }
+}
+
+#[test]
+fn deleting_the_imported_accounts_deletes_their_bank_entries() {
+    let conn = initialize_in_memory().unwrap();
+    let checking = own(&conn, "Checking");
+    let savings = own(&conn, "Savings");
+    import(
+        &conn,
+        checking,
+        &[
+            to(savings, row(0, "2026-03-01", -10_000)),
+            row(1, "2026-03-02", -500),
+        ],
+    );
+
+    delete_account(&conn, savings).unwrap();
+    delete_account(&conn, checking).unwrap();
+
+    let left: i64 = conn
+        .query_row("SELECT COUNT(*) FROM bank_entry", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(left, 0);
 }
 
 #[test]
@@ -864,6 +905,286 @@ fn a_row_claims_the_closest_leg_then_the_newest() {
     assert_eq!(event_ids, [newer, older]);
 }
 
+struct Transfer {
+    checking: i64,
+    savings: i64,
+    checking_leg: i64,
+    savings_leg: i64,
+}
+
+/// Savings' export names Checking, so Savings' import made the pair for 50.00 from Checking on
+/// 1 March, and Checking's leg has no bank entry yet.
+fn savings_imported_a_transfer_from_checking(conn: &Connection) -> Transfer {
+    let checking = own(conn, "Checking");
+    let savings = own(conn, "Savings");
+    import(conn, savings, &[to(checking, row(0, "2026-03-01", 5_000))]);
+    let ((savings_leg, _), (checking_leg, _)) = the_pair(conn, savings, checking);
+    Transfer {
+        checking,
+        savings,
+        checking_leg,
+        savings_leg,
+    }
+}
+
+impl Transfer {
+    /// Checking's export lists `payment` first and the transfer row, on `transfer_day`, second.
+    fn import_checking(
+        &self,
+        conn: &Connection,
+        payment: IncomingRowInput,
+        transfer_day: &str,
+    ) -> Vec<Verdict> {
+        let rows = [payment, to(self.savings, row(1, transfer_day, -5_000))];
+        let reviewed = preview(conn, self.checking, &rows);
+        apply(
+            conn,
+            self.checking,
+            &rows,
+            default_choices(&reviewed),
+            reviewed.review_token.clone(),
+        )
+        .unwrap();
+        reviewed.rows.into_iter().map(|row| row.verdict).collect()
+    }
+
+    fn claimed_leg(&self) -> Verdict {
+        Verdict::TransferLeg {
+            event_id: self.checking_leg,
+            other_account_name: "Savings".to_owned(),
+            event_date: "2026-03-01T12:00:00".to_owned(),
+        }
+    }
+
+    fn payment(&self, day: &str, counterpart_account_id: Option<i64>) -> Live {
+        Live {
+            account_id: self.checking,
+            event_type: "cashflow".to_owned(),
+            event_date: format!("{day}T12:00:00"),
+            amount_minor: -5_000,
+            counterpart_account_id,
+            linked_event_id: None,
+        }
+    }
+
+    /// The pair, with Checking's leg on `transfer_day`, and `payment` as the only other entry.
+    fn assert_one_pair_beside(&self, conn: &Connection, transfer_day: &str, payment: Live) {
+        let entries = live(conn);
+        assert_eq!(
+            entries.len(),
+            3,
+            "expected the pair and the payment: {entries:?}"
+        );
+        let entry = |event_id: i64| {
+            &entries
+                .iter()
+                .find(|(id, _)| *id == event_id)
+                .expect("a leg of the pair is gone")
+                .1
+        };
+        assert_eq!(
+            entry(self.savings_leg),
+            &Live {
+                account_id: self.savings,
+                event_type: "transfer".to_owned(),
+                event_date: "2026-03-01T12:00:00".to_owned(),
+                amount_minor: 5_000,
+                counterpart_account_id: Some(self.checking),
+                linked_event_id: Some(self.checking_leg),
+            }
+        );
+        assert_eq!(
+            entry(self.checking_leg),
+            &Live {
+                account_id: self.checking,
+                event_type: "transfer".to_owned(),
+                event_date: format!("{transfer_day}T12:00:00"),
+                amount_minor: -5_000,
+                counterpart_account_id: Some(self.savings),
+                linked_event_id: Some(self.savings_leg),
+            }
+        );
+        let (_, written) = entries
+            .iter()
+            .find(|(id, _)| ![self.savings_leg, self.checking_leg].contains(id))
+            .unwrap();
+        assert_eq!(written, &payment);
+    }
+}
+
+#[test]
+fn a_payment_naming_no_account_on_the_legs_day_leaves_the_leg_to_the_transfer_row() {
+    let conn = initialize_in_memory().unwrap();
+    let transfer = savings_imported_a_transfer_from_checking(&conn);
+
+    let verdicts = transfer.import_checking(&conn, row(0, "2026-03-01", -5_000), "2026-03-03");
+
+    assert_eq!(verdicts, [Verdict::New, transfer.claimed_leg()]);
+    transfer.assert_one_pair_beside(&conn, "2026-03-03", transfer.payment("2026-03-01", None));
+}
+
+#[test]
+fn a_partner_payment_on_the_legs_day_leaves_the_leg_to_the_transfer_row() {
+    let conn = initialize_in_memory().unwrap();
+    let transfer = savings_imported_a_transfer_from_checking(&conn);
+    let landlord = partner(&conn);
+
+    let verdicts = transfer.import_checking(
+        &conn,
+        to(landlord, row(0, "2026-03-01", -5_000)),
+        "2026-03-03",
+    );
+
+    assert_eq!(verdicts, [Verdict::New, transfer.claimed_leg()]);
+    transfer.assert_one_pair_beside(
+        &conn,
+        "2026-03-03",
+        transfer.payment("2026-03-01", Some(landlord)),
+    );
+}
+
+#[test]
+fn a_partner_payment_on_the_transfers_own_day_leaves_the_leg_to_the_transfer_row() {
+    let conn = initialize_in_memory().unwrap();
+    let transfer = savings_imported_a_transfer_from_checking(&conn);
+    let landlord = partner(&conn);
+
+    let verdicts = transfer.import_checking(
+        &conn,
+        to(landlord, row(0, "2026-03-01", -5_000)),
+        "2026-03-01",
+    );
+
+    assert!(
+        matches!(
+            &verdicts[..],
+            [Verdict::New, Verdict::InSaldo { event_id, .. }] if *event_id == transfer.checking_leg
+        ),
+        "{verdicts:?}"
+    );
+    transfer.assert_one_pair_beside(
+        &conn,
+        "2026-03-01",
+        transfer.payment("2026-03-01", Some(landlord)),
+    );
+}
+
+#[test]
+fn a_newest_first_export_leaves_the_leg_to_the_transfer_row_listed_after_a_payment() {
+    let conn = initialize_in_memory().unwrap();
+    let transfer = savings_imported_a_transfer_from_checking(&conn);
+
+    let verdicts = transfer.import_checking(&conn, row(0, "2026-03-03", -5_000), "2026-03-02");
+
+    assert_eq!(verdicts, [Verdict::New, transfer.claimed_leg()]);
+    transfer.assert_one_pair_beside(&conn, "2026-03-02", transfer.payment("2026-03-03", None));
+}
+
+#[test]
+fn an_oldest_first_export_leaves_the_leg_to_the_transfer_row_listed_after_a_closer_payment() {
+    let conn = initialize_in_memory().unwrap();
+    let transfer = savings_imported_a_transfer_from_checking(&conn);
+
+    let verdicts = transfer.import_checking(&conn, row(0, "2026-03-02", -5_000), "2026-03-04");
+
+    assert_eq!(verdicts, [Verdict::New, transfer.claimed_leg()]);
+    transfer.assert_one_pair_beside(&conn, "2026-03-04", transfer.payment("2026-03-02", None));
+}
+
+#[test]
+fn a_payment_to_an_unknown_iban_leaves_the_leg_to_the_transfer_row() {
+    let conn = initialize_in_memory().unwrap();
+    let transfer = savings_imported_a_transfer_from_checking(&conn);
+
+    let verdicts = transfer.import_checking(
+        &conn,
+        to_unknown_iban(row(0, "2026-03-03", -5_000)),
+        "2026-03-02",
+    );
+
+    assert_eq!(verdicts, [Verdict::New, transfer.claimed_leg()]);
+    transfer.assert_one_pair_beside(&conn, "2026-03-02", transfer.payment("2026-03-03", None));
+}
+
+#[test]
+fn a_row_naming_an_unknown_iban_a_partner_or_another_account_never_claims_a_leg() {
+    let conn = initialize_in_memory().unwrap();
+    let transfer = savings_imported_a_transfer_from_checking(&conn);
+    let brokerage = own(&conn, "Brokerage");
+    let landlord = partner(&conn);
+
+    for day in ["2026-03-01", "2026-03-03"] {
+        let payment = || row(0, day, -5_000);
+        for claimant in [
+            to_unknown_iban(payment()),
+            to(landlord, payment()),
+            to(brokerage, payment()),
+        ] {
+            assert_eq!(
+                verdicts(&conn, transfer.checking, std::slice::from_ref(&claimant)),
+                [Verdict::New],
+                "{claimant:?}"
+            );
+        }
+        assert!(
+            matches!(
+                &verdicts(&conn, transfer.checking, &[payment()])[..],
+                [Verdict::InSaldo { event_id, .. } | Verdict::TransferLeg { event_id, .. }]
+                    if *event_id == transfer.checking_leg
+            ),
+            "a row naming no account claims the leg on {day}"
+        );
+    }
+}
+
+#[test]
+fn a_row_naming_an_unknown_iban_claims_a_leg_to_an_own_account_saldo_has_no_iban_for() {
+    let conn = initialize_in_memory().unwrap();
+    let checking = own(&conn, "Checking");
+    let cash_box = own_without_iban(&conn, "Cash box");
+    import(
+        &conn,
+        cash_box,
+        &[to(checking, row(0, "2026-03-01", 5_000))],
+    );
+    let ((_, _), (checking_leg, _)) = the_pair(&conn, cash_box, checking);
+
+    let claimed = verdicts(
+        &conn,
+        checking,
+        &[to_unknown_iban(row(0, "2026-03-02", -5_000))],
+    );
+
+    assert_eq!(
+        claimed,
+        [Verdict::TransferLeg {
+            event_id: checking_leg,
+            other_account_name: "Cash box".to_owned(),
+            event_date: "2026-03-01T12:00:00".to_owned(),
+        }]
+    );
+}
+
+#[test]
+fn an_unknown_iban_payment_has_no_counterpart_and_matches_once_the_iban_is_a_partner() {
+    let conn = initialize_in_memory().unwrap();
+    let checking = own(&conn, "Checking");
+    let payment = || to_unknown_iban(row(0, "2026-03-01", -700));
+    import(&conn, checking, &[payment()]);
+    let [(event_id, entry)] = &live(&conn)[..] else {
+        panic!("expected one entry");
+    };
+    assert_eq!(entry.counterpart_account_id, None);
+    let landlord = partner(&conn);
+
+    let matched = || in_saldo(*event_id, "2026-03-01T12:00:00", "row 0");
+    assert_eq!(verdicts(&conn, checking, &[payment()]), [matched()]);
+    assert_eq!(
+        verdicts(&conn, checking, &[to(landlord, row(0, "2026-03-01", -700))]),
+        [matched()]
+    );
+}
+
 #[test]
 fn a_stale_review_refuses_and_writes_nothing() {
     let conn = initialize_in_memory().unwrap();
@@ -913,6 +1234,52 @@ fn rows_that_differ_from_the_review_refuse() {
 
     assert_eq!(refused.code, "IMPORT_CHANGED");
     assert!(live(&conn).is_empty());
+}
+
+#[test]
+fn an_entry_added_to_the_account_during_the_review_refuses_the_import() {
+    let conn = initialize_in_memory().unwrap();
+    let checking = own(&conn, "Checking");
+    let rows = [row(0, "2026-03-01", -1_250)];
+    let reviewed = preview(&conn, checking, &rows);
+
+    cashflow(&conn, checking, "2026-02-20T09:00:00", -300);
+    let before = everything(&conn);
+    let refused = apply(
+        &conn,
+        checking,
+        &rows,
+        default_choices(&reviewed),
+        reviewed.review_token,
+    )
+    .unwrap_err();
+
+    assert_eq!(refused.code, "IMPORT_CHANGED");
+    assert_eq!(everything(&conn), before);
+}
+
+#[test]
+fn applying_a_review_a_second_time_refuses_and_writes_nothing() {
+    let conn = initialize_in_memory().unwrap();
+    let checking = own(&conn, "Checking");
+    let rows = [row(0, "2026-03-01", -1_250)];
+    import(&conn, checking, &rows);
+    let again = preview(&conn, checking, &rows);
+    let first = apply(
+        &conn,
+        checking,
+        &rows,
+        vec![choice(0)],
+        again.review_token.clone(),
+    )
+    .unwrap();
+    let before = everything(&conn);
+
+    let replayed = apply(&conn, checking, &rows, vec![choice(0)], again.review_token).unwrap_err();
+
+    assert_eq!(first.imported, 1);
+    assert_eq!(replayed.code, "IMPORT_CHANGED");
+    assert_eq!(everything(&conn), before);
 }
 
 fn choice(index: u32) -> RowChoice {
@@ -971,6 +1338,15 @@ fn an_invalid_import_is_refused_and_writes_nothing() {
             vec![
                 good.clone(),
                 to(UNKNOWN_ACCOUNT_ID, row(1, "2026-03-01", -500)),
+            ],
+            vec![choice(0), choice(1)],
+        ),
+        (
+            "a row naming both an unknown IBAN and an account",
+            checking,
+            vec![
+                good.clone(),
+                to_unknown_iban(to(landlord, row(1, "2026-03-01", -500))),
             ],
             vec![choice(0), choice(1)],
         ),
@@ -1115,8 +1491,8 @@ fn the_wire_shapes_are_the_ones_the_wizard_sends_and_reads() {
         "accountId": 4,
         "rows": [{
             "index": 7, "eventDate": "2026-03-01T12:00:00", "amountMinor": -1000, "note": null,
-            "counterpartAccountId": 5, "originalCurrencyId": 2, "originalAmountMinor": -3333,
-            "fxRateMantissa": 3333, "fxRateExponent": -3
+            "counterpartAccountId": 5, "namesUnknownAccount": false, "originalCurrencyId": 2,
+            "originalAmountMinor": -3333, "fxRateMantissa": 3333, "fxRateExponent": -3
         }],
         "choices": [{
             "index": 7, "selected": true, "bucketId": null,
@@ -1130,11 +1506,12 @@ fn the_wire_shapes_are_the_ones_the_wizard_sends_and_reads() {
             input.account_id,
             input.rows[0].index,
             input.rows[0].counterpart_account_id,
+            input.rows[0].names_unknown_account,
             input.rows[0].fx_rate_exponent,
             input.choices[0].split.as_ref().unwrap()[0].bucket_id,
             input.review_token.as_str(),
         ),
-        (4, 7, Some(5), Some(-3), Some(9), "token")
+        (4, 7, Some(5), false, Some(-3), Some(9), "token")
     );
 
     let preview = CsvImportPreview {

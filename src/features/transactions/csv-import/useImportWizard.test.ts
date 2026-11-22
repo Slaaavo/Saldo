@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest'
 import { renderHook, act, waitFor } from '@testing-library/react'
-import type { CsvImportPreview, Currency, ImportProfileRow, ImportVerdict, PreviewCsvImportInput, SnapshotRow } from '../../../shared/types'
+import type { CsvImportPreview, Currency, ImportProfileRow, ImportVerdict, IncomingRowInput, PreviewCsvImportInput, SnapshotRow } from '../../../shared/types'
 import { toast } from 'sonner'
 import { useImportWizard } from './useImportWizard'
 import { makeIncomeBudgetRow, makeRow } from '../../../shared/testing/snapshotFixtures'
@@ -134,7 +134,7 @@ describe('useImportWizard', () => {
       act(() => wizard.result.current.setRules([{ type: 'sign_from_column', sortOrder: 0, typeColumn: 'Typ', negativeType: 'D' }]))
       await act(() => wizard.result.current.goToReview())
 
-      const none = { counterpartAccountId: null, originalCurrencyId: null, originalAmountMinor: null, fxRateMantissa: null, fxRateExponent: null }
+      const none = { counterpartAccountId: null, namesUnknownAccount: false, originalCurrencyId: null, originalAmountMinor: null, fxRateMantissa: null, fxRateExponent: null }
       expect(previewCsvImport).toHaveBeenCalledWith({
         accountId: 1,
         rows: [
@@ -144,6 +144,17 @@ describe('useImportWizard', () => {
         ],
       })
       expect(wizard.result.current.wizardState.step).toBe('review')
+    })
+
+    it('tells the preview which rows name an IBAN that matches no account in Saldo', async () => {
+      const savings = makeAccount({ accountId: 2, accountName: 'Savings', iban: 'SK0000000000000000000002' })
+      await renderAtReview('Date,Amount,IBAN\n2026-03-03,-50.00,DE89370400440532013000\n2026-03-02,-50.00,SK0000000000000000000002\n2026-03-01,-5.00,', [...SNAPSHOT, savings])
+
+      expect(previewedRows(0).map((r: IncomingRowInput) => [r.counterpartAccountId, r.namesUnknownAccount])).toEqual([
+        [null, true],
+        [2, false],
+        [null, false],
+      ])
     })
 
     it('ticks new rows and rows that complete a transfer, and leaves rows already in Saldo unticked', async () => {

@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Hash, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct IncomingRowInput {
     /// The row's index in the parsed file, unique within a call.
@@ -11,6 +11,8 @@ pub struct IncomingRowInput {
     pub note: Option<String>,
     /// An own account makes a transfer, a partner a cash flow with that partner.
     pub counterpart_account_id: Option<i64>,
+    /// The row names an IBAN that matches no account in Saldo, so `counterpart_account_id` is null.
+    pub names_unknown_account: bool,
     pub original_currency_id: Option<i64>,
     /// Signed like `amount_minor`.
     pub original_amount_minor: Option<i64>,
@@ -42,7 +44,7 @@ pub struct RowPreview {
     pub verdict: Verdict,
 }
 
-#[derive(Debug, Clone, Hash, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(
     tag = "kind",
     rename_all = "camelCase",

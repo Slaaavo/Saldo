@@ -6,6 +6,8 @@ export interface IncomingRowInput {
   note: string | null
   /** An own account makes the row a transfer, a partner a cash flow with that partner. */
   counterpartAccountId: number | null
+  /** The row names an IBAN that matches no account in Saldo, so `counterpartAccountId` is null. */
+  namesUnknownAccount: boolean
   originalCurrencyId: number | null
   originalAmountMinor: number | null
   fxRateMantissa: number | null

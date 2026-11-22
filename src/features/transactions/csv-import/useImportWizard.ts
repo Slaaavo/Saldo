@@ -112,6 +112,7 @@ const toIncomingRow = (row: ParsedRow): IncomingRowInput => ({
   amountMinor: row.amountMinor,
   note: row.note,
   counterpartAccountId: counterpartOf(row.ibanMatch),
+  namesUnknownAccount: row.ibanMatch.type === 'unmatched',
   originalCurrencyId: row.originalCurrencyId,
   originalAmountMinor: row.originalAmountMinor,
   fxRateMantissa: row.fxRateMantissa,

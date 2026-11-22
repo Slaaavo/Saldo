@@ -69,7 +69,7 @@ pub(crate) fn preview_csv_import_inner(
                 .filter(|day| update_days.contains(day))
                 .map(|day| day.format("%Y-%m-%d").to_string())
                 .collect(),
-            review_token: review_token(input.account_id, &input.rows, &matches),
+            review_token: review_token(input.account_id, &read),
         })
     })
 }
@@ -81,13 +81,13 @@ pub(crate) fn apply_csv_import_inner(
     let txn = WriteTxn::begin(conn)?;
     let read = read_import(conn, input.account_id, &input.rows)?;
     let choices = parse_choices(conn, input.account_id, &read.rows, input.choices)?;
-    let matches = matcher::match_rows(&read.rows, &read.items, &read.cashflows);
-    if review_token(input.account_id, &input.rows, &matches) != input.review_token {
+    if review_token(input.account_id, &read) != input.review_token {
         return Err(AppError {
             code: "IMPORT_CHANGED".into(),
             message: "Saldo changed since this import was reviewed. Review it again.".into(),
         });
     }
+    let matches = matcher::match_rows(&read.rows, &read.items, &read.cashflows);
     let mut imported = 0;
     for ((row, &matched), choice) in read.rows.iter().zip(&matches).zip(choices) {
         imported += write_row(conn, input.account_id, row, matched, choice)?;
@@ -109,6 +109,7 @@ struct SplitLeg {
     bucket_id: Option<i64>,
 }
 
+#[derive(Hash)]
 struct ImportRead {
     rows: Vec<IncomingRow>,
     items: Vec<LedgerItem>,
@@ -135,7 +136,7 @@ fn read_import(
         .iter()
         .filter_map(|row| match row.counterpart {
             Counterpart::Own(id) => Some(id),
-            Counterpart::None | Counterpart::Partner(_) => None,
+            Counterpart::None | Counterpart::Unknown | Counterpart::Partner(_) => None,
         })
         .collect();
     let mut cashflows = Vec::new();
@@ -172,7 +173,7 @@ fn parse_rows(
                 day: day_of(&row.event_date)?,
                 amount_minor: row.amount_minor,
                 note: row.note.clone(),
-                counterpart: parse_counterpart(conn, account_id, row.counterpart_account_id)?,
+                counterpart: row_counterpart(conn, account_id, row)?,
                 original_currency_id: row.original_currency_id,
                 original_amount_minor: row.original_amount_minor,
                 fx_rate_mantissa: row.fx_rate_mantissa,
@@ -188,6 +189,23 @@ fn day_of(event_date: &str) -> Result<NaiveDate, AppError> {
         .get(..10)
         .and_then(|day| NaiveDate::parse_from_str(day, "%Y-%m-%d").ok())
         .ok_or_else(|| validation("event_date must start with a YYYY-MM-DD date"))
+}
+
+fn row_counterpart(
+    conn: &Connection,
+    account_id: i64,
+    row: &IncomingRowInput,
+) -> Result<Counterpart, AppError> {
+    match (row.names_unknown_account, row.counterpart_account_id) {
+        (false, counterpart_account_id) => {
+            parse_counterpart(conn, account_id, counterpart_account_id)
+        }
+        (true, None) => Ok(Counterpart::Unknown),
+        (true, Some(_)) => Err(validation(format!(
+            "Row {} names both an unknown IBAN and an account",
+            row.index
+        ))),
+    }
 }
 
 fn parse_counterpart(
@@ -434,13 +452,9 @@ fn verdict_of(matched: Match<'_>) -> Verdict {
     }
 }
 
-fn review_token(account_id: i64, rows: &[IncomingRowInput], matches: &[Match<'_>]) -> String {
+fn review_token(account_id: i64, read: &ImportRead) -> String {
     let mut hasher = DefaultHasher::new();
-    (account_id, rows).hash(&mut hasher);
-    for &matched in matches {
-        let version = matched.recorded().map(|recorded| recorded.latest_data_id);
-        (verdict_of(matched), version).hash(&mut hasher);
-    }
+    (account_id, read).hash(&mut hasher);
     format!("{:016x}", hasher.finish())
 }
 
