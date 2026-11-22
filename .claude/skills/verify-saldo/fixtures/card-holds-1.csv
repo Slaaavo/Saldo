@@ -1,0 +1,10 @@
+Typ transakcie,Originálna suma,Suma EUR,Suma v USD,Kurz,Stav transakcie,Dátum transakcie,Dátum spracovania,Číslo karty,Popis,Názov obchodníka
+Debet,"10.00 EUR","10.00",,,Zúčtovaná,"15.11.2026","16.11.2026",433703******2103,"GP NÁKUP POS",Kaviaren Verify
+Debet,"29.04 EUR","29.04",,,Autorizovaná,"18.11.2026",Zatiaľ nespracovaná,433703******2103,"BUDE DOPLNENÝ PO ZÚČT.",2128 KRAJ                Ivanka pri DuSK
+Debet,"35.36 EUR","35.36",,,Autorizovaná,"18.11.2026",Zatiaľ nespracovaná,433704******5206,"BUDE DOPLNENÝ PO ZÚČT.",Kaufland SK 2020         Bratislava - SK
+Debet,"78.96 EUR","78.96",,,Autorizovaná,"17.11.2026",Zatiaľ nespracovaná,433703******2103,"BUDE DOPLNENÝ PO ZÚČT.",www.tchibo.sk            Bratislava 2 SK
+Debet,"33.00 EUR","33.00",,,Autorizovaná,"18.11.2026",Zatiaľ nespracovaná,433704******5206,"BUDE DOPLNENÝ PO ZÚČT.","GITHUB, INC.             San FranciscUS"
+Debet,"12.00 EUR","12.00",,,Autorizovaná,"17.11.2026",Zatiaľ nespracovaná,433704******5206,"BUDE DOPLNENÝ PO ZÚČT.",ZSSK.SK                  BRATISLAVA   SK
+Debet,"0.50 EUR","0.50",,,Autorizovaná,"18.11.2026",Zatiaľ nespracovaná,433703******2103,"BUDE DOPLNENÝ PO ZÚČT.","Zeleznice SR, Poprad     Poprad       SK"
+Debet,"0.50 EUR","0.50",,,Autorizovaná,"18.11.2026",Zatiaľ nespracovaná,433704******5206,"BUDE DOPLNENÝ PO ZÚČT.","Zeleznice SR, Poprad     Poprad       SK"
+Debet,"70.97 EUR","70.97",,,Zamietnutá,"16.11.2026",Zatiaľ nespracovaná,433703******2103,"BUDE DOPLNENÝ PO ZÚČT.",Vinted                   Vilnius      LT

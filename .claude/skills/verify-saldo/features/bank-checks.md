@@ -30,6 +30,7 @@ An own account's dashboard card can be checked against the user's bank app. "Mat
 - `BC-GUARD-NEW-BU`: a new balance update dated before the check's day asks; one dated on the check's day or later saves without asking.
 - `BC-GUARD-AMBER`: on an account whose card already shows "now differs by", changes save without asking.
 - `BC-GUARD-FIX`: a fix in Find the difference that breaks a ✓ Verified check asks first, for example "Delete the booked difference" on a booking the check counted.
+- `BC-HOLD`: a ✓ Verified check stays verified when a later CSV import posts a card hold at another amount or removes a cancelled hold, because the check counts each hold as it was at the check. Driven in [csv-import.md](./csv-import.md) "Card holds" step 2. Deleting or editing the posted row by hand still turns the card amber.
 
 ## How to get to it (user POV)
 

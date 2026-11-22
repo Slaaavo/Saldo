@@ -9,6 +9,7 @@ The CSV import wizard turns a bank export into cashflow events on one account. T
 - `csv-rules` adds optional transformation rules before review.
 - `csv-review` lists the new rows with new-partner, transfer and split handling, folds the rows already in Saldo under a count, and imports the selected ones.
 - `csv-match` is the matching: a re-imported export adds nothing, a transfer imported from both accounts ends as one pair with each leg on its own bank's day, and a row whose other side is a plain cash flow on the counterpart account completes that transfer.
+- `csv-holds` is card holds: a profile's `Card hold from column` rule marks pending rows (badge `Card hold`), its `Declined payment from column` rule skips declined ones (`N declined payment(s) skipped`), and the `Card number` mapping reads the card. A later export posts each hold in place: at the same amount it folds under "already in Saldo" ("Posts the card hold dated <day>"), at another amount it is a new row, ticked ("Card hold posted: A → B"), and a hold the newer export no longer lists shows under `Cancelled card holds`, ticked for removal.
 - `csv-profile` saves or updates an import profile after a successful import (listed under Import Profiles).
 
 ## How to get to it (user POV)
@@ -45,6 +46,16 @@ Load `fixtures/csv-transfers.sql` while the app is down (`sqlite3 "$HOME/Library
 4. Import `fixtures/csv-transfers-csob.csv` again: `Already in Saldo: 1`, and the row has no "moves" hint any more.
 
 Stored rows: `evidence.sh db <nn>-pairs "select a.name, e.event_type, d.amount_minor, d.event_date, (select a2.name from event o join account a2 on a2.id = o.account_id where o.id = e.linked_event_id) as other, (select be.day from bank_entry be where be.event_id = e.id) as bank_day from event e join event_data d on d.id = e.latest_data_id join account a on a.id = e.account_id where a.name like 'Verify %' and e.event_type in ('cashflow','transfer') and e.deleted_at is null order by a.name, d.event_date"`. Expect exactly five rows. Verify CSOB +10000 on 11 Nov and Verify TB -10000 on 10 Nov are linked to each other. Verify Card +5000 on 12 Nov and Verify TB -5000 on 11 Nov are a `transfer` pair. Verify TB -420 is a `cashflow`. Every row has a bank day.
+
+### Card holds (`csv-holds`)
+
+Load `fixtures/card-holds.sql` while the app is down (as for the transfers fixture), then launch. It adds Verify Holds, an own EUR account at 500.00 on 10 Nov, sorted first, with the preferred profile `Verify TB card` (sign, card hold and declined rules, `Card number` mapped to `Číslo karty`). Import into Verify Holds, with its profile:
+
+1. `fixtures/card-holds-1.csv`: `New rows: 8`, a blue line `1 declined payment skipped`, and a `Card hold` badge on 7 rows (all but the 15 Nov Kaviaren row). Import all 8. The card shows 300.64 EUR. Click "Matches bank": "Verified <today>".
+2. `fixtures/card-holds-2.csv`: `New rows: 1. Already in Saldo: 6.`, `1 declined payment skipped`. The new row is GITHUB 18 Nov -32.99, ticked, "Card hold posted: -33.00 EUR → -32.99 EUR". `Cancelled card holds` lists ZSSK.SK 17 Nov -12.00, ticked. Open `6 already in Saldo`: the 2128 KRAJ, Kaufland, Tchibo and both Zeleznice rows say "Posts the card hold dated <day>". Import. The card shows 312.65 EUR and still "Verified <today>".
+3. `fixtures/card-holds-2.csv` again: `New rows: 0. Already in Saldo: 7.`, no cancelled holds, `Finish` changes no row.
+
+Stored rows: `evidence.sh db <nn>-holds "select d.event_date, d.amount_minor, d.note, e.deleted_at is not null as deleted, be.card, be.hold_seen_to, be.posted_at is not null as posted, be.posting_change_minor, be.cancelled_at is not null as cancelled from event e join event_data d on d.id = e.latest_data_id join account a on a.id = e.account_id left join bank_entry be on be.event_id = e.id where a.name = 'Verify Holds' and e.event_type = 'cashflow' order by d.event_date, d.amount_minor"`. After step 2: Kaufland moved to 19 Nov, Tchibo to 18 Nov, every posted note is the booked text (`2128 KRAJ`, `WWW.TCHIBO.SK`), GITHUB is -3299 with `posting_change_minor` 1, ZSSK is deleted with `cancelled`, and no row is pending.
 
 ### A re-import of a real export
 

@@ -1,0 +1,9 @@
+Typ transakcie,Originálna suma,Suma EUR,Suma v USD,Kurz,Stav transakcie,Dátum transakcie,Dátum spracovania,Číslo karty,Popis,Názov obchodníka
+Debet,"10.00 EUR","10.00",,,Zúčtovaná,"15.11.2026","16.11.2026",433703******2103,"GP NÁKUP POS",Kaviaren Verify
+Debet,"29.04 EUR","29.04",,,Zúčtovaná,"18.11.2026","19.11.2026",433703******2103,"GP NÁKUP POS",2128 KRAJ
+Debet,"35.36 EUR","35.36",,,Zúčtovaná,"19.11.2026","20.11.2026",433704******5206,"GP NÁKUP POS",Kaufland SK 2020
+Debet,"78.96 EUR","78.96",,,Zúčtovaná,"18.11.2026","19.11.2026",433703******2103,"MOBILE APP NÁKUP E-COMM",WWW.TCHIBO.SK
+Debet,"37.40 USD","32.99","37.40",,Zúčtovaná,"18.11.2026","20.11.2026",433704******5206,"POS nákup zahr.","GITHUB, INC."
+Debet,"0.50 EUR","0.50",,,Zúčtovaná,"18.11.2026","19.11.2026",433703******2103,"GP NÁKUP POS","Zeleznice SR, Poprad"
+Debet,"0.50 EUR","0.50",,,Zúčtovaná,"18.11.2026","19.11.2026",433704******5206,"GP NÁKUP POS","Zeleznice SR, Poprad"
+Debet,"70.97 EUR","70.97",,,Zamietnutá,"16.11.2026",Zatiaľ nespracovaná,433703******2103,"BUDE DOPLNENÝ PO ZÚČT.",Vinted                   Vilnius      LT
