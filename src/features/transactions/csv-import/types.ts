@@ -22,7 +22,6 @@ export interface SplitLeg {
   counterpartAccountId: number | null
 }
 
-/** A row as the file and the rules give it. `ibanMatch` holds its counterpart: an own account or a partner, else none. */
 export interface ParsedRow {
   index: number
   date: string
@@ -36,7 +35,6 @@ export interface ParsedRow {
   ibanMatch: IbanMatchResult
 }
 
-/** A parsed row with what Saldo already holds for it and the user's choice. */
 export interface ImportRow extends ParsedRow {
   verdict: ImportVerdict
   isSelected: boolean
@@ -55,7 +53,6 @@ export interface WizardState {
   columnMapping: ColumnMapping
   importRows: ImportRow[]
   unparseableRowCount: number
-  /** From the preview the rows' verdicts came from; apply sends it back. */
   reviewToken: string | null
   balanceUpdateDays: string[]
   previewing: boolean

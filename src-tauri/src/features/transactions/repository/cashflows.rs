@@ -123,38 +123,36 @@ pub fn create_transfer(conn: &Connection, entry: &CashflowEntry) -> rusqlite::Re
     with_savepoint(conn, || insert_transfer_pair(conn, entry))
 }
 
-/// Inserts `entry` as a transfer leg whose other leg is `cashflow_event_id`, a plain cash flow on
-/// `entry`'s counterpart account, and turns that cash flow into the other leg: it becomes a
-/// transfer, links back, and gets a version whose counterpart is `entry`'s account. Its amount,
-/// date, note and bucket stay. Returns the new leg's id. Callers wrap this in their own savepoint.
 pub(crate) fn complete_transfer(
     conn: &Connection,
     entry: &CashflowEntry,
     cashflow_event_id: i64,
 ) -> rusqlite::Result<i64> {
-    let leg_id = create_cashflow_inner(conn, entry, "transfer", Some(cashflow_event_id))?;
-    conn.execute(
-        "UPDATE event SET event_type = 'transfer', linked_event_id = ?1 WHERE id = ?2",
-        params![leg_id, cashflow_event_id],
-    )?;
-    let (amount_minor, event_date, note) = conn.query_row(
-        "SELECT d.amount_minor, d.event_date, d.note
-         FROM event e JOIN event_data d ON d.id = e.latest_data_id
-         WHERE e.id = ?1",
-        params![cashflow_event_id],
-        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-    )?;
-    insert_version(
-        conn,
-        NewVersion {
-            event_id: cashflow_event_id,
-            amount_minor,
-            event_date,
-            note,
-            counterpart_account_id: Some(entry.account_id),
-        },
-    )?;
-    Ok(leg_id)
+    with_savepoint(conn, || {
+        let leg_id = create_cashflow_inner(conn, entry, "transfer", Some(cashflow_event_id))?;
+        conn.execute(
+            "UPDATE event SET event_type = 'transfer', linked_event_id = ?1 WHERE id = ?2",
+            params![leg_id, cashflow_event_id],
+        )?;
+        let (amount_minor, event_date, note) = conn.query_row(
+            "SELECT d.amount_minor, d.event_date, d.note
+             FROM event e JOIN event_data d ON d.id = e.latest_data_id
+             WHERE e.id = ?1",
+            params![cashflow_event_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )?;
+        insert_version(
+            conn,
+            NewVersion {
+                event_id: cashflow_event_id,
+                amount_minor,
+                event_date,
+                note,
+                replace_counterpart_with: Some(entry.account_id),
+            },
+        )?;
+        Ok(leg_id)
+    })
 }
 
 #[cfg(test)]

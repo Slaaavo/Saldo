@@ -113,7 +113,6 @@ fn verdicts(conn: &Connection, account_id: i64, rows: &[IncomingRowInput]) -> Ve
         .collect()
 }
 
-/// The review's defaults: rows not in Saldo ticked, the others not.
 fn default_choices(preview: &CsvImportPreview) -> Vec<RowChoice> {
     preview
         .rows
@@ -148,7 +147,6 @@ fn apply(
     )
 }
 
-/// Previews the rows and applies the review's defaults.
 fn import(conn: &Connection, account_id: i64, rows: &[IncomingRowInput]) -> u32 {
     let reviewed = preview(conn, account_id, rows);
     let choices = default_choices(&reviewed);
@@ -157,7 +155,6 @@ fn import(conn: &Connection, account_id: i64, rows: &[IncomingRowInput]) -> u32 
         .imported
 }
 
-/// Every event, version and bank entry, so a test can tell that nothing changed.
 fn everything(conn: &Connection) -> Vec<String> {
     let mut stmt = conn
         .prepare(
@@ -587,7 +584,6 @@ fn a_split_row_becomes_a_group_whose_legs_share_the_original_amount() {
     ));
 }
 
-/// The two legs of the one transfer between `from` and `to`, as (`from` leg, `to` leg).
 fn the_pair(conn: &Connection, from: i64, to: i64) -> ((i64, Live), (i64, Live)) {
     let entries = live(conn);
     assert_eq!(entries.len(), 2, "expected one transfer pair: {entries:?}");
@@ -797,8 +793,6 @@ fn a_transfer_completes_only_when_the_row_and_the_cash_flow_have_no_rival() {
     ));
 }
 
-/// A transfer `savings → checking` made from the savings side, so the checking leg has no bank
-/// facts. Returns the checking leg's id.
 fn leg_on_checking(conn: &Connection, checking: i64, savings: i64, date: &str) -> i64 {
     let (_, checking_leg) = create_transfer(
         conn,

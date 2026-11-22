@@ -23,7 +23,7 @@ const CsvImportModal = ({ snapshot, preselectedAccountId, onClose, onSuccess }: 
     availableBuckets,
     availableProfiles,
     selectedCount,
-    canImport,
+    canApplyReview,
     balanceWarningDates,
     accountsWithoutIban,
     selectedAccountCurrencyCode,
@@ -112,7 +112,7 @@ const CsvImportModal = ({ snapshot, preselectedAccountId, onClose, onSuccess }: 
               importRows={wizardState.importRows}
               unparseableRowCount={wizardState.unparseableRowCount}
               selectedCount={selectedCount}
-              canImport={canImport}
+              canApplyReview={canApplyReview}
               balanceWarningDates={balanceWarningDates}
               availableBuckets={availableBuckets}
               accountsWithoutIban={accountsWithoutIban}

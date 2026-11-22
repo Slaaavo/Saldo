@@ -96,7 +96,6 @@ pub(crate) fn apply_csv_import_inner(
     Ok(CsvImportResult { imported })
 }
 
-/// What the user chose for a row, checked against the row.
 enum Choice {
     Skip,
     Create { bucket_id: Option<i64> },
@@ -212,7 +211,6 @@ fn parse_counterpart(
     }
 }
 
-/// One choice per row, in the order of `rows`.
 fn parse_choices(
     conn: &Connection,
     account_id: i64,
@@ -273,7 +271,6 @@ fn parse_choice(
         .map(Choice::Split)
 }
 
-/// Writes what the row's verdict and choice call for. Returns the entries it created.
 fn write_row(
     conn: &Connection,
     account_id: i64,
@@ -285,7 +282,7 @@ fn write_row(
         (Choice::Skip, Match::New | Match::CompletesTransfer(_)) => Ok(0),
         (Choice::Skip, Match::InSaldo(recorded)) => {
             if recorded.bank.is_none() {
-                record_bank_entry(conn, recorded.event_id, row)?;
+                record_bank_entry(conn, recorded.bank_entry_event_id, row)?;
             }
             Ok(0)
         }
@@ -293,20 +290,20 @@ fn write_row(
             update_event(
                 conn,
                 UpdateEventParams {
-                    event_id: leg.event_id,
+                    event_id: leg.bank_entry_event_id,
                     amount_minor: leg.amount_minor,
                     event_date: row.event_date.clone(),
                     note: leg.note.clone(),
                 },
             )?;
-            record_bank_entry(conn, leg.event_id, row)?;
+            record_bank_entry(conn, leg.bank_entry_event_id, row)?;
             Ok(0)
         }
         (Choice::Create { bucket_id }, Match::CompletesTransfer(cashflow)) => {
             let leg_id = complete_transfer(
                 conn,
                 &cashflow_entry(account_id, row, bucket_id),
-                cashflow.recorded.event_id,
+                cashflow.recorded.bank_entry_event_id,
             )?;
             record_bank_entry(conn, leg_id, row)?;
             Ok(1)
@@ -317,7 +314,13 @@ fn write_row(
             record_bank_entry(conn, event_id, row)?;
             Ok(1)
         }
-        (Choice::Split(legs), _) => {
+        (
+            Choice::Split(legs),
+            Match::New
+            | Match::InSaldo(_)
+            | Match::TransferLeg { .. }
+            | Match::CompletesTransfer(_),
+        ) => {
             let leg_count = legs.len() as u32;
             let split_group_id = create_split_group_with_legs(
                 conn,
@@ -348,8 +351,6 @@ fn cashflow_entry(account_id: i64, row: &IncomingRow, bucket_id: Option<i64>) ->
     }
 }
 
-/// The legs take the row's date and FX rate, and share its original amount by each leg's share
-/// of the row, the last leg taking the remainder.
 fn split_entries(row: &IncomingRow, legs: Vec<SplitLeg>) -> Result<Vec<SplitGroupEntry>, AppError> {
     let last = legs.len() - 1;
     let mut allocated: i128 = 0;
@@ -411,7 +412,7 @@ fn verdict_of(matched: Match<'_>) -> Verdict {
     match matched {
         Match::New => Verdict::New,
         Match::InSaldo(recorded) => Verdict::InSaldo {
-            event_id: recorded.event_id,
+            event_id: recorded.bank_entry_event_id,
             event_date: recorded.event_date.clone(),
             note: recorded.note.clone(),
         },
@@ -419,12 +420,12 @@ fn verdict_of(matched: Match<'_>) -> Verdict {
             leg,
             other_account_name,
         } => Verdict::TransferLeg {
-            event_id: leg.event_id,
+            event_id: leg.bank_entry_event_id,
             other_account_name: other_account_name.to_owned(),
             event_date: leg.event_date.clone(),
         },
         Match::CompletesTransfer(cashflow) => Verdict::CompletesTransfer {
-            event_id: cashflow.recorded.event_id,
+            event_id: cashflow.recorded.bank_entry_event_id,
             account_id: cashflow.account_id,
             account_name: cashflow.account_name.clone(),
             event_date: cashflow.recorded.event_date.clone(),
@@ -433,8 +434,6 @@ fn verdict_of(matched: Match<'_>) -> Verdict {
     }
 }
 
-/// Covers the rows as sent and each verdict with the version of the entry it names, so an apply
-/// writes only what the user reviewed.
 fn review_token(account_id: i64, rows: &[IncomingRowInput], matches: &[Match<'_>]) -> String {
     let mut hasher = DefaultHasher::new();
     (account_id, rows).hash(&mut hasher);

@@ -9,11 +9,11 @@ import { Checkbox } from '../../../../shared/ui/checkbox'
 import { DialogFooter } from '../../../../shared/ui/dialog'
 import { ReviewTable, type ReviewTableProps } from './ReviewTable'
 
-export interface ReviewStepProps extends Omit<ReviewTableProps, 'rows' | 'firstIbanRows'> {
+export interface ReviewStepProps extends Omit<ReviewTableProps, 'rows' | 'rowsShowingIbanActions'> {
   importRows: ImportRow[]
   unparseableRowCount: number
   selectedCount: number
-  canImport: boolean
+  canApplyReview: boolean
   balanceWarningDates: string[]
   importing: boolean
   onSelectAll: () => void
@@ -24,11 +24,23 @@ export interface ReviewStepProps extends Omit<ReviewTableProps, 'rows' | 'firstI
   splitValidationErrors: string[]
 }
 
+const rowsShowingIbanActions = (rowsInShownOrder: ImportRow[]): Set<number> => {
+  const rows = new Set<number>()
+  const seenIbans = new Set<string>()
+  for (const row of rowsInShownOrder) {
+    if (row.ibanMatch.type === 'unmatched' && row.rawIban && !seenIbans.has(row.rawIban)) {
+      seenIbans.add(row.rawIban)
+      rows.add(row.index)
+    }
+  }
+  return rows
+}
+
 const ReviewStep = ({
   importRows,
   unparseableRowCount,
   selectedCount,
-  canImport,
+  canApplyReview,
   balanceWarningDates,
   importing,
   onSelectAll,
@@ -58,15 +70,7 @@ const ReviewStep = ({
     }
   }
 
-  // The first row with an unmatched IBAN offers its actions, in the order the rows are shown.
-  const firstIbanRows = new Set<number>()
-  const seenIbans = new Set<string>()
-  for (const row of [...newRows, ...knownRows]) {
-    if (row.ibanMatch.type === 'unmatched' && row.rawIban && !seenIbans.has(row.rawIban)) {
-      seenIbans.add(row.rawIban)
-      firstIbanRows.add(row.index)
-    }
-  }
+  const ibanActionRows = rowsShowingIbanActions([...newRows, ...knownRows])
 
   return (
     <>
@@ -95,7 +99,7 @@ const ReviewStep = ({
                 {newSelectedCount > 0 ? t('import.reviewStep.selectAll') + ` (${newSelectedCount}/${newRows.length})` : t('import.reviewStep.selectAll')}
               </label>
             </div>
-            <ReviewTable rows={newRows} firstIbanRows={firstIbanRows} {...tableProps} />
+            <ReviewTable rows={newRows} rowsShowingIbanActions={ibanActionRows} {...tableProps} />
           </>
         )}
 
@@ -112,7 +116,7 @@ const ReviewStep = ({
               <ChevronRight className={cn('h-4 w-4 transition-transform', showKnownRows && 'rotate-90')} />
               {t('import.reviewStep.alreadyInSaldo', { count: knownRows.length })}
             </Button>
-            {showKnownRows && <ReviewTable rows={knownRows} firstIbanRows={firstIbanRows} {...tableProps} />}
+            {showKnownRows && <ReviewTable rows={knownRows} rowsShowingIbanActions={ibanActionRows} {...tableProps} />}
           </div>
         )}
       </div>
@@ -135,7 +139,7 @@ const ReviewStep = ({
         <Button type="button" variant="outline" onClick={onCancel} disabled={importing}>
           {t('modals.confirm.cancel')}
         </Button>
-        <Button type="button" onClick={onImport} disabled={!canImport}>
+        <Button type="button" onClick={onImport} disabled={!canApplyReview}>
           {importing ? t('import.reviewStep.importing') : selectedCount > 0 ? t('import.reviewStep.importButton', { count: selectedCount }) : t('import.reviewStep.finish')}
         </Button>
       </DialogFooter>

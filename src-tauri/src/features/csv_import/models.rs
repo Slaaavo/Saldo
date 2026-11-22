@@ -49,11 +49,10 @@ pub struct RowPreview {
     rename_all_fields = "camelCase"
 )]
 pub enum Verdict {
-    /// Not in Saldo. Ticked by default.
+    /// Not in Saldo.
     New,
     /// Not in Saldo on this account, and the counterpart own account holds a plain cash flow
-    /// that is this transfer's other side. Importing it turns that cash flow into the other leg.
-    /// Ticked by default.
+    /// that is this transfer's other side.
     CompletesTransfer {
         event_id: i64,
         account_id: i64,
@@ -61,15 +60,14 @@ pub enum Verdict {
         event_date: String,
         note: Option<String>,
     },
-    /// Already in Saldo with this day and amount. Unticked by default.
+    /// Already in Saldo with this day and amount.
     InSaldo {
         event_id: i64,
         event_date: String,
         note: Option<String>,
     },
     /// The leg another account's import made for this transfer, on another day within 5 days.
-    /// `event_date` is the leg's day now; importing moves the leg to the row's day. Unticked by
-    /// default.
+    /// `event_date` is the leg's day now.
     TransferLeg {
         event_id: i64,
         other_account_name: String,

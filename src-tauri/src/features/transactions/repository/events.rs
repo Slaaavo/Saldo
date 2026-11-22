@@ -42,21 +42,19 @@ pub fn update_event(conn: &Connection, params: UpdateEventParams) -> Result<(), 
             amount_minor,
             event_date,
             note,
-            counterpart_account_id: None,
+            replace_counterpart_with: None,
         },
     )?;
 
     Ok(())
 }
 
-/// A new version of an event. `counterpart_account_id` replaces the counterpart when set and
-/// keeps it when `None`.
 pub(crate) struct NewVersion {
     pub event_id: i64,
     pub amount_minor: i64,
     pub event_date: String,
     pub note: Option<String>,
-    pub counterpart_account_id: Option<i64>,
+    pub replace_counterpart_with: Option<i64>,
 }
 
 /// Inserts `version` and copies every other column from the event's latest version.
@@ -82,7 +80,7 @@ pub(crate) fn insert_version(conn: &Connection, version: NewVersion) -> rusqlite
             version.amount_minor,
             version.event_date,
             version.note,
-            version.counterpart_account_id
+            version.replace_counterpart_with
         ],
     )?;
     Ok(())

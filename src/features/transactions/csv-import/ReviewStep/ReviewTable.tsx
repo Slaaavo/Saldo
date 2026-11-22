@@ -13,8 +13,7 @@ import { SplitEditorPanel } from './SplitEditorPanel'
 
 export interface ReviewTableProps {
   rows: ImportRow[]
-  /** The rows that offer the actions for an unmatched IBAN; later rows with the same IBAN point up to them. */
-  firstIbanRows: Set<number>
+  rowsShowingIbanActions: Set<number>
   availableBuckets: SnapshotRow[]
   accountsWithoutIban: SnapshotRow[]
   counterpartAccounts: SnapshotRow[]
@@ -39,12 +38,12 @@ const BUCKET_NONE = '__none__'
 
 const dayOf = (eventDate: string) => eventDate.substring(0, 10)
 
-// Says what importing does to the entry a row matched. A split row is imported as its own entries, so it joins nothing.
 const hintOf = (t: TFunction, row: ImportRow): string | null => {
   const { verdict } = row
   switch (verdict.kind) {
     case 'completesTransfer':
-      return row.splitLegs === null ? t('import.reviewStep.completesTransfer', { account: verdict.accountName, day: dayOf(verdict.eventDate) }) : null
+      if (row.splitLegs !== null) return null
+      return t('import.reviewStep.completesTransfer', { account: verdict.accountName, day: dayOf(verdict.eventDate) })
     case 'transferLeg':
       return row.isSelected
         ? t('import.reviewStep.transferLeg.stays', { account: verdict.otherAccountName, from: dayOf(verdict.eventDate) })
@@ -71,7 +70,7 @@ const ReviewTableColGroup = () => {
 
 export const ReviewTable = ({
   rows,
-  firstIbanRows,
+  rowsShowingIbanActions,
   availableBuckets,
   accountsWithoutIban,
   counterpartAccounts,
@@ -95,7 +94,6 @@ export const ReviewTable = ({
 
   return (
     <div className="border border-border rounded-[var(--radius)] bg-background overflow-hidden">
-      {/* Static header — outside the scroll context, no sticky needed */}
       <table className="w-full text-sm table-fixed border-separate border-spacing-0">
         <ReviewTableColGroup />
         <thead>
@@ -110,7 +108,6 @@ export const ReviewTable = ({
           </tr>
         </thead>
       </table>
-      {/* Scrollable body only — scrollbar-gutter:stable keeps width aligned with header */}
       <div className="max-h-[360px] overflow-y-auto [scrollbar-gutter:stable]">
         <table className="w-full text-sm table-fixed border-separate border-spacing-0">
           <ReviewTableColGroup />
@@ -140,7 +137,7 @@ export const ReviewTable = ({
                           onCreatePartner={onCreatePartner}
                           onAssignIban={onAssignIban}
                           onCounterpartChange={onCounterpartChange}
-                          isFirstOccurrence={firstIbanRows.has(row.index)}
+                          isFirstOccurrence={rowsShowingIbanActions.has(row.index)}
                         />
                       )}
                     </td>

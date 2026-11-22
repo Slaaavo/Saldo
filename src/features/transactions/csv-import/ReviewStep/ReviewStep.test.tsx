@@ -42,7 +42,7 @@ const reviewProps = (overrides?: Partial<ReviewStepProps>): ReviewStepProps => {
     importRows: ROWS,
     unparseableRowCount: 0,
     selectedCount: 2,
-    canImport: true,
+    canApplyReview: true,
     balanceWarningDates: [],
     availableBuckets: [],
     accountsWithoutIban: [],

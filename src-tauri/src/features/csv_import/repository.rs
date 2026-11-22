@@ -16,12 +16,13 @@ pub struct InsertBankEntryParams {
     pub text: Option<String>,
 }
 
-/// The account's live cash flows and transfer legs outside a split group, then its live split
-/// groups. A transfer leg names the account of its linked leg, else its counterpart.
 pub fn ledger_items(conn: &Connection, account_id: i64) -> rusqlite::Result<Vec<LedgerItem>> {
     let mut singles = conn.prepare(
-        "SELECT e.id, e.latest_data_id, ed.event_date, ed.amount_minor, ed.note,
-                be.day, be.amount_minor, other.id, other.name, e.created_at
+        "SELECT e.id AS bank_entry_event_id, e.latest_data_id AS latest_data_id,
+                ed.event_date AS event_date, ed.amount_minor AS amount_minor, ed.note AS note,
+                be.day AS bank_day, be.amount_minor AS bank_amount_minor,
+                other.id AS other_account_id, other.name AS other_account_name,
+                e.created_at AS created_at
          FROM event e
          JOIN event_data ed ON ed.id = e.latest_data_id
          LEFT JOIN bank_entry be ON be.event_id = e.id
@@ -36,12 +37,12 @@ pub fn ledger_items(conn: &Connection, account_id: i64) -> rusqlite::Result<Vec<
     )?;
     let mut items: Vec<LedgerItem> = singles
         .query_map(params![account_id], |row| {
-            let other_account_id: Option<i64> = row.get(7)?;
+            let other_account_id: Option<i64> = row.get("other_account_id")?;
             let transfer_leg = match other_account_id {
                 Some(other_account_id) => Some(TransferLeg {
                     other_account_id,
-                    other_account_name: row.get(8)?,
-                    created_at: row.get(9)?,
+                    other_account_name: row.get("other_account_name")?,
+                    created_at: row.get("created_at")?,
                 }),
                 None => None,
             };
@@ -67,8 +68,9 @@ pub fn ledger_items(conn: &Connection, account_id: i64) -> rusqlite::Result<Vec<
              FROM legs
              GROUP BY split_group_id
          )
-         SELECT lead.id, lead.latest_data_id, ed.event_date, groups.amount_minor, sg.note,
-                be.day, be.amount_minor
+         SELECT lead.id AS bank_entry_event_id, lead.latest_data_id AS latest_data_id,
+                ed.event_date AS event_date, groups.amount_minor AS amount_minor, sg.note AS note,
+                be.day AS bank_day, be.amount_minor AS bank_amount_minor
          FROM groups
          JOIN event lead ON lead.id = groups.lead_id
          JOIN event_data ed ON ed.id = lead.latest_data_id
@@ -87,9 +89,6 @@ pub fn ledger_items(conn: &Connection, account_id: i64) -> rusqlite::Result<Vec<
     Ok(items)
 }
 
-/// The account's plain cash flows that could be the other side of a transfer from the importing
-/// account: no split group, link, asset, system origin or taxable link, and a counterpart that
-/// is empty or the importing account.
 pub fn counterpart_cashflows(
     conn: &Connection,
     params: CounterpartCashflowsParams,
@@ -99,8 +98,9 @@ pub fn counterpart_cashflows(
         importing_account_id,
     } = params;
     let mut stmt = conn.prepare(
-        "SELECT e.id, e.latest_data_id, ed.event_date, ed.amount_minor, ed.note,
-                be.day, be.amount_minor, a.name
+        "SELECT e.id AS bank_entry_event_id, e.latest_data_id AS latest_data_id,
+                ed.event_date AS event_date, ed.amount_minor AS amount_minor, ed.note AS note,
+                be.day AS bank_day, be.amount_minor AS bank_amount_minor, a.name AS account_name
          FROM event e
          JOIN event_data ed ON ed.id = e.latest_data_id
          JOIN account a ON a.id = e.account_id
@@ -121,7 +121,7 @@ pub fn counterpart_cashflows(
         Ok(CounterpartCashflow {
             recorded: recorded(row)?,
             account_id,
-            account_name: row.get(7)?,
+            account_name: row.get("account_name")?,
         })
     })?;
     rows.collect()
@@ -129,14 +129,14 @@ pub fn counterpart_cashflows(
 
 pub fn balance_update_days(conn: &Connection, account_id: i64) -> rusqlite::Result<Vec<NaiveDate>> {
     let mut stmt = conn.prepare(
-        "SELECT DISTINCT substr(ed.event_date, 1, 10)
+        "SELECT DISTINCT substr(ed.event_date, 1, 10) AS day
          FROM event e
          JOIN event_data ed ON ed.id = e.latest_data_id
          WHERE e.account_id = ?1
            AND e.deleted_at IS NULL
            AND e.event_type = 'balance_update'",
     )?;
-    let days = stmt.query_map(params![account_id], |row| day_at(row, 0))?;
+    let days = stmt.query_map(params![account_id], |row| day_at(row, "day"))?;
     days.collect()
 }
 
@@ -161,36 +161,35 @@ pub fn lowest_leg_id(conn: &Connection, split_group_id: i64) -> rusqlite::Result
     )
 }
 
-/// Columns 0 to 6: event id, latest data id, event date, amount, note, bank day, bank amount.
 fn recorded(row: &Row<'_>) -> rusqlite::Result<Recorded> {
-    let bank_day: Option<String> = row.get(5)?;
+    let bank_day: Option<String> = row.get("bank_day")?;
     let bank = match bank_day {
         Some(_) => Some(BankFacts {
-            day: day_at(row, 5)?,
-            amount_minor: row.get(6)?,
+            day: day_at(row, "bank_day")?,
+            amount_minor: row.get("bank_amount_minor")?,
         }),
         None => None,
     };
     Ok(Recorded {
-        event_id: row.get(0)?,
-        latest_data_id: row.get(1)?,
-        event_date: row.get(2)?,
-        day: day_at(row, 2)?,
-        amount_minor: row.get(3)?,
-        note: row.get(4)?,
+        bank_entry_event_id: row.get("bank_entry_event_id")?,
+        latest_data_id: row.get("latest_data_id")?,
+        event_date: row.get("event_date")?,
+        day: day_at(row, "event_date")?,
+        amount_minor: row.get("amount_minor")?,
+        note: row.get("note")?,
         bank,
     })
 }
 
-/// The day of a stored `YYYY-MM-DD` or `YYYY-MM-DDTHH:MM:SS` value.
-fn day_at(row: &Row<'_>, column: usize) -> rusqlite::Result<NaiveDate> {
-    let value: String = row.get(column)?;
+fn day_at(row: &Row<'_>, column: &str) -> rusqlite::Result<NaiveDate> {
+    let index = row.as_ref().column_index(column)?;
+    let value: String = row.get(index)?;
     value
         .get(..10)
         .and_then(|day| NaiveDate::parse_from_str(day, "%Y-%m-%d").ok())
         .ok_or_else(|| {
             rusqlite::Error::FromSqlConversionFailure(
-                column,
+                index,
                 Type::Text,
                 format!("not a date: {value}").into(),
             )

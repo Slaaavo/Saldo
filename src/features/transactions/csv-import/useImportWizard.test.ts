@@ -59,7 +59,6 @@ const IN_SALDO: ImportVerdict = { kind: 'inSaldo', eventId: 40, eventDate: '2026
 const TRANSFER_LEG: ImportVerdict = { kind: 'transferLeg', eventId: 41, otherAccountName: 'Savings', eventDate: '2026-02-27T12:00:00' }
 const COMPLETES_TRANSFER: ImportVerdict = { kind: 'completesTransfer', eventId: 42, accountId: 2, accountName: 'Savings', eventDate: '2026-03-01T12:00:00', note: null }
 
-// Answers each preview with the next verdict list, or every row new once the lists run out.
 const answerPreviews = (...answers: Array<{ verdicts: ImportVerdict[]; token?: string; balanceUpdateDays?: string[] }>) => {
   let call = 0
   ;(previewCsvImport as Mock).mockImplementation(async ({ rows }: PreviewCsvImportInput): Promise<CsvImportPreview> => {
@@ -261,7 +260,7 @@ describe('useImportWizard', () => {
       answerPreviews({ verdicts: [IN_SALDO, TRANSFER_LEG] })
       const { result, onClose, onSuccess } = await renderAtReview('Date,Amount\n2026-03-02,-10.00\n2026-03-01,20.00')
       expect(result.current.selectedCount).toBe(0)
-      expect(result.current.canImport).toBe(true)
+      expect(result.current.canApplyReview).toBe(true)
 
       await act(() => result.current.handleImport())
 
@@ -295,7 +294,7 @@ describe('useImportWizard', () => {
       act(() => result.current.handleSplitOpen(0))
 
       expect(result.current.splitValidationErrors).toEqual(['import.reviewStep.split.minLegsError'])
-      expect(result.current.canImport).toBe(false)
+      expect(result.current.canApplyReview).toBe(false)
     })
 
     it('refreshes data before switching to the save-profile step', async () => {

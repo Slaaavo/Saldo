@@ -118,25 +118,27 @@ const toIncomingRow = (row: ParsedRow): IncomingRowInput => ({
   fxRateExponent: row.fxRateExponent,
 })
 
-// An unticked row sends no split, so a split left half-built on a row that is not imported cannot fail the import.
 const toChoice = (row: ImportRow): RowChoice => ({
   index: row.index,
   selected: row.isSelected,
   bucketId: row.bucketId,
   split:
-    row.isSelected && row.splitLegs !== null
+    row.splitLegs !== null
       ? row.splitLegs.map((leg) => ({ amountMinor: leg.amountMinor, note: leg.note, counterpartAccountId: leg.counterpartAccountId, bucketId: leg.bucketId }))
       : null,
 })
 
 const withDefaultChoice = (row: ParsedRow, verdict: ImportVerdict): ImportRow => ({ ...row, verdict, isSelected: isNewRow(verdict), bucketId: null, splitLegs: null })
 
-// The preview lists the rows in the order they were sent. A row keeps the user's choice while its verdict kind stays the same.
-const withVerdicts = (rows: ImportRow[], preview: CsvImportPreview): ImportRow[] =>
-  rows.map((row, i) => {
-    const { verdict } = preview.rows[i]
+const verdictsByIndex = (preview: CsvImportPreview): Map<number, ImportVerdict> => new Map(preview.rows.map((row) => [row.index, row.verdict]))
+
+const withVerdicts = (rows: ImportRow[], preview: CsvImportPreview): ImportRow[] => {
+  const verdicts = verdictsByIndex(preview)
+  return rows.map((row) => {
+    const verdict = verdicts.get(row.index)!
     return verdict.kind === row.verdict.kind ? { ...row, verdict } : withDefaultChoice(row, verdict)
   })
+}
 
 const relinkIban = (rows: ImportRow[], normalizedIban: string, match: AccountMatch): ImportRow[] => {
   const hasIban = (rawIban: string | null) => rawIban !== null && normalizeIban(rawIban) === normalizedIban
@@ -304,8 +306,7 @@ export const useImportWizard = (params: { snapshot: SnapshotRow[]; preselectedAc
     [availableProfiles],
   )
 
-  // Resolves to null when a newer preview started meanwhile, so only the newest answer reaches the rows.
-  const preview = useCallback(async (accountId: number, rows: ParsedRow[]): Promise<CsvImportPreview | null> => {
+  const previewUnlessSuperseded = useCallback(async (accountId: number, rows: ParsedRow[]): Promise<CsvImportPreview | null> => {
     const seq = ++previewSeqRef.current
     setWizardState((prev) => ({ ...prev, previewing: true }))
     try {
@@ -321,19 +322,19 @@ export const useImportWizard = (params: { snapshot: SnapshotRow[]; preselectedAc
       const accountId = wizardState.selectedAccountId
       if (accountId === null || rows.length === 0) return
       try {
-        const result = await preview(accountId, rows)
-        if (result === null) return
+        const latest = await previewUnlessSuperseded(accountId, rows)
+        if (latest === null) return
         setWizardState((prev) => ({
           ...prev,
-          importRows: withVerdicts(prev.importRows, result),
-          reviewToken: result.reviewToken,
-          balanceUpdateDays: result.balanceUpdateDays,
+          importRows: withVerdicts(prev.importRows, latest),
+          reviewToken: latest.reviewToken,
+          balanceUpdateDays: latest.balanceUpdateDays,
         }))
       } catch (err) {
         toast.error(t('errors.loadData', { error: extractErrorMessage(err) }))
       }
     },
-    [wizardState.selectedAccountId, preview, t],
+    [wizardState.selectedAccountId, previewUnlessSuperseded, t],
   )
 
   const goToReview = useCallback(async () => {
@@ -417,20 +418,21 @@ export const useImportWizard = (params: { snapshot: SnapshotRow[]; preselectedAc
     }
 
     try {
-      const result = await preview(selectedAccountId, parsedRows)
-      if (result === null) return
+      const latest = await previewUnlessSuperseded(selectedAccountId, parsedRows)
+      if (latest === null) return
+      const verdicts = verdictsByIndex(latest)
       setWizardState((prev) => ({
         ...prev,
         step: 'review',
-        importRows: parsedRows.map((row, i) => withDefaultChoice(row, result.rows[i].verdict)),
+        importRows: parsedRows.map((row) => withDefaultChoice(row, verdicts.get(row.index)!)),
         unparseableRowCount,
-        reviewToken: result.reviewToken,
-        balanceUpdateDays: result.balanceUpdateDays,
+        reviewToken: latest.reviewToken,
+        balanceUpdateDays: latest.balanceUpdateDays,
       }))
     } catch (err) {
       toast.error(t('errors.loadData', { error: extractErrorMessage(err) }))
     }
-  }, [wizardState, ibanLookup, currencies, selectedAccountCurrencyCode, selectedAccountMinorUnits, preview, t])
+  }, [wizardState, ibanLookup, currencies, selectedAccountCurrencyCode, selectedAccountMinorUnits, previewUnlessSuperseded, t])
 
   // ── Step 3 actions ──────────────────────────────────────────────────────────
 
@@ -738,8 +740,8 @@ export const useImportWizard = (params: { snapshot: SnapshotRow[]; preselectedAc
     [wizardState.importRows, t],
   )
 
-  // An apply with nothing ticked still records the matches and moves transfer legs to their bank's day.
-  const canImport = wizardState.importRows.length > 0 && wizardState.reviewToken !== null && !wizardState.previewing && !wizardState.importing && splitValidationErrors.length === 0
+  const canApplyReview =
+    wizardState.importRows.length > 0 && wizardState.reviewToken !== null && !wizardState.previewing && !wizardState.importing && splitValidationErrors.length === 0
 
   return {
     wizardState,
@@ -747,7 +749,7 @@ export const useImportWizard = (params: { snapshot: SnapshotRow[]; preselectedAc
     availableBuckets,
     availableProfiles,
     selectedCount,
-    canImport,
+    canApplyReview,
     balanceWarningDates: wizardState.balanceUpdateDays,
     accountsWithoutIban,
     selectedAccountCurrencyCode,
