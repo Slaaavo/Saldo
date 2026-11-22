@@ -4,7 +4,7 @@ use rusqlite::{named_params, params, Connection, OptionalExtension};
 use super::causes::{CountedRow, FlowType};
 use crate::error::AppError;
 use crate::features::transactions::repository::balance_sql::{
-    balance_sql, counted_flow_sql, latest_balance_update_sql,
+    balance_sql, counted_flow_sql, latest_balance_update_sql, AS_STORED,
 };
 
 pub struct BalanceSeenByCheckParams {
@@ -48,9 +48,11 @@ pub fn balance_seen_by_check(
     conn: &Connection,
     params: BalanceSeenByCheckParams,
 ) -> rusqlite::Result<i64> {
-    let balance = balance_sql(":account_id", |e, ed| {
-        format!("{e}.created_at <= :checked_at OR substr({ed}.event_date, 1, 10) < :day")
-    });
+    let balance = balance_sql(
+        ":account_id",
+        |e, ed| format!("{e}.created_at <= :checked_at OR substr({ed}.event_date, 1, 10) < :day"),
+        &AS_STORED,
+    );
     conn.query_row(
         &format!("SELECT {balance}"),
         named_params! {
@@ -156,7 +158,7 @@ pub fn insert_unexplained_difference(
 }
 
 pub fn counted_flow_rows(conn: &Connection, account_id: i64) -> rusqlite::Result<Vec<CountedRow>> {
-    let counted = counted_flow_sql("?1", &|_, _| "1".to_owned(), "e", "ed");
+    let counted = counted_flow_sql("?1", &|_, _| "1".to_owned(), &AS_STORED, "e", "ed");
     let mut stmt = conn.prepare(&format!(
         "SELECT e.id, e.event_type, e.split_group_id,
                 e.linked_event_id IS NOT NULL,

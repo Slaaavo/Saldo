@@ -19,7 +19,7 @@ use crate::features::transactions::models::{
 };
 use crate::shared::{convert_balance, is_iso_date, validate_event_date};
 
-use super::balance_sql::balance_sql;
+use super::balance_sql::{balance_sql, AS_STORED};
 
 // Validated dates always compare below it, so the live cutoff keeps every row and every rate.
 const LIVE_EVENTS_UNTIL: &str = "9999-12-31T23:59:59";
@@ -206,7 +206,7 @@ pub fn get_accounts_snapshot(
         rates: HashMap::new(),
     };
 
-    let balance = balance_sql("a.id", |_, ed| format!("{ed}.event_date <= ?1"));
+    let balance = balance_sql("a.id", |_, ed| format!("{ed}.event_date <= ?1"), &AS_STORED);
     let mut stmt = conn.prepare(&format!(
         "SELECT
            a.id AS account_id,
