@@ -68,8 +68,6 @@ Lists events with optional filtering by account(s), bucket(s), date range, event
     - → `src/features/dashboard/DashboardView.tsx` (DashboardView)
   - `src/features/ledger/useLedgerData.ts` (useLedgerData hook)
     - → `src/features/ledger/LedgerPage.tsx` (LedgerPage)
-  - `src/features/transactions/csv-import/useImportWizard.ts` (useImportWizard hook)
-    - → `src/features/transactions/CsvImportModal.tsx` (CsvImportModal)
 
 ### `createBalanceUpdate`
 
@@ -81,7 +79,7 @@ Creates a single balance update event on an account. Guarded: takes `ask` (see b
 
 ### Guarded writes (`ask`)
 
-`createBalanceUpdate`, `updateEvent`, `deleteEvent`, `deleteSplitGroup`, `updateTransfer` and `bulkCreateBalanceUpdates` take a required last argument `ask: AskToBreakChecks`. Each calls its command with `allowBreakingChecks: false`. When the write would turn a ✓ Verified account's check to differs, the command rolls back and refuses with `BREAKS_VERIFIED_CHECKS` and the broken checks (`BrokenCheck[]`: account, check day, difference after the change). The wrapper then awaits `ask(checks)`: `true` repeats the call with `allowBreakingChecks: true`, `false` throws `ChangeDeclined` and nothing is written. React callers pass `useAskToBreakChecks()`; CSV import passes `allowBreakingChecks`, which always says yes.
+`createBalanceUpdate`, `updateEvent`, `deleteEvent`, `deleteSplitGroup`, `updateTransfer` and `bulkCreateBalanceUpdates` take a required last argument `ask: AskToBreakChecks`. Each calls its command with `allowBreakingChecks: false`. When the write would turn a ✓ Verified account's check to differs, the command rolls back and refuses with `BREAKS_VERIFIED_CHECKS` and the broken checks (`BrokenCheck[]`: account, check day, difference after the change). The wrapper then awaits `ask(checks)`: `true` repeats the call with `allowBreakingChecks: true`, `false` throws `ChangeDeclined` and nothing is written. React callers pass `useAskToBreakChecks()`. CSV import calls none of them: `applyCsvImport` writes without asking.
 
 ### `updateEvent`
 
@@ -92,8 +90,6 @@ Updates an existing event's amount, date, and note. A trigger refuses an unexpla
   - `src/app/useModalActions.ts` (useModalActions hook)
   - `src/features/bank/useBankCheckMutations.ts` (useFixDifferenceCause hook)
     - → `src/features/bank/DifferenceCauses.tsx` (Flip the sign, with the negated amount and the same date and note)
-  - `src/features/transactions/csv-import/useImportWizard.ts` (useImportWizard hook: moves a near-date duplicate to the bank's date, with `allowBreakingChecks`)
-    - → `src/features/transactions/CsvImportModal.tsx` (CsvImportModal)
 
 ### `deleteEvent`
 
