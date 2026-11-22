@@ -35,8 +35,33 @@ pub fn update_event(conn: &Connection, params: UpdateEventParams) -> Result<(), 
         Some(None) => {} // active event, proceed
     }
 
-    // Copies every column the edit does not change. prepaid_period_months is dead
-    // (superseded by prepaid_until) and is left NULL.
+    insert_version(
+        conn,
+        NewVersion {
+            event_id,
+            amount_minor,
+            event_date,
+            note,
+            counterpart_account_id: None,
+        },
+    )?;
+
+    Ok(())
+}
+
+/// A new version of an event. `counterpart_account_id` replaces the counterpart when set and
+/// keeps it when `None`.
+pub(crate) struct NewVersion {
+    pub event_id: i64,
+    pub amount_minor: i64,
+    pub event_date: String,
+    pub note: Option<String>,
+    pub counterpart_account_id: Option<i64>,
+}
+
+/// Inserts `version` and copies every other column from the event's latest version.
+/// prepaid_period_months is dead (superseded by prepaid_until) and is left NULL.
+pub(crate) fn insert_version(conn: &Connection, version: NewVersion) -> rusqlite::Result<()> {
     conn.execute(
         "INSERT INTO event_data (
             event_id, amount_minor, event_date, note,
@@ -46,15 +71,20 @@ pub fn update_event(conn: &Connection, params: UpdateEventParams) -> Result<(), 
             expense_deductible_pct_bps, reclaimed_vat, prepaid_until, private_use
         )
         SELECT ?1, ?2, ?3, ?4,
-            counterpart_account_id, bucket_id, original_currency_id,
+            COALESCE(?5, counterpart_account_id), bucket_id, original_currency_id,
             original_amount_minor, fx_rate_mantissa, fx_rate_exponent,
             vat_rate_bps, vat_reclaimable_pct_bps,
             expense_deductible_pct_bps, reclaimed_vat, prepaid_until, private_use
         FROM event_data
         WHERE id = (SELECT latest_data_id FROM event WHERE id = ?1)",
-        params![event_id, amount_minor, event_date, note],
+        params![
+            version.event_id,
+            version.amount_minor,
+            version.event_date,
+            version.note,
+            version.counterpart_account_id
+        ],
     )?;
-
     Ok(())
 }
 

@@ -1,3 +1,4 @@
+use super::events::{insert_version, NewVersion};
 use crate::features::accounts::repository::get_account_type;
 use crate::shared::with_savepoint;
 use rusqlite::{params, Connection};
@@ -136,23 +137,22 @@ pub(crate) fn complete_transfer(
         "UPDATE event SET event_type = 'transfer', linked_event_id = ?1 WHERE id = ?2",
         params![leg_id, cashflow_event_id],
     )?;
-    // prepaid_period_months is dead and left NULL.
-    conn.execute(
-        "INSERT INTO event_data (
-            event_id, amount_minor, event_date, note,
-            counterpart_account_id, bucket_id, original_currency_id,
-            original_amount_minor, fx_rate_mantissa, fx_rate_exponent,
-            vat_rate_bps, vat_reclaimable_pct_bps,
-            expense_deductible_pct_bps, reclaimed_vat, prepaid_until, private_use
-        )
-        SELECT event_id, amount_minor, event_date, note,
-            ?1, bucket_id, original_currency_id,
-            original_amount_minor, fx_rate_mantissa, fx_rate_exponent,
-            vat_rate_bps, vat_reclaimable_pct_bps,
-            expense_deductible_pct_bps, reclaimed_vat, prepaid_until, private_use
-        FROM event_data
-        WHERE id = (SELECT latest_data_id FROM event WHERE id = ?2)",
-        params![entry.account_id, cashflow_event_id],
+    let (amount_minor, event_date, note) = conn.query_row(
+        "SELECT d.amount_minor, d.event_date, d.note
+         FROM event e JOIN event_data d ON d.id = e.latest_data_id
+         WHERE e.id = ?1",
+        params![cashflow_event_id],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+    )?;
+    insert_version(
+        conn,
+        NewVersion {
+            event_id: cashflow_event_id,
+            amount_minor,
+            event_date,
+            note,
+            counterpart_account_id: Some(entry.account_id),
+        },
     )?;
     Ok(leg_id)
 }
