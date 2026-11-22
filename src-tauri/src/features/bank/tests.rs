@@ -20,6 +20,11 @@ use crate::db::initialize_in_memory;
 use crate::error::AppError;
 use crate::features::accounts::repository::{create_account, CreateAccountParams};
 use crate::features::buckets::BucketKind;
+use crate::features::csv_import::commands::{apply_csv_import_inner, preview_csv_import_inner};
+use crate::features::csv_import::models::{
+    ApplyCsvImportInput, CancelledHoldChoice, IncomingRowInput, PreviewCsvImportInput, RowChoice,
+    SplitLegChoice, Verdict as ImportVerdict,
+};
 use crate::features::csv_profiles::repository::{
     create_import_profile, set_preferred_profile, CreateImportProfileParams,
     SetPreferredProfileParams,
@@ -1758,4 +1763,350 @@ fn a_refusal_goes_on_the_wire_with_the_broken_checks() {
             }]
         })
     );
+}
+
+const DEBIT_CARD: &str = "423473******0501";
+/// Earlier than any import these tests run, because an import stamps the database's real clock.
+const HELD_BEFORE_THE_CHECK: &str = "2000-01-01T08:00:00.000";
+const CHECKED_BEFORE_THE_IMPORTS: &str = "2000-01-01T09:00:00.000";
+/// Rows an import adds later and dates on or after this day happened after the check.
+const HOLD_CHECK_DAY: &str = "2026-04-29";
+
+fn verified_on_hold_check_day(check_id: i64) -> Option<Verification> {
+    Some(Verification::Verified {
+        check_id,
+        day: HOLD_CHECK_DAY.to_owned(),
+    })
+}
+
+fn differs_on_hold_check_day(check_id: i64, difference_minor: i64) -> Option<Verification> {
+    Some(Verification::Differs {
+        check_id,
+        day: HOLD_CHECK_DAY.to_owned(),
+        difference_minor,
+    })
+}
+
+fn live_cashflows(conn: &Connection, account_id: i64) -> Vec<i64> {
+    conn.prepare(
+        "SELECT id FROM event
+         WHERE account_id = ?1 AND event_type = 'cashflow' AND deleted_at IS NULL
+         ORDER BY id",
+    )
+    .unwrap()
+    .query_map(params![account_id], |row| row.get(0))
+    .unwrap()
+    .collect::<rusqlite::Result<_>>()
+    .unwrap()
+}
+
+fn card_row(index: u32, day: &str, amount_minor: i64, pending: bool) -> IncomingRowInput {
+    IncomingRowInput {
+        index,
+        event_date: format!("{day}T12:00:00"),
+        amount_minor,
+        note: Some(
+            if pending {
+                "Platba kartou"
+            } else {
+                "GITHUB, INC."
+            }
+            .to_owned(),
+        ),
+        counterpart_account_id: None,
+        names_unknown_account: false,
+        original_currency_id: None,
+        original_amount_minor: None,
+        fx_rate_mantissa: None,
+        fx_rate_exponent: None,
+        card: Some(DEBIT_CARD.to_owned()),
+        pending,
+    }
+}
+
+/// Imports with the review's default ticks and every cancelled hold removed.
+fn import_export(conn: &Connection, account_id: i64, rows: &[IncomingRowInput]) {
+    let reviewed = preview_csv_import_inner(
+        conn,
+        PreviewCsvImportInput {
+            account_id,
+            rows: rows.to_vec(),
+        },
+    )
+    .unwrap();
+    let choices = reviewed
+        .rows
+        .iter()
+        .map(|row| RowChoice {
+            index: row.index,
+            selected: matches!(
+                row.verdict,
+                ImportVerdict::New | ImportVerdict::HoldPostedAtOtherAmount { .. }
+            ),
+            bucket_id: None,
+            split: None,
+        })
+        .collect();
+    let cancelled_holds = reviewed
+        .cancelled_holds
+        .iter()
+        .map(|hold| CancelledHoldChoice {
+            event_id: hold.event_id,
+            remove: true,
+        })
+        .collect();
+    apply_csv_import_inner(
+        conn,
+        ApplyCsvImportInput {
+            account_id,
+            rows: rows.to_vec(),
+            choices,
+            cancelled_holds,
+            review_token: reviewed.review_token,
+        },
+    )
+    .unwrap();
+}
+
+struct HeldAtTheCheck {
+    conn: Connection,
+    account: i64,
+    hold: i64,
+    check_id: i64,
+}
+
+/// 100.00 after a balance update, a card hold of 33.00 pending, and a ✓ check at 67.00.
+fn verified_with_a_pending_hold() -> HeldAtTheCheck {
+    let conn = initialize_in_memory().unwrap();
+    let account = mk(&conn, "account");
+    balance_update(&conn, account, 10_000, "2026-04-01", HELD_BEFORE_THE_CHECK);
+    import_export(&conn, account, &[card_row(0, "2026-04-30", -3_300, true)]);
+    let [hold] = live_cashflows(&conn, account)[..] else {
+        panic!("expected the hold");
+    };
+    written_at(&conn, hold, HELD_BEFORE_THE_CHECK);
+    let check_id = check_at(
+        &conn,
+        account,
+        6_700,
+        CHECKED_BEFORE_THE_IMPORTS,
+        HOLD_CHECK_DAY,
+    )
+    .unwrap();
+    assert_eq!(
+        verification(&conn, account),
+        verified_on_hold_check_day(check_id)
+    );
+    HeldAtTheCheck {
+        conn,
+        account,
+        hold,
+        check_id,
+    }
+}
+
+fn hold_amount(conn: &Connection, hold: i64) -> i64 {
+    conn.query_row(
+        "SELECT ed.amount_minor FROM event e JOIN event_data ed ON ed.id = e.latest_data_id
+         WHERE e.id = ?1",
+        params![hold],
+        |row| row.get(0),
+    )
+    .unwrap()
+}
+
+#[test]
+fn a_check_stays_verified_when_its_hold_posts_at_another_amount() {
+    let held = verified_with_a_pending_hold();
+
+    import_export(
+        &held.conn,
+        held.account,
+        &[card_row(0, "2026-04-30", -3_299, false)],
+    );
+
+    assert_eq!(hold_amount(&held.conn, held.hold), -3_299);
+    assert_eq!(
+        verification(&held.conn, held.account),
+        verified_on_hold_check_day(held.check_id)
+    );
+    assert_eq!(
+        row_of(&live(&held.conn), held.account).balance_minor,
+        6_701,
+        "the live balance follows the booked amount"
+    );
+}
+
+#[test]
+fn a_check_stays_verified_when_an_import_removes_its_hold_as_cancelled() {
+    let held = verified_with_a_pending_hold();
+
+    import_export(
+        &held.conn,
+        held.account,
+        &[
+            card_row(0, "2026-04-29", -1_000, false),
+            card_row(1, "2026-05-03", -500, false),
+        ],
+    );
+
+    assert_eq!(live_cashflows(&held.conn, held.account).len(), 2);
+    assert!(!live_cashflows(&held.conn, held.account).contains(&held.hold));
+    assert_eq!(
+        verification(&held.conn, held.account),
+        verified_on_hold_check_day(held.check_id)
+    );
+    assert_eq!(
+        row_of(&live(&held.conn), held.account).balance_minor,
+        8_500,
+        "the live balance drops the hold"
+    );
+}
+
+#[test]
+fn a_check_stays_verified_when_an_import_removes_a_split_hold_as_cancelled() {
+    let conn = initialize_in_memory().unwrap();
+    let account = mk(&conn, "account");
+    balance_update(&conn, account, 10_000, "2026-04-01", HELD_BEFORE_THE_CHECK);
+    let held = [card_row(0, "2026-04-30", -3_300, true)];
+    let reviewed = preview_csv_import_inner(
+        &conn,
+        PreviewCsvImportInput {
+            account_id: account,
+            rows: held.to_vec(),
+        },
+    )
+    .unwrap();
+    let leg = |amount_minor| SplitLegChoice {
+        amount_minor,
+        note: None,
+        counterpart_account_id: None,
+        bucket_id: None,
+    };
+    apply_csv_import_inner(
+        &conn,
+        ApplyCsvImportInput {
+            account_id: account,
+            rows: held.to_vec(),
+            choices: vec![RowChoice {
+                index: 0,
+                selected: true,
+                bucket_id: None,
+                split: Some(vec![leg(-3_000), leg(-300)]),
+            }],
+            cancelled_holds: vec![],
+            review_token: reviewed.review_token,
+        },
+    )
+    .unwrap();
+    let legs = live_cashflows(&conn, account);
+    for &leg in &legs {
+        written_at(&conn, leg, HELD_BEFORE_THE_CHECK);
+    }
+    let check_id = check_at(
+        &conn,
+        account,
+        6_700,
+        CHECKED_BEFORE_THE_IMPORTS,
+        HOLD_CHECK_DAY,
+    )
+    .unwrap();
+
+    import_export(
+        &conn,
+        account,
+        &[
+            card_row(0, "2026-04-29", -1_000, false),
+            card_row(1, "2026-05-03", -500, false),
+        ],
+    );
+
+    assert_eq!(legs.len(), 2);
+    assert!(legs
+        .iter()
+        .all(|leg| !live_cashflows(&conn, account).contains(leg)));
+    assert_eq!(
+        verification(&conn, account),
+        verified_on_hold_check_day(check_id)
+    );
+}
+
+#[test]
+fn a_hold_the_user_deleted_by_hand_stays_gone_after_a_newer_import() {
+    let held = verified_with_a_pending_hold();
+    delete_event(&held.conn, held.hold).unwrap();
+    let differs = verification(&held.conn, held.account);
+
+    import_export(
+        &held.conn,
+        held.account,
+        &[card_row(0, "2026-05-03", -500, false)],
+    );
+
+    assert_eq!(differs, differs_on_hold_check_day(held.check_id, -3_300));
+    assert_eq!(verification(&held.conn, held.account), differs);
+}
+
+#[test]
+fn a_hold_the_user_deletes_by_hand_still_makes_the_check_differ() {
+    let held = verified_with_a_pending_hold();
+
+    delete_event(&held.conn, held.hold).unwrap();
+
+    assert_eq!(
+        verification(&held.conn, held.account),
+        differs_on_hold_check_day(held.check_id, -3_300)
+    );
+}
+
+#[test]
+fn an_edit_after_the_posting_still_makes_the_check_differ() {
+    let held = verified_with_a_pending_hold();
+    import_export(
+        &held.conn,
+        held.account,
+        &[card_row(0, "2026-04-30", -3_299, false)],
+    );
+
+    update_event(
+        &held.conn,
+        UpdateEventParams {
+            event_id: held.hold,
+            amount_minor: -3_000,
+            event_date: "2026-04-30T12:00:00".to_owned(),
+            note: None,
+        },
+    )
+    .unwrap();
+
+    assert_eq!(
+        verification(&held.conn, held.account),
+        differs_on_hold_check_day(held.check_id, -299),
+        "the check saw 67.00; Saldo now counts the hold at 30.00 less the posting's 0.01"
+    );
+}
+
+#[test]
+fn a_check_made_after_the_posting_counts_the_booked_amount() {
+    let held = verified_with_a_pending_hold();
+    import_export(
+        &held.conn,
+        held.account,
+        &[card_row(0, "2026-04-30", -3_299, false)],
+    );
+    let checked_at = clock_now(&held.conn).unwrap();
+    let seen = |checked_at: &str| {
+        balance_seen_by_check(
+            &held.conn,
+            BalanceSeenByCheckParams {
+                account_id: held.account,
+                checked_at: checked_at.to_owned(),
+                day: HOLD_CHECK_DAY.to_owned(),
+            },
+        )
+        .unwrap()
+    };
+
+    assert_eq!(seen(&checked_at), 6_701);
+    assert_eq!(seen(CHECKED_BEFORE_THE_IMPORTS), 6_700);
 }

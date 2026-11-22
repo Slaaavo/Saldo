@@ -4,8 +4,44 @@ use rusqlite::{named_params, params, Connection, OptionalExtension};
 use super::causes::{CountedRow, FlowType};
 use crate::error::AppError;
 use crate::features::transactions::repository::balance_sql::{
-    balance_sql, counted_flow_sql, latest_balance_update_sql, AS_STORED,
+    balance_sql, counted_flow_sql, latest_balance_update_sql, FlowCount, AS_STORED,
 };
+
+/// A check counts a card hold as it was at the check: an import that later posted it at another
+/// amount or removed it as cancelled leaves the check's view alone. A row the user deletes or edits
+/// counts as it is now.
+const AS_AT_CHECK: FlowCount = FlowCount {
+    live: live_at_check,
+    amount: amount_at_check,
+};
+
+/// Live, or deleted by an import that cancelled its hold after the check. A split leg goes with its
+/// group, whose bank entry sits on one of its legs.
+fn live_at_check(e: &str, _ed: &str) -> String {
+    format!(
+        "{e}.deleted_at IS NULL
+         OR EXISTS (
+           SELECT 1
+           FROM event hold_event
+           JOIN bank_entry hold_entry ON hold_entry.event_id = hold_event.id
+           WHERE (hold_event.id = {e}.id OR hold_event.split_group_id = {e}.split_group_id)
+             AND hold_entry.cancelled_at > :checked_at
+         )"
+    )
+}
+
+/// The amount before an import posted the hold after the check.
+fn amount_at_check(e: &str, ed: &str) -> String {
+    format!(
+        "{ed}.amount_minor - COALESCE(
+           (SELECT hold_entry.posting_change_minor
+            FROM bank_entry hold_entry
+            WHERE hold_entry.event_id = {e}.id
+              AND hold_entry.posted_at > :checked_at),
+           0
+         )"
+    )
+}
 
 pub struct BalanceSeenByCheckParams {
     pub account_id: i64,
@@ -51,7 +87,7 @@ pub fn balance_seen_by_check(
     let balance = balance_sql(
         ":account_id",
         |e, ed| format!("{e}.created_at <= :checked_at OR substr({ed}.event_date, 1, 10) < :day"),
-        &AS_STORED,
+        &AS_AT_CHECK,
     );
     conn.query_row(
         &format!("SELECT {balance}"),
