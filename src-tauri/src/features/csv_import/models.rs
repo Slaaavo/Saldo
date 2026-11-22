@@ -18,9 +18,7 @@ pub struct IncomingRowInput {
     pub original_amount_minor: Option<i64>,
     pub fx_rate_mantissa: Option<i64>,
     pub fx_rate_exponent: Option<i64>,
-    /// The masked card number the row names, such as `433703******2103`.
     pub card: Option<String>,
-    /// The profile's pending rule marks the row as a card hold the bank has not booked.
     pub pending: bool,
 }
 
@@ -38,8 +36,6 @@ pub struct CsvImportPreview {
     pub rows: Vec<RowPreview>,
     /// The rows' days (`YYYY-MM-DD`) on which the account has a live balance update, sorted.
     pub balance_update_days: Vec<String>,
-    /// Pending card holds the bank no longer lists: the file covers their day and is newer than
-    /// the last export that listed them.
     pub cancelled_holds: Vec<CancelledHold>,
     pub review_token: String,
 }
@@ -94,14 +90,11 @@ pub enum Verdict {
         other_account_name: String,
         event_date: String,
     },
-    /// The booked line of the pending card hold `event_id`, at its amount and up to 5 days later.
     HoldPosted {
         event_id: i64,
         event_date: String,
         note: Option<String>,
     },
-    /// The booked line of the pending card hold `event_id`, on its day at another amount.
-    /// `hold_amount_minor` is the hold's ledger amount.
     HoldPostedAtOtherAmount {
         event_id: i64,
         event_date: String,

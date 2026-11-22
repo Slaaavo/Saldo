@@ -6,14 +6,15 @@ use rusqlite::Connection;
 use tauri::State;
 
 use super::matcher::{
-    self, BankState, Counterpart, CounterpartCashflow, IncomingRow, LedgerItem, Match, Recorded,
+    self, posting_change_minor, BankState, Counterpart, CounterpartCashflow, IncomingRow,
+    LedgerItem, Match, Recorded,
 };
 use super::models::{
     ApplyCsvImportInput, CancelledHold, CancelledHoldChoice, CsvImportPreview, CsvImportResult,
     IncomingRowInput, PreviewCsvImportInput, RowChoice, RowPreview, Verdict,
 };
 use super::repository::{
-    self, CounterpartCashflowsParams, InsertBankEntryParams, PostHoldParams, SeeHoldUntilParams,
+    self, CounterpartCashflowsParams, InsertBankEntryParams, PostHoldParams, RaiseHoldSeenToParams,
     SetSplitGroupNoteParams,
 };
 use crate::error::AppError;
@@ -81,8 +82,8 @@ pub(crate) fn preview_csv_import_inner(
                 .map(|hold| CancelledHold {
                     event_id: hold.bank_entry_event_id,
                     event_date: hold.event_date.clone(),
-                    amount_minor: hold.amount_minor,
-                    note: hold.note.clone(),
+                    amount_minor: hold.total_minor,
+                    note: hold.own_note.clone(),
                 })
                 .collect(),
             review_token: review_token(input.account_id, &read),
@@ -125,7 +126,6 @@ pub(crate) fn apply_csv_import_inner(
     })
 }
 
-/// The row's tick and its split, if it has one. What a tick does depends on the row's verdict.
 enum Choice {
     Unticked,
     Ticked { bucket_id: Option<i64> },
@@ -360,7 +360,6 @@ fn parse_removals<'a>(
 struct Writer<'c> {
     conn: &'c Connection,
     account_id: i64,
-    /// The newest row day of the file, which a pending row records as its hold's `seen_to`.
     newest_day: Option<NaiveDate>,
 }
 
@@ -378,15 +377,15 @@ impl Writer<'_> {
                 Match::New | Match::CompletesTransfer(_) | Match::HoldPostedAtOtherAmount(_),
             ) => Ok(0),
             (Choice::Unticked, Match::InSaldo(recorded)) => {
-                self.see_again(row, recorded)?;
+                self.catch_up_with_bank_line(row, recorded)?;
                 Ok(0)
             }
             (Choice::Unticked, Match::HoldPosted(hold)) => {
-                self.post_hold(row, hold, hold.amount_minor)?;
+                self.post_hold(row, hold)?;
                 Ok(0)
             }
             (Choice::Ticked { .. }, Match::HoldPostedAtOtherAmount(hold)) => {
-                self.post_hold(row, hold, row.amount_minor)?;
+                self.post_single_hold_at_row_amount(row, hold)?;
                 Ok(0)
             }
             (Choice::Split(_), Match::HoldPostedAtOtherAmount(_)) => Err(validation(format!(
@@ -398,9 +397,9 @@ impl Writer<'_> {
                     conn,
                     UpdateEventParams {
                         event_id: leg.bank_entry_event_id,
-                        amount_minor: leg.amount_minor,
+                        amount_minor: leg.total_minor,
                         event_date: row.event_date.clone(),
-                        note: leg.note.clone(),
+                        note: leg.own_note.clone(),
                     },
                 )?;
                 self.record_bank_entry(leg.bank_entry_event_id, row)?;
@@ -449,16 +448,19 @@ impl Writer<'_> {
         }
     }
 
-    /// An entry the row's bank line is already recorded for, or that no import has seen yet.
-    fn see_again(&self, row: &IncomingRow, recorded: &Recorded) -> Result<(), AppError> {
+    fn catch_up_with_bank_line(
+        &self,
+        row: &IncomingRow,
+        recorded: &Recorded,
+    ) -> Result<(), AppError> {
         match (
             recorded.bank.as_ref().map(|bank| bank.state),
             self.hold_seen_to(row),
         ) {
             (None, _) => self.record_bank_entry(recorded.bank_entry_event_id, row)?,
-            (Some(BankState::Pending { .. }), Some(seen_to)) => repository::see_hold_until(
+            (Some(BankState::Pending { .. }), Some(seen_to)) => repository::raise_hold_seen_to(
                 self.conn,
-                SeeHoldUntilParams {
+                RaiseHoldSeenToParams {
                     event_id: recorded.bank_entry_event_id,
                     seen_to,
                 },
@@ -467,70 +469,97 @@ impl Writer<'_> {
         }
         if !row.pending {
             let note = recorded.note_once_booked(row.note.as_deref());
-            if note != recorded.note {
+            if note != recorded.own_note {
                 self.set_note(recorded, note)?;
             }
         }
         Ok(())
     }
 
-    /// Updates the hold in place to the booked line: its date, the note rule and `amount_minor`
-    /// (a split group keeps its legs' amounts), then its bank entry.
-    fn post_hold(
+    fn post_single_hold_at_row_amount(
+        &self,
+        row: &IncomingRow,
+        hold: &Recorded,
+    ) -> Result<(), AppError> {
+        self.move_single_hold_to_booked_line(row, hold, row.amount_minor)?;
+        self.record_posting(row, hold, row.amount_minor)
+    }
+
+    fn post_hold(&self, row: &IncomingRow, hold: &Recorded) -> Result<(), AppError> {
+        match hold.split_group_id {
+            None => self.move_single_hold_to_booked_line(row, hold, hold.total_minor)?,
+            Some(split_group_id) => {
+                self.move_split_hold_to_booked_line(row, hold, split_group_id)?
+            }
+        }
+        self.record_posting(row, hold, hold.total_minor)
+    }
+
+    fn move_single_hold_to_booked_line(
         &self,
         row: &IncomingRow,
         hold: &Recorded,
         amount_minor: i64,
     ) -> Result<(), AppError> {
+        let note = hold.note_once_booked(row.note.as_deref());
+        if (amount_minor, &row.event_date, &note)
+            != (hold.total_minor, &hold.event_date, &hold.own_note)
+        {
+            update_event(
+                self.conn,
+                UpdateEventParams {
+                    event_id: hold.bank_entry_event_id,
+                    amount_minor,
+                    event_date: row.event_date.clone(),
+                    note,
+                },
+            )?;
+        }
+        Ok(())
+    }
+
+    fn move_split_hold_to_booked_line(
+        &self,
+        row: &IncomingRow,
+        hold: &Recorded,
+        split_group_id: i64,
+    ) -> Result<(), AppError> {
         let conn = self.conn;
         let note = hold.note_once_booked(row.note.as_deref());
-        match hold.split_group_id {
-            None => {
-                if (amount_minor, &row.event_date, &note)
-                    != (hold.amount_minor, &hold.event_date, &hold.note)
-                {
-                    update_event(
-                        conn,
-                        UpdateEventParams {
-                            event_id: hold.bank_entry_event_id,
-                            amount_minor,
-                            event_date: row.event_date.clone(),
-                            note,
-                        },
-                    )?;
-                }
-            }
-            Some(split_group_id) => {
-                for leg in repository::live_legs(conn, split_group_id)? {
-                    if leg.event_date != row.event_date {
-                        update_event(
-                            conn,
-                            UpdateEventParams {
-                                event_id: leg.event_id,
-                                amount_minor: leg.amount_minor,
-                                event_date: row.event_date.clone(),
-                                note: leg.note,
-                            },
-                        )?;
-                    }
-                }
-                if note != hold.note {
-                    self.set_note(hold, note)?;
-                }
+        for leg in repository::live_legs(conn, split_group_id)? {
+            if leg.event_date != row.event_date {
+                update_event(
+                    conn,
+                    UpdateEventParams {
+                        event_id: leg.event_id,
+                        amount_minor: leg.amount_minor,
+                        event_date: row.event_date.clone(),
+                        note: leg.note,
+                    },
+                )?;
             }
         }
+        if note != hold.own_note {
+            self.set_note(hold, note)?;
+        }
+        Ok(())
+    }
+
+    fn record_posting(
+        &self,
+        row: &IncomingRow,
+        hold: &Recorded,
+        total_after_minor: i64,
+    ) -> Result<(), AppError> {
         repository::post_hold(
-            conn,
+            self.conn,
             PostHoldParams {
                 event_id: hold.bank_entry_event_id,
                 day: row.day,
                 amount_minor: row.amount_minor,
                 text: row.note.clone(),
                 card: row.card.clone(),
-                posting_change_minor: match hold.split_group_id {
-                    None => amount_minor - hold.amount_minor,
-                    Some(_) => 0,
-                },
+                posting_change_minor: posting_change_minor(hold.total_minor, total_after_minor),
             },
         )?;
         Ok(())
@@ -542,7 +571,7 @@ impl Writer<'_> {
                 self.conn,
                 UpdateEventParams {
                     event_id: recorded.bank_entry_event_id,
-                    amount_minor: recorded.amount_minor,
+                    amount_minor: recorded.total_minor,
                     event_date: recorded.event_date.clone(),
                     note,
                 },
@@ -656,7 +685,7 @@ fn verdict_of(matched: Match<'_>) -> Verdict {
         Match::InSaldo(recorded) => Verdict::InSaldo {
             event_id: recorded.bank_entry_event_id,
             event_date: recorded.event_date.clone(),
-            note: recorded.note.clone(),
+            note: recorded.own_note.clone(),
         },
         Match::TransferLeg {
             leg,
@@ -671,18 +700,18 @@ fn verdict_of(matched: Match<'_>) -> Verdict {
             account_id: cashflow.account_id,
             account_name: cashflow.account_name.clone(),
             event_date: cashflow.recorded.event_date.clone(),
-            note: cashflow.recorded.note.clone(),
+            note: cashflow.recorded.own_note.clone(),
         },
         Match::HoldPosted(hold) => Verdict::HoldPosted {
             event_id: hold.bank_entry_event_id,
             event_date: hold.event_date.clone(),
-            note: hold.note.clone(),
+            note: hold.own_note.clone(),
         },
         Match::HoldPostedAtOtherAmount(hold) => Verdict::HoldPostedAtOtherAmount {
             event_id: hold.bank_entry_event_id,
             event_date: hold.event_date.clone(),
-            note: hold.note.clone(),
-            hold_amount_minor: hold.amount_minor,
+            note: hold.own_note.clone(),
+            hold_amount_minor: hold.total_minor,
         },
     }
 }

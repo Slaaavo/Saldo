@@ -51,9 +51,7 @@ pub(crate) struct IncomingRow {
     pub original_amount_minor: Option<i64>,
     pub fx_rate_mantissa: Option<i64>,
     pub fx_rate_exponent: Option<i64>,
-    /// The bank's masked card number, when the row names one.
     pub card: Option<String>,
-    /// A card hold the bank has not booked yet.
     pub pending: bool,
 }
 
@@ -63,15 +61,15 @@ impl IncomingRow {
     }
 }
 
-/// Where a bank line stands after the last import that listed it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum BankState {
-    /// Booked when an import first saw it, or recorded before Saldo knew card holds.
     Booked,
-    /// A card hold the bank listed as pending in an export whose newest row is dated `seen_to`.
     Pending { seen_to: NaiveDate },
-    /// A card hold an import posted, which moved the entry's amount by `change_minor`.
     Posted { change_minor: i64 },
+}
+
+pub(crate) fn posting_change_minor(total_before_minor: i64, total_after_minor: i64) -> i64 {
+    total_after_minor - total_before_minor
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -85,16 +83,13 @@ pub(crate) struct BankFacts {
 
 #[derive(Debug, Clone, Hash)]
 pub(crate) struct Recorded {
-    /// A split group's lowest live leg, which holds the group's bank facts.
     pub bank_entry_event_id: i64,
     pub latest_data_id: i64,
     pub split_group_id: Option<i64>,
     pub event_date: String,
     pub day: NaiveDate,
-    /// A split group's total.
-    pub amount_minor: i64,
-    /// A split group's own note.
-    pub note: Option<String>,
+    pub total_minor: i64,
+    pub own_note: Option<String>,
     pub bank: Option<BankFacts>,
 }
 
@@ -102,8 +97,15 @@ impl Recorded {
     fn key(&self) -> (NaiveDate, i64) {
         match &self.bank {
             Some(bank) => (bank.day, bank.amount_minor),
-            None => (self.day, self.amount_minor),
+            None => (self.day, self.total_minor),
         }
+    }
+
+    fn amount_before_posting(&self) -> Option<i64> {
+        let Some(BankState::Posted { change_minor }) = self.state() else {
+            return None;
+        };
+        self.key().1.checked_sub(change_minor)
     }
 
     fn card(&self) -> Option<&str> {
@@ -118,26 +120,23 @@ impl Recorded {
         matches!(self.state(), Some(BankState::Pending { .. }))
     }
 
-    /// The note the entry keeps when the bank books its line with `booked_text`: the booked text
-    /// while the note is still the bank's text or carries a hold's padding, else the user's note.
     pub(crate) fn note_once_booked(&self, booked_text: Option<&str>) -> Option<String> {
         let padded = self
-            .note
+            .own_note
             .as_deref()
             .is_some_and(|note| note.contains(HOLD_PADDING));
         let the_banks = self
             .bank
             .as_ref()
-            .is_some_and(|bank| bank.text == self.note);
+            .is_some_and(|bank| bank.text == self.own_note);
         if padded || the_banks {
             booked_text.map(str::to_owned)
         } else {
-            self.note.clone()
+            self.own_note.clone()
         }
     }
 }
 
-/// Two cards are the same card unless both are known and differ.
 fn cards_fit(row: &IncomingRow, recorded: &Recorded) -> bool {
     match (row.card.as_deref(), recorded.card()) {
         (Some(row_card), Some(recorded_card)) => row_card == recorded_card,
@@ -175,17 +174,12 @@ pub(crate) enum Match<'a> {
         other_account_name: &'a str,
     },
     CompletesTransfer(&'a CounterpartCashflow),
-    /// The booked line of this pending hold, at the hold's amount.
     HoldPosted(&'a Recorded),
-    /// The booked line of this pending hold, at another amount.
     HoldPostedAtOtherAmount(&'a Recorded),
 }
 
 pub(crate) struct Matched<'a> {
-    /// In the order of the rows.
     pub rows: Vec<Match<'a>>,
-    /// The pending holds on days the file covers that it no longer lists, though it is newer than
-    /// the last export that did.
     pub cancelled_holds: Vec<&'a Recorded>,
 }
 
@@ -288,14 +282,21 @@ fn claim_same_day_and_amount<'a>(
     }
 }
 
-/// A row takes an entry whose bank line is in the row's own state first (booked or pending), then
-/// one in the other state, then one no import has seen.
-fn same_day_preference(row: &IncomingRow, recorded: &Recorded) -> u8 {
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
+enum SameDayPreference {
+    SameState,
+    OtherState,
+    Unseen,
+}
+
+fn same_day_preference(row: &IncomingRow, recorded: &Recorded) -> SameDayPreference {
     match recorded.state() {
-        Some(BankState::Pending { .. }) if row.pending => 0,
-        Some(BankState::Booked | BankState::Posted { .. }) if !row.pending => 0,
-        Some(_) => 1,
-        None => 2,
+        Some(BankState::Pending { .. }) if row.pending => SameDayPreference::SameState,
+        Some(BankState::Booked | BankState::Posted { .. }) if !row.pending => {
+            SameDayPreference::SameState
+        }
+        Some(_) => SameDayPreference::OtherState,
+        None => SameDayPreference::Unseen,
     }
 }
 
@@ -320,8 +321,6 @@ fn claim_holds_booked_on_another_day<'a>(
     }
 }
 
-/// A pending row of an export older than the one that posted its hold: the hold's amount before
-/// the posting is the row's.
 fn claim_posted_holds_listed_again<'a>(
     rows: &[IncomingRow],
     file_order: &[usize],
@@ -335,10 +334,7 @@ fn claim_posted_holds_listed_again<'a>(
             continue;
         }
         let claimed = claim_closest(row, items, used, |recorded| {
-            let Some(BankState::Posted { change_minor }) = recorded.state() else {
-                return false;
-            };
-            recorded.key().1.checked_sub(change_minor) == Some(row.amount_minor)
+            recorded.amount_before_posting() == Some(row.amount_minor)
         });
         if let Some(posted) = claimed {
             matches[position] = Match::InSaldo(posted);
@@ -346,8 +342,6 @@ fn claim_posted_holds_listed_again<'a>(
     }
 }
 
-/// The unused entry that `fits` with a bank line within 5 days of the row and a card that fits,
-/// closest day first, then lowest id.
 fn claim_closest<'a>(
     row: &IncomingRow,
     items: &'a [LedgerItem],
@@ -525,7 +519,6 @@ fn claim_mutually_unique_cashflows<'a>(
     }
 }
 
-/// The pairs of a row and a target where each is the other's only candidate.
 fn only_candidates_of_each_other(
     candidates_of: Vec<(usize, Vec<usize>)>,
     targets: usize,
@@ -547,7 +540,7 @@ fn only_candidates_of_each_other(
 
 fn near_without_bank_entry(row: &IncomingRow, leg: &Recorded) -> bool {
     leg.bank.is_none()
-        && leg.amount_minor == row.amount_minor
+        && leg.total_minor == row.amount_minor
         && days_apart(row.day, leg.day) <= NEAR_DAYS
 }
 
@@ -606,8 +599,8 @@ mod tests {
                 split_group_id: None,
                 event_date: format!("{day}T12:00:00"),
                 day: date(day),
-                amount_minor,
-                note: None,
+                total_minor: amount_minor,
+                own_note: None,
                 bank: None,
             },
             transfer_leg: None,
@@ -973,7 +966,7 @@ mod tests {
     fn a_note_follows_the_booked_text_only_while_it_is_the_banks() {
         let with_note = |note: Option<&str>, bank_text: Option<&str>| {
             let mut item = hold(1, "2026-10-25", -1_999, CARD, "2026-10-25");
-            item.recorded.note = note.map(str::to_owned);
+            item.recorded.own_note = note.map(str::to_owned);
             item.recorded.bank.as_mut().unwrap().text = bank_text.map(str::to_owned);
             item.recorded
         };

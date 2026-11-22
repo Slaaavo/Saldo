@@ -170,7 +170,6 @@ fn apply(
     )
 }
 
-/// Applies the review with every cancelled hold ticked for removal or every one unticked.
 fn apply_reviewed(
     conn: &Connection,
     account_id: i64,
@@ -198,7 +197,6 @@ fn apply_reviewed(
     )
 }
 
-/// Imports with the review's default ticks, every cancelled hold removed.
 fn import_with_defaults(
     conn: &Connection,
     account_id: i64,
@@ -1535,7 +1533,6 @@ const SECOND_CARD: &str = "433703******7708";
 const DEBIT_CARD: &str = "423473******0501";
 const HOLD_TEXT: &str = "BUDE DOPLNENÝ PO ZÚČT.";
 
-/// A card row as the wizard sends it: the card, the pending flag, the bank's text.
 fn card_row(
     index: u32,
     day: &str,
@@ -1653,7 +1650,6 @@ fn ticked(index: u32, selected: bool) -> RowChoice {
     }
 }
 
-/// The card account after the 16 Sep export: Tchibo pending on the 14th, a booked row on the 16th.
 fn tchibo_held(conn: &Connection) -> (i64, i64) {
     let card_account = own_without_iban(conn, "Card");
     import(
@@ -1860,7 +1856,6 @@ fn a_padded_note_imported_before_holds_were_known_takes_the_booked_text() {
     assert_eq!(everything(&conn), before);
 }
 
-/// The current account after the 1 May export: GitHub pending at 33.00 on 30 Apr.
 fn github_held(conn: &Connection) -> (i64, i64) {
     let checking = own(conn, "Checking");
     import(
@@ -2014,7 +2009,6 @@ fn ticking_a_posted_hold_adds_a_row_and_leaves_the_hold_pending() {
     assert_eq!(entry(&conn, hold).note.as_deref(), Some(HOLD_TEXT));
 }
 
-/// The card account after the 25 Oct export: a hold of 19.99 and a booked row.
 fn held_on_25_oct(conn: &Connection) -> (i64, i64) {
     let card_account = own_without_iban(conn, "Card");
     import(

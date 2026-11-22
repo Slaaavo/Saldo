@@ -5,6 +5,7 @@ use rusqlite::{params, Connection, Row};
 use super::matcher::{
     BankFacts, BankState, CounterpartCashflow, LedgerItem, Recorded, TransferLeg,
 };
+use crate::shared::NOW_IN_CREATED_AT_FORMAT;
 
 pub struct CounterpartCashflowsParams {
     pub account_id: i64,
@@ -17,11 +18,10 @@ pub struct InsertBankEntryParams {
     pub amount_minor: i64,
     pub text: Option<String>,
     pub card: Option<String>,
-    /// Set for a pending hold: the newest row day of the export that listed it.
     pub hold_seen_to: Option<NaiveDate>,
 }
 
-pub struct SeeHoldUntilParams {
+pub struct RaiseHoldSeenToParams {
     pub event_id: i64,
     pub seen_to: NaiveDate,
 }
@@ -32,7 +32,6 @@ pub struct PostHoldParams {
     pub amount_minor: i64,
     pub text: Option<String>,
     pub card: Option<String>,
-    /// The entry's ledger amount after the posting minus before.
     pub posting_change_minor: i64,
 }
 
@@ -47,9 +46,6 @@ pub struct LiveLeg {
     pub event_date: String,
     pub note: Option<String>,
 }
-
-/// The clock of `event.created_at` and `balance_check.checked_at`.
-const NOW: &str = "strftime('%Y-%m-%dT%H:%M:%f', 'now')";
 
 const BANK_COLUMNS: &str = "be.day AS bank_day, be.amount_minor AS bank_amount_minor,
                             be.text AS bank_text, be.card AS bank_card,
@@ -204,8 +200,10 @@ pub fn insert_bank_entry(conn: &Connection, params: InsertBankEntryParams) -> ru
     Ok(())
 }
 
-/// Raises a pending hold's `hold_seen_to` to `seen_to` when that is later.
-pub fn see_hold_until(conn: &Connection, params: SeeHoldUntilParams) -> rusqlite::Result<()> {
+pub fn raise_hold_seen_to(
+    conn: &Connection,
+    params: RaiseHoldSeenToParams,
+) -> rusqlite::Result<()> {
     conn.execute(
         "UPDATE bank_entry SET hold_seen_to = ?2 WHERE event_id = ?1 AND hold_seen_to < ?2",
         params![params.event_id, iso_day(params.seen_to)],
@@ -213,13 +211,12 @@ pub fn see_hold_until(conn: &Connection, params: SeeHoldUntilParams) -> rusqlite
     Ok(())
 }
 
-/// The hold's bank entry takes the booked line's facts.
 pub fn post_hold(conn: &Connection, params: PostHoldParams) -> rusqlite::Result<()> {
     conn.execute(
         &format!(
             "UPDATE bank_entry
              SET day = ?2, amount_minor = ?3, text = ?4, card = ?5, hold_seen_to = NULL,
-                 posted_at = {NOW}, posting_change_minor = ?6
+                 posted_at = {NOW_IN_CREATED_AT_FORMAT}, posting_change_minor = ?6
              WHERE event_id = ?1"
         ),
         params![
@@ -237,7 +234,8 @@ pub fn post_hold(conn: &Connection, params: PostHoldParams) -> rusqlite::Result<
 pub fn cancel_hold(conn: &Connection, event_id: i64) -> rusqlite::Result<()> {
     conn.execute(
         &format!(
-            "UPDATE bank_entry SET hold_seen_to = NULL, cancelled_at = {NOW} WHERE event_id = ?1"
+            "UPDATE bank_entry SET hold_seen_to = NULL, cancelled_at = {NOW_IN_CREATED_AT_FORMAT}
+             WHERE event_id = ?1"
         ),
         params![event_id],
     )?;
@@ -300,13 +298,12 @@ fn recorded(row: &Row<'_>) -> rusqlite::Result<Recorded> {
         split_group_id: row.get("split_group_id")?,
         event_date: row.get("event_date")?,
         day: day_at(row, "event_date")?,
-        amount_minor: row.get("amount_minor")?,
-        note: row.get("note")?,
+        total_minor: row.get("amount_minor")?,
+        own_note: row.get("note")?,
         bank,
     })
 }
 
-/// A bank entry is in one state at a time: storage CHECKs refuse a second one.
 fn bank_state(row: &Row<'_>) -> rusqlite::Result<BankState> {
     let hold_seen_to: Option<String> = row.get("hold_seen_to")?;
     let posting_change_minor: Option<i64> = row.get("posting_change_minor")?;
