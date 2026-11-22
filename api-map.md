@@ -143,20 +143,20 @@ Creates a cashflow event (income/expense or transfer with optional FX conversion
 - **Used in:**
   - **Not used in production code** (test mocks only)
 
-### `bulkCreateCashflows`
+### `previewCsvImport`
 
-Creates multiple cashflow entries in bulk.
+Matches a CSV file's parsed rows against the account's live rows and returns a verdict per row (`new`, `completesTransfer`, `inSaldo`, `transferLeg`), the rows' days that have a balance update, and a review token. Writes nothing.
 
-- **BE command:** `bulk_create_cashflows` → `src-tauri/src/features/transactions/commands.rs`
+- **BE command:** `preview_csv_import` → `src-tauri/src/features/csv_import/commands.rs`
 - **Used in:**
   - `src/features/transactions/csv-import/useImportWizard.ts` (useImportWizard hook)
     - → `src/features/transactions/CsvImportModal.tsx` (CsvImportModal)
 
-### `createSplitGroup`
+### `applyCsvImport`
 
-Creates a split group with multiple legs for splitting one transaction across categories/counterparts.
+Writes a reviewed CSV import in one transaction: the ticked rows (plain, transfer pair, completed transfer or split group), the bank facts of matched rows, and claimed transfer legs moved to the importing bank's day. Refuses with `IMPORT_CHANGED` when the review token no longer matches. Never asks before breaking a verified check.
 
-- **BE command:** `create_split_group` → `src-tauri/src/features/transactions/commands.rs`
+- **BE command:** `apply_csv_import` → `src-tauri/src/features/csv_import/commands.rs`
 - **Used in:**
   - `src/features/transactions/csv-import/useImportWizard.ts` (useImportWizard hook)
     - → `src/features/transactions/CsvImportModal.tsx` (CsvImportModal)
@@ -905,7 +905,7 @@ Deletes an eKasa import profile by ID.
 
 | Function | Notes |
 |----------|-------|
-| `createCashflow` | Only mocked in tests. Bulk variant `bulkCreateCashflows` is used instead. |
+| `createCashflow` | Only mocked in tests. CSV import writes through `applyCsvImport`. |
 | `updateCustomUnit` | Only mocked in tests. Units page shows units but doesn't offer rename. |
 | `listAccountAssetLinks` | Only mocked in tests. Links are managed via `setAccountAssetLinks` but never queried standalone in UI. |
 
