@@ -6,13 +6,14 @@ import { Input } from '../../../shared/ui/input'
 
 interface SaveProfileStepProps {
   importedCount: number
+  removedHoldCount: number
   loadedProfileName: string | null
   onSaveNew: (name: string) => Promise<void>
   onUpdate: () => Promise<void>
   onClose: () => void
 }
 
-const SaveProfileStep = ({ importedCount, loadedProfileName, onSaveNew, onUpdate, onClose }: SaveProfileStepProps) => {
+const SaveProfileStep = ({ importedCount, removedHoldCount, loadedProfileName, onSaveNew, onUpdate, onClose }: SaveProfileStepProps) => {
   const { t } = useTranslation()
   const [profileName, setProfileName] = useState('')
   const [saving, setSaving] = useState(false)
@@ -43,6 +44,7 @@ const SaveProfileStep = ({ importedCount, loadedProfileName, onSaveNew, onUpdate
       </DialogHeader>
       <div className="flex flex-col gap-4">
         <p className="text-sm">{t('import.saveStep.success', { count: importedCount })}</p>
+        {removedHoldCount > 0 && <p className="text-sm">{t('import.saveStep.removedHolds', { count: removedHoldCount })}</p>}
 
         {loadedProfileName === null ? (
           // Variant A: no profile was loaded

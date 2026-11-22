@@ -67,6 +67,7 @@ const FIELD_PATTERNS: Array<{ field: CashflowFieldKey; patterns: string[] }> = [
   { field: 'note', patterns: ['note', 'poznámka', 'poznamka', 'popis', 'description'] },
   { field: 'currency', patterns: ['currency', 'mena'] },
   { field: 'fxRate', patterns: ['rate', 'kurz'] },
+  { field: 'card', patterns: ['karty', 'card'] },
 ]
 
 export const autoDetectMapping = (headers: string[]): ColumnMapping => {
@@ -77,6 +78,7 @@ export const autoDetectMapping = (headers: string[]): ColumnMapping => {
     note: null,
     currency: null,
     fxRate: null,
+    card: null,
   }
 
   for (const header of headers) {
@@ -92,6 +94,9 @@ export const autoDetectMapping = (headers: string[]): ColumnMapping => {
 
   return mapping
 }
+
+/** The first masked card number in a cell (`423473******0501 Kosice …` gives `423473******0501`), else null. */
+export const extractCard = (raw: string): string | null => raw.match(/\d+\*+\d+/)?.[0] ?? null
 
 export const parseAmount = (raw: string): number | null => {
   // Strip currency symbols, spaces, and leading plus signs; normalise the Unicode minus sign

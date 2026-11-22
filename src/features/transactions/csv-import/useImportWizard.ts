@@ -18,10 +18,10 @@ import {
 import { toMinorUnits } from '../../../shared/utils/format'
 import { extractErrorMessage, hasErrorCode } from '../../../shared/utils/errors'
 import { takesEntries } from '../../../shared/utils/snapshot'
-import type { WizardState, CashflowFieldKey, ImportRow, ParsedRow, ColumnMapping, IbanMatchResult, SplitLeg } from './types'
+import type { WizardState, CashflowFieldKey, ImportRow, ParsedRow, ColumnMapping, IbanMatchResult, SplitLeg, CancelledHoldRow } from './types'
 import type { IbanLookupEntry } from './ibanMatcher'
 import { buildIbanLookup, matchIban, normalizeIban } from './ibanMatcher'
-import { parseCsvFile, autoDetectMapping, parseAmount, parseDateString } from './csvParser'
+import { parseCsvFile, autoDetectMapping, extractCard, parseAmount, parseDateString } from './csvParser'
 import { applyRules } from './transformRules'
 import { isNewRow } from './verdicts'
 
@@ -32,6 +32,7 @@ const INITIAL_COLUMN_MAPPING: ColumnMapping = {
   note: null,
   currency: null,
   fxRate: null,
+  card: null,
 }
 
 const INITIAL_WIZARD_STATE: WizardState = {
@@ -43,6 +44,8 @@ const INITIAL_WIZARD_STATE: WizardState = {
   columnMapping: { ...INITIAL_COLUMN_MAPPING },
   importRows: [],
   unparseableRowCount: 0,
+  declinedRowCount: 0,
+  cancelledHolds: [],
   reviewToken: null,
   balanceUpdateDays: [],
   previewing: false,
@@ -52,40 +55,38 @@ const INITIAL_WIZARD_STATE: WizardState = {
   originalProfileColumnMapping: null,
   originalProfileRules: null,
   importedCount: null,
+  removedHoldCount: null,
 }
 
-const matchProfileMapping = (savedMapping: ColumnMapping, csvHeaders: string[]): ColumnMapping => {
-  const result: ColumnMapping = { ...savedMapping }
-  const fields: CashflowFieldKey[] = ['date', 'amount', 'partner', 'note', 'currency', 'fxRate']
-  for (const field of fields) {
+const matchHeader = (csvHeaders: string[], saved: string): string | undefined => csvHeaders.find((h) => h.trim().toLowerCase() === saved.trim().toLowerCase())
+
+// A profile saved before a field existed has no key for it, which reads as not mapped.
+const matchProfileMapping = (savedMapping: Partial<ColumnMapping>, csvHeaders: string[]): ColumnMapping => {
+  const result: ColumnMapping = { ...INITIAL_COLUMN_MAPPING }
+  for (const field of Object.keys(INITIAL_COLUMN_MAPPING) as CashflowFieldKey[]) {
     const saved = savedMapping[field]
-    if (saved === null) {
-      result[field] = null
-      continue
-    }
-    const match = csvHeaders.find((h) => h.trim().toLowerCase() === saved.trim().toLowerCase())
-    result[field] = match ?? null
+    result[field] = saved == null ? null : (matchHeader(csvHeaders, saved) ?? null)
   }
   return result
 }
 
 const matchProfileRules = (savedRules: ImportRule[], csvHeaders: string[]): ImportRule[] => {
   return savedRules.map((rule) => {
-    if (rule.type === 'sign_from_column') {
-      const match = csvHeaders.find((h) => h.trim().toLowerCase() === rule.typeColumn.trim().toLowerCase())
-      return { ...rule, typeColumn: match ?? '' }
+    switch (rule.type) {
+      case 'sign_from_column':
+        return { ...rule, typeColumn: matchHeader(csvHeaders, rule.typeColumn) ?? '' }
+      case 'override_date_from_description':
+        return { ...rule, descriptionColumn: matchHeader(csvHeaders, rule.descriptionColumn) ?? '' }
+      case 'pending_from_column':
+      case 'declined_from_column':
+        return { ...rule, column: matchHeader(csvHeaders, rule.column) ?? '' }
     }
-    if (rule.type === 'override_date_from_description') {
-      const match = csvHeaders.find((h) => h.trim().toLowerCase() === rule.descriptionColumn.trim().toLowerCase())
-      return { ...rule, descriptionColumn: match ?? '' }
-    }
-    return rule
   })
 }
 
 // A profile can be picked before the CSV, so callers re-run this whenever the headers change.
 const resolveProfile = (profile: ImportProfileRow, csvHeaders: string[]): Partial<WizardState> => {
-  const savedMapping = JSON.parse(profile.columnMappingJson) as ColumnMapping
+  const savedMapping = JSON.parse(profile.columnMappingJson) as Partial<ColumnMapping>
   const columnMapping = matchProfileMapping(savedMapping, csvHeaders)
   const parsedRules = profile.rules.map((r) => ({
     type: r.ruleType,
@@ -117,6 +118,8 @@ const toIncomingRow = (row: ParsedRow): IncomingRowInput => ({
   originalAmountMinor: row.originalAmountMinor,
   fxRateMantissa: row.fxRateMantissa,
   fxRateExponent: row.fxRateExponent,
+  card: row.card,
+  pending: row.pending,
 })
 
 const toChoice = (row: ImportRow): RowChoice => ({
@@ -139,6 +142,12 @@ const withVerdicts = (rows: ImportRow[], preview: CsvImportPreview): ImportRow[]
     const verdict = verdicts.get(row.index)!
     return verdict.kind === row.verdict.kind ? { ...row, verdict } : withDefaultChoice(row, verdict)
   })
+}
+
+// A hold still listed keeps the user's choice; a hold new to this preview starts ticked for removal.
+const withCancelledHolds = (shown: CancelledHoldRow[], preview: CsvImportPreview): CancelledHoldRow[] => {
+  const removeById = new Map(shown.map((hold) => [hold.eventId, hold.remove]))
+  return preview.cancelledHolds.map((hold) => ({ ...hold, remove: removeById.get(hold.eventId) ?? true }))
 }
 
 const relinkIban = (rows: ImportRow[], normalizedIban: string, match: AccountMatch): ImportRow[] => {
@@ -328,6 +337,7 @@ export const useImportWizard = (params: { snapshot: SnapshotRow[]; preselectedAc
         setWizardState((prev) => ({
           ...prev,
           importRows: withVerdicts(prev.importRows, latest),
+          cancelledHolds: withCancelledHolds(prev.cancelledHolds, latest),
           reviewToken: latest.reviewToken,
           balanceUpdateDays: latest.balanceUpdateDays,
         }))
@@ -344,16 +354,23 @@ export const useImportWizard = (params: { snapshot: SnapshotRow[]; preselectedAc
 
     const parsedRows: ParsedRow[] = []
     let unparseableRowCount = 0
+    let declinedRowCount = 0
     const transformedRows = applyRules(csvRows, rules, columnMapping)
 
     for (let i = 0; i < transformedRows.length; i++) {
       const csvRow = transformedRows[i]
+      // A declined payment never reaches Saldo, so its day does not widen the file's day range either.
+      if (csvRow.__declined) {
+        declinedRowCount++
+        continue
+      }
       const rawDate = columnMapping.date ? (csvRow[columnMapping.date] ?? '') : ''
       const rawAmount = columnMapping.amount ? (csvRow[columnMapping.amount] ?? '') : ''
       const rawPartner = columnMapping.partner ? (csvRow[columnMapping.partner] ?? '') : ''
       const rawCurrency = columnMapping.currency ? (csvRow[columnMapping.currency] ?? '') : ''
       const rawFxRate = columnMapping.fxRate ? (csvRow[columnMapping.fxRate] ?? '') : ''
       const rawNote = columnMapping.note ? (csvRow[columnMapping.note] ?? '') : ''
+      const rawCard = columnMapping.card ? (csvRow[columnMapping.card] ?? '') : ''
 
       const parsedDate = csvRow.__overrideDateString ?? parseDateString(rawDate)
       const parsedAmount = parseAmount(rawAmount)
@@ -415,6 +432,8 @@ export const useImportWizard = (params: { snapshot: SnapshotRow[]; preselectedAc
         fxRateExponent,
         rawIban,
         ibanMatch,
+        card: extractCard(rawCard),
+        pending: csvRow.__pending,
       })
     }
 
@@ -427,6 +446,8 @@ export const useImportWizard = (params: { snapshot: SnapshotRow[]; preselectedAc
         step: 'review',
         importRows: parsedRows.map((row) => withDefaultChoice(row, verdicts.get(row.index)!)),
         unparseableRowCount,
+        declinedRowCount,
+        cancelledHolds: withCancelledHolds([], latest),
         reviewToken: latest.reviewToken,
         balanceUpdateDays: latest.balanceUpdateDays,
       }))
@@ -441,6 +462,13 @@ export const useImportWizard = (params: { snapshot: SnapshotRow[]; preselectedAc
     setWizardState((prev) => ({
       ...prev,
       importRows: prev.importRows.map((r) => (r.index === index ? { ...r, isSelected: !r.isSelected } : r)),
+    }))
+  }, [])
+
+  const handleToggleCancelledHold = useCallback((eventId: number) => {
+    setWizardState((prev) => ({
+      ...prev,
+      cancelledHolds: prev.cancelledHolds.map((hold) => (hold.eventId === eventId ? { ...hold, remove: !hold.remove } : hold)),
     }))
   }, [])
 
@@ -642,15 +670,16 @@ export const useImportWizard = (params: { snapshot: SnapshotRow[]; preselectedAc
   }, [])
 
   const handleImport = useCallback(async () => {
-    const { selectedAccountId, importRows, reviewToken } = wizardState
+    const { selectedAccountId, importRows, cancelledHolds, reviewToken } = wizardState
     if (selectedAccountId === null || reviewToken === null) return
 
     setWizardState((prev) => ({ ...prev, importing: true }))
     try {
-      const { imported } = await applyCsvImport({
+      const { imported, removedHolds } = await applyCsvImport({
         accountId: selectedAccountId,
         rows: importRows.map(toIncomingRow),
         choices: importRows.map(toChoice),
+        cancelledHolds: cancelledHolds.map(({ eventId, remove }) => ({ eventId, remove })),
         reviewToken,
       })
 
@@ -663,10 +692,12 @@ export const useImportWizard = (params: { snapshot: SnapshotRow[]; preselectedAc
 
       await onSuccess()
       if (loadedProfile === null || profileChanged) {
-        setWizardState((prev) => ({ ...prev, step: 'save-profile', importedCount: imported }))
+        setWizardState((prev) => ({ ...prev, step: 'save-profile', importedCount: imported, removedHoldCount: removedHolds }))
       } else {
-        if (imported === 0) toast.info(t('import.nothingNew'))
-        else toast.success(t('import.success', { count: imported }))
+        if (imported === 0 && removedHolds === 0) toast.info(t('import.nothingNew'))
+        else if (removedHolds === 0) toast.success(t('import.success', { count: imported }))
+        else if (imported === 0) toast.success(t('import.removedHolds', { count: removedHolds }))
+        else toast.success(t('import.successAndRemovedHolds', { count: imported, removed: removedHolds }))
         onClose()
       }
     } catch (err) {
@@ -768,6 +799,7 @@ export const useImportWizard = (params: { snapshot: SnapshotRow[]; preselectedAc
     setRules,
     handleProfileSelect,
     handleToggleRow,
+    handleToggleCancelledHold,
     handleSelectAll,
     handleDeselectAll,
     handleBucketChange,

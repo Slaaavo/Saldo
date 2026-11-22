@@ -429,12 +429,20 @@ export interface OverrideDateFromDescriptionParams {
   dateRegex: string
 }
 
+/** The rule holds for a row when its trimmed `column` cell matches `pattern`, a case-insensitive regex. */
+export interface ColumnPatternParams {
+  column: string
+  pattern: string
+}
+
 export type ImportRule =
   | ({ type: 'sign_from_column'; sortOrder: number } & SignFromColumnParams)
   | ({
       type: 'override_date_from_description'
       sortOrder: number
     } & OverrideDateFromDescriptionParams)
+  | ({ type: 'pending_from_column'; sortOrder: number } & ColumnPatternParams)
+  | ({ type: 'declined_from_column'; sortOrder: number } & ColumnPatternParams)
 
 export interface TaxModelRow {
   id: number

@@ -1,8 +1,8 @@
-import type { ImportProfileRow, ImportRule, ImportVerdict } from '../../../shared/types'
+import type { CancelledHold, ImportProfileRow, ImportRule, ImportVerdict } from '../../../shared/types'
 
 export type CsvRow = Record<string, string>
 
-export type CashflowFieldKey = 'date' | 'amount' | 'partner' | 'currency' | 'fxRate' | 'note'
+export type CashflowFieldKey = 'date' | 'amount' | 'partner' | 'currency' | 'fxRate' | 'note' | 'card'
 
 export type ColumnMapping = Record<CashflowFieldKey, string | null>
 
@@ -33,6 +33,8 @@ export interface ParsedRow {
   fxRateExponent: number | null
   rawIban: string | null
   ibanMatch: IbanMatchResult
+  card: string | null
+  pending: boolean
 }
 
 export interface ImportRow extends ParsedRow {
@@ -53,6 +55,8 @@ export interface WizardState {
   columnMapping: ColumnMapping
   importRows: ImportRow[]
   unparseableRowCount: number
+  declinedRowCount: number
+  cancelledHolds: CancelledHoldRow[]
   reviewToken: string | null
   balanceUpdateDays: string[]
   previewing: boolean
@@ -62,9 +66,17 @@ export interface WizardState {
   originalProfileColumnMapping: ColumnMapping | null
   originalProfileRules: ImportRule[] | null
   importedCount: number | null
+  removedHoldCount: number | null
+}
+
+/** A cancelled card hold in the review; ticked (`remove`) by default. */
+export interface CancelledHoldRow extends CancelledHold {
+  remove: boolean
 }
 
 export type TransformedCsvRow = CsvRow & {
   __negateAmount: boolean
   __overrideDateString: string | null
+  __pending: boolean
+  __declined: boolean
 }

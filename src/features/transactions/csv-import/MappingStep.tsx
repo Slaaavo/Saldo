@@ -22,6 +22,7 @@ const FIELDS: { key: CashflowFieldKey; required: boolean }[] = [
   { key: 'currency', required: false },
   { key: 'fxRate', required: false },
   { key: 'note', required: false },
+  { key: 'card', required: false },
 ]
 
 const SKIP_VALUE = '__skip__'
