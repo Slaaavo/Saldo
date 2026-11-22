@@ -292,4 +292,61 @@ mod tests {
         assert_eq!(asset_entry(900).as_deref(), Some("depreciation"));
         assert_eq!(asset_entry(901), None);
     }
+
+    #[test]
+    fn upgrading_keeps_every_bank_entry_as_a_booked_line() {
+        let conn = fk_enabled_conn();
+        let before = MIGRATIONS
+            .iter()
+            .position(|(name, _)| name.starts_with("043_"))
+            .unwrap();
+        apply_pending(&conn, &MIGRATIONS[..before]).unwrap();
+        conn.execute_batch(
+            "INSERT INTO account (id, name, currency_id, account_type, person_id)
+             VALUES (900, 'Card', 1, 'account', 1);
+             INSERT INTO event (id, account_id, event_type) VALUES (900, 900, 'cashflow');
+             INSERT INTO bank_entry (event_id, day, amount_minor, text)
+             VALUES (900, '2026-10-31', -7896, 'TCHIBO   ');",
+        )
+        .unwrap();
+
+        apply_pending(&conn, MIGRATIONS).unwrap();
+
+        let entry: (
+            String,
+            i64,
+            String,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+        ) = conn
+            .query_row(
+                "SELECT day, amount_minor, text, card, hold_seen_to,
+                        COALESCE(posted_at, cancelled_at)
+                 FROM bank_entry WHERE event_id = 900",
+                [],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                        row.get(5)?,
+                    ))
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            entry,
+            (
+                "2026-10-31".to_owned(),
+                -7896,
+                "TCHIBO   ".to_owned(),
+                None,
+                None,
+                None
+            )
+        );
+    }
 }

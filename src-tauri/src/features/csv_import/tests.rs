@@ -1486,6 +1486,67 @@ fn an_import_runs_on_the_demo_database() {
 }
 
 #[test]
+fn the_storage_keeps_a_bank_entry_in_one_hold_state() {
+    let conn = initialize_in_memory().unwrap();
+    let checking = own(&conn, "Checking");
+    let event_id = cashflow(&conn, checking, "2026-09-14T12:00:00", -7_896);
+    let write = |columns: &str, values: &str| {
+        conn.execute("DELETE FROM bank_entry", []).unwrap();
+        conn.execute(
+            &format!(
+                "INSERT INTO bank_entry (event_id, day, amount_minor, {columns})
+                 VALUES ({event_id}, '2026-09-14', -7896, {values})"
+            ),
+            [],
+        )
+        .map(|_| ())
+        .map_err(|error| error.to_string())
+    };
+    let stamp = "'2026-11-22T10:00:00.000'";
+
+    let allowed = [
+        ("text", "'TCHIBO'"),
+        ("card, hold_seen_to", "'433703******2103', '2026-09-16'"),
+        (
+            "posted_at, posting_change_minor",
+            &format!("{stamp}, 0") as &str,
+        ),
+        ("cancelled_at", stamp),
+    ];
+    for (columns, values) in allowed {
+        assert_eq!(write(columns, values), Ok(()), "{columns}");
+    }
+
+    let refused = [
+        ("hold_seen_to", "'2026-9-16'"),
+        (
+            "posted_at, posting_change_minor",
+            "'2026-11-22 10:00:00', 0",
+        ),
+        ("posted_at", stamp),
+        ("posting_change_minor", "-1"),
+        (
+            "hold_seen_to, posted_at, posting_change_minor",
+            &format!("'2026-09-16', {stamp}, 0") as &str,
+        ),
+        (
+            "hold_seen_to, cancelled_at",
+            &format!("'2026-09-16', {stamp}") as &str,
+        ),
+        (
+            "posted_at, posting_change_minor, cancelled_at",
+            &format!("{stamp}, 0, {stamp}") as &str,
+        ),
+    ];
+    for (columns, values) in refused {
+        assert!(
+            write(columns, values).is_err_and(|error| error.contains("CHECK")),
+            "{columns} = {values} was stored"
+        );
+    }
+}
+
+#[test]
 fn the_wire_shapes_are_the_ones_the_wizard_sends_and_reads() {
     let input: ApplyCsvImportInput = serde_json::from_value(json!({
         "accountId": 4,
