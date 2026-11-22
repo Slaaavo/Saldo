@@ -7,21 +7,15 @@
 //! after the booking becomes the anchor and replaces it. Which rows are visible is the caller's
 //! predicate, built over the aliases of each sub-select: the dashboard snapshot sees rows dated up
 //! to its moment, a bank check sees rows that existed when it was made or are dated before its day.
-//! How a visible flow row counts is the caller's `FlowCount`: the snapshot counts the rows that are
-//! not deleted at their current amount, a bank check counts a card hold as it was at the check.
 
 /// The event types that move an account's balance after its latest balance update.
 pub(crate) const BALANCE_FLOW_TYPES: &str = "'cashflow', 'transfer', 'unexplained_difference'";
 
-/// How a visible flow row counts, as SQL over its `event` and `event_data` aliases.
 pub(crate) struct FlowCount {
-    /// Whether the row is there at all.
     pub live: fn(&str, &str) -> String,
-    /// What the row adds to the balance.
     pub amount: fn(&str, &str) -> String,
 }
 
-/// A flow row counts while it is not deleted, at its current amount.
 pub(crate) const AS_STORED: FlowCount = FlowCount {
     live: not_deleted,
     amount: current_amount,
@@ -45,8 +39,6 @@ pub(crate) fn latest_balance_update_sql(
     anchor_sql(account, visible, &format!("ed.{column}"), "e", "ed")
 }
 
-/// The account's balance under the predicate `visible(event_alias, event_data_alias)`, each
-/// counted flow row adding what `flow` says.
 pub(crate) fn balance_sql(
     account: &str,
     visible: impl Fn(&str, &str) -> String,

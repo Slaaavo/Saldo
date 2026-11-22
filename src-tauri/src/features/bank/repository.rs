@@ -6,31 +6,31 @@ use crate::error::AppError;
 use crate::features::transactions::repository::balance_sql::{
     balance_sql, counted_flow_sql, latest_balance_update_sql, FlowCount, AS_STORED,
 };
+use crate::shared::NOW_IN_CREATED_AT_FORMAT;
 
-/// A check counts a card hold as it was at the check: an import that later posted it at another
-/// amount or removed it as cancelled leaves the check's view alone. A row the user deletes or edits
-/// counts as it is now.
-const AS_AT_CHECK: FlowCount = FlowCount {
+const HOLDS_AS_AT_CHECK: FlowCount = FlowCount {
     live: live_at_check,
     amount: amount_at_check,
 };
 
-/// Live, or deleted by an import that cancelled its hold after the check. A split leg goes with its
-/// group, whose bank entry sits on one of its legs.
 fn live_at_check(e: &str, _ed: &str) -> String {
+    let row_or_its_group = hold_event_is_the_row_or_its_group(e);
     format!(
         "{e}.deleted_at IS NULL
          OR EXISTS (
            SELECT 1
            FROM event hold_event
            JOIN bank_entry hold_entry ON hold_entry.event_id = hold_event.id
-           WHERE (hold_event.id = {e}.id OR hold_event.split_group_id = {e}.split_group_id)
+           WHERE {row_or_its_group}
              AND hold_entry.cancelled_at > :checked_at
          )"
     )
 }
 
-/// The amount before an import posted the hold after the check.
+fn hold_event_is_the_row_or_its_group(e: &str) -> String {
+    format!("(hold_event.id = {e}.id OR hold_event.split_group_id = {e}.split_group_id)")
+}
+
 fn amount_at_check(e: &str, ed: &str) -> String {
     format!(
         "{ed}.amount_minor - COALESCE(
@@ -87,7 +87,7 @@ pub fn balance_seen_by_check(
     let balance = balance_sql(
         ":account_id",
         |e, ed| format!("{e}.created_at <= :checked_at OR substr({ed}.event_date, 1, 10) < :day"),
-        &AS_AT_CHECK,
+        &HOLDS_AS_AT_CHECK,
     );
     conn.query_row(
         &format!("SELECT {balance}"),
@@ -101,7 +101,7 @@ pub fn balance_seen_by_check(
 }
 
 pub fn clock_now(conn: &Connection) -> rusqlite::Result<String> {
-    conn.query_row("SELECT strftime('%Y-%m-%dT%H:%M:%f', 'now')", [], |row| {
+    conn.query_row(&format!("SELECT {NOW_IN_CREATED_AT_FORMAT}"), [], |row| {
         row.get(0)
     })
 }

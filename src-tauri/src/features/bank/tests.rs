@@ -1766,10 +1766,8 @@ fn a_refusal_goes_on_the_wire_with_the_broken_checks() {
 }
 
 const DEBIT_CARD: &str = "423473******0501";
-/// Earlier than any import these tests run, because an import stamps the database's real clock.
-const HELD_BEFORE_THE_CHECK: &str = "2000-01-01T08:00:00.000";
+const BEFORE_ANY_IMPORT_CLOCK: &str = "2000-01-01T08:00:00.000";
 const CHECKED_BEFORE_THE_IMPORTS: &str = "2000-01-01T09:00:00.000";
-/// Rows an import adds later and dates on or after this day happened after the check.
 const HOLD_CHECK_DAY: &str = "2026-04-29";
 
 fn verified_on_hold_check_day(check_id: i64) -> Option<Verification> {
@@ -1824,8 +1822,11 @@ fn card_row(index: u32, day: &str, amount_minor: i64, pending: bool) -> Incoming
     }
 }
 
-/// Imports with the review's default ticks and every cancelled hold removed.
-fn import_export(conn: &Connection, account_id: i64, rows: &[IncomingRowInput]) {
+fn import_with_default_ticks_removing_cancelled_holds(
+    conn: &Connection,
+    account_id: i64,
+    rows: &[IncomingRowInput],
+) {
     let reviewed = preview_csv_import_inner(
         conn,
         PreviewCsvImportInput {
@@ -1875,16 +1876,25 @@ struct HeldAtTheCheck {
     check_id: i64,
 }
 
-/// 100.00 after a balance update, a card hold of 33.00 pending, and a ✓ check at 67.00.
 fn verified_with_a_pending_hold() -> HeldAtTheCheck {
     let conn = initialize_in_memory().unwrap();
     let account = mk(&conn, "account");
-    balance_update(&conn, account, 10_000, "2026-04-01", HELD_BEFORE_THE_CHECK);
-    import_export(&conn, account, &[card_row(0, "2026-04-30", -3_300, true)]);
+    balance_update(
+        &conn,
+        account,
+        10_000,
+        "2026-04-01",
+        BEFORE_ANY_IMPORT_CLOCK,
+    );
+    import_with_default_ticks_removing_cancelled_holds(
+        &conn,
+        account,
+        &[card_row(0, "2026-04-30", -3_300, true)],
+    );
     let [hold] = live_cashflows(&conn, account)[..] else {
         panic!("expected the hold");
     };
-    written_at(&conn, hold, HELD_BEFORE_THE_CHECK);
+    written_at(&conn, hold, BEFORE_ANY_IMPORT_CLOCK);
     let check_id = check_at(
         &conn,
         account,
@@ -1919,7 +1929,7 @@ fn hold_amount(conn: &Connection, hold: i64) -> i64 {
 fn a_check_stays_verified_when_its_hold_posts_at_another_amount() {
     let held = verified_with_a_pending_hold();
 
-    import_export(
+    import_with_default_ticks_removing_cancelled_holds(
         &held.conn,
         held.account,
         &[card_row(0, "2026-04-30", -3_299, false)],
@@ -1941,7 +1951,7 @@ fn a_check_stays_verified_when_its_hold_posts_at_another_amount() {
 fn a_check_stays_verified_when_an_import_removes_its_hold_as_cancelled() {
     let held = verified_with_a_pending_hold();
 
-    import_export(
+    import_with_default_ticks_removing_cancelled_holds(
         &held.conn,
         held.account,
         &[
@@ -1967,7 +1977,13 @@ fn a_check_stays_verified_when_an_import_removes_its_hold_as_cancelled() {
 fn a_check_stays_verified_when_an_import_removes_a_split_hold_as_cancelled() {
     let conn = initialize_in_memory().unwrap();
     let account = mk(&conn, "account");
-    balance_update(&conn, account, 10_000, "2026-04-01", HELD_BEFORE_THE_CHECK);
+    balance_update(
+        &conn,
+        account,
+        10_000,
+        "2026-04-01",
+        BEFORE_ANY_IMPORT_CLOCK,
+    );
     let held = [card_row(0, "2026-04-30", -3_300, true)];
     let reviewed = preview_csv_import_inner(
         &conn,
@@ -2001,7 +2017,7 @@ fn a_check_stays_verified_when_an_import_removes_a_split_hold_as_cancelled() {
     .unwrap();
     let legs = live_cashflows(&conn, account);
     for &leg in &legs {
-        written_at(&conn, leg, HELD_BEFORE_THE_CHECK);
+        written_at(&conn, leg, BEFORE_ANY_IMPORT_CLOCK);
     }
     let check_id = check_at(
         &conn,
@@ -2012,7 +2028,7 @@ fn a_check_stays_verified_when_an_import_removes_a_split_hold_as_cancelled() {
     )
     .unwrap();
 
-    import_export(
+    import_with_default_ticks_removing_cancelled_holds(
         &conn,
         account,
         &[
@@ -2037,7 +2053,7 @@ fn a_hold_the_user_deleted_by_hand_stays_gone_after_a_newer_import() {
     delete_event(&held.conn, held.hold).unwrap();
     let differs = verification(&held.conn, held.account);
 
-    import_export(
+    import_with_default_ticks_removing_cancelled_holds(
         &held.conn,
         held.account,
         &[card_row(0, "2026-05-03", -500, false)],
@@ -2062,7 +2078,7 @@ fn a_hold_the_user_deletes_by_hand_still_makes_the_check_differ() {
 #[test]
 fn an_edit_after_the_posting_still_makes_the_check_differ() {
     let held = verified_with_a_pending_hold();
-    import_export(
+    import_with_default_ticks_removing_cancelled_holds(
         &held.conn,
         held.account,
         &[card_row(0, "2026-04-30", -3_299, false)],
@@ -2089,7 +2105,7 @@ fn an_edit_after_the_posting_still_makes_the_check_differ() {
 #[test]
 fn a_check_made_after_the_posting_counts_the_booked_amount() {
     let held = verified_with_a_pending_hold();
-    import_export(
+    import_with_default_ticks_removing_cancelled_holds(
         &held.conn,
         held.account,
         &[card_row(0, "2026-04-30", -3_299, false)],

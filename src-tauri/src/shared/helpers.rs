@@ -148,6 +148,8 @@ impl Drop for WriteTxn<'_> {
     }
 }
 
+pub const NOW_IN_CREATED_AT_FORMAT: &str = "strftime('%Y-%m-%dT%H:%M:%f', 'now')";
+
 pub fn local_now() -> String {
     chrono::Local::now().format("%Y-%m-%d").to_string()
 }
