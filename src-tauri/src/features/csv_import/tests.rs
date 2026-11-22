@@ -1,0 +1,1196 @@
+use rusqlite::{params, Connection};
+use serde_json::json;
+
+use super::commands::{apply_csv_import_inner, preview_csv_import_inner};
+use super::models::{
+    ApplyCsvImportInput, CsvImportPreview, CsvImportResult, IncomingRowInput,
+    PreviewCsvImportInput, RowChoice, RowPreview, SplitLegChoice, Verdict,
+};
+use crate::db::initialize_in_memory;
+use crate::error::AppError;
+use crate::features::accounts::repository::{create_account, CreateAccountParams};
+use crate::features::buckets::BucketKind;
+use crate::features::partner_accounts::repository::{
+    create_partner_account, CreatePartnerAccountParams,
+};
+use crate::features::transactions::models::SplitGroupEntry;
+use crate::features::transactions::repository::{
+    create_cashflow, create_split_group_with_legs, create_transfer, delete_event,
+    delete_split_group, update_event, CashflowEntry, CreateSplitGroupWithLegsParams,
+    UpdateEventParams,
+};
+
+const DEFAULT_PERSON: i64 = 1;
+const UNKNOWN_ACCOUNT_ID: i64 = 9_999;
+
+fn own(conn: &Connection, name: &str) -> i64 {
+    account(conn, name, "account", BucketKind::Balance)
+}
+
+fn account(conn: &Connection, name: &str, account_type: &str, bucket_kind: BucketKind) -> i64 {
+    create_account(
+        conn,
+        CreateAccountParams {
+            name: name.to_owned(),
+            currency_id: 1,
+            account_type: account_type.to_owned(),
+            person_id: Some(DEFAULT_PERSON),
+            bucket_kind,
+            ..Default::default()
+        },
+    )
+    .unwrap()
+}
+
+fn partner(conn: &Connection) -> i64 {
+    create_partner_account(
+        conn,
+        CreatePartnerAccountParams {
+            name: "Landlord".to_owned(),
+            iban: "SK3112000000198742637541".to_owned(),
+            currency_id: 1,
+        },
+    )
+    .unwrap()
+}
+
+fn row(index: u32, day: &str, amount_minor: i64) -> IncomingRowInput {
+    IncomingRowInput {
+        index,
+        event_date: format!("{day}T12:00:00"),
+        amount_minor,
+        note: Some(format!("row {index}")),
+        counterpart_account_id: None,
+        original_currency_id: None,
+        original_amount_minor: None,
+        fx_rate_mantissa: None,
+        fx_rate_exponent: None,
+    }
+}
+
+fn to(counterpart_account_id: i64, row: IncomingRowInput) -> IncomingRowInput {
+    IncomingRowInput {
+        counterpart_account_id: Some(counterpart_account_id),
+        ..row
+    }
+}
+
+fn cashflow_entry(account_id: i64, date: &str, amount_minor: i64) -> CashflowEntry {
+    CashflowEntry {
+        account_id,
+        amount_minor,
+        event_date: date.to_owned(),
+        note: Some("typed by hand".to_owned()),
+        counterpart_account_id: None,
+        bucket_id: None,
+        original_currency_id: None,
+        original_amount_minor: None,
+        fx_rate_mantissa: None,
+        fx_rate_exponent: None,
+    }
+}
+
+fn cashflow(conn: &Connection, account_id: i64, date: &str, amount_minor: i64) -> i64 {
+    create_cashflow(conn, &cashflow_entry(account_id, date, amount_minor)).unwrap()
+}
+
+fn preview(conn: &Connection, account_id: i64, rows: &[IncomingRowInput]) -> CsvImportPreview {
+    preview_csv_import_inner(
+        conn,
+        PreviewCsvImportInput {
+            account_id,
+            rows: rows.to_vec(),
+        },
+    )
+    .unwrap()
+}
+
+fn verdicts(conn: &Connection, account_id: i64, rows: &[IncomingRowInput]) -> Vec<Verdict> {
+    preview(conn, account_id, rows)
+        .rows
+        .into_iter()
+        .map(|row| row.verdict)
+        .collect()
+}
+
+/// The review's defaults: rows not in Saldo ticked, the others not.
+fn default_choices(preview: &CsvImportPreview) -> Vec<RowChoice> {
+    preview
+        .rows
+        .iter()
+        .map(|row| RowChoice {
+            index: row.index,
+            selected: matches!(
+                row.verdict,
+                Verdict::New | Verdict::CompletesTransfer { .. }
+            ),
+            bucket_id: None,
+            split: None,
+        })
+        .collect()
+}
+
+fn apply(
+    conn: &Connection,
+    account_id: i64,
+    rows: &[IncomingRowInput],
+    choices: Vec<RowChoice>,
+    review_token: String,
+) -> Result<CsvImportResult, AppError> {
+    apply_csv_import_inner(
+        conn,
+        ApplyCsvImportInput {
+            account_id,
+            rows: rows.to_vec(),
+            choices,
+            review_token,
+        },
+    )
+}
+
+/// Previews the rows and applies the review's defaults.
+fn import(conn: &Connection, account_id: i64, rows: &[IncomingRowInput]) -> u32 {
+    let reviewed = preview(conn, account_id, rows);
+    let choices = default_choices(&reviewed);
+    apply(conn, account_id, rows, choices, reviewed.review_token)
+        .unwrap()
+        .imported
+}
+
+/// Every event, version and bank entry, so a test can tell that nothing changed.
+fn everything(conn: &Connection) -> Vec<String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT 'event ' || id || ' ' || account_id || ' ' || event_type || ' '
+                    || IFNULL(deleted_at, '-') || ' ' || IFNULL(latest_data_id, '-') || ' '
+                    || IFNULL(linked_event_id, '-') || ' ' || IFNULL(split_group_id, '-')
+             FROM event
+             UNION ALL
+             SELECT 'data ' || id || ' ' || event_id || ' ' || amount_minor || ' ' || event_date
+                    || ' ' || IFNULL(note, '-') || ' ' || IFNULL(counterpart_account_id, '-')
+                    || ' ' || IFNULL(bucket_id, '-')
+             FROM event_data
+             UNION ALL
+             SELECT 'bank ' || event_id || ' ' || day || ' ' || amount_minor || ' '
+                    || IFNULL(text, '-')
+             FROM bank_entry
+             ORDER BY 1",
+        )
+        .unwrap();
+    stmt.query_map([], |row| row.get(0))
+        .unwrap()
+        .collect::<rusqlite::Result<_>>()
+        .unwrap()
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct Live {
+    account_id: i64,
+    event_type: String,
+    event_date: String,
+    amount_minor: i64,
+    counterpart_account_id: Option<i64>,
+    linked_event_id: Option<i64>,
+}
+
+fn live(conn: &Connection) -> Vec<(i64, Live)> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT e.id, e.account_id, e.event_type, ed.event_date, ed.amount_minor,
+                    ed.counterpart_account_id, e.linked_event_id
+             FROM event e JOIN event_data ed ON ed.id = e.latest_data_id
+             WHERE e.deleted_at IS NULL
+             ORDER BY e.id",
+        )
+        .unwrap();
+    stmt.query_map([], |row| {
+        Ok((
+            row.get(0)?,
+            Live {
+                account_id: row.get(1)?,
+                event_type: row.get(2)?,
+                event_date: row.get(3)?,
+                amount_minor: row.get(4)?,
+                counterpart_account_id: row.get(5)?,
+                linked_event_id: row.get(6)?,
+            },
+        ))
+    })
+    .unwrap()
+    .collect::<rusqlite::Result<_>>()
+    .unwrap()
+}
+
+fn bank_entry(conn: &Connection, event_id: i64) -> Option<(String, i64, Option<String>)> {
+    conn.query_row(
+        "SELECT day, amount_minor, text FROM bank_entry WHERE event_id = ?1",
+        params![event_id],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+    )
+    .ok()
+}
+
+fn in_saldo(event_id: i64, event_date: &str, note: &str) -> Verdict {
+    Verdict::InSaldo {
+        event_id,
+        event_date: event_date.to_owned(),
+        note: Some(note.to_owned()),
+    }
+}
+
+fn written_at(conn: &Connection, event_id: i64, created_at: &str) {
+    conn.execute(
+        "UPDATE event SET created_at = ?2 WHERE id = ?1",
+        params![event_id, created_at],
+    )
+    .unwrap();
+}
+
+#[test]
+fn a_new_row_is_written_with_the_banks_facts() {
+    let conn = initialize_in_memory().unwrap();
+    let checking = own(&conn, "Checking");
+    let landlord = partner(&conn);
+
+    let imported = import(
+        &conn,
+        checking,
+        &[to(landlord, row(0, "2026-03-01", -50_000))],
+    );
+
+    assert_eq!(imported, 1);
+    let [(event_id, entry)] = &live(&conn)[..] else {
+        panic!("expected one entry");
+    };
+    assert_eq!(
+        entry,
+        &Live {
+            account_id: checking,
+            event_type: "cashflow".to_owned(),
+            event_date: "2026-03-01T12:00:00".to_owned(),
+            amount_minor: -50_000,
+            counterpart_account_id: Some(landlord),
+            linked_event_id: None,
+        }
+    );
+    assert_eq!(
+        bank_entry(&conn, *event_id),
+        Some(("2026-03-01".to_owned(), -50_000, Some("row 0".to_owned())))
+    );
+}
+
+#[test]
+fn a_reimport_adds_nothing_and_changes_no_entry() {
+    let conn = initialize_in_memory().unwrap();
+    let checking = own(&conn, "Checking");
+    let savings = own(&conn, "Savings");
+    let landlord = partner(&conn);
+    let rows = [
+        to(landlord, row(0, "2026-03-01", -50_000)),
+        row(1, "2026-03-02", -1_250),
+        to(savings, row(2, "2026-03-03", -10_000)),
+    ];
+    assert_eq!(import(&conn, checking, &rows), 3);
+    let before = everything(&conn);
+
+    let again = preview(&conn, checking, &rows);
+    let imported = apply(
+        &conn,
+        checking,
+        &rows,
+        default_choices(&again),
+        again.review_token.clone(),
+    )
+    .unwrap()
+    .imported;
+
+    assert!(again
+        .rows
+        .iter()
+        .all(|row| matches!(row.verdict, Verdict::InSaldo { .. })));
+    assert_eq!(imported, 0);
+    assert_eq!(everything(&conn), before);
+}
+
+#[test]
+fn a_ticked_row_already_in_saldo_is_imported_again() {
+    let conn = initialize_in_memory().unwrap();
+    let checking = own(&conn, "Checking");
+    let rows = [row(0, "2026-03-01", -1_250)];
+    import(&conn, checking, &rows);
+
+    let again = preview(&conn, checking, &rows);
+    let choices = vec![RowChoice {
+        index: 0,
+        selected: true,
+        bucket_id: None,
+        split: None,
+    }];
+    let imported = apply(&conn, checking, &rows, choices, again.review_token).unwrap();
+
+    assert_eq!(imported.imported, 1);
+    let entries = live(&conn);
+    assert_eq!(entries.len(), 2);
+    assert!(entries
+        .iter()
+        .all(|(event_id, _)| bank_entry(&conn, *event_id).is_some()));
+}
+
+#[test]
+fn two_equal_rows_against_one_entry_in_saldo_match_once() {
+    let conn = initialize_in_memory().unwrap();
+    let checking = own(&conn, "Checking");
+    let typed = cashflow(&conn, checking, "2026-03-01T09:00:00", -500);
+    let rows = [row(0, "2026-03-01", -500), row(1, "2026-03-01", -500)];
+
+    let reviewed = preview(&conn, checking, &rows);
+    let verdicts: Vec<Verdict> = reviewed.rows.iter().map(|r| r.verdict.clone()).collect();
+    let imported = apply(
+        &conn,
+        checking,
+        &rows,
+        default_choices(&reviewed),
+        reviewed.review_token,
+    )
+    .unwrap();
+
+    assert_eq!(
+        verdicts,
+        [
+            in_saldo(typed, "2026-03-01T09:00:00", "typed by hand"),
+            Verdict::New
+        ]
+    );
+    assert_eq!(imported.imported, 1);
+    assert_eq!(live(&conn).len(), 2);
+    assert_eq!(
+        bank_entry(&conn, typed),
+        Some(("2026-03-01".to_owned(), -500, Some("row 0".to_owned())))
+    );
+}
+
+#[test]
+fn an_entry_with_bank_facts_wins_over_an_older_equal_one_without() {
+    let conn = initialize_in_memory().unwrap();
+    let checking = own(&conn, "Checking");
+    let typed = cashflow(&conn, checking, "2026-03-01T09:00:00", -500);
+    let rows = [row(0, "2026-03-01", -500)];
+    let reviewed = preview(&conn, checking, &rows);
+    apply(
+        &conn,
+        checking,
+        &rows,
+        vec![choice(0)],
+        reviewed.review_token,
+    )
+    .unwrap();
+    let imported = live(&conn)
+        .into_iter()
+        .map(|(event_id, _)| event_id)
+        .find(|&event_id| event_id != typed)
+        .unwrap();
+
+    assert!(imported > typed);
+    assert_eq!(
+        verdicts(&conn, checking, &rows),
+        [in_saldo(imported, "2026-03-01T12:00:00", "row 0")]
+    );
+}
+
+#[test]
+fn a_row_keeps_matching_after_the_user_edits_its_amount_or_day() {
+    let conn = initialize_in_memory().unwrap();
+    let checking = own(&conn, "Checking");
+    let rows = [row(0, "2026-03-01", -1_250)];
+    import(&conn, checking, &rows);
+    let event_id = live(&conn)[0].0;
+
+    update_event(
+        &conn,
+        UpdateEventParams {
+            event_id,
+            amount_minor: -1_300,
+            event_date: "2026-03-09T12:00:00".to_owned(),
+            note: Some("lunch".to_owned()),
+        },
+    )
+    .unwrap();
+
+    assert_eq!(
+        verdicts(&conn, checking, &rows),
+        [in_saldo(event_id, "2026-03-09T12:00:00", "lunch")]
+    );
+}
+
+#[test]
+fn a_deleted_row_never_matches_and_comes_back_on_reimport() {
+    let conn = initialize_in_memory().unwrap();
+    let checking = own(&conn, "Checking");
+    let rows = [row(0, "2026-03-01", -1_250)];
+    import(&conn, checking, &rows);
+    delete_event(&conn, live(&conn)[0].0).unwrap();
+
+    assert_eq!(verdicts(&conn, checking, &rows), [Verdict::New]);
+    assert_eq!(import(&conn, checking, &rows), 1);
+    assert_eq!(live(&conn).len(), 1);
+}
+
+fn leg(amount_minor: i64) -> SplitGroupEntry {
+    SplitGroupEntry {
+        amount_minor,
+        event_date: "2026-03-01T09:00:00".to_owned(),
+        note: None,
+        counterpart_account_id: None,
+        bucket_id: None,
+        original_currency_id: None,
+        original_amount_minor: None,
+        fx_rate_mantissa: None,
+        fx_rate_exponent: None,
+    }
+}
+
+#[test]
+fn a_split_group_matches_the_sum_of_its_legs() {
+    let conn = initialize_in_memory().unwrap();
+    let checking = own(&conn, "Checking");
+    let split_group_id = create_split_group_with_legs(
+        &conn,
+        CreateSplitGroupWithLegsParams {
+            account_id: checking,
+            group_note: Some("groceries".to_owned()),
+            legs: vec![leg(-300), leg(-200)],
+        },
+    )
+    .unwrap();
+    let lowest_leg = live(&conn)[0].0;
+    let rows = [row(0, "2026-03-01", -500)];
+
+    let reviewed = preview(&conn, checking, &rows);
+    let verdict = reviewed.rows[0].verdict.clone();
+    apply(
+        &conn,
+        checking,
+        &rows,
+        default_choices(&reviewed),
+        reviewed.review_token,
+    )
+    .unwrap();
+
+    assert_eq!(
+        verdict,
+        in_saldo(lowest_leg, "2026-03-01T09:00:00", "groceries")
+    );
+    assert_eq!(
+        bank_entry(&conn, lowest_leg),
+        Some(("2026-03-01".to_owned(), -500, Some("row 0".to_owned())))
+    );
+
+    delete_split_group(&conn, split_group_id).unwrap();
+    assert_eq!(verdicts(&conn, checking, &rows), [Verdict::New]);
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct SplitLegRow {
+    amount_minor: i64,
+    event_date: String,
+    original_amount_minor: Option<i64>,
+    fx_rate_mantissa: Option<i64>,
+    counterpart_account_id: Option<i64>,
+}
+
+fn split_leg_row(conn: &Connection, event_id: i64) -> SplitLegRow {
+    conn.query_row(
+        "SELECT ed.amount_minor, ed.event_date, ed.original_amount_minor, ed.fx_rate_mantissa,
+                ed.counterpart_account_id
+         FROM event e JOIN event_data ed ON ed.id = e.latest_data_id
+         WHERE e.id = ?1",
+        params![event_id],
+        |row| {
+            Ok(SplitLegRow {
+                amount_minor: row.get(0)?,
+                event_date: row.get(1)?,
+                original_amount_minor: row.get(2)?,
+                fx_rate_mantissa: row.get(3)?,
+                counterpart_account_id: row.get(4)?,
+            })
+        },
+    )
+    .unwrap()
+}
+
+#[test]
+fn a_split_row_becomes_a_group_whose_legs_share_the_original_amount() {
+    let conn = initialize_in_memory().unwrap();
+    let checking = own(&conn, "Checking");
+    let landlord = partner(&conn);
+    let rows = [IncomingRowInput {
+        original_currency_id: Some(2),
+        original_amount_minor: Some(-3_333),
+        fx_rate_mantissa: Some(3_333),
+        fx_rate_exponent: Some(-3),
+        ..row(0, "2026-03-01", -1_000)
+    }];
+    let reviewed = preview(&conn, checking, &rows);
+    let split = |amount_minor, counterpart_account_id| SplitLegChoice {
+        amount_minor,
+        note: Some(format!("leg {amount_minor}")),
+        counterpart_account_id,
+        bucket_id: None,
+    };
+    let choices = vec![RowChoice {
+        index: 0,
+        selected: true,
+        bucket_id: None,
+        split: Some(vec![
+            split(-333, Some(landlord)),
+            split(-333, None),
+            split(-334, None),
+        ]),
+    }];
+
+    let imported = apply(&conn, checking, &rows, choices, reviewed.review_token).unwrap();
+
+    assert_eq!(imported.imported, 3);
+    let leg_ids: Vec<i64> = conn
+        .prepare("SELECT id FROM event WHERE split_group_id IS NOT NULL ORDER BY id")
+        .unwrap()
+        .query_map([], |row| row.get(0))
+        .unwrap()
+        .collect::<rusqlite::Result<_>>()
+        .unwrap();
+    let leg = |amount_minor, original_amount_minor, counterpart_account_id| SplitLegRow {
+        amount_minor,
+        event_date: "2026-03-01T12:00:00".to_owned(),
+        original_amount_minor: Some(original_amount_minor),
+        fx_rate_mantissa: Some(3_333),
+        counterpart_account_id,
+    };
+    assert_eq!(
+        leg_ids
+            .iter()
+            .map(|&event_id| split_leg_row(&conn, event_id))
+            .collect::<Vec<_>>(),
+        [
+            leg(-333, -1_110, Some(landlord)),
+            leg(-333, -1_110, None),
+            leg(-334, -1_113, None),
+        ]
+    );
+    assert_eq!(
+        bank_entry(&conn, leg_ids[0]),
+        Some(("2026-03-01".to_owned(), -1_000, Some("row 0".to_owned())))
+    );
+    assert!(bank_entry(&conn, leg_ids[1]).is_none());
+    assert!(matches!(
+        &verdicts(&conn, checking, &rows)[..],
+        [Verdict::InSaldo { event_id, .. }] if *event_id == leg_ids[0]
+    ));
+}
+
+/// The two legs of the one transfer between `from` and `to`, as (`from` leg, `to` leg).
+fn the_pair(conn: &Connection, from: i64, to: i64) -> ((i64, Live), (i64, Live)) {
+    let entries = live(conn);
+    assert_eq!(entries.len(), 2, "expected one transfer pair: {entries:?}");
+    let mut entries = entries.into_iter();
+    let (first, second) = (entries.next().unwrap(), entries.next().unwrap());
+    let (from_leg, to_leg) = if first.1.account_id == from {
+        (first, second)
+    } else {
+        (second, first)
+    };
+    assert_eq!(
+        (from_leg.1.account_id, to_leg.1.account_id),
+        (from, to),
+        "legs on the wrong accounts"
+    );
+    assert_eq!(from_leg.1.event_type, "transfer");
+    assert_eq!(to_leg.1.event_type, "transfer");
+    assert_eq!(from_leg.1.linked_event_id, Some(to_leg.0));
+    assert_eq!(to_leg.1.linked_event_id, Some(from_leg.0));
+    assert_eq!(from_leg.1.counterpart_account_id, Some(to));
+    assert_eq!(to_leg.1.counterpart_account_id, Some(from));
+    (from_leg, to_leg)
+}
+
+#[test]
+fn a_transfer_imported_from_one_account_then_the_other_ends_as_one_pair_on_each_banks_day() {
+    let conn = initialize_in_memory().unwrap();
+    let checking = own(&conn, "Checking");
+    let savings = own(&conn, "Savings");
+    let checking_rows = [to(savings, row(0, "2026-03-01", -10_000))];
+    let savings_rows = [to(checking, row(0, "2026-03-03", 10_000))];
+    import(&conn, checking, &checking_rows);
+    let (_, savings_leg) = the_pair(&conn, checking, savings);
+
+    let reviewed = preview(&conn, savings, &savings_rows);
+    let imported = apply(
+        &conn,
+        savings,
+        &savings_rows,
+        default_choices(&reviewed),
+        reviewed.review_token.clone(),
+    )
+    .unwrap();
+
+    assert_eq!(
+        reviewed.rows[0].verdict,
+        Verdict::TransferLeg {
+            event_id: savings_leg.0,
+            other_account_name: "Checking".to_owned(),
+            event_date: "2026-03-01T12:00:00".to_owned(),
+        }
+    );
+    assert_eq!(imported.imported, 0);
+    let (checking_leg, savings_leg) = the_pair(&conn, checking, savings);
+    assert_eq!(checking_leg.1.event_date, "2026-03-01T12:00:00");
+    assert_eq!(savings_leg.1.event_date, "2026-03-03T12:00:00");
+    assert_eq!(
+        bank_entry(&conn, savings_leg.0),
+        Some(("2026-03-03".to_owned(), 10_000, Some("row 0".to_owned())))
+    );
+    assert!(matches!(
+        &verdicts(&conn, savings, &savings_rows)[..],
+        [Verdict::InSaldo { .. }]
+    ));
+    assert!(matches!(
+        &verdicts(&conn, checking, &checking_rows)[..],
+        [Verdict::InSaldo { .. }]
+    ));
+}
+
+#[test]
+fn a_transfer_imported_in_the_other_order_ends_as_the_same_pair() {
+    let conn = initialize_in_memory().unwrap();
+    let checking = own(&conn, "Checking");
+    let savings = own(&conn, "Savings");
+    import(
+        &conn,
+        savings,
+        &[to(checking, row(0, "2026-03-03", 10_000))],
+    );
+
+    let checking_rows = [to(savings, row(0, "2026-03-01", -10_000))];
+    let verdict = verdicts(&conn, checking, &checking_rows);
+    import(&conn, checking, &checking_rows);
+
+    assert!(matches!(
+        &verdict[..],
+        [Verdict::TransferLeg { other_account_name, event_date, .. }]
+            if other_account_name == "Savings" && event_date == "2026-03-03T12:00:00"
+    ));
+    let (checking_leg, savings_leg) = the_pair(&conn, checking, savings);
+    assert_eq!(checking_leg.1.event_date, "2026-03-01T12:00:00");
+    assert_eq!(savings_leg.1.event_date, "2026-03-03T12:00:00");
+}
+
+#[test]
+fn a_row_completes_the_cash_flow_the_other_accounts_import_made() {
+    let conn = initialize_in_memory().unwrap();
+    let checking = own(&conn, "Checking");
+    let savings = own(&conn, "Savings");
+    let reserve = account(&conn, "Reserve", "bucket", BucketKind::Balance);
+    let savings_rows = [row(0, "2026-03-03", 10_000)];
+    let reviewed = preview(&conn, savings, &savings_rows);
+    let tagged = RowChoice {
+        bucket_id: Some(reserve),
+        ..choice(0)
+    };
+    apply(
+        &conn,
+        savings,
+        &savings_rows,
+        vec![tagged],
+        reviewed.review_token,
+    )
+    .unwrap();
+    let cash_flow = live(&conn)[0].0;
+
+    let checking_rows = [to(savings, row(0, "2026-03-01", -10_000))];
+    let reviewed = preview(&conn, checking, &checking_rows);
+    let imported = apply(
+        &conn,
+        checking,
+        &checking_rows,
+        default_choices(&reviewed),
+        reviewed.review_token.clone(),
+    )
+    .unwrap();
+
+    assert_eq!(
+        reviewed.rows[0].verdict,
+        Verdict::CompletesTransfer {
+            event_id: cash_flow,
+            account_id: savings,
+            account_name: "Savings".to_owned(),
+            event_date: "2026-03-03T12:00:00".to_owned(),
+            note: Some("row 0".to_owned()),
+        }
+    );
+    assert_eq!(imported.imported, 1);
+    let (checking_leg, savings_leg) = the_pair(&conn, checking, savings);
+    assert_eq!(savings_leg.0, cash_flow);
+    assert_eq!(checking_leg.1.event_date, "2026-03-01T12:00:00");
+    assert_eq!(savings_leg.1.event_date, "2026-03-03T12:00:00");
+    assert_eq!(savings_leg.1.amount_minor, 10_000);
+    let (note, bucket_id, versions): (Option<String>, Option<i64>, i64) = conn
+        .query_row(
+            "SELECT ed.note, ed.bucket_id,
+                    (SELECT COUNT(*) FROM event_data WHERE event_id = e.id)
+             FROM event e JOIN event_data ed ON ed.id = e.latest_data_id
+             WHERE e.id = ?1",
+            params![cash_flow],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .unwrap();
+    assert_eq!(
+        (note.as_deref(), bucket_id, versions),
+        (Some("row 0"), Some(reserve), 2)
+    );
+    assert_eq!(
+        bank_entry(&conn, cash_flow),
+        Some(("2026-03-03".to_owned(), 10_000, Some("row 0".to_owned())))
+    );
+    assert_eq!(
+        bank_entry(&conn, checking_leg.0),
+        Some(("2026-03-01".to_owned(), -10_000, Some("row 0".to_owned())))
+    );
+    assert!(matches!(
+        &verdicts(&conn, savings, &savings_rows)[..],
+        [Verdict::InSaldo { .. }]
+    ));
+}
+
+#[test]
+fn a_transfer_completes_only_when_the_row_and_the_cash_flow_have_no_rival() {
+    let conn = initialize_in_memory().unwrap();
+    let checking = own(&conn, "Checking");
+    let savings = own(&conn, "Savings");
+    let brokerage = own(&conn, "Brokerage");
+    cashflow(&conn, savings, "2026-03-02T09:00:00", 10_000);
+    cashflow(&conn, savings, "2026-03-03T09:00:00", 10_000);
+    cashflow(&conn, brokerage, "2026-03-02T09:00:00", 7_000);
+
+    let two_cash_flows = verdicts(
+        &conn,
+        checking,
+        &[to(savings, row(0, "2026-03-01", -10_000))],
+    );
+    let two_rows = verdicts(
+        &conn,
+        checking,
+        &[
+            to(brokerage, row(0, "2026-03-01", -7_000)),
+            to(brokerage, row(1, "2026-03-04", -7_000)),
+        ],
+    );
+    let one_each = verdicts(
+        &conn,
+        checking,
+        &[to(brokerage, row(0, "2026-03-01", -7_000))],
+    );
+
+    assert_eq!(two_cash_flows, [Verdict::New]);
+    assert_eq!(two_rows, [Verdict::New, Verdict::New]);
+    assert!(matches!(
+        &one_each[..],
+        [Verdict::CompletesTransfer { account_id, .. }] if *account_id == brokerage
+    ));
+}
+
+/// A transfer `savings → checking` made from the savings side, so the checking leg has no bank
+/// facts. Returns the checking leg's id.
+fn leg_on_checking(conn: &Connection, checking: i64, savings: i64, date: &str) -> i64 {
+    let (_, checking_leg) = create_transfer(
+        conn,
+        &CashflowEntry {
+            counterpart_account_id: Some(checking),
+            ..cashflow_entry(savings, date, -10_000)
+        },
+    )
+    .unwrap();
+    checking_leg
+}
+
+#[test]
+fn only_a_row_without_a_counterpart_or_naming_the_legs_other_account_claims_a_leg() {
+    let conn = initialize_in_memory().unwrap();
+    let checking = own(&conn, "Checking");
+    let savings = own(&conn, "Savings");
+    let brokerage = own(&conn, "Brokerage");
+    let landlord = partner(&conn);
+    let checking_leg = leg_on_checking(&conn, checking, savings, "2026-03-01T09:00:00");
+    let near = || row(0, "2026-03-03", 10_000);
+
+    assert_eq!(
+        verdicts(&conn, checking, &[to(landlord, near())]),
+        [Verdict::New]
+    );
+    assert_eq!(
+        verdicts(&conn, checking, &[to(brokerage, near())]),
+        [Verdict::New]
+    );
+    for claimant in [near(), to(savings, near())] {
+        assert!(matches!(
+            &verdicts(&conn, checking, &[claimant])[..],
+            [Verdict::TransferLeg { event_id, .. }] if *event_id == checking_leg
+        ));
+    }
+    assert_eq!(
+        verdicts(&conn, checking, &[row(0, "2026-03-07", 10_000)]),
+        [Verdict::New],
+        "a leg 6 days away is not this transfer"
+    );
+}
+
+#[test]
+fn a_row_claims_the_closest_leg_then_the_newest() {
+    let conn = initialize_in_memory().unwrap();
+    let checking = own(&conn, "Checking");
+    let savings = own(&conn, "Savings");
+    let far = leg_on_checking(&conn, checking, savings, "2026-03-01T09:00:00");
+    let older = leg_on_checking(&conn, checking, savings, "2026-03-07T09:00:00");
+    let newer = leg_on_checking(&conn, checking, savings, "2026-03-07T09:00:00");
+    written_at(&conn, older, "2026-03-07T10:00:00.000");
+    written_at(&conn, newer, "2026-03-08T10:00:00.000");
+    written_at(&conn, far, "2026-03-09T10:00:00.000");
+
+    let claimed = verdicts(
+        &conn,
+        checking,
+        &[row(0, "2026-03-05", 10_000), row(1, "2026-03-05", 10_000)],
+    );
+
+    let event_ids: Vec<i64> = claimed
+        .iter()
+        .map(|verdict| match verdict {
+            Verdict::TransferLeg { event_id, .. } => *event_id,
+            other => panic!("expected a transfer leg, got {other:?}"),
+        })
+        .collect();
+    assert_eq!(event_ids, [newer, older]);
+}
+
+#[test]
+fn a_stale_review_refuses_and_writes_nothing() {
+    let conn = initialize_in_memory().unwrap();
+    let checking = own(&conn, "Checking");
+    let typed = cashflow(&conn, checking, "2026-03-02T09:00:00", -800);
+    let rows = [row(0, "2026-03-01", -1_250), row(1, "2026-03-02", -800)];
+    let reviewed = preview(&conn, checking, &rows);
+
+    update_event(
+        &conn,
+        UpdateEventParams {
+            event_id: typed,
+            amount_minor: -800,
+            event_date: "2026-03-02T09:00:00".to_owned(),
+            note: Some("typed by hand".to_owned()),
+        },
+    )
+    .unwrap();
+    let before = everything(&conn);
+    let refused = apply(
+        &conn,
+        checking,
+        &rows,
+        default_choices(&reviewed),
+        reviewed.review_token,
+    )
+    .unwrap_err();
+
+    assert_eq!(refused.code, "IMPORT_CHANGED");
+    assert_eq!(everything(&conn), before);
+}
+
+#[test]
+fn rows_that_differ_from_the_review_refuse() {
+    let conn = initialize_in_memory().unwrap();
+    let checking = own(&conn, "Checking");
+    let reviewed = preview(&conn, checking, &[row(0, "2026-03-01", -1_250)]);
+
+    let refused = apply(
+        &conn,
+        checking,
+        &[row(0, "2026-03-01", -1_300)],
+        default_choices(&reviewed),
+        reviewed.review_token,
+    )
+    .unwrap_err();
+
+    assert_eq!(refused.code, "IMPORT_CHANGED");
+    assert!(live(&conn).is_empty());
+}
+
+fn choice(index: u32) -> RowChoice {
+    RowChoice {
+        index,
+        selected: true,
+        bucket_id: None,
+        split: None,
+    }
+}
+
+fn split_choice(index: u32, legs: &[(i64, Option<i64>)]) -> RowChoice {
+    RowChoice {
+        split: Some(
+            legs.iter()
+                .map(|&(amount_minor, counterpart_account_id)| SplitLegChoice {
+                    amount_minor,
+                    note: None,
+                    counterpart_account_id,
+                    bucket_id: None,
+                })
+                .collect(),
+        ),
+        ..choice(index)
+    }
+}
+
+#[test]
+fn an_invalid_import_is_refused_and_writes_nothing() {
+    let conn = initialize_in_memory().unwrap();
+    let checking = own(&conn, "Checking");
+    let landlord = partner(&conn);
+    let good = row(0, "2026-03-01", -1_000);
+    let cases: Vec<(&str, i64, Vec<IncomingRowInput>, Vec<RowChoice>)> = vec![
+        (
+            "a partner account",
+            landlord,
+            vec![good.clone()],
+            vec![choice(0)],
+        ),
+        (
+            "an unknown account",
+            UNKNOWN_ACCOUNT_ID,
+            vec![good.clone()],
+            vec![choice(0)],
+        ),
+        (
+            "a counterpart equal to the account",
+            checking,
+            vec![good.clone(), to(checking, row(1, "2026-03-01", -500))],
+            vec![choice(0), choice(1)],
+        ),
+        (
+            "an unknown counterpart",
+            checking,
+            vec![
+                good.clone(),
+                to(UNKNOWN_ACCOUNT_ID, row(1, "2026-03-01", -500)),
+            ],
+            vec![choice(0), choice(1)],
+        ),
+        (
+            "a bad date",
+            checking,
+            vec![
+                good.clone(),
+                IncomingRowInput {
+                    event_date: "2026-3-01T12:00:00".to_owned(),
+                    ..row(1, "", -500)
+                },
+            ],
+            vec![choice(0), choice(1)],
+        ),
+        (
+            "a duplicate index",
+            checking,
+            vec![good.clone(), row(0, "2026-03-02", -500)],
+            vec![choice(0)],
+        ),
+        ("a missing choice", checking, vec![good.clone()], vec![]),
+        (
+            "a choice for no row",
+            checking,
+            vec![good.clone()],
+            vec![choice(0), choice(1)],
+        ),
+        (
+            "two choices for a row",
+            checking,
+            vec![good.clone(), row(1, "2026-03-02", -500)],
+            vec![choice(0), choice(0)],
+        ),
+        (
+            "a split of one leg",
+            checking,
+            vec![good.clone()],
+            vec![split_choice(0, &[(-1_000, None)])],
+        ),
+        (
+            "a split that does not add up",
+            checking,
+            vec![good.clone()],
+            vec![split_choice(0, &[(-600, None), (-300, None)])],
+        ),
+        (
+            "a split leg with an unknown counterpart",
+            checking,
+            vec![good.clone()],
+            vec![split_choice(
+                0,
+                &[(-600, None), (-400, Some(UNKNOWN_ACCOUNT_ID))],
+            )],
+        ),
+    ];
+    let before = everything(&conn);
+
+    for (case, account_id, rows, choices) in cases {
+        let refused = apply(&conn, account_id, &rows, choices, String::new()).unwrap_err();
+
+        assert_eq!(refused.code, "VALIDATION", "{case}: {}", refused.message);
+        assert_eq!(everything(&conn), before, "{case} wrote something");
+    }
+}
+
+#[test]
+fn a_write_refused_by_storage_undoes_the_whole_import() {
+    let conn = initialize_in_memory().unwrap();
+    let checking = own(&conn, "Checking");
+    let budget = account(&conn, "Income budget", "bucket", BucketKind::IncomeBudget);
+    let rows = [row(0, "2026-03-01", -1_000), row(1, "2026-03-02", 2_000)];
+    let reviewed = preview(&conn, checking, &rows);
+    let choices = vec![
+        choice(0),
+        RowChoice {
+            bucket_id: Some(budget),
+            ..choice(1)
+        },
+    ];
+
+    let refused = apply(&conn, checking, &rows, choices, reviewed.review_token).unwrap_err();
+
+    assert_eq!(refused.code, "VALIDATION");
+    assert!(live(&conn).is_empty());
+}
+
+#[test]
+fn the_preview_names_the_rows_days_with_a_balance_update() {
+    let conn = initialize_in_memory().unwrap();
+    let checking = own(&conn, "Checking");
+    for date in ["2026-03-02T23:59:00", "2026-03-04T23:59:00"] {
+        crate::features::transactions::repository::create_balance_update(
+            &conn,
+            crate::features::transactions::repository::CreateBalanceUpdateParams {
+                account_id: checking,
+                amount_minor: 100_000,
+                event_date: date.to_owned(),
+                note: None,
+            },
+        )
+        .unwrap();
+    }
+
+    let reviewed = preview(
+        &conn,
+        checking,
+        &[
+            row(0, "2026-03-04", -1),
+            row(1, "2026-03-01", -1),
+            row(2, "2026-03-02", -1),
+        ],
+    );
+
+    assert_eq!(reviewed.balance_update_days, ["2026-03-02", "2026-03-04"]);
+    assert!(reviewed.rows.iter().all(|row| row.verdict == Verdict::New));
+}
+
+#[test]
+fn an_import_runs_on_the_demo_database() {
+    let conn = initialize_in_memory().unwrap();
+    crate::demo::seed_demo_data(&conn, None, None).unwrap();
+    let checking: i64 = conn
+        .query_row(
+            "SELECT id FROM account WHERE account_type = 'account' ORDER BY id LIMIT 1",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let rows = [row(0, "2026-03-01", -1_250)];
+
+    assert_eq!(import(&conn, checking, &rows), 1);
+    assert!(matches!(
+        &verdicts(&conn, checking, &rows)[..],
+        [Verdict::InSaldo { .. }]
+    ));
+}
+
+#[test]
+fn the_wire_shapes_are_the_ones_the_wizard_sends_and_reads() {
+    let input: ApplyCsvImportInput = serde_json::from_value(json!({
+        "accountId": 4,
+        "rows": [{
+            "index": 7, "eventDate": "2026-03-01T12:00:00", "amountMinor": -1000, "note": null,
+            "counterpartAccountId": 5, "originalCurrencyId": 2, "originalAmountMinor": -3333,
+            "fxRateMantissa": 3333, "fxRateExponent": -3
+        }],
+        "choices": [{
+            "index": 7, "selected": true, "bucketId": null,
+            "split": [{ "amountMinor": -600, "note": "a", "counterpartAccountId": null, "bucketId": 9 }]
+        }],
+        "reviewToken": "token"
+    }))
+    .unwrap();
+    assert_eq!(
+        (
+            input.account_id,
+            input.rows[0].index,
+            input.rows[0].counterpart_account_id,
+            input.rows[0].fx_rate_exponent,
+            input.choices[0].split.as_ref().unwrap()[0].bucket_id,
+            input.review_token.as_str(),
+        ),
+        (4, 7, Some(5), Some(-3), Some(9), "token")
+    );
+
+    let preview = CsvImportPreview {
+        rows: vec![RowPreview {
+            index: 7,
+            verdict: Verdict::New,
+        }],
+        balance_update_days: vec!["2026-03-01".to_owned()],
+        review_token: "token".to_owned(),
+    };
+    let verdicts = [
+        Verdict::CompletesTransfer {
+            event_id: 1,
+            account_id: 2,
+            account_name: "Savings".to_owned(),
+            event_date: "2026-03-03T12:00:00".to_owned(),
+            note: None,
+        },
+        Verdict::InSaldo {
+            event_id: 3,
+            event_date: "2026-03-01T12:00:00".to_owned(),
+            note: Some("rent".to_owned()),
+        },
+        Verdict::TransferLeg {
+            event_id: 4,
+            other_account_name: "Checking".to_owned(),
+            event_date: "2026-03-01T12:00:00".to_owned(),
+        },
+    ];
+
+    assert_eq!(
+        serde_json::to_value(&preview).unwrap(),
+        json!({
+            "rows": [{ "index": 7, "verdict": { "kind": "new" } }],
+            "balanceUpdateDays": ["2026-03-01"],
+            "reviewToken": "token"
+        })
+    );
+    assert_eq!(
+        serde_json::to_value(&verdicts).unwrap(),
+        json!([
+            { "kind": "completesTransfer", "eventId": 1, "accountId": 2, "accountName": "Savings",
+              "eventDate": "2026-03-03T12:00:00", "note": null },
+            { "kind": "inSaldo", "eventId": 3, "eventDate": "2026-03-01T12:00:00", "note": "rent" },
+            { "kind": "transferLeg", "eventId": 4, "otherAccountName": "Checking",
+              "eventDate": "2026-03-01T12:00:00" }
+        ])
+    );
+    assert_eq!(
+        serde_json::to_value(CsvImportResult { imported: 3 }).unwrap(),
+        json!({ "imported": 3 })
+    );
+}

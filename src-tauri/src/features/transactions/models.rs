@@ -319,8 +319,7 @@ pub struct Snapshot {
     pub rate_warnings: Vec<RateWarning>,
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug)]
 pub struct SplitGroupEntry {
     pub amount_minor: i64,
     pub event_date: String,
@@ -331,14 +330,6 @@ pub struct SplitGroupEntry {
     pub original_amount_minor: Option<i64>,
     pub fx_rate_mantissa: Option<i64>,
     pub fx_rate_exponent: Option<i64>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CreateSplitGroupInput {
-    pub account_id: i64,
-    pub group_note: Option<String>,
-    pub legs: Vec<SplitGroupEntry>,
 }
 
 /// The kinds of taxable entry a document can become.

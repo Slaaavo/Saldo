@@ -7,7 +7,7 @@ use crate::features::buckets::BucketKind;
 use crate::features::persons::repository::{create_person, CreatePersonParams};
 use crate::features::transactions::models::SplitGroupEntry;
 use crate::features::transactions::repository::{
-    bulk_create_balance_updates, bulk_create_cashflows, create_balance_update, create_cashflow,
+    bulk_create_balance_updates, create_balance_update, create_cashflow,
     create_split_group_with_legs, rows_at, BulkCreateBalanceUpdatesParams, CashflowEntry,
     CreateBalanceUpdateParams, CreateSplitGroupWithLegsParams,
 };
@@ -160,16 +160,11 @@ fn a_bulk_balance_update_naming_an_income_budget_writes_nothing() {
 #[test]
 fn an_income_budget_refuses_a_cashflow_on_itself() {
     let conn = initialize_in_memory().unwrap();
-    let checking = account(&conn);
     let budget = income_budget(&conn);
 
     let single = create_cashflow(&conn, &cashflow(budget, None)).unwrap_err();
-    let bulk = bulk_create_cashflows(&conn, &[cashflow(checking, None), cashflow(budget, None)])
-        .unwrap_err();
 
     assert_eq!(refusal(single), validation(NO_ENTRIES));
-    assert_eq!(refusal(bulk), validation(NO_ENTRIES));
-    assert_eq!(events_on(&conn, checking), 0);
     assert_eq!(events_on(&conn, budget), 0);
 }
 

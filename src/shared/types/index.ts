@@ -2,6 +2,7 @@ import type { EarlierProfitResult, EntryKind, EntryNotCountedReason, ForecastFig
 
 export * from './taxForecast'
 export * from './incomeBudget'
+export * from './csvImport'
 
 export interface PersonRow {
   id: number

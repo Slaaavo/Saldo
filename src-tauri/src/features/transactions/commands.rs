@@ -9,7 +9,7 @@ use rusqlite::Connection;
 use serde::Deserialize;
 use tauri::State;
 
-use super::models::{CreateSplitGroupInput, EventWithData, ListEventsResult, Snapshot};
+use super::models::{EventWithData, ListEventsResult, Snapshot};
 use super::repository::{self, GetSnapshotParams, Moment};
 use super::SourceRef;
 
@@ -96,12 +96,6 @@ pub struct CreateCashflowInput {
     pub original_amount_minor: Option<i64>,
     pub fx_rate_mantissa: Option<i64>,
     pub fx_rate_exponent: Option<i64>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct BulkCreateCashflowsInput {
-    pub entries: Vec<CreateCashflowInput>,
 }
 
 #[derive(Deserialize)]
@@ -417,127 +411,6 @@ fn create_cashflow_with_conn(
         repository::create_cashflow(conn, &entry)?
     };
     Ok(event_id)
-}
-
-#[tauri::command]
-pub fn bulk_create_cashflows(
-    state: State<'_, AppState>,
-    input: BulkCreateCashflowsInput,
-) -> Result<Vec<i64>, AppError> {
-    let conn = state.conn()?;
-    bulk_create_cashflows_with_conn(&conn, input)
-}
-
-fn bulk_create_cashflows_with_conn(
-    conn: &rusqlite::Connection,
-    input: BulkCreateCashflowsInput,
-) -> Result<Vec<i64>, AppError> {
-    if input.entries.is_empty() {
-        return Err(AppError {
-            code: "VALIDATION".into(),
-            message: "At least one cashflow entry is required".into(),
-        });
-    }
-    for entry in &input.entries {
-        crate::shared::validate_event_date(&entry.event_date)?;
-    }
-    for entry in &input.entries {
-        if let Some(account_type) =
-            crate::features::accounts::repository::get_account_type(conn, entry.account_id)?
-        {
-            if account_type == "partner" {
-                return Err(AppError {
-                    code: "VALIDATION".into(),
-                    message: "Cannot create events on partner accounts".into(),
-                });
-            }
-        }
-        if entry.counterpart_account_id == Some(entry.account_id) {
-            return Err(AppError {
-                code: "VALIDATION".into(),
-                message: "Cannot transfer to the same account".into(),
-            });
-        }
-        counterpart_account_type(conn, entry.counterpart_account_id)?;
-    }
-    let entries: Vec<repository::CashflowEntry> = input
-        .entries
-        .into_iter()
-        .map(|e| repository::CashflowEntry {
-            account_id: e.account_id,
-            amount_minor: e.amount_minor,
-            event_date: e.event_date,
-            note: e.note,
-            counterpart_account_id: e.counterpart_account_id,
-            bucket_id: e.bucket_id,
-            original_currency_id: e.original_currency_id,
-            original_amount_minor: e.original_amount_minor,
-            fx_rate_mantissa: e.fx_rate_mantissa,
-            fx_rate_exponent: e.fx_rate_exponent,
-        })
-        .collect();
-    let ids = repository::bulk_create_cashflows(conn, &entries)?;
-    Ok(ids)
-}
-
-#[tauri::command]
-pub fn create_split_group(
-    state: State<'_, AppState>,
-    input: CreateSplitGroupInput,
-) -> Result<i64, AppError> {
-    let conn = state.conn()?;
-    create_split_group_with_conn(&conn, input)
-}
-
-fn create_split_group_with_conn(
-    conn: &rusqlite::Connection,
-    input: CreateSplitGroupInput,
-) -> Result<i64, AppError> {
-    if input.legs.len() < 2 {
-        return Err(AppError {
-            code: "VALIDATION".into(),
-            message: "Split group requires at least 2 legs".into(),
-        });
-    }
-    for leg in &input.legs {
-        crate::shared::validate_event_date(&leg.event_date)?;
-    }
-    let dates: std::collections::HashSet<&str> =
-        input.legs.iter().map(|l| l.event_date.as_str()).collect();
-    if dates.len() > 1 {
-        return Err(AppError {
-            code: "VALIDATION".into(),
-            message: "All split group legs must share the same date".into(),
-        });
-    }
-    if let Some(account_type) =
-        crate::features::accounts::repository::get_account_type(conn, input.account_id)?
-    {
-        if account_type == "partner" {
-            return Err(AppError {
-                code: "VALIDATION".into(),
-                message: "Cannot create events on partner accounts".into(),
-            });
-        }
-    }
-    for leg in &input.legs {
-        if leg.counterpart_account_id == Some(input.account_id) {
-            return Err(AppError {
-                code: "VALIDATION".into(),
-                message: "Cannot transfer to the same account".into(),
-            });
-        }
-        counterpart_account_type(conn, leg.counterpart_account_id)?;
-    }
-    let split_group_id = repository::create_split_group_with_legs(
-        conn,
-        repository::CreateSplitGroupWithLegsParams {
-            account_id: input.account_id,
-            group_note: input.group_note,
-            legs: input.legs,
-        },
-    )?;
-    Ok(split_group_id)
 }
 
 #[tauri::command]
@@ -2198,46 +2071,5 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(stored.counterpart_account_id, Some(partner));
-    }
-
-    #[test]
-    fn bulk_create_cashflows_rejects_an_unknown_counterpart_and_creates_nothing() {
-        let conn = initialize_in_memory().unwrap();
-        let account = mk_account(&conn);
-        let events_before = event_count(&conn);
-
-        let err = bulk_create_cashflows_with_conn(
-            &conn,
-            BulkCreateCashflowsInput {
-                entries: vec![
-                    cashflow_input(account, None),
-                    cashflow_input(account, Some(UNKNOWN_ACCOUNT_ID)),
-                ],
-            },
-        )
-        .unwrap_err();
-
-        assert_eq!(err.code, "VALIDATION");
-        assert_eq!(event_count(&conn), events_before);
-    }
-
-    #[test]
-    fn create_split_group_rejects_an_unknown_counterpart_and_creates_nothing() {
-        let conn = initialize_in_memory().unwrap();
-        let account = mk_account(&conn);
-        let events_before = event_count(&conn);
-
-        let err = create_split_group_with_conn(
-            &conn,
-            CreateSplitGroupInput {
-                account_id: account,
-                group_note: None,
-                legs: vec![leg(None, -1_000), leg(Some(UNKNOWN_ACCOUNT_ID), -2_000)],
-            },
-        )
-        .unwrap_err();
-
-        assert_eq!(err.code, "VALIDATION");
-        assert_eq!(event_count(&conn), events_before);
     }
 }

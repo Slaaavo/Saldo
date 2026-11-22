@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest'
 import { renderHook, act, waitFor } from '@testing-library/react'
-import type { Currency, EventWithData, ImportProfileRow, SnapshotRow } from '../../../shared/types'
+import type { CsvImportPreview, Currency, ImportProfileRow, ImportVerdict, PreviewCsvImportInput, SnapshotRow } from '../../../shared/types'
 import { toast } from 'sonner'
 import { useImportWizard } from './useImportWizard'
 import { makeIncomeBudgetRow, makeRow } from '../../../shared/testing/snapshotFixtures'
@@ -18,18 +18,16 @@ vi.mock('react-i18next', () => ({
 }))
 
 vi.mock('sonner', () => ({
-  toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn() },
+  toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() },
 }))
 
 vi.mock('../../../shared/api', () => ({
-  listEvents: vi.fn(),
+  previewCsvImport: vi.fn(),
+  applyCsvImport: vi.fn(),
   listPartnerAccounts: vi.fn(),
   listCurrencies: vi.fn(),
   createPartnerAccount: vi.fn(),
   updateAccount: vi.fn(),
-  updateEvent: vi.fn(),
-  bulkCreateCashflows: vi.fn(),
-  createSplitGroup: vi.fn(),
   listImportProfiles: vi.fn(),
   getPreferredProfile: vi.fn(),
   setPreferredProfile: vi.fn(),
@@ -38,13 +36,12 @@ vi.mock('../../../shared/api', () => ({
 }))
 
 import {
-  listEvents,
+  previewCsvImport,
+  applyCsvImport,
   listPartnerAccounts,
   listCurrencies,
   createPartnerAccount,
   updateAccount,
-  bulkCreateCashflows,
-  createSplitGroup,
   listImportProfiles,
   getPreferredProfile,
   setPreferredProfile,
@@ -55,58 +52,36 @@ const JPY: Currency = { id: 3, code: 'JPY', name: 'Japanese Yen', minorUnits: 0,
 
 const makeAccount = (overrides: Partial<SnapshotRow>): SnapshotRow => makeRow({ balanceMinor: 0, ...overrides })
 
-const makeEvent = (overrides: Partial<EventWithData>): EventWithData => ({
-  id: 100,
-  accountId: 1,
-  accountName: 'Checking',
-  accountType: 'account',
-  eventType: 'cashflow',
-  eventDate: '2026-03-01T12:00:00',
-  amountMinor: 0,
-  note: null,
-  createdAt: '2026-03-01T12:00:00',
-  currencyCode: 'EUR',
-  currencyMinorUnits: 2,
-  counterpartAccountId: null,
-  counterpartAccountName: null,
-  bucketId: null,
-  bucketName: null,
-  originalCurrencyId: null,
-  originalCurrencyCode: null,
-  originalAmountMinor: null,
-  originalCurrencyMinorUnits: null,
-  fxRateMantissa: null,
-  fxRateExponent: null,
-  linkedEventId: null,
-  splitGroupId: null,
-  splitGroupNote: null,
-  vatRateBps: null,
-  vatReclaimablePctBps: null,
-  expenseDeductiblePctBps: null,
-  prepaidUntil: null,
-  isLinkedToTaxable: false,
-  linkedTaxableEventId: null,
-  hasLinkedCashflows: false,
-  linkedCashflowCount: 0,
-  linkedAssetId: null,
-  linkedPrepaidEventId: null,
-  isSystemGenerated: false,
-  reclaimedVat: null,
-  privateUse: false,
-  ...overrides,
-})
-
 const SNAPSHOT: SnapshotRow[] = [makeAccount({ accountId: 1, accountName: 'Checking' })]
+const SAVINGS = makeAccount({ accountId: 2, accountName: 'Savings' })
 
-const setupMocks = (overrides?: { events?: EventWithData[] }) => {
-  ;(listEvents as Mock).mockResolvedValue({ events: overrides?.events ?? [] })
+const IN_SALDO: ImportVerdict = { kind: 'inSaldo', eventId: 40, eventDate: '2026-03-02T12:00:00', note: null }
+const TRANSFER_LEG: ImportVerdict = { kind: 'transferLeg', eventId: 41, otherAccountName: 'Savings', eventDate: '2026-02-27T12:00:00' }
+const COMPLETES_TRANSFER: ImportVerdict = { kind: 'completesTransfer', eventId: 42, accountId: 2, accountName: 'Savings', eventDate: '2026-03-01T12:00:00', note: null }
+
+// Answers each preview with the next verdict list, or every row new once the lists run out.
+const answerPreviews = (...answers: Array<{ verdicts: ImportVerdict[]; token?: string; balanceUpdateDays?: string[] }>) => {
+  let call = 0
+  ;(previewCsvImport as Mock).mockImplementation(async ({ rows }: PreviewCsvImportInput): Promise<CsvImportPreview> => {
+    const answer = answers[call++]
+    return {
+      rows: rows.map((row, i) => ({ index: row.index, verdict: answer?.verdicts[i] ?? { kind: 'new' } })),
+      balanceUpdateDays: answer?.balanceUpdateDays ?? [],
+      reviewToken: answer?.token ?? `token-${call}`,
+    }
+  })
+}
+
+const previewedRows = (call: number) => (previewCsvImport as Mock).mock.calls[call][0].rows
+
+const setupMocks = () => {
+  answerPreviews()
+  ;(applyCsvImport as Mock).mockResolvedValue({ imported: 1 })
   ;(listPartnerAccounts as Mock).mockResolvedValue([])
   ;(listCurrencies as Mock).mockResolvedValue([EUR, JPY])
   ;(listImportProfiles as Mock).mockResolvedValue([])
   ;(getPreferredProfile as Mock).mockResolvedValue(null)
   ;(setPreferredProfile as Mock).mockResolvedValue(undefined)
-  ;(bulkCreateCashflows as Mock).mockResolvedValue(undefined)
-  ;(createSplitGroup as Mock).mockResolvedValue(1)
 }
 
 const renderWizard = (snapshot: SnapshotRow[] = SNAPSHOT) => {
@@ -123,9 +98,11 @@ const renderAtReview = async (csv: string, snapshot: SnapshotRow[] = SNAPSHOT) =
   await act(() => wizard.result.current.handleFileSelect(csvFile(csv)))
   await act(() => wizard.result.current.handleAccountSelect(1))
   act(() => wizard.result.current.goToMapping())
-  act(() => wizard.result.current.goToReview())
+  await act(() => wizard.result.current.goToReview())
   return wizard
 }
+
+const THREE_ROWS = 'Date,Amount\n2026-03-01,-50.00\n2026-03-02,-10.00\n2026-03-03,20.00'
 
 describe('useImportWizard', () => {
   beforeEach(() => {
@@ -149,65 +126,176 @@ describe('useImportWizard', () => {
       expect(result.current.wizardState.importRows).toHaveLength(1)
       expect(result.current.wizardState.unparseableRowCount).toBe(2)
     })
-  })
 
-  describe('foreign currency', () => {
-    it('applies a sign rule to the original amount as well as the amount', async () => {
+    it('sends the rows to the preview as the rules leave them', async () => {
       const wizard = renderWizard()
-      await act(() => wizard.result.current.handleFileSelect(csvFile('Date,Amount,Currency,Typ\n2026-03-01,10.00,JPY,D')))
+      await act(() => wizard.result.current.handleFileSelect(csvFile('Date,Amount,Note,Currency,Typ\n2026-03-01,10.00,Coffee,,D\n2026-03-02,10.00,,JPY,D\n2026-03-03,5.00,,,K')))
       await act(() => wizard.result.current.handleAccountSelect(1))
       act(() => wizard.result.current.goToMapping())
       act(() => wizard.result.current.setRules([{ type: 'sign_from_column', sortOrder: 0, typeColumn: 'Typ', negativeType: 'D' }]))
-      act(() => wizard.result.current.goToReview())
+      await act(() => wizard.result.current.goToReview())
 
-      expect(wizard.result.current.wizardState.importRows[0]).toMatchObject({ amountMinor: -1000, originalAmountMinor: -10, originalCurrencyCode: 'JPY' })
+      const none = { counterpartAccountId: null, originalCurrencyId: null, originalAmountMinor: null, fxRateMantissa: null, fxRateExponent: null }
+      expect(previewCsvImport).toHaveBeenCalledWith({
+        accountId: 1,
+        rows: [
+          { index: 0, eventDate: '2026-03-01T12:00:00', amountMinor: -1000, note: 'Coffee', ...none },
+          { index: 1, eventDate: '2026-03-02T12:00:00', amountMinor: -1000, note: null, ...none, originalCurrencyId: 3, originalAmountMinor: -10 },
+          { index: 2, eventDate: '2026-03-03T12:00:00', amountMinor: 500, note: null, ...none },
+        ],
+      })
+      expect(wizard.result.current.wizardState.step).toBe('review')
     })
 
-    it('pro-rates the original amount across split legs with the remainder on the last leg', async () => {
-      const { result } = await renderAtReview('Date,Amount,Currency\n2026-03-01,-10.00,JPY')
-      act(() => result.current.handleSplitOpen(0))
-      act(() => result.current.handleLegAmountChange(0, 0, -333))
-      act(() => result.current.handleAddLeg(0))
-      act(() => result.current.handleLegAmountChange(0, 1, -333))
-      act(() => result.current.handleAddLeg(0))
+    it('ticks new rows and rows that complete a transfer, and leaves rows already in Saldo unticked', async () => {
+      answerPreviews({ verdicts: [{ kind: 'new' }, COMPLETES_TRANSFER, IN_SALDO, TRANSFER_LEG], balanceUpdateDays: ['2026-03-02'] })
+      const { result } = await renderAtReview(`${THREE_ROWS}\n2026-03-04,30.00`)
 
-      await act(() => result.current.handleImport())
-
-      const legs = (createSplitGroup as Mock).mock.calls[0][0].legs
-      expect(legs.map((l: { amountMinor: number; originalAmountMinor: number }) => [l.amountMinor, l.originalAmountMinor])).toEqual([
-        [-333, -3],
-        [-333, -3],
-        [-334, -4],
+      expect(result.current.wizardState.importRows.map((r) => [r.verdict.kind, r.isSelected])).toEqual([
+        ['new', true],
+        ['completesTransfer', true],
+        ['inSaldo', false],
+        ['transferLeg', false],
       ])
+      expect(result.current.selectedCount).toBe(2)
+      expect(result.current.balanceWarningDates).toEqual(['2026-03-02'])
+    })
+
+    it('selects and deselects only the new rows', async () => {
+      answerPreviews({ verdicts: [{ kind: 'new' }, IN_SALDO, TRANSFER_LEG] })
+      const { result } = await renderAtReview(THREE_ROWS)
+      act(() => result.current.handleToggleRow(1))
+
+      act(() => result.current.handleDeselectAll())
+      expect(result.current.wizardState.importRows.map((r) => r.isSelected)).toEqual([false, true, false])
+
+      act(() => result.current.handleSelectAll())
+      expect(result.current.wizardState.importRows.map((r) => r.isSelected)).toEqual([true, true, false])
+    })
+
+    it('stays before the review when the preview fails', async () => {
+      ;(previewCsvImport as Mock).mockRejectedValue({ code: 'DB_ERROR', message: 'locked' })
+      const { result } = await renderAtReview(THREE_ROWS)
+
+      expect(result.current.wizardState.step).toBe('mapping')
+      expect(toast.error).toHaveBeenCalledWith('errors.loadData')
+    })
+  })
+
+  describe('counterpart changes', () => {
+    it("previews again after a counterpart change, keeping a row's choice while its verdict kind stays and resetting it when the kind changes", async () => {
+      answerPreviews({ verdicts: [{ kind: 'new' }, { kind: 'new' }] }, { verdicts: [{ kind: 'new' }, COMPLETES_TRANSFER], token: 'token-after' })
+      const { result } = await renderAtReview('Date,Amount\n2026-03-01,-50.00\n2026-03-02,-10.00', [...SNAPSHOT, SAVINGS])
+      act(() => result.current.handleBucketChange(0, 10))
+      act(() => result.current.handleToggleRow(0))
+      act(() => result.current.handleBucketChange(1, 10))
+
+      act(() => result.current.handleCounterpartChange(1, 2))
+
+      await waitFor(() => expect(result.current.wizardState.reviewToken).toBe('token-after'))
+      expect(previewedRows(1).map((r: { counterpartAccountId: number | null }) => r.counterpartAccountId)).toEqual([null, 2])
+      expect(result.current.wizardState.importRows.map((r) => [r.verdict.kind, r.isSelected, r.bucketId])).toEqual([
+        ['new', false, 10],
+        ['completesTransfer', true, null],
+      ])
+    })
+
+    it('previews again with a partner created for an unmatched IBAN', async () => {
+      ;(createPartnerAccount as Mock).mockResolvedValue(50)
+      const { result } = await renderAtReview('Date,Amount,IBAN\n2026-03-01,-10.00,SK3112000000198742637541')
+
+      await act(async () => {
+        await result.current.handleCreatePartner('SK31 1200 0000 1987 4263 7541', 'Shop')
+      })
+
+      await waitFor(() => expect(result.current.wizardState.reviewToken).toBe('token-2'))
+      expect(previewedRows(1)[0].counterpartAccountId).toBe(50)
+      expect(result.current.wizardState.importRows[0].ibanMatch).toEqual({ type: 'partner', accountId: 50, accountName: 'Shop' })
     })
   })
 
   describe('import', () => {
+    it("applies once with every row's choice and the token of the reviewed preview", async () => {
+      answerPreviews({ verdicts: [{ kind: 'new' }, IN_SALDO, TRANSFER_LEG], token: 'reviewed' })
+      const { result } = await renderAtReview(THREE_ROWS)
+      act(() => result.current.handleSplitOpen(0))
+      act(() => result.current.handleLegAmountChange(0, 0, -2000))
+      act(() => result.current.handleAddLeg(0))
+      act(() => result.current.handleToggleRow(1))
+      act(() => result.current.handleBucketChange(1, 10))
+
+      await act(() => result.current.handleImport())
+
+      expect(applyCsvImport).toHaveBeenCalledTimes(1)
+      expect(applyCsvImport).toHaveBeenCalledWith({
+        accountId: 1,
+        rows: previewedRows(0),
+        choices: [
+          {
+            index: 0,
+            selected: true,
+            bucketId: null,
+            split: [
+              { amountMinor: -2000, note: null, counterpartAccountId: null, bucketId: null },
+              { amountMinor: -3000, note: null, counterpartAccountId: null, bucketId: null },
+            ],
+          },
+          { index: 1, selected: true, bucketId: 10, split: null },
+          { index: 2, selected: false, bucketId: null, split: null },
+        ],
+        reviewToken: 'reviewed',
+      })
+    })
+
+    it('finishes an import with nothing ticked and says nothing new was imported', async () => {
+      const PROFILE: ImportProfileRow = {
+        id: 7,
+        name: 'Bank',
+        columnMappingJson: JSON.stringify({ date: 'Date', amount: 'Amount', partner: null, note: null, currency: null, fxRate: null }),
+        rules: [],
+        createdAt: '',
+        updatedAt: '',
+      }
+      ;(getPreferredProfile as Mock).mockResolvedValue(PROFILE)
+      ;(applyCsvImport as Mock).mockResolvedValue({ imported: 0 })
+      answerPreviews({ verdicts: [IN_SALDO, TRANSFER_LEG] })
+      const { result, onClose, onSuccess } = await renderAtReview('Date,Amount\n2026-03-02,-10.00\n2026-03-01,20.00')
+      expect(result.current.selectedCount).toBe(0)
+      expect(result.current.canImport).toBe(true)
+
+      await act(() => result.current.handleImport())
+
+      expect((applyCsvImport as Mock).mock.calls[0][0].choices.map((c: { selected: boolean }) => c.selected)).toEqual([false, false])
+      expect(onSuccess).toHaveBeenCalledTimes(1)
+      expect(toast.info).toHaveBeenCalledWith('import.nothingNew')
+      expect(toast.success).not.toHaveBeenCalled()
+      expect(onClose).toHaveBeenCalled()
+    })
+
+    it('previews again and stays on the review when Saldo changed during the review', async () => {
+      answerPreviews({ verdicts: [{ kind: 'new' }], token: 'old' }, { verdicts: [IN_SALDO], token: 'new' })
+      ;(applyCsvImport as Mock).mockRejectedValueOnce({ code: 'IMPORT_CHANGED', message: 'Saldo changed' })
+      const { result, onSuccess } = await renderAtReview('Date,Amount\n2026-03-02,-10.00')
+
+      await act(() => result.current.handleImport())
+
+      expect(toast.warning).toHaveBeenCalledWith('import.reviewStep.changedDuringReview')
+      expect(onSuccess).not.toHaveBeenCalled()
+      expect(result.current.wizardState.step).toBe('review')
+      expect(result.current.wizardState.importRows[0]).toMatchObject({ verdict: IN_SALDO, isSelected: false })
+
+      await act(() => result.current.handleImport())
+
+      expect((applyCsvImport as Mock).mock.calls[1][0]).toMatchObject({ reviewToken: 'new', choices: [{ index: 0, selected: false }] })
+    })
+
     it('reports a split that has only one leg', async () => {
       const { result } = await renderAtReview('Date,Amount\n2026-03-01,-50.00')
 
       act(() => result.current.handleSplitOpen(0))
 
       expect(result.current.splitValidationErrors).toEqual(['import.reviewStep.split.minLegsError'])
-    })
-
-    it('drops committed rows and refreshes data when a later split fails, so a retry does not insert them again', async () => {
-      const { result, onSuccess } = await renderAtReview('Date,Amount\n2026-03-01,-10.00\n2026-03-02,-50.00')
-      act(() => result.current.handleSplitOpen(1))
-      act(() => result.current.handleLegAmountChange(1, 0, -2000))
-      act(() => result.current.handleAddLeg(1))
-      ;(createSplitGroup as Mock).mockRejectedValueOnce(new Error('boom'))
-
-      await act(() => result.current.handleImport())
-
-      expect(bulkCreateCashflows).toHaveBeenCalledTimes(1)
-      expect(onSuccess).toHaveBeenCalledTimes(1)
-      expect(result.current.wizardState.importRows.map((r) => r.index)).toEqual([1])
-
-      await act(() => result.current.handleImport())
-
-      expect(bulkCreateCashflows).toHaveBeenCalledTimes(1)
-      expect(createSplitGroup).toHaveBeenCalledTimes(2)
+      expect(result.current.canImport).toBe(false)
     })
 
     it('refreshes data before switching to the save-profile step', async () => {
@@ -216,19 +304,8 @@ describe('useImportWizard', () => {
       await act(() => result.current.handleImport())
 
       expect(onSuccess).toHaveBeenCalledTimes(1)
-      expect(result.current.wizardState.step).toBe('save-profile')
+      expect(result.current.wizardState).toMatchObject({ step: 'save-profile', importedCount: 1 })
       expect(onClose).not.toHaveBeenCalled()
-    })
-
-    it('imports a duplicate row once the user ticks it', async () => {
-      setupMocks({ events: [makeEvent({ eventDate: '2026-03-01T12:00:00', amountMinor: -1000 })] })
-      const { result } = await renderAtReview('Date,Amount\n2026-03-01,-10.00')
-      expect(result.current.wizardState.importRows[0]).toMatchObject({ isDuplicate: true, isSelected: false })
-
-      act(() => result.current.handleToggleRow(0))
-      await act(() => result.current.handleImport())
-
-      expect(bulkCreateCashflows).toHaveBeenCalledWith({ entries: [expect.objectContaining({ amountMinor: -1000 })] })
     })
   })
 
@@ -269,8 +346,6 @@ describe('useImportWizard', () => {
   })
 
   describe('account switch', () => {
-    const SAVINGS = makeAccount({ accountId: 2, accountName: 'Savings' })
-
     it('picks a preselected account on open and loads its preferred profile once', async () => {
       const PROFILE = { id: 7, name: 'Bank', columnMappingJson: JSON.stringify({ date: 'Date', amount: 'Amount' }), rules: [], createdAt: '', updatedAt: '' }
       ;(getPreferredProfile as Mock).mockResolvedValue(PROFILE)
@@ -281,7 +356,6 @@ describe('useImportWizard', () => {
 
       await waitFor(() => expect(result.current.wizardState.loadedProfile?.id).toBe(7))
       expect(result.current.wizardState.selectedAccountId).toBe(2)
-      expect(listEvents).toHaveBeenCalledWith({ accountId: 2 })
 
       rerender({ snapshot: [...SNAPSHOT, { ...SAVINGS, balanceMinor: 500 }] })
 
@@ -310,29 +384,6 @@ describe('useImportWizard', () => {
 
       expect(result.current.wizardState.loadedProfile).toBeNull()
       expect(result.current.wizardState.originalProfileColumnMapping).toBeNull()
-    })
-
-    it('ignores events that arrive late for an account no longer selected', async () => {
-      let resolveFirst: (value: { events: EventWithData[] }) => void = () => {}
-      ;(listEvents as Mock).mockImplementation(({ accountId }: { accountId: number }) =>
-        accountId === 1 ? new Promise((resolve) => (resolveFirst = resolve)) : Promise.resolve({ events: [] }),
-      )
-      const { result } = renderWizard([...SNAPSHOT, SAVINGS])
-      await act(() => result.current.handleFileSelect(csvFile('Date,Amount\n2026-03-01,-10.00')))
-
-      let firstSelect: Promise<void> = Promise.resolve()
-      act(() => {
-        firstSelect = result.current.handleAccountSelect(1)
-      })
-      await act(() => result.current.handleAccountSelect(2))
-      await act(async () => {
-        resolveFirst({ events: [makeEvent({ accountId: 1, eventDate: '2026-03-01T12:00:00', amountMinor: -1000 })] })
-        await firstSelect
-      })
-      act(() => result.current.goToMapping())
-      act(() => result.current.goToReview())
-
-      expect(result.current.wizardState.importRows[0].isDuplicate).toBe(false)
     })
   })
 

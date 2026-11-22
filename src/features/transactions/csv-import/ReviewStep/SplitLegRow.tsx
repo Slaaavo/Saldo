@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { X } from 'lucide-react'
-import type { SplitLeg, IbanMatchResult, ImportRow } from '../types'
+import type { SplitLeg, IbanMatchResult } from '../types'
 import type { SnapshotRow } from '../../../../shared/types'
 import { fromMinorUnits, toMinorUnits } from '../../../../shared/utils/format'
 import { Button } from '../../../../shared/ui/button'
@@ -52,27 +52,6 @@ export const SplitLegRow = ({
 
   const [amountStr, setAmountStr] = useState(() => fromMinorUnits(leg.amountMinor, selectedAccountMinorUnits))
 
-  // Construct a synthetic ImportRow so we can reuse PartnerCell unchanged
-  const syntheticRow: ImportRow = {
-    index: leg.legId,
-    date: '',
-    amountMinor: leg.amountMinor,
-    currencyCode: selectedAccountCurrencyCode,
-    originalAmountMinor: null,
-    originalCurrencyCode: null,
-    fxRateMantissa: null,
-    fxRateExponent: null,
-    note: leg.note,
-    rawIban: leg.rawIban,
-    ibanMatch: leg.ibanMatch,
-    isDuplicate: false,
-    nearDateDuplicateEventId: null,
-    isSelected: true,
-    bucketId: leg.bucketId,
-    counterpartAccountId: leg.counterpartAccountId,
-    splitLegs: null,
-  }
-
   const handleCounterpartChange = (_index: number, accountId: number | null) => {
     if (accountId === null) {
       onPartnerChange(leg.legId, null, { type: 'none' }, null)
@@ -109,7 +88,7 @@ export const SplitLegRow = ({
       </td>
       <td className="px-2 py-1.5 border-b border-border/50">
         <PartnerCell
-          row={syntheticRow}
+          row={{ index: leg.legId, rawIban: leg.rawIban, ibanMatch: leg.ibanMatch }}
           accountsWithoutIban={accountsWithoutIban}
           counterpartAccounts={counterpartAccounts}
           onCreatePartner={onCreatePartner}

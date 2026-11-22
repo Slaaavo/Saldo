@@ -1,4 +1,4 @@
-import type { ImportProfileRow, ImportRule } from '../../../shared/types'
+import type { ImportProfileRow, ImportRule, ImportVerdict } from '../../../shared/types'
 
 export type CsvRow = Record<string, string>
 
@@ -22,23 +22,25 @@ export interface SplitLeg {
   counterpartAccountId: number | null
 }
 
-export interface ImportRow {
+/** A row as the file and the rules give it. `ibanMatch` holds its counterpart: an own account or a partner, else none. */
+export interface ParsedRow {
   index: number
   date: string
   amountMinor: number
-  currencyCode: string
+  note: string | null
+  originalCurrencyId: number | null
   originalAmountMinor: number | null
-  originalCurrencyCode: string | null
   fxRateMantissa: number | null
   fxRateExponent: number | null
-  note: string | null
   rawIban: string | null
   ibanMatch: IbanMatchResult
-  isDuplicate: boolean
-  nearDateDuplicateEventId: number | null
+}
+
+/** A parsed row with what Saldo already holds for it and the user's choice. */
+export interface ImportRow extends ParsedRow {
+  verdict: ImportVerdict
   isSelected: boolean
   bucketId: number | null
-  counterpartAccountId: number | null
   splitLegs: SplitLeg[] | null
 }
 
@@ -53,6 +55,10 @@ export interface WizardState {
   columnMapping: ColumnMapping
   importRows: ImportRow[]
   unparseableRowCount: number
+  /** From the preview the rows' verdicts came from; apply sends it back. */
+  reviewToken: string | null
+  balanceUpdateDays: string[]
+  previewing: boolean
   importing: boolean
   rules: ImportRule[]
   loadedProfile: ImportProfileRow | null

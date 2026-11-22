@@ -122,19 +122,39 @@ pub fn create_transfer(conn: &Connection, entry: &CashflowEntry) -> rusqlite::Re
     with_savepoint(conn, || insert_transfer_pair(conn, entry))
 }
 
-pub fn bulk_create_cashflows(
+/// Inserts `entry` as a transfer leg whose other leg is `cashflow_event_id`, a plain cash flow on
+/// `entry`'s counterpart account, and turns that cash flow into the other leg: it becomes a
+/// transfer, links back, and gets a version whose counterpart is `entry`'s account. Its amount,
+/// date, note and bucket stay. Returns the new leg's id. Callers wrap this in their own savepoint.
+pub(crate) fn complete_transfer(
     conn: &Connection,
-    entries: &[CashflowEntry],
-) -> rusqlite::Result<Vec<i64>> {
-    with_savepoint(conn, || {
-        let mut ids = Vec::new();
-        for entry in entries {
-            let (event_id, counterpart_id) = create_cashflow_or_transfer(conn, entry)?;
-            ids.push(event_id);
-            ids.extend(counterpart_id);
-        }
-        Ok(ids)
-    })
+    entry: &CashflowEntry,
+    cashflow_event_id: i64,
+) -> rusqlite::Result<i64> {
+    let leg_id = create_cashflow_inner(conn, entry, "transfer", Some(cashflow_event_id))?;
+    conn.execute(
+        "UPDATE event SET event_type = 'transfer', linked_event_id = ?1 WHERE id = ?2",
+        params![leg_id, cashflow_event_id],
+    )?;
+    // prepaid_period_months is dead and left NULL.
+    conn.execute(
+        "INSERT INTO event_data (
+            event_id, amount_minor, event_date, note,
+            counterpart_account_id, bucket_id, original_currency_id,
+            original_amount_minor, fx_rate_mantissa, fx_rate_exponent,
+            vat_rate_bps, vat_reclaimable_pct_bps,
+            expense_deductible_pct_bps, reclaimed_vat, prepaid_until, private_use
+        )
+        SELECT event_id, amount_minor, event_date, note,
+            ?1, bucket_id, original_currency_id,
+            original_amount_minor, fx_rate_mantissa, fx_rate_exponent,
+            vat_rate_bps, vat_reclaimable_pct_bps,
+            expense_deductible_pct_bps, reclaimed_vat, prepaid_until, private_use
+        FROM event_data
+        WHERE id = (SELECT latest_data_id FROM event WHERE id = ?2)",
+        params![entry.account_id, cashflow_event_id],
+    )?;
+    Ok(leg_id)
 }
 
 #[cfg(test)]
@@ -220,18 +240,6 @@ mod tests {
             create_transfer(&conn, &fx_transfer(from, to, -5000, Some(4500))).unwrap();
 
         assert_eq!(latest_amount(&conn, counterpart_id), 4500);
-    }
-
-    #[test]
-    fn bulk_create_cashflows_credits_the_counterpart_when_original_has_the_source_sign() {
-        let conn = initialize_in_memory().expect("DB init failed");
-        let (from, to) = (mk_account(&conn), mk_account(&conn));
-
-        let ids =
-            bulk_create_cashflows(&conn, &[fx_transfer(from, to, -5000, Some(-4500))]).unwrap();
-
-        assert_eq!(latest_amount(&conn, ids[0]), -5000);
-        assert_eq!(latest_amount(&conn, ids[1]), 4500);
     }
 
     #[derive(Debug, PartialEq)]
@@ -369,18 +377,20 @@ mod tests {
     }
 
     #[test]
-    fn bulk_create_cashflows_links_a_source_leg_and_its_mirrored_counterpart() {
+    fn create_cashflow_or_transfer_links_a_source_leg_and_its_mirrored_counterpart() {
         let conn = initialize_in_memory().expect("DB init failed");
         let (from, to, bucket) = (mk_account(&conn), mk_account(&conn), mk_bucket(&conn));
 
-        let ids = bulk_create_cashflows(&conn, &[full_transfer(from, to, bucket)]).unwrap();
+        let (source_id, counterpart_id) =
+            create_cashflow_or_transfer(&conn, &full_transfer(from, to, bucket)).unwrap();
 
-        assert_eq!(ids.len(), 2);
-        assert_transfer_pair(&conn, (ids[0], ids[1]), (from, to, bucket), None);
+        let counterpart_id = counterpart_id.expect("a transfer has a counterpart leg");
+        assert_transfer_pair(&conn, (source_id, counterpart_id), (from, to, bucket), None);
     }
 
     #[test]
-    fn bulk_create_cashflows_makes_a_plain_cashflow_unless_the_counterpart_is_a_regular_account() {
+    fn create_cashflow_or_transfer_makes_a_plain_cashflow_unless_the_counterpart_is_a_regular_account(
+    ) {
         let conn = initialize_in_memory().expect("DB init failed");
         let (from, bucket) = (mk_account(&conn), mk_bucket(&conn));
         let to_bucket = CashflowEntry {
@@ -392,14 +402,16 @@ mod tests {
             ..fx_transfer(from, 0, -200, None)
         };
 
-        let ids = bulk_create_cashflows(&conn, &[to_bucket, no_counterpart]).unwrap();
+        let (first_id, first_counterpart) = create_cashflow_or_transfer(&conn, &to_bucket).unwrap();
+        let (second_id, second_counterpart) =
+            create_cashflow_or_transfer(&conn, &no_counterpart).unwrap();
 
-        assert_eq!(ids.len(), 2);
-        let first = leg_row(&conn, ids[0]);
+        assert_eq!((first_counterpart, second_counterpart), (None, None));
+        let first = leg_row(&conn, first_id);
         assert_eq!(first.event_type, "cashflow");
         assert_eq!(first.linked_event_id, None);
         assert_eq!(first.counterpart_account_id, Some(bucket));
-        let second = leg_row(&conn, ids[1]);
+        let second = leg_row(&conn, second_id);
         assert_eq!(second.event_type, "cashflow");
         assert_eq!(second.counterpart_account_id, None);
     }

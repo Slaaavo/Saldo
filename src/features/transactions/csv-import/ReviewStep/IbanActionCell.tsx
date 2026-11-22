@@ -1,13 +1,13 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import type { ImportRow } from '../types'
+import type { ParsedRow } from '../types'
 import type { SnapshotRow } from '../../../../shared/types'
 import { Button } from '../../../../shared/ui/button'
 import { Input } from '../../../../shared/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../../../shared/ui/select'
 
 export interface IbanActionCellProps {
-  row: ImportRow
+  row: Pick<ParsedRow, 'rawIban' | 'ibanMatch'>
   accountsWithoutIban: SnapshotRow[]
   onCreatePartner: (iban: string, name: string) => Promise<boolean>
   onAssignIban: (iban: string, targetAccountId: number) => Promise<void>

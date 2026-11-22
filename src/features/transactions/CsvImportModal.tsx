@@ -23,8 +23,7 @@ const CsvImportModal = ({ snapshot, preselectedAccountId, onClose, onSuccess }: 
     availableBuckets,
     availableProfiles,
     selectedCount,
-    duplicateCount,
-    nearDateSkippedCount,
+    canImport,
     balanceWarningDates,
     accountsWithoutIban,
     selectedAccountCurrencyCode,
@@ -113,8 +112,7 @@ const CsvImportModal = ({ snapshot, preselectedAccountId, onClose, onSuccess }: 
               importRows={wizardState.importRows}
               unparseableRowCount={wizardState.unparseableRowCount}
               selectedCount={selectedCount}
-              duplicateCount={duplicateCount}
-              nearDateSkippedCount={nearDateSkippedCount}
+              canImport={canImport}
               balanceWarningDates={balanceWarningDates}
               availableBuckets={availableBuckets}
               accountsWithoutIban={accountsWithoutIban}

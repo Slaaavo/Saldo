@@ -23,7 +23,8 @@ pub use balance_updates::{
     CreateBalanceUpdateParams,
 };
 
-pub use cashflows::{bulk_create_cashflows, create_cashflow, create_transfer, CashflowEntry};
+pub(crate) use cashflows::{complete_transfer, create_cashflow_or_transfer};
+pub use cashflows::{create_cashflow, create_transfer, CashflowEntry};
 
 pub use events::{
     delete_event, get_active_event_type, update_event, update_transfer, UpdateEventParams,

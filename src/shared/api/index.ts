@@ -28,6 +28,10 @@ import type {
   BookedDifference,
   DifferenceCause,
   BrokenCheck,
+  PreviewCsvImportInput,
+  CsvImportPreview,
+  ApplyCsvImportInput,
+  CsvImportResult,
 } from '../types'
 import { isBreakingChecksError } from '../utils/errors'
 
@@ -423,52 +427,14 @@ export const createCashflow = (input: {
   })
 }
 
-export const bulkCreateCashflows = (input: {
-  entries: Array<{
-    accountId: number
-    amountMinor: number
-    eventDate: string
-    note?: string
-    counterpartAccountId?: number
-    bucketId?: number
-    originalCurrencyId?: number
-    originalAmountMinor?: number
-    fxRateMantissa?: number
-    fxRateExponent?: number
-  }>
-}): Promise<number[]> => {
-  return invoke('bulk_create_cashflows', {
-    input: {
-      entries: input.entries.map((e) => ({
-        accountId: e.accountId,
-        amountMinor: e.amountMinor,
-        eventDate: e.eventDate,
-        note: e.note ?? null,
-        counterpartAccountId: e.counterpartAccountId ?? null,
-        bucketId: e.bucketId ?? null,
-        originalCurrencyId: e.originalCurrencyId ?? null,
-        originalAmountMinor: e.originalAmountMinor ?? null,
-        fxRateMantissa: e.fxRateMantissa ?? null,
-        fxRateExponent: e.fxRateExponent ?? null,
-      })),
-    },
-  })
+/** Decides which parsed rows Saldo already has. The token it returns goes to `applyCsvImport`. */
+export const previewCsvImport = (input: PreviewCsvImportInput): Promise<CsvImportPreview> => {
+  return invoke<CsvImportPreview>('preview_csv_import', { input })
 }
 
-export interface SplitGroupLeg {
-  amountMinor: number
-  eventDate: string
-  note: string | null
-  counterpartAccountId: number | null
-  bucketId: number | null
-  originalCurrencyId: number | null
-  originalAmountMinor: number | null
-  fxRateMantissa: number | null
-  fxRateExponent: number | null
-}
-
-export const createSplitGroup = (input: { accountId: number; groupNote: string | null; legs: SplitGroupLeg[] }): Promise<number> => {
-  return invoke('create_split_group', { input })
+/** Writes the whole import in one transaction, or fails with `IMPORT_CHANGED` when Saldo changed since the preview and writes nothing. */
+export const applyCsvImport = (input: ApplyCsvImportInput): Promise<CsvImportResult> => {
+  return invoke<CsvImportResult>('apply_csv_import', { input })
 }
 
 export const listImportProfiles = (): Promise<ImportProfileRow[]> => {

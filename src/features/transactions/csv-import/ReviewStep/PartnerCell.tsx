@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next'
 import { AlertTriangle } from 'lucide-react'
-import type { ImportRow } from '../types'
+import type { ParsedRow } from '../types'
 import type { SnapshotRow } from '../../../../shared/types'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../../../shared/ui/select'
 import { IbanActionCell } from './IbanActionCell'
@@ -8,7 +8,7 @@ import { IbanActionCell } from './IbanActionCell'
 const COUNTERPART_NONE = '__none__'
 
 export interface PartnerCellProps {
-  row: ImportRow
+  row: Pick<ParsedRow, 'index' | 'rawIban' | 'ibanMatch'>
   accountsWithoutIban: SnapshotRow[]
   counterpartAccounts: SnapshotRow[]
   onCreatePartner: (iban: string, name: string) => Promise<boolean>
@@ -55,10 +55,7 @@ export const PartnerCell = ({ row, accountsWithoutIban, counterpartAccounts, onC
     case 'none':
     default:
       return (
-        <Select
-          value={row.counterpartAccountId !== null ? String(row.counterpartAccountId) : COUNTERPART_NONE}
-          onValueChange={(v) => onCounterpartChange(row.index, v === COUNTERPART_NONE ? null : Number(v))}
-        >
+        <Select value={COUNTERPART_NONE} onValueChange={(v) => onCounterpartChange(row.index, v === COUNTERPART_NONE ? null : Number(v))}>
           <SelectTrigger className="h-7 text-xs max-w-[160px]">
             <SelectValue placeholder={t('import.reviewStep.assignCounterpart')} />
           </SelectTrigger>

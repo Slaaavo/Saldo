@@ -1,17 +1,14 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import type { SnapshotRow, Currency, EventWithData, ImportProfileRow, ImportRule } from '../../../shared/types/index'
+import type { SnapshotRow, Currency, ImportProfileRow, ImportRule, CsvImportPreview, ImportVerdict, IncomingRowInput, RowChoice } from '../../../shared/types/index'
 import {
-  listEvents,
+  previewCsvImport,
+  applyCsvImport,
   listPartnerAccounts,
   listCurrencies,
   createPartnerAccount,
   updateAccount,
-  updateEvent,
-  allowBreakingChecks,
-  bulkCreateCashflows,
-  createSplitGroup,
   listImportProfiles,
   getPreferredProfile,
   setPreferredProfile,
@@ -19,13 +16,14 @@ import {
   updateImportProfile,
 } from '../../../shared/api'
 import { toMinorUnits } from '../../../shared/utils/format'
-import { extractErrorMessage } from '../../../shared/utils/errors'
+import { extractErrorMessage, hasErrorCode } from '../../../shared/utils/errors'
 import { takesEntries } from '../../../shared/utils/snapshot'
-import type { WizardState, CashflowFieldKey, ImportRow, ColumnMapping, IbanMatchResult, SplitLeg } from './types'
+import type { WizardState, CashflowFieldKey, ImportRow, ParsedRow, ColumnMapping, IbanMatchResult, SplitLeg } from './types'
 import type { IbanLookupEntry } from './ibanMatcher'
 import { buildIbanLookup, matchIban, normalizeIban } from './ibanMatcher'
 import { parseCsvFile, autoDetectMapping, parseAmount, parseDateString } from './csvParser'
 import { applyRules } from './transformRules'
+import { isNewRow } from './verdicts'
 
 const INITIAL_COLUMN_MAPPING: ColumnMapping = {
   date: null,
@@ -45,6 +43,9 @@ const INITIAL_WIZARD_STATE: WizardState = {
   columnMapping: { ...INITIAL_COLUMN_MAPPING },
   importRows: [],
   unparseableRowCount: 0,
+  reviewToken: null,
+  balanceUpdateDays: [],
+  previewing: false,
   importing: false,
   rules: [],
   loadedProfile: null,
@@ -52,9 +53,6 @@ const INITIAL_WIZARD_STATE: WizardState = {
   originalProfileRules: null,
   importedCount: null,
 }
-
-const MS_PER_DAY = 86_400_000
-const NEAR_DATE_WINDOW_DAYS = 5
 
 const matchProfileMapping = (savedMapping: ColumnMapping, csvHeaders: string[]): ColumnMapping => {
   const result: ColumnMapping = { ...savedMapping }
@@ -104,16 +102,52 @@ const resolveProfile = (profile: ImportProfileRow, csvHeaders: string[]): Partia
   }
 }
 
-// Shares a split row's original-currency amount across its legs by each leg's share of the row; the last leg takes the rounding remainder.
-const prorateOriginalAmount = (originalAmountMinor: number, legAmounts: number[], rowAmountMinor: number): number[] => {
-  let allocated = 0
-  return legAmounts.map((legAmount, i) => {
-    if (i === legAmounts.length - 1) return originalAmountMinor - allocated
-    const share = rowAmountMinor === 0 ? 0 : Math.round((originalAmountMinor * legAmount) / rowAmountMinor)
-    allocated += share
-    return share
+type AccountMatch = Extract<IbanMatchResult, { accountId: number }>
+
+const counterpartOf = (match: IbanMatchResult): number | null => (match.type === 'ownAccount' || match.type === 'partner' ? match.accountId : null)
+
+const toIncomingRow = (row: ParsedRow): IncomingRowInput => ({
+  index: row.index,
+  eventDate: row.date,
+  amountMinor: row.amountMinor,
+  note: row.note,
+  counterpartAccountId: counterpartOf(row.ibanMatch),
+  originalCurrencyId: row.originalCurrencyId,
+  originalAmountMinor: row.originalAmountMinor,
+  fxRateMantissa: row.fxRateMantissa,
+  fxRateExponent: row.fxRateExponent,
+})
+
+// An unticked row sends no split, so a split left half-built on a row that is not imported cannot fail the import.
+const toChoice = (row: ImportRow): RowChoice => ({
+  index: row.index,
+  selected: row.isSelected,
+  bucketId: row.bucketId,
+  split:
+    row.isSelected && row.splitLegs !== null
+      ? row.splitLegs.map((leg) => ({ amountMinor: leg.amountMinor, note: leg.note, counterpartAccountId: leg.counterpartAccountId, bucketId: leg.bucketId }))
+      : null,
+})
+
+const withDefaultChoice = (row: ParsedRow, verdict: ImportVerdict): ImportRow => ({ ...row, verdict, isSelected: isNewRow(verdict), bucketId: null, splitLegs: null })
+
+// The preview lists the rows in the order they were sent. A row keeps the user's choice while its verdict kind stays the same.
+const withVerdicts = (rows: ImportRow[], preview: CsvImportPreview): ImportRow[] =>
+  rows.map((row, i) => {
+    const { verdict } = preview.rows[i]
+    return verdict.kind === row.verdict.kind ? { ...row, verdict } : withDefaultChoice(row, verdict)
   })
+
+const relinkIban = (rows: ImportRow[], normalizedIban: string, match: AccountMatch): ImportRow[] => {
+  const hasIban = (rawIban: string | null) => rawIban !== null && normalizeIban(rawIban) === normalizedIban
+  return rows.map((row) => ({
+    ...row,
+    ibanMatch: hasIban(row.rawIban) ? match : row.ibanMatch,
+    splitLegs: row.splitLegs?.map((leg) => (hasIban(leg.rawIban) ? { ...leg, ibanMatch: match, counterpartAccountId: match.accountId } : leg)) ?? null,
+  }))
 }
+
+const selectNewRows = (rows: ImportRow[], isSelected: boolean): ImportRow[] => rows.map((row) => (isNewRow(row.verdict) ? { ...row, isSelected } : row))
 
 const rateToMantissaExponent = (rate: number): { mantissa: number; exponent: number } => {
   const str = rate.toString()
@@ -130,13 +164,12 @@ export const useImportWizard = (params: { snapshot: SnapshotRow[]; preselectedAc
 
   const [wizardState, setWizardState] = useState<WizardState>(INITIAL_WIZARD_STATE)
   const [ibanLookup, setIbanLookup] = useState<Map<string, IbanLookupEntry>>(new Map())
-  const [existingEvents, setExistingEvents] = useState<EventWithData[]>([])
   const [currencies, setCurrencies] = useState<Currency[]>([])
-  const [balanceWarningDates, setBalanceWarningDates] = useState<string[]>([])
   const [availableProfiles, setAvailableProfiles] = useState<ImportProfileRow[]>([])
   // Responses for an account the user has since switched away from are dropped.
   const selectedAccountIdRef = useRef<number | null>(null)
   const preselectedAccountIdRef = useRef(preselectedAccountId)
+  const previewSeqRef = useRef(0)
 
   // Derived: selected account row from snapshot
   const selectedAccount = snapshot.find((r) => r.accountId === wizardState.selectedAccountId) ?? null
@@ -150,10 +183,7 @@ export const useImportWizard = (params: { snapshot: SnapshotRow[]; preselectedAc
   // Derived: account-type rows that have no IBAN set
   const accountsWithoutIban = snapshot.filter((r) => r.accountType === 'account' && !r.iban)
 
-  // Derived: selection counts
   const selectedCount = wizardState.importRows.filter((r) => r.isSelected).length
-  const duplicateCount = wizardState.importRows.filter((r) => r.isDuplicate || r.nearDateDuplicateEventId !== null).length
-  const nearDateSkippedCount = wizardState.importRows.filter((r) => r.nearDateDuplicateEventId !== null && !r.isSelected).length
 
   useEffect(() => {
     listImportProfiles()
@@ -199,9 +229,7 @@ export const useImportWizard = (params: { snapshot: SnapshotRow[]; preselectedAc
         originalProfileRules: null,
       }))
       try {
-        const [{ events }, partners, loadedCurrencies] = await Promise.all([listEvents({ accountId }), listPartnerAccounts(), listCurrencies()])
-        if (selectedAccountIdRef.current !== accountId) return
-        setExistingEvents(events)
+        const [partners, loadedCurrencies] = await Promise.all([listPartnerAccounts(), listCurrencies()])
         setCurrencies(loadedCurrencies)
         setIbanLookup(buildIbanLookup(snapshot, partners))
       } catch (err) {
@@ -276,39 +304,45 @@ export const useImportWizard = (params: { snapshot: SnapshotRow[]; preselectedAc
     [availableProfiles],
   )
 
-  const goToReview = useCallback(() => {
+  // Resolves to null when a newer preview started meanwhile, so only the newest answer reaches the rows.
+  const preview = useCallback(async (accountId: number, rows: ParsedRow[]): Promise<CsvImportPreview | null> => {
+    const seq = ++previewSeqRef.current
+    setWizardState((prev) => ({ ...prev, previewing: true }))
+    try {
+      const result = await previewCsvImport({ accountId, rows: rows.map(toIncomingRow) })
+      return seq === previewSeqRef.current ? result : null
+    } finally {
+      if (seq === previewSeqRef.current) setWizardState((prev) => ({ ...prev, previewing: false }))
+    }
+  }, [])
+
+  const previewAgain = useCallback(
+    async (rows: ImportRow[]) => {
+      const accountId = wizardState.selectedAccountId
+      if (accountId === null || rows.length === 0) return
+      try {
+        const result = await preview(accountId, rows)
+        if (result === null) return
+        setWizardState((prev) => ({
+          ...prev,
+          importRows: withVerdicts(prev.importRows, result),
+          reviewToken: result.reviewToken,
+          balanceUpdateDays: result.balanceUpdateDays,
+        }))
+      } catch (err) {
+        toast.error(t('errors.loadData', { error: extractErrorMessage(err) }))
+      }
+    },
+    [wizardState.selectedAccountId, preview, t],
+  )
+
+  const goToReview = useCallback(async () => {
     const { csvRows, columnMapping, selectedAccountId, rules } = wizardState
     if (!selectedAccountId) return
 
-    // Split existing events by type for duplicate detection vs balance warning
-    const cashflowEvents = existingEvents.filter((e) => e.eventType === 'cashflow' || e.eventType === 'transfer')
-    const balanceUpdateDateSet = new Set(existingEvents.filter((e) => e.eventType === 'balance_update').map((e) => e.eventDate.substring(0, 10)))
-
-    // Build map of split group totals for duplicate detection
-    const groupedEvents = new Map<number, { dateKey: string; total: number }>()
-    for (const e of cashflowEvents) {
-      if (e.splitGroupId !== null) {
-        const existing = groupedEvents.get(e.splitGroupId)
-        if (existing) {
-          existing.total += e.amountMinor
-        } else {
-          groupedEvents.set(e.splitGroupId, {
-            dateKey: e.eventDate.substring(0, 10),
-            total: e.amountMinor,
-          })
-        }
-      }
-    }
-    const groupTotalKeys = new Map<string, boolean>()
-    for (const { dateKey, total } of groupedEvents.values()) {
-      groupTotalKeys.set(`${dateKey}::${total}`, true)
-    }
-
-    const importRows: ImportRow[] = []
+    const parsedRows: ParsedRow[] = []
     let unparseableRowCount = 0
     const transformedRows = applyRules(csvRows, rules, columnMapping)
-
-    const nearDateTransferCandidates = cashflowEvents.filter((e) => e.eventType === 'transfer' && e.splitGroupId === null)
 
     for (let i = 0; i < transformedRows.length; i++) {
       const csvRow = transformedRows[i]
@@ -345,14 +379,14 @@ export const useImportWizard = (params: { snapshot: SnapshotRow[]; preselectedAc
 
       // Foreign currency handling
       let originalAmountMinor: number | null = null
-      let originalCurrencyCode: string | null = null
+      let originalCurrencyId: number | null = null
       let fxRateMantissa: number | null = null
       let fxRateExponent: number | null = null
       const csvCurrencyCode = rawCurrency.trim().toUpperCase()
       if (csvCurrencyCode !== '' && csvCurrencyCode !== selectedAccountCurrencyCode.toUpperCase()) {
         const foreignCurrency = currencies.find((c) => c.code === csvCurrencyCode)
         if (foreignCurrency) {
-          originalCurrencyCode = foreignCurrency.code
+          originalCurrencyId = foreignCurrency.id
           originalAmountMinor = toMinorUnits(String(parsedAmount), foreignCurrency.minorUnits)
           if (csvRow.__negateAmount) originalAmountMinor = -originalAmountMinor
         }
@@ -368,55 +402,35 @@ export const useImportWizard = (params: { snapshot: SnapshotRow[]; preselectedAc
         }
       }
 
-      // Duplicate detection: match YYYY-MM-DD and amount against existing cashflow/transfer events
-      const datePrefix = parsedDate.substring(0, 10)
-      const isDuplicate =
-        cashflowEvents.some((e) => e.splitGroupId === null && e.eventDate.substring(0, 10) === datePrefix && e.amountMinor === amountMinor) ||
-        groupTotalKeys.has(`${datePrefix}::${amountMinor}`)
-
-      let nearDateDuplicateEventId: number | null = null
-      if (!isDuplicate) {
-        const rowDateMs = new Date(datePrefix).getTime()
-        const nearDateMatches = nearDateTransferCandidates
-          .map((e) => {
-            const dateOnly = e.eventDate.substring(0, 10)
-            const diffDays = Math.abs(new Date(dateOnly).getTime() - rowDateMs) / MS_PER_DAY
-            return { event: e, dateOnly, diffDays }
-          })
-          .filter(({ dateOnly, diffDays, event: e }) => dateOnly !== datePrefix && e.amountMinor === amountMinor && diffDays <= NEAR_DATE_WINDOW_DAYS)
-          .sort((a, b) => (a.diffDays !== b.diffDays ? a.diffDays - b.diffDays : b.event.createdAt.localeCompare(a.event.createdAt)))
-          .map(({ event }) => event)
-        nearDateDuplicateEventId = nearDateMatches[0]?.id ?? null
-      }
-
-      importRows.push({
+      parsedRows.push({
         index: i,
         date: parsedDate,
         amountMinor,
-        currencyCode: selectedAccountCurrencyCode,
+        note: rawNote.trim() !== '' ? rawNote.trim() : null,
+        originalCurrencyId,
         originalAmountMinor,
-        originalCurrencyCode,
         fxRateMantissa,
         fxRateExponent,
-        note: rawNote.trim() !== '' ? rawNote.trim() : null,
         rawIban,
         ibanMatch,
-        isDuplicate,
-        nearDateDuplicateEventId,
-        isSelected: !isDuplicate && nearDateDuplicateEventId === null,
-        bucketId: null,
-        counterpartAccountId: null,
-        splitLegs: null,
       })
     }
 
-    // Balance warning: CSV row dates that also have a balance_update event
-    const csvDateSet = new Set(importRows.map((r) => r.date.substring(0, 10)))
-    const warnings = [...csvDateSet].filter((d) => balanceUpdateDateSet.has(d))
-
-    setBalanceWarningDates(warnings)
-    setWizardState((prev) => ({ ...prev, step: 'review', importRows, unparseableRowCount }))
-  }, [wizardState, existingEvents, ibanLookup, currencies, selectedAccountCurrencyCode, selectedAccountMinorUnits])
+    try {
+      const result = await preview(selectedAccountId, parsedRows)
+      if (result === null) return
+      setWizardState((prev) => ({
+        ...prev,
+        step: 'review',
+        importRows: parsedRows.map((row, i) => withDefaultChoice(row, result.rows[i].verdict)),
+        unparseableRowCount,
+        reviewToken: result.reviewToken,
+        balanceUpdateDays: result.balanceUpdateDays,
+      }))
+    } catch (err) {
+      toast.error(t('errors.loadData', { error: extractErrorMessage(err) }))
+    }
+  }, [wizardState, ibanLookup, currencies, selectedAccountCurrencyCode, selectedAccountMinorUnits, preview, t])
 
   // ── Step 3 actions ──────────────────────────────────────────────────────────
 
@@ -428,17 +442,11 @@ export const useImportWizard = (params: { snapshot: SnapshotRow[]; preselectedAc
   }, [])
 
   const handleSelectAll = useCallback(() => {
-    setWizardState((prev) => ({
-      ...prev,
-      importRows: prev.importRows.map((r) => ({ ...r, isSelected: true })),
-    }))
+    setWizardState((prev) => ({ ...prev, importRows: selectNewRows(prev.importRows, true) }))
   }, [])
 
   const handleDeselectAll = useCallback(() => {
-    setWizardState((prev) => ({
-      ...prev,
-      importRows: prev.importRows.map((r) => ({ ...r, isSelected: false })),
-    }))
+    setWizardState((prev) => ({ ...prev, importRows: selectNewRows(prev.importRows, false) }))
   }, [])
 
   const handleBucketChange = useCallback((index: number, bucketId: number | null) => {
@@ -450,20 +458,14 @@ export const useImportWizard = (params: { snapshot: SnapshotRow[]; preselectedAc
 
   const handleCounterpartChange = useCallback(
     (index: number, accountId: number | null) => {
-      setWizardState((prev) => ({
-        ...prev,
-        importRows: prev.importRows.map((r) => {
-          if (r.index !== index) return r
-          if (accountId === null) {
-            return { ...r, counterpartAccountId: null, ibanMatch: { type: 'none' } }
-          }
-          const account = snapshot.find((s) => s.accountId === accountId)
-          if (!account) return r
-          return { ...r, counterpartAccountId: accountId, ibanMatch: { type: 'ownAccount', accountId, accountName: account.accountName } }
-        }),
-      }))
+      const account = snapshot.find((s) => s.accountId === accountId)
+      if (accountId !== null && !account) return
+      const ibanMatch: IbanMatchResult = account ? { type: 'ownAccount', accountId: account.accountId, accountName: account.accountName } : { type: 'none' }
+      const relink = (rows: ImportRow[]) => rows.map((r) => (r.index === index ? { ...r, ibanMatch } : r))
+      setWizardState((prev) => ({ ...prev, importRows: relink(prev.importRows) }))
+      void previewAgain(relink(wizardState.importRows))
     },
-    [snapshot],
+    [snapshot, wizardState.importRows, previewAgain],
   )
 
   const handleCreatePartner = useCallback(
@@ -482,23 +484,9 @@ export const useImportWizard = (params: { snapshot: SnapshotRow[]; preselectedAc
           iban: normalizedIban,
         }
         setIbanLookup((prev) => new Map(prev).set(normalizedIban, entry))
-        const newIbanMatch: IbanMatchResult = {
-          type: 'partner',
-          accountId: newId,
-          accountName: name,
-        }
-        setWizardState((prev) => ({
-          ...prev,
-          importRows: prev.importRows.map((r) => {
-            const topMatch = r.rawIban && normalizeIban(r.rawIban) === normalizedIban ? { ibanMatch: newIbanMatch } : {}
-            const updatedLegs =
-              r.splitLegs !== null
-                ? r.splitLegs.map((l) => (l.rawIban && normalizeIban(l.rawIban) === normalizedIban ? { ...l, ibanMatch: newIbanMatch, counterpartAccountId: newId } : l))
-                : r.splitLegs
-            if (Object.keys(topMatch).length === 0 && updatedLegs === r.splitLegs) return r
-            return { ...r, ...topMatch, splitLegs: updatedLegs }
-          }),
-        }))
+        const match: AccountMatch = { type: 'partner', accountId: newId, accountName: name }
+        setWizardState((prev) => ({ ...prev, importRows: relinkIban(prev.importRows, normalizedIban, match) }))
+        void previewAgain(relinkIban(wizardState.importRows, normalizedIban, match))
         toast.success(t('import.reviewStep.partnerCreated'))
         return true
       } catch (err) {
@@ -506,7 +494,7 @@ export const useImportWizard = (params: { snapshot: SnapshotRow[]; preselectedAc
         return false
       }
     },
-    [selectedAccountCurrencyId, t],
+    [selectedAccountCurrencyId, wizardState.importRows, previewAgain, t],
   )
 
   const handleAssignIban = useCallback(
@@ -531,29 +519,15 @@ export const useImportWizard = (params: { snapshot: SnapshotRow[]; preselectedAc
           iban: normalizedIban,
         }
         setIbanLookup((prev) => new Map(prev).set(normalizedIban, entry))
-        const newIbanMatch: IbanMatchResult = {
-          type: 'ownAccount',
-          accountId: targetAccountId,
-          accountName: targetRow.accountName,
-        }
-        setWizardState((prev) => ({
-          ...prev,
-          importRows: prev.importRows.map((r) => {
-            const topMatch = r.rawIban && normalizeIban(r.rawIban) === normalizedIban ? { ibanMatch: newIbanMatch } : {}
-            const updatedLegs =
-              r.splitLegs !== null
-                ? r.splitLegs.map((l) => (l.rawIban && normalizeIban(l.rawIban) === normalizedIban ? { ...l, ibanMatch: newIbanMatch, counterpartAccountId: targetAccountId } : l))
-                : r.splitLegs
-            if (Object.keys(topMatch).length === 0 && updatedLegs === r.splitLegs) return r
-            return { ...r, ...topMatch, splitLegs: updatedLegs }
-          }),
-        }))
+        const match: AccountMatch = { type: 'ownAccount', accountId: targetAccountId, accountName: targetRow.accountName }
+        setWizardState((prev) => ({ ...prev, importRows: relinkIban(prev.importRows, normalizedIban, match) }))
+        void previewAgain(relinkIban(wizardState.importRows, normalizedIban, match))
         toast.success(t('import.reviewStep.accountAssigned'))
       } catch (err) {
         toast.error(extractErrorMessage(err))
       }
     },
-    [snapshot, t],
+    [snapshot, wizardState.importRows, previewAgain, t],
   )
 
   const handleSplitOpen = useCallback((rowIndex: number) => {
@@ -568,7 +542,7 @@ export const useImportWizard = (params: { snapshot: SnapshotRow[]; preselectedAc
           rawIban: r.rawIban,
           ibanMatch: r.ibanMatch,
           bucketId: r.bucketId,
-          counterpartAccountId: r.ibanMatch.type === 'ownAccount' || r.ibanMatch.type === 'partner' ? r.ibanMatch.accountId : r.counterpartAccountId,
+          counterpartAccountId: counterpartOf(r.ibanMatch),
         }
         return { ...r, splitLegs: [leg0] }
       }),
@@ -665,75 +639,17 @@ export const useImportWizard = (params: { snapshot: SnapshotRow[]; preselectedAc
   }, [])
 
   const handleImport = useCallback(async () => {
-    const { selectedAccountId, importRows } = wizardState
-    if (!selectedAccountId) return
+    const { selectedAccountId, importRows, reviewToken } = wizardState
+    if (selectedAccountId === null || reviewToken === null) return
 
     setWizardState((prev) => ({ ...prev, importing: true }))
-    // Each write below commits on its own, so a failure part-way leaves earlier rows saved.
-    const committedRowIndexes = new Set<number>()
     try {
-      const selectedRows = importRows.filter((r) => r.isSelected)
-      const regularRows = selectedRows.filter((r) => r.splitLegs === null)
-      const splitRows = selectedRows.filter((r) => r.splitLegs !== null)
-
-      // Phase 0: Update dates for skipped near-date duplicates
-      const nearDateSkipped = importRows.filter((r) => r.nearDateDuplicateEventId !== null && !r.isSelected)
-      for (const row of nearDateSkipped) {
-        const matchedEvent = existingEvents.find((e) => e.id === row.nearDateDuplicateEventId)
-        if (matchedEvent) {
-          await updateEvent(matchedEvent.id, matchedEvent.amountMinor, row.date, matchedEvent.note ?? null, allowBreakingChecks)
-          committedRowIndexes.add(row.index)
-        }
-      }
-
-      if (regularRows.length > 0) {
-        const entries = regularRows.map((row) => {
-          const counterpartAccountId = row.ibanMatch.type === 'ownAccount' || row.ibanMatch.type === 'partner' ? row.ibanMatch.accountId : undefined
-
-          const originalCurrencyId = row.originalCurrencyCode ? currencies.find((c) => c.code === row.originalCurrencyCode)?.id : undefined
-
-          return {
-            accountId: selectedAccountId,
-            amountMinor: row.amountMinor,
-            eventDate: row.date,
-            note: row.note ?? undefined,
-            counterpartAccountId,
-            bucketId: row.bucketId ?? undefined,
-            originalCurrencyId,
-            originalAmountMinor: row.originalAmountMinor ?? undefined,
-            fxRateMantissa: row.fxRateMantissa ?? undefined,
-            fxRateExponent: row.fxRateExponent ?? undefined,
-          }
-        })
-
-        await bulkCreateCashflows({ entries })
-        for (const row of regularRows) committedRowIndexes.add(row.index)
-      }
-
-      for (const splitRow of splitRows) {
-        const originalCurrencyId = splitRow.originalCurrencyCode ? (currencies.find((c) => c.code === splitRow.originalCurrencyCode)?.id ?? null) : null
-        const legAmounts = splitRow.splitLegs!.map((leg) => leg.amountMinor)
-        const legOriginalAmounts = splitRow.originalAmountMinor !== null ? prorateOriginalAmount(splitRow.originalAmountMinor, legAmounts, splitRow.amountMinor) : null
-
-        await createSplitGroup({
-          accountId: selectedAccountId,
-          groupNote: splitRow.note ?? null,
-          legs: splitRow.splitLegs!.map((leg, i) => ({
-            amountMinor: leg.amountMinor,
-            eventDate: splitRow.date,
-            note: leg.note ?? null,
-            counterpartAccountId: leg.counterpartAccountId ?? null,
-            bucketId: leg.bucketId ?? null,
-            originalCurrencyId: originalCurrencyId ?? null,
-            originalAmountMinor: legOriginalAmounts?.[i] ?? null,
-            fxRateMantissa: splitRow.fxRateMantissa ?? null,
-            fxRateExponent: splitRow.fxRateExponent ?? null,
-          })),
-        })
-        committedRowIndexes.add(splitRow.index)
-      }
-
-      const totalImported = regularRows.length + splitRows.reduce((n, r) => n + r.splitLegs!.length, 0)
+      const { imported } = await applyCsvImport({
+        accountId: selectedAccountId,
+        rows: importRows.map(toIncomingRow),
+        choices: importRows.map(toChoice),
+        reviewToken,
+      })
 
       const { columnMapping, rules, loadedProfile, originalProfileColumnMapping, originalProfileRules } = wizardState
       const profileChanged = JSON.stringify(columnMapping) !== JSON.stringify(originalProfileColumnMapping) || JSON.stringify(rules) !== JSON.stringify(originalProfileRules)
@@ -744,23 +660,23 @@ export const useImportWizard = (params: { snapshot: SnapshotRow[]; preselectedAc
 
       await onSuccess()
       if (loadedProfile === null || profileChanged) {
-        setWizardState((prev) => ({ ...prev, step: 'save-profile', importedCount: totalImported }))
+        setWizardState((prev) => ({ ...prev, step: 'save-profile', importedCount: imported }))
       } else {
-        toast.success(t('import.success', { count: totalImported }))
+        if (imported === 0) toast.info(t('import.nothingNew'))
+        else toast.success(t('import.success', { count: imported }))
         onClose()
       }
     } catch (err) {
-      toast.error(t('errors.importCashflows', { error: extractErrorMessage(err) }))
-      if (committedRowIndexes.size > 0) {
-        // Drop the saved rows so a retry cannot insert them a second time.
-        setWizardState((prev) => ({ ...prev, importRows: prev.importRows.filter((r) => !committedRowIndexes.has(r.index)) }))
-        toast.warning(t('import.reviewStep.partialImport'))
-        await onSuccess()
+      if (hasErrorCode(err, 'IMPORT_CHANGED')) {
+        toast.warning(t('import.reviewStep.changedDuringReview'))
+        await previewAgain(importRows)
+      } else {
+        toast.error(t('errors.importCashflows', { error: extractErrorMessage(err) }))
       }
     } finally {
       setWizardState((prev) => ({ ...prev, importing: false }))
     }
-  }, [wizardState, existingEvents, currencies, t, onSuccess, onClose])
+  }, [wizardState, previewAgain, t, onSuccess, onClose])
 
   const goBack = useCallback(() => {
     setWizardState((prev) => {
@@ -822,15 +738,17 @@ export const useImportWizard = (params: { snapshot: SnapshotRow[]; preselectedAc
     [wizardState.importRows, t],
   )
 
+  // An apply with nothing ticked still records the matches and moves transfer legs to their bank's day.
+  const canImport = wizardState.importRows.length > 0 && wizardState.reviewToken !== null && !wizardState.previewing && !wizardState.importing && splitValidationErrors.length === 0
+
   return {
     wizardState,
     ibanLookup,
     availableBuckets,
     availableProfiles,
     selectedCount,
-    duplicateCount,
-    nearDateSkippedCount,
-    balanceWarningDates,
+    canImport,
+    balanceWarningDates: wizardState.balanceUpdateDays,
     accountsWithoutIban,
     selectedAccountCurrencyCode,
     selectedAccountCurrencyId,

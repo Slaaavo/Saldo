@@ -136,6 +136,20 @@ describe.each(['en', 'sk'] as const)('%s locale', (lng) => {
     expect([1, 2, 5].map((count) => i18n.t('incomeBudget.announce.cleared', { count }))).not.toContain('incomeBudget.announce.cleared')
   })
 
+  it('has the CSV import review copy', () => {
+    const keys = [
+      'import.reviewStep.summary',
+      'import.reviewStep.completesTransfer',
+      'import.reviewStep.transferLeg.moves',
+      'import.reviewStep.transferLeg.stays',
+      'import.reviewStep.changedDuringReview',
+      'import.reviewStep.finish',
+      'import.nothingNew',
+    ]
+    expect(keys.filter((key) => !i18n.exists(key))).toEqual([])
+    expect([1, 2, 5].map((count) => i18n.t('import.reviewStep.alreadyInSaldo', { count }))).not.toContain('import.reviewStep.alreadyInSaldo')
+  })
+
   it('has the time machine, rate warning and breakdown copy', () => {
     const keys = [
       'timeMachine.live',
@@ -195,6 +209,16 @@ describe('plural forms of an old rate', () => {
     expect(i18n.t('rateWarnings.stale', { ...warning, count: 13 })).toBe('uses a USD rate from 12 October 2026, 13 days old.')
     expect(i18n.t('metrics.breakdown.rateAge', { count: 8 })).toBe('8 days old')
     expect(i18n.t('accounts.staleRateTooltip', { date: '12 October 2026', count: 1 })).toBe('Rate from 12 October 2026, 1 day old')
+  })
+
+  it('counts rows already in Saldo in Slovak with one, few and many forms', () => {
+    const i18n = translator('sk')
+
+    expect([1, 3, 95].map((count) => i18n.t('import.reviewStep.alreadyInSaldo', { count }))).toEqual([
+      '1 riadok je už v Saldo',
+      '3 riadky sú už v Saldo',
+      '95 riadkov je už v Saldo',
+    ])
   })
 
   it('counts days in Slovak with one, few and many forms', () => {
