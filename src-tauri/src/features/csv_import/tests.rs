@@ -1858,6 +1858,72 @@ fn a_padded_note_imported_before_holds_were_known_takes_the_booked_text() {
     assert_eq!(everything(&conn), before);
 }
 
+#[test]
+fn a_padded_note_an_import_recorded_as_booked_takes_the_booked_text_and_keeps_its_bank_text() {
+    let conn = initialize_in_memory().unwrap();
+    let card_account = own_without_iban(&conn, "Card");
+    let padded = "TCHIBO        PRAHA";
+    import(
+        &conn,
+        card_account,
+        &[card_row(
+            0,
+            "2026-10-31",
+            -1_999,
+            CARD,
+            CardRow::Booked(padded),
+        )],
+    );
+    let legacy = live(&conn)[0].0;
+    let booked = [card_row(
+        0,
+        "2026-10-31",
+        -1_999,
+        CARD,
+        CardRow::Booked("TCHIBO PRAHA"),
+    )];
+
+    assert_eq!(import(&conn, card_account, &booked), 0);
+
+    assert_eq!(entry(&conn, legacy).note.as_deref(), Some("TCHIBO PRAHA"));
+    assert_eq!(
+        bank_entry(&conn, legacy).unwrap().2.as_deref(),
+        Some(padded)
+    );
+    let before = everything(&conn);
+    import(&conn, card_account, &booked);
+    assert_eq!(everything(&conn), before);
+}
+
+#[test]
+fn an_older_export_in_another_encoding_never_rewrites_a_booked_entrys_note() {
+    let conn = initialize_in_memory().unwrap();
+    let card_account = own_without_iban(&conn, "Card");
+    let fee_refund = |text| card_row(0, "2026-11-01", 500, CARD, CardRow::Booked(text));
+    let good = "ZĽAVA Z POPLATKU ZA KARTU";
+    let newer = [
+        fee_refund(good),
+        card_row(1, "2026-11-25", -900, CARD, CardRow::Booked("LIDL")),
+    ];
+    let older = [
+        fee_refund("Z?AVA Z POPLATKU ZA KARTU"),
+        card_row(1, "2026-11-20", -385, CARD, CardRow::Booked("TERNO")),
+    ];
+    import(&conn, card_account, &newer);
+    let refund = live(&conn)[0].0;
+
+    assert_eq!(import(&conn, card_account, &older), 1, "only Terno is new");
+
+    assert_eq!(entry(&conn, refund).note.as_deref(), Some(good));
+    assert_eq!(
+        bank_entry(&conn, refund),
+        Some(("2026-11-01".to_owned(), 500, Some(good.to_owned())))
+    );
+    let before = everything(&conn);
+    import(&conn, card_account, &newer);
+    assert_eq!(everything(&conn), before, "the newer export again");
+}
+
 fn github_held(conn: &Connection) -> (i64, i64) {
     let checking = own(conn, "Checking");
     import(

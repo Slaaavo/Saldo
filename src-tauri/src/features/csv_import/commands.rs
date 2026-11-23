@@ -483,7 +483,7 @@ impl Writer<'_> {
             (Some(_), _) => {}
         }
         if !row.pending {
-            let note = recorded.note_once_booked(row.note.as_deref());
+            let note = recorded.note_without_hold_padding(row.note.as_deref());
             if note != recorded.own_note {
                 self.set_note(recorded, note)?;
             }

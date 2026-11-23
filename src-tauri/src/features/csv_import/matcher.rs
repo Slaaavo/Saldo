@@ -132,15 +132,23 @@ impl Recorded {
     }
 
     pub(crate) fn note_once_booked(&self, booked_text: Option<&str>) -> Option<String> {
-        let padded = self
-            .own_note
-            .as_deref()
-            .is_some_and(|note| note.contains(HOLD_PADDING));
         let the_banks = self
             .bank
             .as_ref()
             .is_some_and(|bank| bank.text == self.own_note);
-        if padded || the_banks {
+        if the_banks {
+            booked_text.map(str::to_owned)
+        } else {
+            self.note_without_hold_padding(booked_text)
+        }
+    }
+
+    pub(crate) fn note_without_hold_padding(&self, booked_text: Option<&str>) -> Option<String> {
+        let padded = self
+            .own_note
+            .as_deref()
+            .is_some_and(|note| note.contains(HOLD_PADDING));
+        if padded {
             booked_text.map(str::to_owned)
         } else {
             self.own_note.clone()
