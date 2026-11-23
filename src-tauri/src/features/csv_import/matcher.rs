@@ -64,8 +64,13 @@ impl IncomingRow {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum BankState {
     Booked,
-    Pending { seen_to: NaiveDate },
-    Posted { change_minor: i64 },
+    Pending {
+        seen_to: NaiveDate,
+    },
+    Posted {
+        held_day: NaiveDate,
+        held_amount_minor: i64,
+    },
 }
 
 pub(crate) fn posting_change_minor(total_before_minor: i64, total_after_minor: i64) -> i64 {
@@ -101,11 +106,14 @@ impl Recorded {
         }
     }
 
-    fn amount_before_posting(&self) -> Option<i64> {
-        let Some(BankState::Posted { change_minor }) = self.state() else {
-            return None;
-        };
-        self.key().1.checked_sub(change_minor)
+    fn key_while_held(&self) -> Option<(NaiveDate, i64)> {
+        match self.state()? {
+            BankState::Posted {
+                held_day,
+                held_amount_minor,
+            } => Some((held_day, held_amount_minor)),
+            BankState::Booked | BankState::Pending { .. } => None,
+        }
     }
 
     fn card(&self) -> Option<&str> {
@@ -202,9 +210,9 @@ pub(crate) fn match_rows<'a>(
         &mut matches,
     );
     claim_holds_booked_on_another_day(rows, &file_order, items, &mut used, &mut matches);
-    claim_posted_holds_listed_again(rows, &file_order, items, &mut used, &mut matches);
     claim_holds_booked_at_another_amount(rows, items, &mut used, &mut matches);
     claim_mutually_unique_cashflows(rows, cashflows, &mut matches);
+    claim_posted_holds_listed_again(rows, &file_order, items, &mut used, &mut matches);
     Matched {
         cancelled_holds: cancelled_holds(rows, items, &used),
         rows: matches,
@@ -337,8 +345,7 @@ fn claim_posted_holds_listed_again<'a>(
             continue;
         }
         let claimed = claim_closest(row, items, used, |recorded| {
-            recorded.amount_before_posting() == Some(row.amount_minor)
-                && days_apart(row.day, recorded.key().0) <= NEAR_DAYS
+            recorded.key_while_held() == Some(row.key())
         });
         if let Some(posted) = claimed {
             matches[position] = Match::InSaldo(posted);
@@ -648,6 +655,24 @@ mod tests {
         with_bank(id, day, amount_minor, Some(card), BankState::Booked)
     }
 
+    fn posted(
+        id: i64,
+        (day, amount_minor): (&str, i64),
+        card: &str,
+        (held_day, held_amount_minor): (&str, i64),
+    ) -> LedgerItem {
+        with_bank(
+            id,
+            day,
+            amount_minor,
+            Some(card),
+            BankState::Posted {
+                held_day: date(held_day),
+                held_amount_minor,
+            },
+        )
+    }
+
     fn split(mut item: LedgerItem) -> LedgerItem {
         item.recorded.split_group_id = Some(item.recorded.bank_entry_event_id);
         item
@@ -801,13 +826,7 @@ mod tests {
     fn a_row_in_the_other_state_waits_until_every_row_took_an_entry_in_its_own_state() {
         let ticket_of_24_oct = hold(1, "2026-10-24", -50, CARD, "2026-10-24");
         let ticket_of_23_oct = hold(2, "2026-10-23", -50, CARD, "2026-10-24");
-        let ticket_posted = with_bank(
-            1,
-            "2026-11-19",
-            -50,
-            Some(CARD),
-            BankState::Posted { change_minor: 0 },
-        );
+        let ticket_posted = posted(1, ("2026-11-19", -50), CARD, ("2026-11-18", -50));
 
         assert_eq!(
             verdicts(
@@ -915,40 +934,43 @@ mod tests {
     }
 
     #[test]
-    fn an_older_export_imported_after_the_posting_finds_the_posted_entry() {
-        let tchibo = with_bank(
-            1,
-            "2026-09-15",
-            -7_896,
-            Some(CARD),
-            BankState::Posted { change_minor: 0 },
-        );
-        let github = with_bank(
+    fn an_older_export_imported_after_the_posting_finds_the_hold_by_its_own_day_and_amount() {
+        let tchibo = posted(1, ("2026-09-15", -7_896), CARD, ("2026-09-14", -7_896));
+        let github = posted(
             2,
-            "2026-04-30",
-            -3_299,
-            Some(DEBIT_CARD),
-            BankState::Posted { change_minor: 1 },
+            ("2026-04-30", -3_299),
+            DEBIT_CARD,
+            ("2026-04-30", -3_300),
         );
+        let held_again = |card, day, amount_minor, posted: &LedgerItem| {
+            verdicts(
+                &[pending(card, row(0, day, amount_minor))],
+                &[posted.clone()],
+            )
+        };
 
         assert_eq!(
-            verdicts(&[pending(CARD, row(0, "2026-09-14", -7_896))], &[tchibo]),
+            held_again(CARD, "2026-09-14", -7_896, &tchibo),
             ["in Saldo 1"]
         );
         assert_eq!(
-            verdicts(
-                &[pending(DEBIT_CARD, row(0, "2026-04-30", -3_300))],
-                &[github.clone()]
-            ),
+            held_again(DEBIT_CARD, "2026-04-30", -3_300, &github),
             ["in Saldo 2"]
         );
         assert_eq!(
-            verdicts(
-                &[pending(DEBIT_CARD, row(0, "2026-04-30", -3_400))],
-                &[github]
-            ),
+            held_again(CARD, "2026-09-13", -7_896, &tchibo),
             ["new"],
-            "a hold of neither amount is another purchase"
+            "a hold of another day is another purchase"
+        );
+        assert_eq!(
+            held_again(DEBIT_CARD, "2026-04-30", -3_400, &github),
+            ["new"],
+            "a hold of another amount is another purchase"
+        );
+        assert_eq!(
+            held_again(SECOND_CARD, "2026-09-14", -7_896, &tchibo),
+            ["new"],
+            "a hold on another card is another purchase"
         );
     }
 

@@ -42,8 +42,8 @@ pub struct SetSplitGroupNoteParams {
 
 const BANK_COLUMNS: &str = "be.day AS bank_day, be.amount_minor AS bank_amount_minor,
                             be.text AS bank_text, be.card AS bank_card,
-                            be.hold_seen_to AS hold_seen_to,
-                            be.posting_change_minor AS posting_change_minor";
+                            be.hold_seen_to AS hold_seen_to, be.held_day AS held_day,
+                            be.held_amount_minor AS held_amount_minor";
 
 pub fn ledger_items(conn: &Connection, account_id: i64) -> rusqlite::Result<Vec<LedgerItem>> {
     let mut singles = conn.prepare(&format!(
@@ -208,7 +208,8 @@ pub fn post_hold(conn: &Connection, params: PostHoldParams) -> rusqlite::Result<
     conn.execute(
         &format!(
             "UPDATE bank_entry
-             SET day = ?2, amount_minor = ?3, text = ?4, card = ?5, hold_seen_to = NULL,
+             SET held_day = day, held_amount_minor = amount_minor,
+                 day = ?2, amount_minor = ?3, text = ?4, card = ?5, hold_seen_to = NULL,
                  posted_at = {NOW_IN_CREATED_AT_FORMAT}, posting_change_minor = ?6
              WHERE event_id = ?1"
         ),
@@ -280,12 +281,15 @@ fn recorded(row: &Row<'_>) -> rusqlite::Result<Recorded> {
 
 fn bank_state(row: &Row<'_>) -> rusqlite::Result<BankState> {
     let hold_seen_to: Option<String> = row.get("hold_seen_to")?;
-    let posting_change_minor: Option<i64> = row.get("posting_change_minor")?;
-    Ok(match (hold_seen_to, posting_change_minor) {
+    let held_amount_minor: Option<i64> = row.get("held_amount_minor")?;
+    Ok(match (hold_seen_to, held_amount_minor) {
         (Some(_), _) => BankState::Pending {
             seen_to: day_at(row, "hold_seen_to")?,
         },
-        (None, Some(change_minor)) => BankState::Posted { change_minor },
+        (None, Some(held_amount_minor)) => BankState::Posted {
+            held_day: day_at(row, "held_day")?,
+            held_amount_minor,
+        },
         (None, None) => BankState::Booked,
     })
 }

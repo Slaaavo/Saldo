@@ -227,7 +227,8 @@ fn everything(conn: &Connection) -> Vec<String> {
              SELECT 'bank ' || event_id || ' ' || day || ' ' || amount_minor || ' '
                     || IFNULL(text, '-') || ' ' || IFNULL(card, '-') || ' '
                     || IFNULL(hold_seen_to, '-') || ' ' || IFNULL(posted_at, '-') || ' '
-                    || IFNULL(posting_change_minor, '-') || ' ' || IFNULL(cancelled_at, '-')
+                    || IFNULL(posting_change_minor, '-') || ' ' || IFNULL(held_day, '-') || ' '
+                    || IFNULL(held_amount_minor, '-') || ' ' || IFNULL(cancelled_at, '-')
              FROM bank_entry
              UNION ALL
              SELECT 'split ' || id || ' ' || IFNULL(note, '-')
@@ -2489,6 +2490,48 @@ fn daily_tickets_booked_a_day_later_are_counted_once_whatever_the_export_lists_f
 }
 
 #[test]
+fn an_older_export_imported_again_after_an_edited_hold_posted_at_another_amount_adds_nothing() {
+    let conn = initialize_in_memory().unwrap();
+    let card_account = own_without_iban(&conn, "Card");
+    let older = [
+        card_row(0, "2026-11-18", -3_300, CARD, CardRow::Pending),
+        card_row(1, "2026-11-18", -500, CARD, CardRow::Booked("BILLA")),
+    ];
+    import(&conn, card_account, &older);
+    let hold = event_ids(&conn)[0];
+    update_event(
+        &conn,
+        UpdateEventParams {
+            event_id: hold,
+            amount_minor: -3_299,
+            event_date: "2026-11-18T12:00:00".to_owned(),
+            note: Some("GitHub".to_owned()),
+        },
+    )
+    .unwrap();
+    import(
+        &conn,
+        card_account,
+        &[
+            card_row(
+                0,
+                "2026-11-18",
+                -3_299,
+                CARD,
+                CardRow::Booked("GITHUB, INC."),
+            ),
+            card_row(1, "2026-11-18", -500, CARD, CardRow::Booked("BILLA")),
+            card_row(2, "2026-11-20", -900, CARD, CardRow::Booked("LIDL")),
+        ],
+    );
+    assert!(hold_state(&conn, hold).posted);
+    let before = everything(&conn);
+
+    assert_eq!(import(&conn, card_account, &older), 0);
+    assert_eq!(everything(&conn), before);
+}
+
+#[test]
 fn the_storage_keeps_a_bank_entry_in_one_hold_state() {
     let conn = initialize_in_memory().unwrap();
     let checking = own(&conn, "Checking");
@@ -2506,14 +2549,13 @@ fn the_storage_keeps_a_bank_entry_in_one_hold_state() {
         .map_err(|error| error.to_string())
     };
     let stamp = "'2026-11-22T10:00:00.000'";
+    let posted = "posted_at, posting_change_minor, held_day, held_amount_minor";
+    let posting = format!("{stamp}, 0, '2026-09-13', -7896");
 
     let allowed = [
         ("text", "'TCHIBO'"),
         ("card, hold_seen_to", "'433703******2103', '2026-09-16'"),
-        (
-            "posted_at, posting_change_minor",
-            &format!("{stamp}, 0") as &str,
-        ),
+        (posted, &posting as &str),
         ("cancelled_at", stamp),
     ];
     for (columns, values) in allowed {
@@ -2522,23 +2564,26 @@ fn the_storage_keeps_a_bank_entry_in_one_hold_state() {
 
     let refused = [
         ("hold_seen_to", "'2026-9-16'"),
-        (
-            "posted_at, posting_change_minor",
-            "'2026-11-22 10:00:00', 0",
-        ),
+        (posted, "'2026-11-22 10:00:00', 0, '2026-09-13', -7896"),
+        (posted, &format!("{stamp}, 0, '2026-9-13', -7896") as &str),
         ("posted_at", stamp),
         ("posting_change_minor", "-1"),
+        ("held_day, held_amount_minor", "'2026-09-13', -7896"),
         (
-            "hold_seen_to, posted_at, posting_change_minor",
-            &format!("'2026-09-16', {stamp}, 0") as &str,
+            "posted_at, posting_change_minor",
+            &format!("{stamp}, 0") as &str,
+        ),
+        (
+            &format!("hold_seen_to, {posted}") as &str,
+            &format!("'2026-09-16', {posting}") as &str,
         ),
         (
             "hold_seen_to, cancelled_at",
             &format!("'2026-09-16', {stamp}") as &str,
         ),
         (
-            "posted_at, posting_change_minor, cancelled_at",
-            &format!("{stamp}, 0, {stamp}") as &str,
+            &format!("{posted}, cancelled_at") as &str,
+            &format!("{posting}, {stamp}") as &str,
         ),
     ];
     for (columns, values) in refused {

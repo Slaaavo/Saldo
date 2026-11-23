@@ -7,8 +7,11 @@ CREATE TABLE bank_entry_new (
   hold_seen_to         TEXT    CHECK (date(hold_seen_to) IS hold_seen_to),
   posted_at            TEXT    CHECK (strftime('%Y-%m-%dT%H:%M:%f', posted_at) IS posted_at),
   posting_change_minor INTEGER,
+  held_day             TEXT    CHECK (date(held_day) IS held_day),
+  held_amount_minor    INTEGER,
   cancelled_at         TEXT    CHECK (strftime('%Y-%m-%dT%H:%M:%f', cancelled_at) IS cancelled_at),
-  CHECK ((posted_at IS NULL) = (posting_change_minor IS NULL)),
+  CHECK ((posted_at IS NULL) + (posting_change_minor IS NULL) + (held_day IS NULL)
+         + (held_amount_minor IS NULL) IN (0, 4)),
   CHECK ((hold_seen_to IS NOT NULL) + (posted_at IS NOT NULL) + (cancelled_at IS NOT NULL) <= 1)
 );
 
