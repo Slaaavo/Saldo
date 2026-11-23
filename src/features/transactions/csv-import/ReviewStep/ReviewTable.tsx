@@ -53,17 +53,19 @@ const hintOf = (t: TFunction, row: ImportRow, money: (valueMinor: number) => Rea
         <Trans i18nKey="import.reviewStep.holdPostedAtOtherAmount.stays" components={{ hold: money(verdict.holdAmountMinor) }} />
       )
     case 'newReplacingSplitHold':
-      return (
+      return row.isSelected ? (
         <span className="flex items-start gap-1 text-amber-800 dark:text-amber-200">
           <AlertTriangle className="h-3.5 w-3.5 mt-px text-amber-500 shrink-0" />
           <span>
             <Trans
-              i18nKey="import.reviewStep.newReplacingSplitHold"
+              i18nKey="import.reviewStep.newReplacingSplitHold.replaces"
               values={{ day: dayOf(verdict.eventDate) }}
               components={{ hold: money(verdict.holdAmountMinor), booked: money(row.amountMinor) }}
             />
           </span>
         </span>
+      ) : (
+        <Trans i18nKey="import.reviewStep.newReplacingSplitHold.stays" values={{ day: dayOf(verdict.eventDate) }} components={{ hold: money(verdict.holdAmountMinor) }} />
       )
     case 'completesTransfer':
       if (row.splitLegs !== null) return null

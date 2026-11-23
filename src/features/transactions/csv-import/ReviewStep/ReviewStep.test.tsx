@@ -206,13 +206,17 @@ describe('ReviewStep', () => {
         ...makeImportRow(3, '2026-04-30', 'GitHub', { kind: 'newReplacingSplitHold', eventId: 62, eventDate: '2026-04-30T12:00:00', holdAmountMinor: -3300 }, true),
         amountMinor: -3299,
       }
-      renderReview({ importRows: [replacingRow] })
+      const { rerender } = renderReview({ importRows: [replacingRow] })
 
       expect(screen.getByText('New rows: 1. Already in Saldo: 0.')).toBeInTheDocument()
       expect(screen.getByText(/^The split card hold of/)).toHaveTextContent(
         `The split card hold of ${eur(-3300)} dated 2026-04-30 was booked at ${eur(-3299)}. Saldo removes the split hold and imports this row instead. To keep the parts, split this row again here.`,
       )
       expect(screen.getByRole('button', { name: 'Split' })).toBeEnabled()
+
+      rerender({ importRows: [{ ...replacingRow, isSelected: false }] })
+
+      expect(screen.getByText(/^The split card hold of/)).toHaveTextContent(`The split card hold of ${eur(-3300)} dated 2026-04-30 stays and this row is skipped`)
     })
 
     it('lists the cancelled holds ticked for removal and toggles one', async () => {

@@ -782,7 +782,9 @@ import:
     holdPostedAtOtherAmount:
       posts: "Card hold posted: <hold></hold> → <posted></posted>"
       stays: "The card hold stays at <hold></hold> and this row is skipped"
-    newReplacingSplitHold: "The split card hold of <hold></hold> dated {{day}} was booked at <booked></booked>. Saldo removes the split hold and imports this row instead. To keep the parts, split this row again here."
+    newReplacingSplitHold:
+      replaces: "The split card hold of <hold></hold> dated {{day}} was booked at <booked></booked>. Saldo removes the split hold and imports this row instead. To keep the parts, split this row again here."
+      stays: "The split card hold of <hold></hold> dated {{day}} stays and this row is skipped"
     cancelledHolds:
       title: "Cancelled card holds"
       description: "The bank no longer lists these card holds. Ticked ones are removed from Saldo."
