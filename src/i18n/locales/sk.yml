@@ -899,7 +899,7 @@ import:
     columnPattern:
       column: "Stĺpec"
       pattern: "Vzor (regulárny výraz, bez ohľadu na veľkosť písmen)"
-      pendingExample: "Riadok je blokácia na karte, keď bunka zodpovedá vzoru. Príklad: ^Autorizovaná$ pre stĺpec so stavom v exporte karty, ^Platba kartou pre popis bežného účtu"
+      pendingExample: "Riadok je blokácia na karte, keď bunka zodpovedá vzoru. Príklad: ^Autorizovan pre stĺpec so stavom v exporte karty, ^Platba kartou pre popis bežného účtu"
       declinedExample: "Riadok sa preskočí ako zamietnutá platba, keď bunka zodpovedá vzoru. Príklad: ^Zamietnutá$"
     invalidRegex: "Neplatný regulárny výraz"
     unmatchedColumn: "Stĺpec „{{name}}\" sa nenašiel v CSV"

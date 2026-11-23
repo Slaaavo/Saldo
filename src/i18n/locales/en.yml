@@ -908,7 +908,7 @@ import:
     columnPattern:
       column: "Column"
       pattern: "Pattern (regex, ignores case)"
-      pendingExample: "A row is a card hold when the cell matches. Example: ^Autorizovaná$ for a card export's state column, ^Platba kartou for a current account's description"
+      pendingExample: "A row is a card hold when the cell matches. Example: ^Autorizovan for a card export's state column, ^Platba kartou for a current account's description"
       declinedExample: "A row is skipped as a declined payment when the cell matches. Example: ^Zamietnutá$"
     invalidRegex: "Invalid regex pattern"
     unmatchedColumn: "Column \"{{name}}\" not found in CSV"
