@@ -1766,6 +1766,8 @@ fn a_refusal_goes_on_the_wire_with_the_broken_checks() {
 }
 
 const DEBIT_CARD: &str = "423473******0501";
+/// Long enough for `created_at` and a check's `checked_at` to order the writes.
+const CLOCK_TICK: std::time::Duration = std::time::Duration::from_millis(3);
 const BEFORE_ANY_IMPORT_CLOCK: &str = "2000-01-01T08:00:00.000";
 const CHECKED_BEFORE_THE_IMPORTS: &str = "2000-01-01T09:00:00.000";
 const HOLD_CHECK_DAY: &str = "2026-04-29";
@@ -2169,4 +2171,279 @@ fn a_check_stays_verified_when_a_hold_imported_after_it_is_booked_on_the_checks_
         verification(&conn, account),
         verified_on_hold_check_day(check_id)
     );
+}
+
+/// A hold on `held_on`, imported and checked at 67.00 on `HOLD_CHECK_DAY` while pending, split
+/// into two parts or not.
+fn checked_with_a_hold_on(held_on: &str, split: bool) -> (Connection, i64, i64) {
+    let conn = initialize_in_memory().unwrap();
+    let account = mk(&conn, "account");
+    balance_update(
+        &conn,
+        account,
+        10_000,
+        "2026-04-01",
+        BEFORE_ANY_IMPORT_CLOCK,
+    );
+    let held = [card_row(0, held_on, -3_300, true)];
+    let reviewed = preview_csv_import_inner(
+        &conn,
+        PreviewCsvImportInput {
+            account_id: account,
+            rows: held.to_vec(),
+        },
+    )
+    .unwrap();
+    let leg = |amount_minor| SplitLegChoice {
+        amount_minor,
+        note: None,
+        counterpart_account_id: None,
+        bucket_id: None,
+    };
+    apply_csv_import_inner(
+        &conn,
+        ApplyCsvImportInput {
+            account_id: account,
+            rows: held.to_vec(),
+            choices: vec![RowChoice {
+                index: 0,
+                selected: true,
+                bucket_id: None,
+                split: split.then(|| vec![leg(-3_000), leg(-300)]),
+            }],
+            cancelled_holds: vec![],
+            review_token: reviewed.review_token,
+        },
+    )
+    .unwrap();
+    for event_id in live_cashflows(&conn, account) {
+        written_at(&conn, event_id, BEFORE_ANY_IMPORT_CLOCK);
+    }
+    let check_id = check_at(
+        &conn,
+        account,
+        6_700,
+        CHECKED_BEFORE_THE_IMPORTS,
+        HOLD_CHECK_DAY,
+    )
+    .unwrap();
+    assert_eq!(
+        verification(&conn, account),
+        verified_on_hold_check_day(check_id)
+    );
+    (conn, account, check_id)
+}
+
+#[test]
+fn a_check_stays_verified_when_a_split_hold_from_before_its_day_is_booked_at_another_amount() {
+    for split in [false, true] {
+        let (conn, account, check_id) = checked_with_a_hold_on("2026-04-28", split);
+
+        import_with_default_ticks_removing_cancelled_holds(
+            &conn,
+            account,
+            &[
+                card_row(0, "2026-04-28", -3_299, false),
+                card_row(1, "2026-05-03", -500, false),
+            ],
+        );
+
+        assert_eq!(
+            row_of(&live(&conn), account).balance_minor,
+            10_000 - 3_299 - 500,
+            "split={split}"
+        );
+        assert_eq!(
+            verification(&conn, account),
+            verified_on_hold_check_day(check_id),
+            "split={split}"
+        );
+    }
+}
+
+#[test]
+fn a_check_stays_verified_when_a_split_hold_from_its_day_or_later_is_booked_at_another_amount() {
+    for held_on in [HOLD_CHECK_DAY, "2026-04-30"] {
+        for split in [false, true] {
+            let (conn, account, check_id) = checked_with_a_hold_on(held_on, split);
+
+            import_with_default_ticks_removing_cancelled_holds(
+                &conn,
+                account,
+                &[
+                    card_row(0, held_on, -3_299, false),
+                    card_row(1, "2026-05-03", -500, false),
+                ],
+            );
+
+            assert_eq!(
+                verification(&conn, account),
+                verified_on_hold_check_day(check_id),
+                "held on {held_on}, split={split}"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_check_stays_verified_whatever_order_the_export_lists_a_hold_booked_a_day_later() {
+    for newest_first in [false, true] {
+        let conn = initialize_in_memory().unwrap();
+        let account = mk(&conn, "account");
+        balance_update(
+            &conn,
+            account,
+            10_000,
+            "2026-10-01",
+            BEFORE_ANY_IMPORT_CLOCK,
+        );
+        import_with_default_ticks_removing_cancelled_holds(
+            &conn,
+            account,
+            &[card_row(0, "2026-10-03", -50, true)],
+        );
+        for event_id in live_cashflows(&conn, account) {
+            written_at(&conn, event_id, BEFORE_ANY_IMPORT_CLOCK);
+        }
+        let check_id = check_at(
+            &conn,
+            account,
+            9_950,
+            CHECKED_BEFORE_THE_IMPORTS,
+            "2026-10-05",
+        )
+        .unwrap();
+        let booked_on_4_oct = card_row(0, "2026-10-04", -50, false);
+        let bought_and_booked_on_5_oct = card_row(1, "2026-10-05", -50, false);
+        let export = if newest_first {
+            vec![
+                IncomingRowInput {
+                    index: 0,
+                    ..bought_and_booked_on_5_oct
+                },
+                IncomingRowInput {
+                    index: 1,
+                    ..booked_on_4_oct
+                },
+            ]
+        } else {
+            vec![booked_on_4_oct, bought_and_booked_on_5_oct]
+        };
+
+        import_with_default_ticks_removing_cancelled_holds(&conn, account, &export);
+
+        assert_eq!(
+            verification(&conn, account),
+            Some(Verification::Verified {
+                check_id,
+                day: "2026-10-05".to_owned()
+            }),
+            "newest_first={newest_first}"
+        );
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+enum CheckedWhile {
+    Pending,
+    Removed,
+}
+
+/// A hold on `held_on` and a Lidl row a day before it, a check on `HOLD_CHECK_DAY` while the
+/// hold was pending or after an import removed it, then an export as new as the removing one
+/// that lists the hold again. Returns the check's state after the removal and after the return.
+fn checked_around_a_hold_listed_again(
+    held_on: &str,
+    checked_while: CheckedWhile,
+) -> (Option<Verification>, Option<Verification>, i64) {
+    let conn = initialize_in_memory().unwrap();
+    let account = mk(&conn, "account");
+    balance_update(
+        &conn,
+        account,
+        10_000,
+        "2026-04-01",
+        BEFORE_ANY_IMPORT_CLOCK,
+    );
+    let hold = card_row(0, held_on, -3_300, true);
+    let lidl = card_row(1, "2026-04-27", -1_000, false);
+    import_with_default_ticks_removing_cancelled_holds(
+        &conn,
+        account,
+        &[hold.clone(), lidl.clone()],
+    );
+    for event_id in live_cashflows(&conn, account) {
+        written_at(&conn, event_id, BEFORE_ANY_IMPORT_CLOCK);
+    }
+    let check = || {
+        std::thread::sleep(CLOCK_TICK);
+        let check_id = match checked_while {
+            CheckedWhile::Pending => check_at(
+                &conn,
+                account,
+                5_700,
+                CHECKED_BEFORE_THE_IMPORTS,
+                HOLD_CHECK_DAY,
+            ),
+            CheckedWhile::Removed => check_at(
+                &conn,
+                account,
+                8_500,
+                &clock_now(&conn).unwrap(),
+                HOLD_CHECK_DAY,
+            ),
+        }
+        .unwrap();
+        std::thread::sleep(CLOCK_TICK);
+        check_id
+    };
+    let mut check_id = None;
+    if matches!(checked_while, CheckedWhile::Pending) {
+        check_id = Some(check());
+    }
+    let bolt = card_row(2, "2026-05-03", -500, false);
+    import_with_default_ticks_removing_cancelled_holds(
+        &conn,
+        account,
+        &[lidl.clone(), bolt.clone()],
+    );
+    if matches!(checked_while, CheckedWhile::Removed) {
+        check_id = Some(check());
+    }
+    let after_the_removal = verification(&conn, account);
+
+    import_with_default_ticks_removing_cancelled_holds(&conn, account, &[hold, lidl, bolt]);
+
+    assert_eq!(
+        row_of(&live(&conn), account).balance_minor,
+        10_000 - 3_300 - 1_000 - 500,
+        "the hold is back once"
+    );
+    (
+        after_the_removal,
+        verification(&conn, account),
+        check_id.unwrap(),
+    )
+}
+
+#[test]
+fn a_check_stays_verified_when_a_removed_hold_is_listed_again() {
+    for held_on in ["2026-04-28", HOLD_CHECK_DAY] {
+        for checked_while in [CheckedWhile::Pending, CheckedWhile::Removed] {
+            let (after_the_removal, after_the_return, check_id) =
+                checked_around_a_hold_listed_again(held_on, checked_while);
+            let case = format!("held on {held_on}, checked while {checked_while:?}");
+
+            assert_eq!(
+                after_the_removal,
+                verified_on_hold_check_day(check_id),
+                "{case}"
+            );
+            assert_eq!(
+                after_the_return,
+                verified_on_hold_check_day(check_id),
+                "{case}"
+            );
+        }
+    }
 }

@@ -18,7 +18,25 @@ pub struct InsertBankEntryParams {
     pub amount_minor: i64,
     pub text: Option<String>,
     pub card: Option<String>,
-    pub hold_seen_to: Option<NaiveDate>,
+    pub state: InsertedState,
+    /// The hold this entry takes the place of: a check made before the entry was created counts
+    /// that hold as it was and not the entry.
+    pub replaces_event_id: Option<i64>,
+}
+
+/// The state a bank line starts in when an import records it.
+pub enum InsertedState {
+    Booked,
+    Pending {
+        seen_to: NaiveDate,
+    },
+    /// Booked as the posting of the hold the entry replaces, which the bank held at `held_day`
+    /// and `held_amount_minor`.
+    Posted {
+        held_day: NaiveDate,
+        held_amount_minor: i64,
+        posting_change_minor: i64,
+    },
 }
 
 pub struct RaiseHoldSeenToParams {
@@ -184,16 +202,40 @@ pub fn balance_update_days(conn: &Connection, account_id: i64) -> rusqlite::Resu
 }
 
 pub fn insert_bank_entry(conn: &Connection, params: InsertBankEntryParams) -> rusqlite::Result<()> {
+    let (hold_seen_to, held_day, held_amount_minor, posting_change_minor) = match params.state {
+        InsertedState::Booked => (None, None, None, None),
+        InsertedState::Pending { seen_to } => (Some(iso_day(seen_to)), None, None, None),
+        InsertedState::Posted {
+            held_day,
+            held_amount_minor,
+            posting_change_minor,
+        } => (
+            None,
+            Some(iso_day(held_day)),
+            Some(held_amount_minor),
+            Some(posting_change_minor),
+        ),
+    };
     conn.execute(
-        "INSERT INTO bank_entry (event_id, day, amount_minor, text, card, hold_seen_to)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        &format!(
+            "INSERT INTO bank_entry (event_id, day, amount_minor, text, card, hold_seen_to,
+                                     posted_at, posting_change_minor, held_day, held_amount_minor,
+                                     replaces_event_id)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6,
+                     CASE WHEN ?7 IS NULL THEN NULL ELSE {NOW_IN_CREATED_AT_FORMAT} END,
+                     ?7, ?8, ?9, ?10)"
+        ),
         params![
             params.event_id,
             iso_day(params.day),
             params.amount_minor,
             params.text,
             params.card,
-            params.hold_seen_to.map(iso_day),
+            hold_seen_to,
+            posting_change_minor,
+            held_day,
+            held_amount_minor,
+            params.replaces_event_id,
         ],
     )?;
     Ok(())
@@ -262,7 +304,11 @@ pub fn removed_holds(conn: &Connection, account_id: i64) -> rusqlite::Result<Vec
          JOIN event e ON e.id = be.event_id
          JOIN event_data ed ON ed.id = e.latest_data_id
          LEFT JOIN split_group sg ON sg.id = e.split_group_id
-         WHERE e.account_id = ?1 AND be.cancelled_at IS NOT NULL
+         WHERE e.account_id = ?1
+           AND be.cancelled_at IS NOT NULL
+           AND NOT EXISTS (
+               SELECT 1 FROM bank_entry successor WHERE successor.replaces_event_id = e.id
+           )
          ORDER BY e.id"
     ))?;
     let holds = stmt.query_map(params![account_id], recorded)?;

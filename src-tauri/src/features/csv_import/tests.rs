@@ -2135,16 +2135,16 @@ fn the_same_export_again_after_ticking_a_posted_hold_changes_nothing() {
     );
 }
 
+fn held_on_25_oct_export() -> [IncomingRowInput; 2] {
+    [
+        card_row(0, "2026-10-25", -1_999, CARD, CardRow::Pending),
+        card_row(1, "2026-10-25", -500, CARD, CardRow::Booked("BILLA")),
+    ]
+}
+
 fn held_on_25_oct(conn: &Connection) -> (i64, i64) {
     let card_account = own_without_iban(conn, "Card");
-    import(
-        conn,
-        card_account,
-        &[
-            card_row(0, "2026-10-25", -1_999, CARD, CardRow::Pending),
-            card_row(1, "2026-10-25", -500, CARD, CardRow::Booked("BILLA")),
-        ],
-    );
+    import(conn, card_account, &held_on_25_oct_export());
     (card_account, live(conn)[0].0)
 }
 
@@ -2251,8 +2251,48 @@ fn split_github_hold(conn: &Connection) -> (i64, Vec<i64>) {
     (checking, event_ids(conn))
 }
 
+#[derive(Debug, PartialEq, Eq)]
+struct Posting {
+    held_day: String,
+    held_amount_minor: i64,
+    posting_change_minor: i64,
+}
+
+fn posting(conn: &Connection, event_id: i64) -> Option<Posting> {
+    conn.query_row(
+        "SELECT held_day, held_amount_minor, posting_change_minor
+         FROM bank_entry WHERE event_id = ?1 AND posted_at IS NOT NULL",
+        params![event_id],
+        |row| {
+            Ok(Posting {
+                held_day: row.get(0)?,
+                held_amount_minor: row.get(1)?,
+                posting_change_minor: row.get(2)?,
+            })
+        },
+    )
+    .ok()
+}
+
+fn replaced_hold(conn: &Connection, event_id: i64) -> Option<i64> {
+    conn.query_row(
+        "SELECT replaces_event_id FROM bank_entry WHERE event_id = ?1",
+        params![event_id],
+        |row| row.get(0),
+    )
+    .unwrap()
+}
+
+fn github_posting() -> Option<Posting> {
+    Some(Posting {
+        held_day: "2026-04-30".to_owned(),
+        held_amount_minor: -3_300,
+        posting_change_minor: 1,
+    })
+}
+
 #[test]
-fn a_split_hold_booked_at_another_amount_is_removed_and_the_row_imports_as_new() {
+fn a_split_hold_booked_at_another_amount_is_posted_onto_the_rows_new_entry() {
     let conn = initialize_in_memory().unwrap();
     let (checking, legs) = split_github_hold(&conn);
     let booked = github_booked();
@@ -2276,65 +2316,212 @@ fn a_split_hold_booked_at_another_amount_is_removed_and_the_row_imports_as_new()
             hold_amount_minor: -3_300,
         }
     );
-    assert_eq!(
-        reviewed.cancelled_holds,
-        [CancelledHold {
-            event_id: legs[0],
-            event_date: "2026-04-30T12:00:00".to_owned(),
-            amount_minor: -3_300,
-            note: Some(HOLD_TEXT.to_owned()),
-        }]
+    assert!(
+        reviewed.cancelled_holds.is_empty(),
+        "the replaced hold belongs to its row"
     );
     assert_eq!(
         result,
         CsvImportResult {
-            imported: 2,
-            removed_holds: 1,
-            repriced_holds: 0
+            imported: 1,
+            removed_holds: 0,
+            repriced_holds: 1
         },
-        "GitHub at its booked amount and Bolt"
+        "Bolt is new and GitHub's hold took its booked amount"
     );
     assert!(legs.iter().all(|&leg| entry(&conn, leg).deleted));
+    assert!(
+        !hold_state(&conn, legs[0]).cancelled,
+        "a check counts the replaced hold as gone"
+    );
+    let github = event_ids(&conn)[0];
+    assert_eq!(entry(&conn, github).amount_minor, -3_299);
+    assert_eq!(posting(&conn, github), github_posting());
+    assert_eq!(replaced_hold(&conn, github), Some(legs[0]));
     assert_eq!(account_total(&conn, checking), -3_299 - 1_000);
 }
 
 #[test]
-fn a_split_hold_booked_at_another_amount_is_listed_for_removal_by_an_export_no_newer_than_it() {
+fn a_split_hold_posted_onto_new_entries_takes_the_split_chosen_in_the_review() {
+    let conn = initialize_in_memory().unwrap();
+    let (checking, _) = split_github_hold(&conn);
+    let booked = github_booked();
+    let reviewed = preview(&conn, checking, &booked);
+
+    apply_reviewed(
+        &conn,
+        checking,
+        &booked,
+        &reviewed,
+        vec![split_choice(0, &[(-3_000, None), (-299, None)]), choice(1)],
+        true,
+    )
+    .unwrap();
+
+    let new_legs: Vec<i64> = event_ids(&conn)[..2].to_vec();
+    assert_eq!(
+        new_legs
+            .iter()
+            .map(|&leg| entry(&conn, leg).amount_minor)
+            .collect::<Vec<_>>(),
+        [-3_000, -299]
+    );
+    assert_eq!(posting(&conn, new_legs[0]), github_posting());
+    assert_eq!(account_total(&conn, checking), -3_299 - 1_000);
+    let before = everything(&conn);
+    assert_eq!(import(&conn, checking, &booked), 0);
+    assert_eq!(everything(&conn), before, "the same export again");
+}
+
+#[test]
+fn an_unticked_row_replacing_a_split_hold_leaves_the_hold_pending_and_imports_nothing() {
     let conn = initialize_in_memory().unwrap();
     let (checking, legs) = split_github_hold(&conn);
     let [github, _] = github_booked();
+    let booked = [github];
+    let before = everything(&conn);
 
-    let reviewed = preview(&conn, checking, &[github]);
+    let reviewed = preview(&conn, checking, &booked);
+    let result = apply_reviewed(
+        &conn,
+        checking,
+        &booked,
+        &reviewed,
+        vec![ticked(0, false)],
+        true,
+    )
+    .unwrap();
 
-    assert!(matches!(
-        reviewed.rows[0].verdict,
-        Verdict::NewReplacingSplitHold { .. }
-    ));
+    assert!(reviewed.cancelled_holds.is_empty());
     assert_eq!(
-        reviewed
-            .cancelled_holds
-            .iter()
-            .map(|hold| hold.event_id)
-            .collect::<Vec<_>>(),
-        [legs[0]]
+        result,
+        CsvImportResult {
+            imported: 0,
+            removed_holds: 0,
+            repriced_holds: 0
+        }
     );
+    assert_eq!(everything(&conn), before);
+    assert_eq!(
+        hold_state(&conn, legs[0]),
+        pending_until(DEBIT_CARD, "2026-04-30")
+    );
+}
+
+#[test]
+fn the_export_that_listed_a_split_hold_adds_nothing_after_a_newer_one_replaced_it() {
+    let with_the_same_newest_day = [
+        card_row(0, "2026-04-30", -3_300, DEBIT_CARD, CardRow::Pending),
+        card_row(1, "2026-04-29", -1_000, DEBIT_CARD, CardRow::Booked("BOLT")),
+    ];
+    let pending_only = [card_row(
+        0,
+        "2026-04-30",
+        -3_300,
+        DEBIT_CARD,
+        CardRow::Pending,
+    )];
+    for (case, held) in [
+        (
+            "the replacing export ends on the hold's day",
+            &with_the_same_newest_day[..],
+        ),
+        ("the export lists only the hold", &pending_only[..]),
+    ] {
+        let conn = initialize_in_memory().unwrap();
+        let checking = own(&conn, "Checking");
+        let reviewed = preview(&conn, checking, held);
+        let mut choices = default_choices(&reviewed);
+        choices[0] = split_choice(held[0].index, &[(-3_000, None), (-300, None)]);
+        apply(&conn, checking, held, choices, reviewed.review_token).unwrap();
+        let replacing = [
+            card_row(
+                0,
+                "2026-04-30",
+                -3_299,
+                DEBIT_CARD,
+                CardRow::Booked("GITHUB, INC."),
+            ),
+            card_row(1, "2026-04-29", -1_000, DEBIT_CARD, CardRow::Booked("BOLT")),
+        ];
+        import_with_defaults(&conn, checking, &replacing[..held.len()]);
+        let github = *event_ids(&conn).last().unwrap();
+        let before = everything(&conn);
+
+        assert_eq!(
+            verdicts(&conn, checking, &held[..1]),
+            [in_saldo(github, "2026-04-30T12:00:00", "GITHUB, INC.")],
+            "{case}"
+        );
+        assert_eq!(import(&conn, checking, held), 0, "{case}");
+        assert_eq!(everything(&conn), before, "{case}");
+    }
+}
+
+#[test]
+fn a_week_export_again_after_the_month_statement_reprices_its_hold_adds_nothing() {
+    for split in [false, true] {
+        let conn = initialize_in_memory().unwrap();
+        let checking = own(&conn, "Checking");
+        let week = [
+            card_row(0, "2026-04-30", -3_300, DEBIT_CARD, CardRow::Pending),
+            card_row(1, "2026-05-05", -700, DEBIT_CARD, CardRow::Booked("BOLT")),
+        ];
+        let reviewed = preview(&conn, checking, &week);
+        let github_choice = if split {
+            split_choice(0, &[(-3_000, None), (-300, None)])
+        } else {
+            choice(0)
+        };
+        apply(
+            &conn,
+            checking,
+            &week,
+            vec![github_choice, choice(1)],
+            reviewed.review_token,
+        )
+        .unwrap();
+        let april_statement = [
+            card_row(0, "2026-04-20", -1_000, DEBIT_CARD, CardRow::Booked("LIDL")),
+            card_row(
+                1,
+                "2026-04-30",
+                -3_299,
+                DEBIT_CARD,
+                CardRow::Booked("GITHUB, INC."),
+            ),
+        ];
+        import(&conn, checking, &april_statement);
+        assert_eq!(
+            account_total(&conn, checking),
+            -1_000 - 3_299 - 700,
+            "split={split}"
+        );
+        let before = everything(&conn);
+
+        assert_eq!(import(&conn, checking, &week), 0, "split={split}");
+        assert_eq!(everything(&conn), before, "split={split}");
+    }
 }
 
 #[test]
 fn a_cancelled_split_hold_is_removed_as_a_whole() {
     let conn = initialize_in_memory().unwrap();
     let card_account = own_without_iban(&conn, "Card");
-    let held = [card_row(0, "2026-10-25", -1_999, CARD, CardRow::Pending)];
+    let held = [
+        card_row(0, "2026-10-25", -1_999, CARD, CardRow::Pending),
+        card_row(1, "2026-10-25", -500, CARD, CardRow::Booked("BILLA")),
+    ];
     let reviewed = preview(&conn, card_account, &held);
     apply(
         &conn,
         card_account,
         &held,
-        vec![split_choice(0, &[(-1_500, None), (-499, None)])],
+        vec![split_choice(0, &[(-1_500, None), (-499, None)]), choice(1)],
         reviewed.review_token,
     )
     .unwrap();
-    let legs = event_ids(&conn);
+    let legs = event_ids(&conn)[..2].to_vec();
     let newer = export_of_31_oct();
 
     let reviewed = preview(&conn, card_account, &newer);
@@ -2363,8 +2550,8 @@ fn a_cancelled_split_hold_is_removed_as_a_whole() {
 
     let before = everything(&conn);
     assert_eq!(
-        verdicts(&conn, card_account, &held),
-        [in_saldo(legs[0], "2026-10-25T12:00:00", HOLD_TEXT)],
+        verdicts(&conn, card_account, &held)[0],
+        in_saldo(legs[0], "2026-10-25T12:00:00", HOLD_TEXT),
         "the export that listed it, again"
     );
     assert_eq!(import(&conn, card_account, &held), 0);
@@ -2818,6 +3005,130 @@ fn a_hold_an_export_as_new_as_the_cancelling_one_lists_again_comes_back() {
         (entry(&conn, *back).amount_minor, hold_state(&conn, *back)),
         (-1_999, pending_until(CARD, "2026-10-31"))
     );
+    assert!(hold_state(&conn, hold).cancelled);
+    assert_eq!(
+        replaced_hold(&conn, *back),
+        Some(hold),
+        "the returning hold takes the removed one's place"
+    );
+    let before = everything(&conn);
+    assert_eq!(import(&conn, card_account, &held_on_25_oct_export()), 0);
+    assert_eq!(everything(&conn), before, "the oldest export again");
+}
+
+#[test]
+fn an_unticked_row_listing_a_removed_hold_again_keeps_the_hold_removed() {
+    let conn = initialize_in_memory().unwrap();
+    let (card_account, hold) = held_on_25_oct(&conn);
+    import(&conn, card_account, &export_of_31_oct());
+    let listed_again = [
+        card_row(0, "2026-10-25", -1_999, CARD, CardRow::Pending),
+        card_row(1, "2026-10-31", -1_200, CARD, CardRow::Booked("LIDL")),
+    ];
+    let removed = everything(&conn);
+
+    let reviewed = preview(&conn, card_account, &listed_again);
+    apply_reviewed(
+        &conn,
+        card_account,
+        &listed_again,
+        &reviewed,
+        vec![ticked(0, false), ticked(1, false)],
+        true,
+    )
+    .unwrap();
+
+    assert_eq!(reviewed.rows[0].verdict, Verdict::New);
+    assert_eq!(everything(&conn), removed);
+    assert!(hold_state(&conn, hold).cancelled);
+}
+
+#[test]
+fn an_older_export_finds_the_hold_a_newer_one_booked_at_another_amount() {
+    for booked_amount_minor in [-3_300, -3_299] {
+        let conn = initialize_in_memory().unwrap();
+        let checking = own(&conn, "Checking");
+        import(
+            &conn,
+            checking,
+            &[
+                card_row(
+                    0,
+                    "2026-04-30",
+                    booked_amount_minor,
+                    DEBIT_CARD,
+                    CardRow::Booked("GITHUB, INC."),
+                ),
+                card_row(
+                    1,
+                    "2026-05-04",
+                    -5_000,
+                    DEBIT_CARD,
+                    CardRow::Booked("BANSKA"),
+                ),
+            ],
+        );
+        let before = everything(&conn);
+        let older = [
+            card_row(0, "2026-04-30", -3_300, DEBIT_CARD, CardRow::Pending),
+            card_row(1, "2026-04-29", -500, DEBIT_CARD, CardRow::Booked("LIDL")),
+        ];
+
+        assert_eq!(
+            import(&conn, checking, &older),
+            1,
+            "booked at {booked_amount_minor}: only Lidl is new"
+        );
+        assert_eq!(
+            account_total(&conn, checking),
+            booked_amount_minor - 5_000 - 500,
+            "booked at {booked_amount_minor}: GitHub once, at its booked amount"
+        );
+        let github = event_ids(&conn)[0];
+        assert_eq!(
+            everything(&conn)
+                .into_iter()
+                .filter(|line| before.contains(line))
+                .collect::<Vec<_>>(),
+            before,
+            "booked at {booked_amount_minor}: GitHub's entry and bank entry stay"
+        );
+        assert_eq!(entry(&conn, github).amount_minor, booked_amount_minor);
+    }
+}
+
+#[test]
+fn an_older_export_of_two_daily_tickets_adds_nothing_after_both_posted() {
+    let conn = initialize_in_memory().unwrap();
+    let card_account = own_without_iban(&conn, "Card");
+    let zssk = CardRow::Booked("ZSSK");
+    let both_held = [
+        card_row(0, "2026-10-24", -50, CARD, CardRow::Pending),
+        card_row(1, "2026-10-25", -50, CARD, CardRow::Pending),
+    ];
+    import(&conn, card_account, &both_held);
+    import(
+        &conn,
+        card_account,
+        &[
+            card_row(0, "2026-10-25", -50, CARD, zssk),
+            card_row(1, "2026-10-25", -50, CARD, CardRow::Pending),
+        ],
+    );
+    import(
+        &conn,
+        card_account,
+        &[
+            card_row(0, "2026-10-25", -50, CARD, zssk),
+            card_row(1, "2026-10-26", -50, CARD, zssk),
+            card_row(2, "2026-10-27", -900, CARD, CardRow::Booked("LIDL")),
+        ],
+    );
+    assert_eq!(account_total(&conn, card_account), -50 - 50 - 900);
+    let before = everything(&conn);
+
+    assert_eq!(import(&conn, card_account, &both_held), 0);
+    assert_eq!(everything(&conn), before);
 }
 
 #[test]
@@ -2843,11 +3154,20 @@ fn the_storage_keeps_a_bank_entry_in_one_hold_state() {
     let cancelled = "cancelled_at, cancelled_by_day";
     let cancelling = format!("{stamp}, '2026-09-20'");
 
+    let replacing = format!("{posted}, replaces_event_id");
     let allowed = [
         ("text", "'TCHIBO'"),
         ("card, hold_seen_to", "'433703******2103', '2026-09-16'"),
         (posted, &posting as &str),
         (cancelled, &cancelling as &str),
+        (
+            &replacing as &str,
+            &format!("{posting}, {event_id}") as &str,
+        ),
+        (
+            "hold_seen_to, replaces_event_id",
+            &format!("'2026-09-16', {event_id}") as &str,
+        ),
     ];
     for (columns, values) in allowed {
         assert_eq!(write(columns, values), Ok(()), "{columns}");
@@ -2879,6 +3199,7 @@ fn the_storage_keeps_a_bank_entry_in_one_hold_state() {
             &format!("{posted}, {cancelled}") as &str,
             &format!("{posting}, {cancelling}") as &str,
         ),
+        ("replaces_event_id", &event_id.to_string() as &str),
     ];
     for (columns, values) in refused {
         assert!(
@@ -3022,3 +3343,5 @@ fn the_wire_shapes_are_the_ones_the_wizard_sends_and_reads() {
         json!({ "imported": 3, "removedHolds": 1, "repricedHolds": 2 })
     );
 }
+
+mod export_sequences;

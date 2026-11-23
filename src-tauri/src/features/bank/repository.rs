@@ -13,22 +13,42 @@ const HOLDS_AS_AT_CHECK: FlowCount = FlowCount {
     amount: amount_at_check,
 };
 
+/// A hold an import removed or replaced after the check counts as it was. An entry an import
+/// created in a hold's place (`bank_entry.replaces_event_id`) counts only at checks made after
+/// it, because until then the hold stands for it.
 fn live_at_check(e: &str, _ed: &str) -> String {
-    let row_or_its_group = hold_event_is_the_row_or_its_group(e);
+    let hold_is_the_row_or_its_group = the_row_or_its_group("hold_event", e);
+    let successor_is_the_row_or_its_group = the_row_or_its_group("successor_event", e);
     format!(
-        "{e}.deleted_at IS NULL
-         OR EXISTS (
-           SELECT 1
-           FROM event hold_event
-           JOIN bank_entry hold_entry ON hold_entry.event_id = hold_event.id
-           WHERE {row_or_its_group}
-             AND hold_entry.cancelled_at > :checked_at
-         )"
+        "NOT ({e}.created_at > :checked_at
+              AND EXISTS (
+                SELECT 1
+                FROM event successor_event
+                JOIN bank_entry successor ON successor.event_id = successor_event.id
+                WHERE {successor_is_the_row_or_its_group}
+                  AND successor.replaces_event_id IS NOT NULL
+              ))
+         AND ({e}.deleted_at IS NULL
+              OR EXISTS (
+                SELECT 1
+                FROM event hold_event
+                JOIN bank_entry hold_entry ON hold_entry.event_id = hold_event.id
+                WHERE {hold_is_the_row_or_its_group}
+                  AND (hold_entry.cancelled_at > :checked_at
+                       OR (hold_entry.cancelled_at IS NULL
+                           AND EXISTS (
+                             SELECT 1
+                             FROM bank_entry successor
+                             JOIN event successor_event ON successor_event.id = successor.event_id
+                             WHERE successor.replaces_event_id = hold_event.id
+                               AND successor_event.created_at > :checked_at
+                           )))
+              ))"
     )
 }
 
-fn hold_event_is_the_row_or_its_group(e: &str) -> String {
-    format!("(hold_event.id = {e}.id OR hold_event.split_group_id = {e}.split_group_id)")
+fn the_row_or_its_group(alias: &str, e: &str) -> String {
+    format!("({alias}.id = {e}.id OR {alias}.split_group_id = {e}.split_group_id)")
 }
 
 fn amount_at_check(e: &str, ed: &str) -> String {

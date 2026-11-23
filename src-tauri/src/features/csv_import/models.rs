@@ -101,8 +101,8 @@ pub enum Verdict {
         note: Option<String>,
         hold_amount_minor: i64,
     },
-    /// The booked form of the split card hold `event_id` at another amount. The row imports as a
-    /// new entry, and the hold is listed among the cancelled holds.
+    /// The booked form of the split card hold `event_id` at another amount. Ticked, the row
+    /// imports as new entries posted from the hold, and the split hold goes.
     NewReplacingSplitHold {
         event_id: i64,
         event_date: String,
@@ -130,10 +130,11 @@ pub struct ApplyCsvImportInput {
 /// |---|---|---|
 /// | `new` | skip | create |
 /// | `completesTransfer` | skip | complete the transfer |
-/// | `inSaldo` | record the bank facts and hold state, take the booked text | create a new row too |
+/// | `inSaldo` | record the bank facts and hold state | create a new row too |
 /// | `transferLeg` | move the leg | create a new row |
 /// | `holdPosted` | post the hold in place | create a new row, the hold stays pending |
 /// | `holdPostedAtOtherAmount` | leave the hold, skip the row | post the hold at the row's amount |
+/// | `newReplacingSplitHold` | leave the hold, skip the row | create, posted from the hold, which goes |
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RowChoice {
@@ -164,10 +165,11 @@ pub struct SplitLegChoice {
 #[derive(Debug, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct CsvImportResult {
-    /// Entries created: one per plain row, one per split leg.
+    /// Entries created: one per plain row, one per split leg. A row replacing a split hold
+    /// counts among `repriced_holds` instead.
     pub imported: u32,
     /// Cancelled holds removed: one per plain entry or split group.
     pub removed_holds: u32,
-    /// Holds posted at the booked row's other amount.
+    /// Holds posted at the booked row's other amount, a replaced split hold included.
     pub repriced_holds: u32,
 }

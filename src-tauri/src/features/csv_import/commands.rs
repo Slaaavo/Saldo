@@ -14,8 +14,8 @@ use super::models::{
     IncomingRowInput, PreviewCsvImportInput, RowChoice, RowPreview, Verdict,
 };
 use super::repository::{
-    self, CancelHoldParams, CounterpartCashflowsParams, InsertBankEntryParams, PostHoldParams,
-    RaiseHoldSeenToParams, SetSplitGroupNoteParams,
+    self, CancelHoldParams, CounterpartCashflowsParams, InsertBankEntryParams, InsertedState,
+    PostHoldParams, RaiseHoldSeenToParams, SetSplitGroupNoteParams,
 };
 use crate::error::AppError;
 use crate::features::accounts::repository::get_account_type;
@@ -138,8 +138,19 @@ enum Written {
 
 enum Choice {
     Unticked,
-    Ticked { bucket_id: Option<i64> },
+    Ticked(Entries),
+}
+
+/// What a ticked row creates when it imports.
+enum Entries {
+    One { bucket_id: Option<i64> },
     Split(Vec<SplitLeg>),
+}
+
+struct Created {
+    /// The entry that holds the row's bank entry: the plain entry, or a split's lowest leg.
+    bank_entry_event_id: i64,
+    count: u32,
 }
 
 struct SplitLeg {
@@ -325,9 +336,9 @@ fn parse_choice(
         return Ok(Choice::Unticked);
     }
     let Some(legs) = choice.split else {
-        return Ok(Choice::Ticked {
+        return Ok(Choice::Ticked(Entries::One {
             bucket_id: choice.bucket_id,
-        });
+        }));
     };
     if legs.len() < 2 {
         return Err(validation("A split needs at least 2 legs"));
@@ -346,7 +357,7 @@ fn parse_choice(
             })
         })
         .collect::<Result<_, AppError>>()
-        .map(Choice::Split)
+        .map(|legs| Choice::Ticked(Entries::Split(legs)))
 }
 
 fn parse_removals<'a>(
@@ -393,45 +404,75 @@ impl Writer<'_> {
         matched: Match<'_>,
         choice: Choice,
     ) -> Result<Written, AppError> {
-        let conn = self.conn;
-        if let (Choice::Ticked { .. } | Choice::Split(_), Match::HoldPosted(hold)) =
-            (&choice, matched)
-        {
-            repository::raise_hold_seen_to(
-                conn,
-                RaiseHoldSeenToParams {
-                    event_id: hold.bank_entry_event_id,
-                    seen_to: self.newest_day,
-                },
-            )?;
-        }
-        match (choice, matched) {
-            (
-                Choice::Unticked,
-                Match::New
-                | Match::NewReplacingSplitHold(_)
-                | Match::CompletesTransfer(_)
-                | Match::HoldPostedAtOtherAmount(_),
-            ) => Ok(Written::Entries(0)),
-            (Choice::Unticked, Match::InSaldo(recorded)) => {
-                self.catch_up_with_bank_line(row, recorded)?;
-                Ok(Written::Entries(0))
+        let Choice::Ticked(entries) = choice else {
+            return self.leave_unticked(row, matched);
+        };
+        match matched {
+            Match::HoldPostedAtOtherAmount(hold) => match entries {
+                Entries::One { .. } => {
+                    self.post_hold(row, hold, row.amount_minor)?;
+                    Ok(Written::RepricedHold)
+                }
+                Entries::Split(_) => Err(validation(format!(
+                    "Row {} posts a card hold at another amount and cannot be split",
+                    row.index
+                ))),
+            },
+            Match::CompletesTransfer(cashflow) => match entries {
+                Entries::One { bucket_id } => {
+                    let leg_id = complete_transfer(
+                        self.conn,
+                        &cashflow_entry(self.account_id, row, bucket_id),
+                        cashflow.recorded.bank_entry_event_id,
+                    )?;
+                    self.record_bank_entry(leg_id, row)?;
+                    Ok(Written::Entries(1))
+                }
+                Entries::Split(_) => self.import_new(row, entries),
+            },
+            Match::HoldPosted(hold) => {
+                repository::raise_hold_seen_to(
+                    self.conn,
+                    RaiseHoldSeenToParams {
+                        event_id: hold.bank_entry_event_id,
+                        seen_to: self.newest_day,
+                    },
+                )?;
+                self.import_new(row, entries)
             }
-            (Choice::Unticked, Match::HoldPosted(hold)) => {
-                self.post_hold(row, hold, hold.total_minor)?;
-                Ok(Written::Entries(0))
-            }
-            (Choice::Ticked { .. }, Match::HoldPostedAtOtherAmount(hold)) => {
-                self.post_hold(row, hold, row.amount_minor)?;
+            Match::NewReplacingSplitHold(hold) => {
+                self.post_split_hold_onto_new_entries(row, hold, entries)?;
                 Ok(Written::RepricedHold)
             }
-            (Choice::Split(_), Match::HoldPostedAtOtherAmount(_)) => Err(validation(format!(
-                "Row {} posts a card hold at another amount and cannot be split",
-                row.index
-            ))),
-            (Choice::Unticked, Match::TransferLeg { leg, .. }) => {
+            Match::RemovedHoldListedAgain(removed) => {
+                let created = self.create(row, entries)?;
+                repository::insert_bank_entry(
+                    self.conn,
+                    InsertBankEntryParams {
+                        replaces_event_id: Some(removed.bank_entry_event_id),
+                        ..self.bank_entry_of(created.bank_entry_event_id, row)
+                    },
+                )?;
+                Ok(Written::Entries(created.count))
+            }
+            Match::New | Match::InSaldo(_) | Match::TransferLeg { .. } => {
+                self.import_new(row, entries)
+            }
+        }
+    }
+
+    fn leave_unticked(&self, row: &IncomingRow, matched: Match<'_>) -> Result<Written, AppError> {
+        match matched {
+            Match::New
+            | Match::NewReplacingSplitHold(_)
+            | Match::CompletesTransfer(_)
+            | Match::HoldPostedAtOtherAmount(_)
+            | Match::RemovedHoldListedAgain(_) => {}
+            Match::InSaldo(recorded) => self.catch_up_with_bank_line(row, recorded)?,
+            Match::HoldPosted(hold) => self.post_hold(row, hold, hold.total_minor)?,
+            Match::TransferLeg { leg, .. } => {
                 update_event(
-                    conn,
+                    self.conn,
                     UpdateEventParams {
                         event_id: leg.bank_entry_event_id,
                         amount_minor: leg.total_minor,
@@ -440,54 +481,77 @@ impl Writer<'_> {
                     },
                 )?;
                 self.record_bank_entry(leg.bank_entry_event_id, row)?;
-                Ok(Written::Entries(0))
             }
-            (Choice::Ticked { bucket_id }, Match::CompletesTransfer(cashflow)) => {
-                let leg_id = complete_transfer(
-                    conn,
-                    &cashflow_entry(self.account_id, row, bucket_id),
-                    cashflow.recorded.bank_entry_event_id,
-                )?;
-                self.record_bank_entry(leg_id, row)?;
-                Ok(Written::Entries(1))
-            }
-            (
-                Choice::Ticked { bucket_id },
-                Match::New
-                | Match::NewReplacingSplitHold(_)
-                | Match::InSaldo(_)
-                | Match::TransferLeg { .. }
-                | Match::HoldPosted(_),
-            ) => {
+        }
+        Ok(Written::Entries(0))
+    }
+
+    fn import_new(&self, row: &IncomingRow, entries: Entries) -> Result<Written, AppError> {
+        let created = self.create(row, entries)?;
+        self.record_bank_entry(created.bank_entry_event_id, row)?;
+        Ok(Written::Entries(created.count))
+    }
+
+    fn create(&self, row: &IncomingRow, entries: Entries) -> Result<Created, AppError> {
+        match entries {
+            Entries::One { bucket_id } => {
                 let (event_id, _) = create_cashflow_or_transfer(
-                    conn,
+                    self.conn,
                     &cashflow_entry(self.account_id, row, bucket_id),
                 )?;
-                self.record_bank_entry(event_id, row)?;
-                Ok(Written::Entries(1))
+                Ok(Created {
+                    bank_entry_event_id: event_id,
+                    count: 1,
+                })
             }
-            (
-                Choice::Split(legs),
-                Match::New
-                | Match::NewReplacingSplitHold(_)
-                | Match::InSaldo(_)
-                | Match::TransferLeg { .. }
-                | Match::CompletesTransfer(_)
-                | Match::HoldPosted(_),
-            ) => {
-                let leg_count = legs.len() as u32;
+            Entries::Split(legs) => {
+                let count = legs.len() as u32;
                 let split_group_id = create_split_group_with_legs(
-                    conn,
+                    self.conn,
                     CreateSplitGroupWithLegsParams {
                         account_id: self.account_id,
                         group_note: row.note.clone(),
                         legs: split_entries(row, legs)?,
                     },
                 )?;
-                self.record_bank_entry(repository::lowest_leg_id(conn, split_group_id)?, row)?;
-                Ok(Written::Entries(leg_count))
+                Ok(Created {
+                    bank_entry_event_id: repository::lowest_leg_id(self.conn, split_group_id)?,
+                    count,
+                })
             }
         }
+    }
+
+    /// Saldo does not rework a split: the row's entries take the hold's place, posted from the
+    /// hold's bank day and amount, so an older export's pending row finds them, and a check made
+    /// before counts the hold as it was.
+    fn post_split_hold_onto_new_entries(
+        &self,
+        row: &IncomingRow,
+        hold: &Recorded,
+        entries: Entries,
+    ) -> Result<(), AppError> {
+        let created = self.create(row, entries)?;
+        if let Some(split_group_id) = hold.split_group_id {
+            delete_split_group_inner(self.conn, split_group_id)?;
+        }
+        let held = hold
+            .bank
+            .as_ref()
+            .ok_or_else(|| validation("A replaced split hold has no bank facts"))?;
+        repository::insert_bank_entry(
+            self.conn,
+            InsertBankEntryParams {
+                state: InsertedState::Posted {
+                    held_day: held.day,
+                    held_amount_minor: held.amount_minor,
+                    posting_change_minor: posting_change_minor(hold.total_minor, row.amount_minor),
+                },
+                replaces_event_id: Some(hold.bank_entry_event_id),
+                ..self.bank_entry_of(created.bank_entry_event_id, row)
+            },
+        )?;
+        Ok(())
     }
 
     fn catch_up_with_bank_line(
@@ -599,17 +663,22 @@ impl Writer<'_> {
     }
 
     fn record_bank_entry(&self, event_id: i64, row: &IncomingRow) -> rusqlite::Result<()> {
-        repository::insert_bank_entry(
-            self.conn,
-            InsertBankEntryParams {
-                event_id,
-                day: row.day,
-                amount_minor: row.amount_minor,
-                text: row.note.clone(),
-                card: row.card.clone(),
-                hold_seen_to: self.hold_seen_to(row),
+        repository::insert_bank_entry(self.conn, self.bank_entry_of(event_id, row))
+    }
+
+    fn bank_entry_of(&self, event_id: i64, row: &IncomingRow) -> InsertBankEntryParams {
+        InsertBankEntryParams {
+            event_id,
+            day: row.day,
+            amount_minor: row.amount_minor,
+            text: row.note.clone(),
+            card: row.card.clone(),
+            state: match self.hold_seen_to(row) {
+                Some(seen_to) => InsertedState::Pending { seen_to },
+                None => InsertedState::Booked,
             },
-        )
+            replaces_event_id: None,
+        }
     }
 
     fn hold_seen_to(&self, row: &IncomingRow) -> Option<NaiveDate> {
@@ -716,6 +785,7 @@ fn verdict_of(matched: Match<'_>) -> Verdict {
             event_date: hold.event_date.clone(),
             hold_amount_minor: hold.total_minor,
         },
+        Match::RemovedHoldListedAgain(_) => Verdict::New,
     }
 }
 
