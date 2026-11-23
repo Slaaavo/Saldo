@@ -694,7 +694,7 @@ export const useImportWizard = (params: { snapshot: SnapshotRow[]; preselectedAc
           removedHolds > 0 && t('import.removedHolds', { count: removedHolds }),
         ].filter((part) => part !== false)
         if (done.length === 0) toast.info(t('import.nothingNew'))
-        else toast.success(done.join('. '))
+        else toast.success(done.length === 1 ? done[0] : done.map((part) => `${part}.`).join(' '))
         onClose()
       }
     } catch (err) {

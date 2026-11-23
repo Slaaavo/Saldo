@@ -337,7 +337,7 @@ describe('useImportWizard', () => {
 
       await act(() => result.current.handleImport())
 
-      expect(toast.success).toHaveBeenCalledWith('import.success. import.repricedHolds. import.removedHolds')
+      expect(toast.success).toHaveBeenCalledWith('import.success. import.repricedHolds. import.removedHolds.')
     })
 
     it('shows the repriced and removed holds on the save-profile step', async () => {
