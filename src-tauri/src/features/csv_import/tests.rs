@@ -2322,6 +2322,172 @@ fn the_25_oct_then_31_oct_card_exports_post_every_hold_in_place() {
     assert_eq!(everything(&conn), before, "the older 25 Oct export again");
 }
 
+fn account_total(conn: &Connection, account_id: i64) -> i64 {
+    live(conn)
+        .into_iter()
+        .filter(|(_, live)| live.account_id == account_id)
+        .map(|(_, live)| live.amount_minor)
+        .sum()
+}
+
+fn tickets_held_on_23_and_24_oct(conn: &Connection) -> (i64, i64, i64) {
+    let card_account = own_without_iban(conn, "Card");
+    import(
+        conn,
+        card_account,
+        &[
+            card_row(0, "2026-10-24", -50, CARD, CardRow::Pending),
+            card_row(1, "2026-10-23", -50, CARD, CardRow::Pending),
+        ],
+    );
+    let [of_24_oct, of_23_oct] = event_ids(conn)[..] else {
+        panic!("expected two holds");
+    };
+    (card_account, of_23_oct, of_24_oct)
+}
+
+#[test]
+fn a_ticket_booked_a_day_later_posts_its_own_hold_while_the_next_days_ticket_is_pending() {
+    let conn = initialize_in_memory().unwrap();
+    let (card_account, of_23_oct, of_24_oct) = tickets_held_on_23_and_24_oct(&conn);
+    let booked_listed_first = [
+        card_row(0, "2026-10-26", -900, CARD, CardRow::Booked("LIDL")),
+        card_row(1, "2026-10-24", -50, CARD, CardRow::Booked("ZSSK")),
+        card_row(2, "2026-10-24", -50, CARD, CardRow::Pending),
+        card_row(3, "2026-10-23", -300, SECOND_CARD, CardRow::Booked("KIOSK")),
+    ];
+
+    let reviewed = preview(&conn, card_account, &booked_listed_first);
+    let result = apply_reviewed(
+        &conn,
+        card_account,
+        &booked_listed_first,
+        &reviewed,
+        default_choices(&reviewed),
+        true,
+    )
+    .unwrap();
+
+    assert_eq!(
+        reviewed
+            .rows
+            .iter()
+            .map(|row| row.verdict.clone())
+            .collect::<Vec<_>>(),
+        [
+            Verdict::New,
+            Verdict::HoldPosted {
+                event_id: of_23_oct,
+                event_date: "2026-10-23T12:00:00".to_owned(),
+                note: Some(HOLD_TEXT.to_owned()),
+            },
+            in_saldo(of_24_oct, "2026-10-24T12:00:00", HOLD_TEXT),
+            Verdict::New,
+        ]
+    );
+    assert!(reviewed.cancelled_holds.is_empty());
+    assert_eq!(
+        result,
+        CsvImportResult {
+            imported: 2,
+            removed_holds: 0
+        }
+    );
+    assert_eq!(account_total(&conn, card_account), -50 - 50 - 900 - 300);
+}
+
+#[test]
+fn a_ticket_booked_a_day_later_is_counted_once_whatever_the_export_lists_first() {
+    let booked = card_row(1, "2026-10-24", -50, CARD, CardRow::Booked("ZSSK"));
+    let pending = card_row(2, "2026-10-24", -50, CARD, CardRow::Pending);
+    let orders = [
+        ("booked row first", [booked.clone(), pending.clone()]),
+        (
+            "pending row first",
+            [
+                IncomingRowInput { index: 2, ..booked },
+                IncomingRowInput {
+                    index: 1,
+                    ..pending
+                },
+            ],
+        ),
+    ];
+
+    for (order, tickets) in orders {
+        let conn = initialize_in_memory().unwrap();
+        let (card_account, _, _) = tickets_held_on_23_and_24_oct(&conn);
+        let mut export = vec![card_row(
+            0,
+            "2026-10-26",
+            -900,
+            CARD,
+            CardRow::Booked("LIDL"),
+        )];
+        export.extend(tickets);
+
+        import(&conn, card_account, &export);
+
+        assert_eq!(event_ids(&conn).len(), 3, "{order}");
+        assert_eq!(
+            account_total(&conn, card_account),
+            -50 - 50 - 900,
+            "{order}"
+        );
+    }
+}
+
+fn daily_tickets_booked_a_day_later(pending_listed_first: bool) -> (usize, i64) {
+    let conn = initialize_in_memory().unwrap();
+    let card_account = own_without_iban(&conn, "Card");
+    let zssk = CardRow::Booked("ZELEZNICE SR");
+    import(
+        &conn,
+        card_account,
+        &[card_row(0, "2026-11-18", -50, CARD, CardRow::Pending)],
+    );
+    import(
+        &conn,
+        card_account,
+        &[card_row(0, "2026-11-19", -50, CARD, zssk)],
+    );
+    let (second_held, first_booked) = if pending_listed_first { (0, 1) } else { (1, 0) };
+    let lidl = card_row(2, "2026-11-20", -900, CARD, CardRow::Booked("LIDL"));
+    import(
+        &conn,
+        card_account,
+        &[
+            card_row(second_held, "2026-11-19", -50, CARD, CardRow::Pending),
+            card_row(first_booked, "2026-11-19", -50, CARD, zssk),
+            lidl.clone(),
+        ],
+    );
+    import(
+        &conn,
+        card_account,
+        &[
+            card_row(0, "2026-11-19", -50, CARD, zssk),
+            card_row(1, "2026-11-20", -50, CARD, zssk),
+            lidl,
+        ],
+    );
+    (event_ids(&conn).len(), account_total(&conn, card_account))
+}
+
+#[test]
+fn daily_tickets_booked_a_day_later_are_counted_once_whatever_the_export_lists_first() {
+    assert_eq!(
+        daily_tickets_booked_a_day_later(true),
+        (3, -1_000),
+        "pending rows listed first"
+    );
+    assert_eq!(
+        daily_tickets_booked_a_day_later(false),
+        (3, -1_000),
+        "booked rows listed first"
+    );
+}
+
 #[test]
 fn the_storage_keeps_a_bank_entry_in_one_hold_state() {
     let conn = initialize_in_memory().unwrap();

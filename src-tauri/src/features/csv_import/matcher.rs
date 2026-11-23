@@ -247,42 +247,42 @@ fn claim_same_day_and_amount<'a>(
             .or_default()
             .push(item);
     }
-    for &position in file_order {
-        if !matches!(matches[position], Match::New) {
-            continue;
-        }
-        let row = &rows[position];
-        let Some(candidates) = by_key.get(&row.key()) else {
-            continue;
-        };
-        let taken = candidates
-            .iter()
-            .copied()
-            .filter(|&item| {
-                !used[item]
-                    && row.counterpart.may_claim(&items[item])
-                    && cards_fit(row, &items[item].recorded)
-            })
-            .min_by_key(|&item| {
-                let recorded = &items[item].recorded;
-                (
-                    same_day_preference(row, recorded),
-                    recorded.bank_entry_event_id,
-                )
-            });
-        if let Some(item) = taken {
-            used[item] = true;
-            let recorded = &items[item].recorded;
-            matches[position] = if !row.pending && recorded.is_pending_hold() {
-                Match::HoldPosted(recorded)
-            } else {
-                Match::InSaldo(recorded)
+    for allowed in [SameDayPreference::SameState, SameDayPreference::Unseen] {
+        for &position in file_order {
+            if !matches!(matches[position], Match::New) {
+                continue;
+            }
+            let row = &rows[position];
+            let Some(candidates) = by_key.get(&row.key()) else {
+                continue;
             };
+            let taken = candidates
+                .iter()
+                .copied()
+                .map(|item| (item, same_day_preference(row, &items[item].recorded)))
+                .filter(|&(item, preference)| {
+                    !used[item]
+                        && preference <= allowed
+                        && row.counterpart.may_claim(&items[item])
+                        && cards_fit(row, &items[item].recorded)
+                })
+                .min_by_key(|&(item, preference)| {
+                    (preference, items[item].recorded.bank_entry_event_id)
+                });
+            if let Some((item, _)) = taken {
+                used[item] = true;
+                let recorded = &items[item].recorded;
+                matches[position] = if !row.pending && recorded.is_pending_hold() {
+                    Match::HoldPosted(recorded)
+                } else {
+                    Match::InSaldo(recorded)
+                };
+            }
         }
     }
 }
 
-#[derive(PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum SameDayPreference {
     SameState,
     OtherState,
@@ -775,6 +775,42 @@ mod tests {
                 &items
             ),
             ["in Saldo 3", "posts 2", "in Saldo 1"]
+        );
+    }
+
+    #[test]
+    fn a_row_in_the_other_state_waits_until_every_row_took_an_entry_in_its_own_state() {
+        let ticket_of_24_oct = hold(1, "2026-10-24", -50, CARD, "2026-10-24");
+        let ticket_of_23_oct = hold(2, "2026-10-23", -50, CARD, "2026-10-24");
+        let ticket_posted = with_bank(
+            1,
+            "2026-11-19",
+            -50,
+            Some(CARD),
+            BankState::Posted { change_minor: 0 },
+        );
+
+        assert_eq!(
+            verdicts(
+                &[
+                    booked(CARD, row(0, "2026-10-24", -50)),
+                    pending(CARD, row(1, "2026-10-24", -50)),
+                ],
+                &[ticket_of_24_oct, ticket_of_23_oct]
+            ),
+            ["posts 2", "in Saldo 1"],
+            "the 23 Oct ticket booked on the 24th"
+        );
+        assert_eq!(
+            verdicts(
+                &[
+                    pending(CARD, row(0, "2026-11-19", -50)),
+                    booked(CARD, row(1, "2026-11-19", -50)),
+                ],
+                &[ticket_posted]
+            ),
+            ["new", "in Saldo 1"],
+            "the next ticket still pending"
         );
     }
 
