@@ -386,6 +386,17 @@ impl Writer<'_> {
         choice: Choice,
     ) -> Result<u32, AppError> {
         let conn = self.conn;
+        if let (Choice::Ticked { .. } | Choice::Split(_), Match::HoldPosted(hold)) =
+            (&choice, matched)
+        {
+            repository::raise_hold_seen_to(
+                conn,
+                RaiseHoldSeenToParams {
+                    event_id: hold.bank_entry_event_id,
+                    seen_to: self.newest_day,
+                },
+            )?;
+        }
         match (choice, matched) {
             (
                 Choice::Unticked,

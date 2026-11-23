@@ -2077,6 +2077,53 @@ fn ticking_a_posted_hold_adds_a_row_and_leaves_the_hold_pending() {
     assert_eq!(entry(&conn, hold).note.as_deref(), Some(HOLD_TEXT));
 }
 
+#[test]
+fn the_same_export_again_after_ticking_a_posted_hold_changes_nothing() {
+    let conn = initialize_in_memory().unwrap();
+    let (card_account, hold) = tchibo_held(&conn);
+    let booked = [
+        card_row(
+            0,
+            "2026-09-15",
+            -7_896,
+            CARD,
+            CardRow::Booked("TCHIBO PRAHA"),
+        ),
+        card_row(1, "2026-09-18", -900, CARD, CardRow::Booked("LIDL")),
+        card_row(2, "2026-09-13", -100, CARD, CardRow::Booked("KIOSK")),
+    ];
+    let reviewed = preview(&conn, card_account, &booked);
+    apply_reviewed(
+        &conn,
+        card_account,
+        &booked,
+        &reviewed,
+        vec![choice(0), choice(1), choice(2)],
+        true,
+    )
+    .unwrap();
+    let before = everything(&conn);
+
+    let again = preview(&conn, card_account, &booked);
+
+    assert!(again.cancelled_holds.is_empty());
+    assert_eq!(import(&conn, card_account, &booked), 0);
+    assert_eq!(everything(&conn), before);
+    let newer = [
+        card_row(0, "2026-09-13", -250, CARD, CardRow::Booked("BOLT")),
+        card_row(1, "2026-09-20", -300, CARD, CardRow::Booked("BOLT")),
+    ];
+    assert_eq!(
+        preview(&conn, card_account, &newer)
+            .cancelled_holds
+            .iter()
+            .map(|cancelled| cancelled.event_id)
+            .collect::<Vec<_>>(),
+        [hold],
+        "a newer export that no longer lists the hold cancels it"
+    );
+}
+
 fn held_on_25_oct(conn: &Connection) -> (i64, i64) {
     let card_account = own_without_iban(conn, "Card");
     import(
