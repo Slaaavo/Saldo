@@ -228,7 +228,8 @@ fn everything(conn: &Connection) -> Vec<String> {
                     || IFNULL(text, '-') || ' ' || IFNULL(card, '-') || ' '
                     || IFNULL(hold_seen_to, '-') || ' ' || IFNULL(posted_at, '-') || ' '
                     || IFNULL(posting_change_minor, '-') || ' ' || IFNULL(held_day, '-') || ' '
-                    || IFNULL(held_amount_minor, '-') || ' ' || IFNULL(cancelled_at, '-')
+                    || IFNULL(held_amount_minor, '-') || ' ' || IFNULL(cancelled_at, '-') || ' '
+                    || IFNULL(cancelled_by_day, '-')
              FROM bank_entry
              UNION ALL
              SELECT 'split ' || id || ' ' || IFNULL(note, '-')
@@ -2144,6 +2145,15 @@ fn a_cancelled_split_hold_is_removed_as_a_whole() {
     assert_eq!(result.removed_holds, 1);
     assert!(legs.iter().all(|&leg| entry(&conn, leg).deleted));
     assert!(hold_state(&conn, legs[0]).cancelled);
+
+    let before = everything(&conn);
+    assert_eq!(
+        verdicts(&conn, card_account, &held),
+        [in_saldo(legs[0], "2026-10-25T12:00:00", HOLD_TEXT)],
+        "the export that listed it, again"
+    );
+    assert_eq!(import(&conn, card_account, &held), 0);
+    assert_eq!(everything(&conn), before);
 }
 
 #[test]
@@ -2557,6 +2567,44 @@ fn an_older_export_imported_after_the_newer_finds_the_hold_the_newer_booked_a_da
 }
 
 #[test]
+fn an_older_export_imported_again_after_a_cancel_keeps_the_hold_removed() {
+    let conn = initialize_in_memory().unwrap();
+    let (card_account, hold) = held_on_25_oct(&conn);
+    import(&conn, card_account, &export_of_31_oct());
+    assert!(entry(&conn, hold).deleted);
+    let before = everything(&conn);
+
+    let older = [
+        card_row(0, "2026-10-25", -1_999, CARD, CardRow::Pending),
+        card_row(1, "2026-10-25", -500, CARD, CardRow::Booked("BILLA")),
+    ];
+
+    assert_eq!(import(&conn, card_account, &older), 0);
+    assert_eq!(everything(&conn), before);
+}
+
+#[test]
+fn a_hold_an_export_as_new_as_the_cancelling_one_lists_again_comes_back() {
+    let conn = initialize_in_memory().unwrap();
+    let (card_account, hold) = held_on_25_oct(&conn);
+    import(&conn, card_account, &export_of_31_oct());
+    let listed_again = [
+        card_row(0, "2026-10-25", -1_999, CARD, CardRow::Pending),
+        card_row(1, "2026-10-31", -1_200, CARD, CardRow::Booked("LIDL")),
+    ];
+
+    assert_eq!(import(&conn, card_account, &listed_again), 1);
+    let [.., (back, _)] = &live(&conn)[..] else {
+        panic!("expected live entries");
+    };
+    assert_ne!(*back, hold);
+    assert_eq!(
+        (entry(&conn, *back).amount_minor, hold_state(&conn, *back)),
+        (-1_999, pending_until(CARD, "2026-10-31"))
+    );
+}
+
+#[test]
 fn the_storage_keeps_a_bank_entry_in_one_hold_state() {
     let conn = initialize_in_memory().unwrap();
     let checking = own(&conn, "Checking");
@@ -2576,12 +2624,14 @@ fn the_storage_keeps_a_bank_entry_in_one_hold_state() {
     let stamp = "'2026-11-22T10:00:00.000'";
     let posted = "posted_at, posting_change_minor, held_day, held_amount_minor";
     let posting = format!("{stamp}, 0, '2026-09-13', -7896");
+    let cancelled = "cancelled_at, cancelled_by_day";
+    let cancelling = format!("{stamp}, '2026-09-20'");
 
     let allowed = [
         ("text", "'TCHIBO'"),
         ("card, hold_seen_to", "'433703******2103', '2026-09-16'"),
         (posted, &posting as &str),
-        ("cancelled_at", stamp),
+        (cancelled, &cancelling as &str),
     ];
     for (columns, values) in allowed {
         assert_eq!(write(columns, values), Ok(()), "{columns}");
@@ -2602,13 +2652,16 @@ fn the_storage_keeps_a_bank_entry_in_one_hold_state() {
             &format!("hold_seen_to, {posted}") as &str,
             &format!("'2026-09-16', {posting}") as &str,
         ),
+        ("cancelled_at", stamp),
+        ("cancelled_by_day", "'2026-09-20'"),
+        (cancelled, &format!("{stamp}, '2026-9-20'") as &str),
         (
-            "hold_seen_to, cancelled_at",
-            &format!("'2026-09-16', {stamp}") as &str,
+            &format!("hold_seen_to, {cancelled}") as &str,
+            &format!("'2026-09-16', {cancelling}") as &str,
         ),
         (
-            &format!("{posted}, cancelled_at") as &str,
-            &format!("{posting}, {stamp}") as &str,
+            &format!("{posted}, {cancelled}") as &str,
+            &format!("{posting}, {cancelling}") as &str,
         ),
     ];
     for (columns, values) in refused {

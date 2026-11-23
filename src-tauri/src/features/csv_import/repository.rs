@@ -35,6 +35,11 @@ pub struct PostHoldParams {
     pub posting_change_minor: i64,
 }
 
+pub struct CancelHoldParams {
+    pub event_id: i64,
+    pub by_day: NaiveDate,
+}
+
 pub struct SetSplitGroupNoteParams {
     pub split_group_id: i64,
     pub note: Option<String>,
@@ -43,7 +48,8 @@ pub struct SetSplitGroupNoteParams {
 const BANK_COLUMNS: &str = "be.day AS bank_day, be.amount_minor AS bank_amount_minor,
                             be.text AS bank_text, be.card AS bank_card,
                             be.hold_seen_to AS hold_seen_to, be.held_day AS held_day,
-                            be.held_amount_minor AS held_amount_minor";
+                            be.held_amount_minor AS held_amount_minor,
+                            be.cancelled_by_day AS cancelled_by_day";
 
 pub fn ledger_items(conn: &Connection, account_id: i64) -> rusqlite::Result<Vec<LedgerItem>> {
     let mut singles = conn.prepare(&format!(
@@ -225,15 +231,42 @@ pub fn post_hold(conn: &Connection, params: PostHoldParams) -> rusqlite::Result<
     Ok(())
 }
 
-pub fn cancel_hold(conn: &Connection, event_id: i64) -> rusqlite::Result<()> {
+pub fn cancel_hold(conn: &Connection, params: CancelHoldParams) -> rusqlite::Result<()> {
     conn.execute(
         &format!(
-            "UPDATE bank_entry SET hold_seen_to = NULL, cancelled_at = {NOW_IN_CREATED_AT_FORMAT}
+            "UPDATE bank_entry
+             SET hold_seen_to = NULL, cancelled_at = {NOW_IN_CREATED_AT_FORMAT},
+                 cancelled_by_day = ?2
              WHERE event_id = ?1"
         ),
-        params![event_id],
+        params![params.event_id, iso_day(params.by_day)],
     )?;
     Ok(())
+}
+
+pub fn removed_holds(conn: &Connection, account_id: i64) -> rusqlite::Result<Vec<Recorded>> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT e.id AS bank_entry_event_id, e.latest_data_id AS latest_data_id,
+                e.split_group_id AS split_group_id, ed.event_date AS event_date,
+                COALESCE(
+                    (SELECT SUM(leg_data.amount_minor)
+                     FROM event leg
+                     JOIN event_data leg_data ON leg_data.id = leg.latest_data_id
+                     WHERE leg.split_group_id = e.split_group_id
+                       AND leg.deleted_at = e.deleted_at),
+                    ed.amount_minor
+                ) AS amount_minor,
+                CASE WHEN e.split_group_id IS NULL THEN ed.note ELSE sg.note END AS note,
+                {BANK_COLUMNS}
+         FROM bank_entry be
+         JOIN event e ON e.id = be.event_id
+         JOIN event_data ed ON ed.id = e.latest_data_id
+         LEFT JOIN split_group sg ON sg.id = e.split_group_id
+         WHERE e.account_id = ?1 AND be.cancelled_at IS NOT NULL
+         ORDER BY e.id"
+    ))?;
+    let holds = stmt.query_map(params![account_id], recorded)?;
+    holds.collect()
 }
 
 pub fn set_split_group_note(
@@ -282,15 +315,19 @@ fn recorded(row: &Row<'_>) -> rusqlite::Result<Recorded> {
 fn bank_state(row: &Row<'_>) -> rusqlite::Result<BankState> {
     let hold_seen_to: Option<String> = row.get("hold_seen_to")?;
     let held_amount_minor: Option<i64> = row.get("held_amount_minor")?;
-    Ok(match (hold_seen_to, held_amount_minor) {
-        (Some(_), _) => BankState::Pending {
+    let cancelled_by_day: Option<String> = row.get("cancelled_by_day")?;
+    Ok(match (hold_seen_to, held_amount_minor, cancelled_by_day) {
+        (Some(_), _, _) => BankState::Pending {
             seen_to: day_at(row, "hold_seen_to")?,
         },
-        (None, Some(held_amount_minor)) => BankState::Posted {
+        (None, Some(held_amount_minor), _) => BankState::Posted {
             held_day: day_at(row, "held_day")?,
             held_amount_minor,
         },
-        (None, None) => BankState::Booked,
+        (None, None, Some(_)) => BankState::Cancelled {
+            by_day: day_at(row, "cancelled_by_day")?,
+        },
+        (None, None, None) => BankState::Booked,
     })
 }
 

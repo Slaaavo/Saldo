@@ -71,6 +71,9 @@ pub(crate) enum BankState {
         held_day: NaiveDate,
         held_amount_minor: i64,
     },
+    Cancelled {
+        by_day: NaiveDate,
+    },
 }
 
 pub(crate) fn posting_change_minor(total_before_minor: i64, total_after_minor: i64) -> i64 {
@@ -112,7 +115,7 @@ impl Recorded {
                 held_day,
                 held_amount_minor,
             } => Some((held_day, held_amount_minor)),
-            BankState::Booked | BankState::Pending { .. } => None,
+            BankState::Booked | BankState::Pending { .. } | BankState::Cancelled { .. } => None,
         }
     }
 
@@ -194,6 +197,7 @@ pub(crate) struct Matched<'a> {
 pub(crate) fn match_rows<'a>(
     rows: &[IncomingRow],
     items: &'a [LedgerItem],
+    removed_holds: &'a [Recorded],
     cashflows: &'a [CounterpartCashflow],
 ) -> Matched<'a> {
     let mut file_order: Vec<usize> = (0..rows.len()).collect();
@@ -212,6 +216,7 @@ pub(crate) fn match_rows<'a>(
     claim_holds_booked_on_another_day(rows, &file_order, items, &mut used, &mut matches);
     claim_holds_booked_at_another_amount(rows, items, &mut used, &mut matches);
     claim_mutually_unique_cashflows(rows, cashflows, &mut matches);
+    claim_removed_holds_listed_by_an_older_export(rows, &file_order, removed_holds, &mut matches);
     claim_posted_holds_listed_again(rows, &file_order, items, &mut used, &mut matches);
     claim_entries_a_newer_export_booked_later(rows, &file_order, items, &mut used, &mut matches);
     Matched {
@@ -329,6 +334,34 @@ fn claim_holds_booked_on_another_day<'a>(
         });
         if let Some(hold) = claimed {
             matches[position] = Match::HoldPosted(hold);
+        }
+    }
+}
+
+fn claim_removed_holds_listed_by_an_older_export<'a>(
+    rows: &[IncomingRow],
+    file_order: &[usize],
+    removed_holds: &'a [Recorded],
+    matches: &mut [Match<'a>],
+) {
+    let Some(newest) = rows.iter().map(|row| row.day).max() else {
+        return;
+    };
+    let mut used = vec![false; removed_holds.len()];
+    for &position in file_order {
+        let row = &rows[position];
+        if !row.pending || !matches!(matches[position], Match::New) {
+            continue;
+        }
+        let taken = removed_holds.iter().enumerate().find(|&(hold, recorded)| {
+            !used[hold]
+                && recorded.key() == row.key()
+                && cards_fit(row, recorded)
+                && matches!(recorded.state(), Some(BankState::Cancelled { by_day }) if newest < by_day)
+        });
+        if let Some((hold, recorded)) = taken {
+            used[hold] = true;
+            matches[position] = Match::InSaldo(recorded);
         }
     }
 }
@@ -705,7 +738,15 @@ mod tests {
     }
 
     fn outcome(rows: &[IncomingRow], items: &[LedgerItem]) -> (Vec<String>, Vec<i64>) {
-        let matched = match_rows(rows, items, &[]);
+        outcome_with_removed_holds(rows, items, &[])
+    }
+
+    fn outcome_with_removed_holds(
+        rows: &[IncomingRow],
+        items: &[LedgerItem],
+        removed_holds: &[Recorded],
+    ) -> (Vec<String>, Vec<i64>) {
+        let matched = match_rows(rows, items, removed_holds, &[]);
         let verdicts = matched
             .rows
             .iter()
@@ -1056,6 +1097,62 @@ mod tests {
             ),
             ["new", "in Saldo 1"],
             "the file's own booked row claims first"
+        );
+    }
+
+    #[test]
+    fn a_pending_row_of_an_export_older_than_the_one_that_removed_its_hold_finds_the_hold() {
+        let removed_by = |by_day| {
+            with_bank(
+                1,
+                "2026-10-25",
+                -1_999,
+                Some(CARD),
+                BankState::Cancelled {
+                    by_day: date(by_day),
+                },
+            )
+            .recorded
+        };
+        let export_to_30_oct = |held: IncomingRow| {
+            outcome_with_removed_holds(
+                &[held, booked(CARD, row(1, "2026-10-30", -500))],
+                &[],
+                &[removed_by("2026-10-31")],
+            )
+            .0
+        };
+
+        assert_eq!(
+            export_to_30_oct(pending(CARD, row(0, "2026-10-25", -1_999))),
+            ["in Saldo 1", "new"]
+        );
+        for (case, held) in [
+            ("another day", pending(CARD, row(0, "2026-10-24", -1_999))),
+            (
+                "another amount",
+                pending(CARD, row(0, "2026-10-25", -2_000)),
+            ),
+            (
+                "another card",
+                pending(SECOND_CARD, row(0, "2026-10-25", -1_999)),
+            ),
+            ("a booked row", booked(CARD, row(0, "2026-10-25", -1_999))),
+        ] {
+            assert_eq!(export_to_30_oct(held), ["new", "new"], "{case}");
+        }
+        assert_eq!(
+            outcome_with_removed_holds(
+                &[
+                    pending(CARD, row(0, "2026-10-25", -1_999)),
+                    booked(CARD, row(1, "2026-10-31", -500)),
+                ],
+                &[],
+                &[removed_by("2026-10-31")],
+            )
+            .0,
+            ["new", "new"],
+            "an export as new as the one that removed it lists the hold again"
         );
     }
 

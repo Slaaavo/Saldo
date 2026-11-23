@@ -14,8 +14,8 @@ use super::models::{
     IncomingRowInput, PreviewCsvImportInput, RowChoice, RowPreview, Verdict,
 };
 use super::repository::{
-    self, CounterpartCashflowsParams, InsertBankEntryParams, PostHoldParams, RaiseHoldSeenToParams,
-    SetSplitGroupNoteParams,
+    self, CancelHoldParams, CounterpartCashflowsParams, InsertBankEntryParams, PostHoldParams,
+    RaiseHoldSeenToParams, SetSplitGroupNoteParams,
 };
 use crate::error::AppError;
 use crate::features::accounts::repository::get_account_type;
@@ -55,7 +55,7 @@ pub(crate) fn preview_csv_import_inner(
 ) -> Result<CsvImportPreview, AppError> {
     with_read_txn(conn, || {
         let read = read_import(conn, input.account_id, &input.rows)?;
-        let matched = matcher::match_rows(&read.rows, &read.items, &read.cashflows);
+        let matched = read.matched();
         let update_days: HashSet<NaiveDate> =
             repository::balance_update_days(conn, input.account_id)?
                 .into_iter()
@@ -104,20 +104,22 @@ pub(crate) fn apply_csv_import_inner(
             message: "Saldo changed since this import was reviewed. Review it again.".into(),
         });
     }
-    let matched = matcher::match_rows(&read.rows, &read.items, &read.cashflows);
+    let matched = read.matched();
     let removals = parse_removals(&matched.cancelled_holds, input.cancelled_holds)?;
-    let writer = Writer {
-        conn,
-        account_id: input.account_id,
-        newest_day: read.rows.iter().map(|row| row.day).max(),
-    };
     let mut imported = 0;
-    for ((row, &matched), choice) in read.rows.iter().zip(&matched.rows).zip(choices) {
-        imported += writer.write_row(row, matched, choice)?;
-    }
     let removed_holds = removals.len() as u32;
-    for hold in removals {
-        writer.remove_cancelled_hold(hold)?;
+    if let Some(newest_day) = read.rows.iter().map(|row| row.day).max() {
+        let writer = Writer {
+            conn,
+            account_id: input.account_id,
+            newest_day,
+        };
+        for ((row, &matched), choice) in read.rows.iter().zip(&matched.rows).zip(choices) {
+            imported += writer.write_row(row, matched, choice)?;
+        }
+        for hold in removals {
+            writer.remove_cancelled_hold(hold)?;
+        }
     }
     txn.finish(Finish::Commit)?;
     Ok(CsvImportResult {
@@ -143,7 +145,19 @@ struct SplitLeg {
 struct ImportRead {
     rows: Vec<IncomingRow>,
     items: Vec<LedgerItem>,
+    removed_holds: Vec<Recorded>,
     cashflows: Vec<CounterpartCashflow>,
+}
+
+impl ImportRead {
+    fn matched(&self) -> matcher::Matched<'_> {
+        matcher::match_rows(
+            &self.rows,
+            &self.items,
+            &self.removed_holds,
+            &self.cashflows,
+        )
+    }
 }
 
 fn read_import(
@@ -182,6 +196,7 @@ fn read_import(
     Ok(ImportRead {
         rows,
         items: repository::ledger_items(conn, account_id)?,
+        removed_holds: repository::removed_holds(conn, account_id)?,
         cashflows,
     })
 }
@@ -360,7 +375,7 @@ fn parse_removals<'a>(
 struct Writer<'c> {
     conn: &'c Connection,
     account_id: i64,
-    newest_day: Option<NaiveDate>,
+    newest_day: NaiveDate,
 }
 
 impl Writer<'_> {
@@ -546,7 +561,13 @@ impl Writer<'_> {
             None => delete_event_inner(self.conn, hold.bank_entry_event_id)?,
             Some(split_group_id) => delete_split_group_inner(self.conn, split_group_id)?,
         }
-        repository::cancel_hold(self.conn, hold.bank_entry_event_id)?;
+        repository::cancel_hold(
+            self.conn,
+            CancelHoldParams {
+                event_id: hold.bank_entry_event_id,
+                by_day: self.newest_day,
+            },
+        )?;
         Ok(())
     }
 
@@ -565,11 +586,7 @@ impl Writer<'_> {
     }
 
     fn hold_seen_to(&self, row: &IncomingRow) -> Option<NaiveDate> {
-        if row.pending {
-            self.newest_day
-        } else {
-            None
-        }
+        row.pending.then_some(self.newest_day)
     }
 }
 
