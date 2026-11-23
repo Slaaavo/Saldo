@@ -1842,7 +1842,9 @@ fn import_with_default_ticks_removing_cancelled_holds(
             index: row.index,
             selected: matches!(
                 row.verdict,
-                ImportVerdict::New | ImportVerdict::HoldPostedAtOtherAmount { .. }
+                ImportVerdict::New
+                    | ImportVerdict::NewReplacingSplitHold { .. }
+                    | ImportVerdict::HoldPostedAtOtherAmount { .. }
             ),
             bucket_id: None,
             split: None,

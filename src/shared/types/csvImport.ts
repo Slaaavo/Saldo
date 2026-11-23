@@ -16,7 +16,7 @@ export interface IncomingRowInput {
   pending: boolean
 }
 
-/** What Saldo already holds for a row. `new`, `completesTransfer` and `holdPostedAtOtherAmount` are new rows; the others are already in Saldo. */
+/** What Saldo already holds for a row. `new`, `newReplacingSplitHold`, `completesTransfer` and `holdPostedAtOtherAmount` are new rows; the others are already in Saldo. */
 export type ImportVerdict =
   | { kind: 'new' }
   | { kind: 'completesTransfer'; eventId: number; accountId: number; accountName: string; eventDate: string; note: string | null }
@@ -27,6 +27,8 @@ export type ImportVerdict =
   | { kind: 'holdPosted'; eventId: number; eventDate: string; note: string | null }
   /** The booked form of the card hold `eventId` at another amount; `holdAmountMinor` is the hold's ledger amount. Ticked posts the hold at the row's amount. */
   | { kind: 'holdPostedAtOtherAmount'; eventId: number; eventDate: string; note: string | null; holdAmountMinor: number }
+  /** The booked form of the split card hold `eventId` at another amount. The row imports like `new`, and the hold is listed among the cancelled holds. */
+  | { kind: 'newReplacingSplitHold'; eventId: number; eventDate: string; holdAmountMinor: number }
 
 export type VerdictKind = ImportVerdict['kind']
 

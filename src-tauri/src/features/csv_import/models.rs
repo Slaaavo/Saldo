@@ -101,6 +101,13 @@ pub enum Verdict {
         note: Option<String>,
         hold_amount_minor: i64,
     },
+    /// The booked form of the split card hold `event_id` at another amount. The row imports as a
+    /// new entry, and the hold is listed among the cancelled holds.
+    NewReplacingSplitHold {
+        event_id: i64,
+        event_date: String,
+        hold_amount_minor: i64,
+    },
 }
 
 #[derive(Debug, Deserialize)]

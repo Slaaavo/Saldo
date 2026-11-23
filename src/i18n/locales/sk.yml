@@ -769,6 +769,7 @@ import:
     holdPostedAtOtherAmount:
       posts: "Blokácia na karte zaúčtovaná: <hold></hold> → <posted></posted>"
       stays: "Blokácia na karte zostáva na <hold></hold> a tento riadok sa preskočí"
+    newReplacingSplitHold: "Rozdelená blokácia na karte <hold></hold> zo dňa {{day}} bola zaúčtovaná ako <booked></booked>. Saldo rozdelenú blokáciu odstráni a namiesto nej importuje tento riadok. Ak chcete zachovať časti, rozdeľte tento riadok tu znova."
     cancelledHolds:
       title: "Zrušené blokácie na karte"
       description: "Banka tieto blokácie na karte už neuvádza. Označené Saldo odstráni."

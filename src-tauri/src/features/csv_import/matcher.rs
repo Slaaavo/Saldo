@@ -1,5 +1,5 @@
 use std::cmp::Reverse;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use chrono::NaiveDate;
 
@@ -195,6 +195,7 @@ pub(crate) enum Match<'a> {
     CompletesTransfer(&'a CounterpartCashflow),
     HoldPosted(&'a Recorded),
     HoldPostedAtOtherAmount(&'a Recorded),
+    NewReplacingSplitHold(&'a Recorded),
 }
 
 pub(crate) struct Matched<'a> {
@@ -228,7 +229,7 @@ pub(crate) fn match_rows<'a>(
     claim_posted_holds_listed_again(rows, &file_order, items, &mut used, &mut matches);
     claim_entries_a_newer_export_booked_later(rows, &file_order, items, &mut used, &mut matches);
     Matched {
-        cancelled_holds: cancelled_holds(rows, items, &used),
+        cancelled_holds: cancelled_holds(rows, items, &used, &matches),
         rows: matches,
     }
 }
@@ -468,7 +469,6 @@ fn claim_holds_booked_at_another_amount<'a>(
                     let (day, amount_minor) = hold.key();
                     !used[item]
                         && hold.is_pending_hold()
-                        && hold.split_group_id.is_none()
                         && row.counterpart.may_claim(ledger_item)
                         && hold.card() == row.card.as_deref()
                         && day == row.day
@@ -482,7 +482,11 @@ fn claim_holds_booked_at_another_amount<'a>(
         .collect();
     for (position, item) in only_candidates_of_each_other(candidates_of, items.len()) {
         used[item] = true;
-        matches[position] = Match::HoldPostedAtOtherAmount(&items[item].recorded);
+        let hold = &items[item].recorded;
+        matches[position] = match hold.split_group_id {
+            None => Match::HoldPostedAtOtherAmount(hold),
+            Some(_) => Match::NewReplacingSplitHold(hold),
+        };
     }
 }
 
@@ -490,20 +494,32 @@ fn cancelled_holds<'a>(
     rows: &[IncomingRow],
     items: &'a [LedgerItem],
     used: &[bool],
+    matches: &[Match<'a>],
 ) -> Vec<&'a Recorded> {
     let days = || rows.iter().map(|row| row.day);
     let (Some(oldest), Some(newest)) = (days().min(), days().max()) else {
         return Vec::new();
     };
+    let replaced: HashSet<i64> = matches
+        .iter()
+        .filter_map(|matched| match matched {
+            Match::NewReplacingSplitHold(hold) => Some(hold.bank_entry_event_id),
+            _ => None,
+        })
+        .collect();
     items
         .iter()
         .zip(used)
-        .filter(|&(ledger_item, &used)| !used && ledger_item.transfer_leg.is_none())
-        .map(|(ledger_item, _)| &ledger_item.recorded)
-        .filter(|hold| match hold.state() {
-            Some(BankState::Pending { seen_to }) => hold.key().0 >= oldest && newest > seen_to,
-            _ => false,
+        .filter(|&(ledger_item, &used)| {
+            let hold = &ledger_item.recorded;
+            let no_longer_listed = matches!(
+                hold.state(),
+                Some(BankState::Pending { seen_to }) if hold.key().0 >= oldest && newest > seen_to
+            );
+            replaced.contains(&hold.bank_entry_event_id)
+                || (!used && ledger_item.transfer_leg.is_none() && no_longer_listed)
         })
+        .map(|(ledger_item, _)| &ledger_item.recorded)
         .collect()
 }
 
@@ -765,6 +781,9 @@ mod tests {
                 Match::HoldPostedAtOtherAmount(hold) => {
                     format!("posts {} at another amount", hold.bank_entry_event_id)
                 }
+                Match::NewReplacingSplitHold(hold) => {
+                    format!("new, replacing split {}", hold.bank_entry_event_id)
+                }
                 Match::TransferLeg { leg, .. } => format!("leg {}", leg.bank_entry_event_id),
                 Match::CompletesTransfer(cashflow) => {
                     format!("completes {}", cashflow.recorded.bank_entry_event_id)
@@ -984,7 +1003,7 @@ mod tests {
     }
 
     #[test]
-    fn a_split_hold_posts_at_its_amount_but_is_never_repriced() {
+    fn a_split_hold_posts_at_its_amount_and_at_another_amount_is_replaced_by_the_row() {
         let items = [split(hold(
             1,
             "2026-04-30",
@@ -992,6 +1011,7 @@ mod tests {
             DEBIT_CARD,
             "2026-04-30",
         ))];
+        let github = || booked(DEBIT_CARD, row(0, "2026-04-30", -3_299));
         let later = booked(DEBIT_CARD, row(1, "2026-05-02", -500));
 
         assert_eq!(
@@ -999,12 +1019,16 @@ mod tests {
             ["posts 1"]
         );
         assert_eq!(
-            outcome(
-                &[booked(DEBIT_CARD, row(0, "2026-04-30", -3_299)), later],
-                &items
-            ),
-            (vec!["new".to_owned(), "new".to_owned()], vec![1]),
-            "the newer export no longer lists the hold"
+            outcome(&[github(), later], &items),
+            (
+                vec!["new, replacing split 1".to_owned(), "new".to_owned()],
+                vec![1]
+            )
+        );
+        assert_eq!(
+            outcome(&[github()], &items),
+            (vec!["new, replacing split 1".to_owned()], vec![1]),
+            "an export no newer than the hold's still removes the hold the row replaces"
         );
     }
 

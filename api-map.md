@@ -141,7 +141,7 @@ Creates a cashflow event (income/expense or transfer with optional FX conversion
 
 ### `previewCsvImport`
 
-Matches a CSV file's parsed rows against the account's live rows and returns a verdict per row (`new`, `completesTransfer`, `inSaldo`, `transferLeg`, `holdPosted`, `holdPostedAtOtherAmount`), the rows' days that have a balance update, the pending card holds the file no longer lists (`cancelledHolds`), and a review token. Each row carries its masked card number and whether the profile's rule marks it pending; the wizard never sends rows its declined rule matches. Writes nothing.
+Matches a CSV file's parsed rows against the account's live rows and returns a verdict per row (`new`, `newReplacingSplitHold`, `completesTransfer`, `inSaldo`, `transferLeg`, `holdPosted`, `holdPostedAtOtherAmount`), the rows' days that have a balance update, the pending card holds the file no longer lists (`cancelledHolds`), and a review token. Each row carries its masked card number and whether the profile's rule marks it pending; the wizard never sends rows its declined rule matches. Writes nothing.
 
 - **BE command:** `preview_csv_import` → `src-tauri/src/features/csv_import/commands.rs`
 - **Used in:**

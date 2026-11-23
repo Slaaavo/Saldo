@@ -1,5 +1,6 @@
 import { Fragment, type ReactElement, type ReactNode } from 'react'
 import { Trans, useTranslation } from 'react-i18next'
+import { AlertTriangle } from 'lucide-react'
 import type { TFunction } from 'i18next'
 import type { ImportRow, IbanMatchResult } from '../types'
 import type { SnapshotRow } from '../../../../shared/types'
@@ -50,6 +51,19 @@ const hintOf = (t: TFunction, row: ImportRow, money: (valueMinor: number) => Rea
         <Trans i18nKey="import.reviewStep.holdPostedAtOtherAmount.posts" components={{ hold: money(verdict.holdAmountMinor), posted: money(row.amountMinor) }} />
       ) : (
         <Trans i18nKey="import.reviewStep.holdPostedAtOtherAmount.stays" components={{ hold: money(verdict.holdAmountMinor) }} />
+      )
+    case 'newReplacingSplitHold':
+      return (
+        <span className="flex items-start gap-1 text-amber-800 dark:text-amber-200">
+          <AlertTriangle className="h-3.5 w-3.5 mt-px text-amber-500 shrink-0" />
+          <span>
+            <Trans
+              i18nKey="import.reviewStep.newReplacingSplitHold"
+              values={{ day: dayOf(verdict.eventDate) }}
+              components={{ hold: money(verdict.holdAmountMinor), booked: money(row.amountMinor) }}
+            />
+          </span>
+        </span>
       )
     case 'completesTransfer':
       if (row.splitLegs !== null) return null

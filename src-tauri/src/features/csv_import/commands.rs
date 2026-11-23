@@ -408,7 +408,10 @@ impl Writer<'_> {
         match (choice, matched) {
             (
                 Choice::Unticked,
-                Match::New | Match::CompletesTransfer(_) | Match::HoldPostedAtOtherAmount(_),
+                Match::New
+                | Match::NewReplacingSplitHold(_)
+                | Match::CompletesTransfer(_)
+                | Match::HoldPostedAtOtherAmount(_),
             ) => Ok(Written::Entries(0)),
             (Choice::Unticked, Match::InSaldo(recorded)) => {
                 self.catch_up_with_bank_line(row, recorded)?;
@@ -450,7 +453,11 @@ impl Writer<'_> {
             }
             (
                 Choice::Ticked { bucket_id },
-                Match::New | Match::InSaldo(_) | Match::TransferLeg { .. } | Match::HoldPosted(_),
+                Match::New
+                | Match::NewReplacingSplitHold(_)
+                | Match::InSaldo(_)
+                | Match::TransferLeg { .. }
+                | Match::HoldPosted(_),
             ) => {
                 let (event_id, _) = create_cashflow_or_transfer(
                     conn,
@@ -462,6 +469,7 @@ impl Writer<'_> {
             (
                 Choice::Split(legs),
                 Match::New
+                | Match::NewReplacingSplitHold(_)
                 | Match::InSaldo(_)
                 | Match::TransferLeg { .. }
                 | Match::CompletesTransfer(_)
@@ -701,6 +709,11 @@ fn verdict_of(matched: Match<'_>) -> Verdict {
             event_id: hold.bank_entry_event_id,
             event_date: hold.event_date.clone(),
             note: hold.own_note.clone(),
+            hold_amount_minor: hold.total_minor,
+        },
+        Match::NewReplacingSplitHold(hold) => Verdict::NewReplacingSplitHold {
+            event_id: hold.bank_entry_event_id,
+            event_date: hold.event_date.clone(),
             hold_amount_minor: hold.total_minor,
         },
     }

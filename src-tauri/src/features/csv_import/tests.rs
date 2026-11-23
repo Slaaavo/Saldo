@@ -142,6 +142,7 @@ fn default_choices(preview: &CsvImportPreview) -> Vec<RowChoice> {
             selected: matches!(
                 row.verdict,
                 Verdict::New
+                    | Verdict::NewReplacingSplitHold { .. }
                     | Verdict::CompletesTransfer { .. }
                     | Verdict::HoldPostedAtOtherAmount { .. }
             ),
@@ -2229,6 +2230,96 @@ fn an_unticked_cancelled_hold_is_kept_pending() {
     assert_eq!(hold_state(&conn, hold), pending_until(CARD, "2026-10-25"));
 }
 
+fn split_github_hold(conn: &Connection) -> (i64, Vec<i64>) {
+    let checking = own(conn, "Checking");
+    let held = [card_row(
+        0,
+        "2026-04-30",
+        -3_300,
+        DEBIT_CARD,
+        CardRow::Pending,
+    )];
+    let reviewed = preview(conn, checking, &held);
+    apply(
+        conn,
+        checking,
+        &held,
+        vec![split_choice(0, &[(-3_000, None), (-300, None)])],
+        reviewed.review_token,
+    )
+    .unwrap();
+    (checking, event_ids(conn))
+}
+
+#[test]
+fn a_split_hold_booked_at_another_amount_is_removed_and_the_row_imports_as_new() {
+    let conn = initialize_in_memory().unwrap();
+    let (checking, legs) = split_github_hold(&conn);
+    let booked = github_booked();
+
+    let reviewed = preview(&conn, checking, &booked);
+    let result = apply_reviewed(
+        &conn,
+        checking,
+        &booked,
+        &reviewed,
+        default_choices(&reviewed),
+        true,
+    )
+    .unwrap();
+
+    assert_eq!(
+        reviewed.rows[0].verdict,
+        Verdict::NewReplacingSplitHold {
+            event_id: legs[0],
+            event_date: "2026-04-30T12:00:00".to_owned(),
+            hold_amount_minor: -3_300,
+        }
+    );
+    assert_eq!(
+        reviewed.cancelled_holds,
+        [CancelledHold {
+            event_id: legs[0],
+            event_date: "2026-04-30T12:00:00".to_owned(),
+            amount_minor: -3_300,
+            note: Some(HOLD_TEXT.to_owned()),
+        }]
+    );
+    assert_eq!(
+        result,
+        CsvImportResult {
+            imported: 2,
+            removed_holds: 1,
+            repriced_holds: 0
+        },
+        "GitHub at its booked amount and Bolt"
+    );
+    assert!(legs.iter().all(|&leg| entry(&conn, leg).deleted));
+    assert_eq!(account_total(&conn, checking), -3_299 - 1_000);
+}
+
+#[test]
+fn a_split_hold_booked_at_another_amount_is_listed_for_removal_by_an_export_no_newer_than_it() {
+    let conn = initialize_in_memory().unwrap();
+    let (checking, legs) = split_github_hold(&conn);
+    let [github, _] = github_booked();
+
+    let reviewed = preview(&conn, checking, &[github]);
+
+    assert!(matches!(
+        reviewed.rows[0].verdict,
+        Verdict::NewReplacingSplitHold { .. }
+    ));
+    assert_eq!(
+        reviewed
+            .cancelled_holds
+            .iter()
+            .map(|hold| hold.event_id)
+            .collect::<Vec<_>>(),
+        [legs[0]]
+    );
+}
+
 #[test]
 fn a_cancelled_split_hold_is_removed_as_a_whole() {
     let conn = initialize_in_memory().unwrap();
@@ -2888,6 +2979,11 @@ fn the_wire_shapes_are_the_ones_the_wizard_sends_and_reads() {
             note: None,
             hold_amount_minor: -3_300,
         },
+        Verdict::NewReplacingSplitHold {
+            event_id: 8,
+            event_date: "2026-04-30T12:33:53".to_owned(),
+            hold_amount_minor: -3_300,
+        },
     ];
 
     assert_eq!(
@@ -2911,7 +3007,9 @@ fn the_wire_shapes_are_the_ones_the_wizard_sends_and_reads() {
             { "kind": "holdPosted", "eventId": 5, "eventDate": "2026-09-14T12:00:00",
               "note": "TCHIBO" },
             { "kind": "holdPostedAtOtherAmount", "eventId": 6, "eventDate": "2026-04-30T12:33:53",
-              "note": null, "holdAmountMinor": -3300 }
+              "note": null, "holdAmountMinor": -3300 },
+            { "kind": "newReplacingSplitHold", "eventId": 8, "eventDate": "2026-04-30T12:33:53",
+              "holdAmountMinor": -3300 }
         ])
     );
     assert_eq!(

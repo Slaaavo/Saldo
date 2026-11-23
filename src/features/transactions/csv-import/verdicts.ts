@@ -2,6 +2,7 @@ import type { ImportVerdict, VerdictKind } from '../../../shared/types'
 
 const NEW_KINDS = {
   new: true,
+  newReplacingSplitHold: true,
   completesTransfer: true,
   holdPostedAtOtherAmount: true,
   inSaldo: false,
