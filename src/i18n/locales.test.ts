@@ -150,10 +150,13 @@ describe.each(['en', 'sk'] as const)('%s locale', (lng) => {
     expect([1, 2, 5].map((count) => i18n.t('import.reviewStep.alreadyInSaldo', { count }))).not.toContain('import.reviewStep.alreadyInSaldo')
   })
 
-  it('suggests a card hold pattern that also matches the state the broken export spells with ?', () => {
-    const pattern = i18n.t('import.rules.columnPattern.pendingExample').match(/\^Autorizovan\S*/)?.[0] ?? 'no pattern'
+  it.each([
+    ['card hold', 'import.rules.columnPattern.pendingExample', 'Autorizovan', ['Autorizovaná', 'Autorizovan?']],
+    ['declined payment', 'import.rules.columnPattern.declinedExample', 'Zamietnut', ['Zamietnutá', 'Zamietnut?']],
+  ])('suggests a %s pattern that also matches the state the broken export spells with ?', (_, key, stem, states) => {
+    const pattern = i18n.t(key).match(new RegExp(`\\^${stem}\\S*`))?.[0] ?? 'no pattern'
 
-    expect(['Autorizovaná', 'Autorizovan?'].filter((state) => !new RegExp(pattern, 'i').test(state))).toEqual([])
+    expect(states.filter((state) => !new RegExp(pattern, 'i').test(state))).toEqual([])
   })
 
   it.each(['import.repricedHolds', 'import.removedHolds', 'import.saveStep.repricedHolds', 'import.saveStep.removedHolds'])('counts %s in every plural form', (key) => {
