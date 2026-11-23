@@ -1827,18 +1827,24 @@ fn a_note_the_user_wrote_stays_when_the_hold_posts() {
     assert_eq!(hold_state(&conn, hold), posted_with(CARD, 0));
 }
 
+const SLOVNAFT_HOLD_TEXT: &str = "SLOVNAFT-SK40106         Kosice       SK";
+
 #[test]
-fn a_padded_note_imported_before_holds_were_known_takes_the_booked_text() {
+fn a_card_hold_text_imported_before_holds_were_known_takes_the_booked_text() {
     let conn = initialize_in_memory().unwrap();
     let card_account = own_without_iban(&conn, "Card");
-    let legacy = create_cashflow(
-        &conn,
-        &CashflowEntry {
-            note: Some("TCHIBO        ".to_owned()),
-            ..cashflow_entry(card_account, "2026-10-31T12:00:00", -1_999)
-        },
-    )
-    .unwrap();
+    let legacy = |note: &str, amount_minor| {
+        create_cashflow(
+            &conn,
+            &CashflowEntry {
+                note: Some(note.to_owned()),
+                ..cashflow_entry(card_account, "2026-10-31T12:00:00", amount_minor)
+            },
+        )
+        .unwrap()
+    };
+    let slovnaft = legacy(SLOVNAFT_HOLD_TEXT, -1_999);
+    let ekolky = legacy("HTTP   M EKOLKY GOV SK passport stamp", -5_000);
     let typed = cashflow(&conn, card_account, "2026-10-31T12:00:00", -500);
     let booked = [
         card_row(
@@ -1846,14 +1852,29 @@ fn a_padded_note_imported_before_holds_were_known_takes_the_booked_text() {
             "2026-10-31",
             -1_999,
             CARD,
-            CardRow::Booked("TCHIBO PRAHA"),
+            CardRow::Booked("SLOVNAFT KOSICE"),
         ),
-        card_row(1, "2026-10-31", -500, CARD, CardRow::Booked("BILLA")),
+        card_row(
+            1,
+            "2026-10-31",
+            -5_000,
+            CARD,
+            CardRow::Booked("HTTP   M EKOLKY GOV SK"),
+        ),
+        card_row(2, "2026-10-31", -500, CARD, CardRow::Booked("BILLA")),
     ];
 
     assert_eq!(import(&conn, card_account, &booked), 0);
 
-    assert_eq!(entry(&conn, legacy).note.as_deref(), Some("TCHIBO PRAHA"));
+    assert_eq!(
+        entry(&conn, slovnaft).note.as_deref(),
+        Some("SLOVNAFT KOSICE")
+    );
+    assert_eq!(
+        entry(&conn, ekolky).note.as_deref(),
+        Some("HTTP   M EKOLKY GOV SK passport stamp"),
+        "a booked text with 3 spaces is no card hold's"
+    );
     assert_eq!(entry(&conn, typed).note.as_deref(), Some("typed by hand"));
     let before = everything(&conn);
     import(&conn, card_account, &booked);
@@ -1861,40 +1882,52 @@ fn a_padded_note_imported_before_holds_were_known_takes_the_booked_text() {
 }
 
 #[test]
-fn a_padded_note_an_import_recorded_as_booked_takes_the_booked_text_and_keeps_its_bank_text() {
+fn the_same_export_again_keeps_the_note_the_user_wrote_on_a_booked_entry() {
     let conn = initialize_in_memory().unwrap();
     let card_account = own_without_iban(&conn, "Card");
-    let padded = "TCHIBO        PRAHA";
-    import(
-        &conn,
-        card_account,
-        &[card_row(
+    let export = [
+        card_row(
             0,
-            "2026-10-31",
+            "2026-08-03",
+            -5_000,
+            "433704******5206",
+            CardRow::Booked("HTTP   M EKOLKY GOV SK"),
+        ),
+        card_row(
+            1,
+            "2026-08-03",
             -1_999,
-            CARD,
-            CardRow::Booked(padded),
-        )],
-    );
-    let legacy = live(&conn)[0].0;
-    let booked = [card_row(
-        0,
-        "2026-10-31",
-        -1_999,
-        CARD,
-        CardRow::Booked("TCHIBO PRAHA"),
-    )];
-
-    assert_eq!(import(&conn, card_account, &booked), 0);
-
-    assert_eq!(entry(&conn, legacy).note.as_deref(), Some("TCHIBO PRAHA"));
-    assert_eq!(
-        bank_entry(&conn, legacy).unwrap().2.as_deref(),
-        Some(padded)
-    );
+            "433704******5206",
+            CardRow::Booked(SLOVNAFT_HOLD_TEXT),
+        ),
+    ];
+    import(&conn, card_account, &export);
+    let [ekolky, slovnaft] = event_ids(&conn)[..] else {
+        panic!("expected two entries");
+    };
+    let annotate = |event_id, amount_minor, note: &str| {
+        update_event(
+            &conn,
+            UpdateEventParams {
+                event_id,
+                amount_minor,
+                event_date: "2026-08-03T12:00:00".to_owned(),
+                note: Some(note.to_owned()),
+            },
+        )
+        .unwrap();
+    };
+    annotate(ekolky, -5_000, "HTTP   M EKOLKY GOV SK passport stamp");
+    annotate(slovnaft, -1_999, SLOVNAFT_HOLD_TEXT);
     let before = everything(&conn);
-    import(&conn, card_account, &booked);
-    assert_eq!(everything(&conn), before);
+
+    assert_eq!(import(&conn, card_account, &export), 0);
+
+    assert_eq!(
+        everything(&conn),
+        before,
+        "an entry with bank facts keeps its note, even one in a card hold's layout"
+    );
 }
 
 #[test]

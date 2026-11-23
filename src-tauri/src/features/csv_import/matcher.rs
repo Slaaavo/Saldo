@@ -3,8 +3,20 @@ use std::cmp::Reverse;
 use chrono::NaiveDate;
 
 const NEAR_DAYS: i64 = 5;
-/// A run of 3 or more spaces marks a card hold's text in a bank export.
-const HOLD_PADDING: &str = "   ";
+const CARD_HOLD_TEXT_CHARS: usize = 40;
+
+/// Tatra banka's text of a card hold: 40 characters, the merchant and the town padded with runs
+/// of spaces, and the country code (`SLOVNAFT-SK40106         Kosice       SK`). A booked row's own
+/// text can carry 3 spaces too (`HTTP   M EKOLKY GOV SK`), so the run alone does not tell.
+fn is_card_hold_text(text: &str) -> bool {
+    let chars: Vec<char> = text.chars().collect();
+    chars.len() == CARD_HOLD_TEXT_CHARS
+        && !chars[0].is_whitespace()
+        && text.contains("   ")
+        && chars[CARD_HOLD_TEXT_CHARS - 2..]
+            .iter()
+            .all(char::is_ascii_uppercase)
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum Counterpart {
@@ -162,24 +174,28 @@ impl Recorded {
         matches!(self.state(), Some(BankState::Pending { .. }))
     }
 
+    fn note_is_a_card_hold_text(&self) -> bool {
+        self.own_note.as_deref().is_some_and(is_card_hold_text)
+    }
+
+    /// A posted hold takes the booked text while its note is still the bank's text or a card
+    /// hold's.
     pub(crate) fn note_once_booked(&self, booked_text: Option<&str>) -> Option<String> {
         let the_banks = self
             .bank
             .as_ref()
             .is_some_and(|bank| bank.text == self.own_note);
-        if the_banks {
+        if the_banks || self.note_is_a_card_hold_text() {
             booked_text.map(str::to_owned)
         } else {
-            self.note_without_hold_padding(booked_text)
+            self.own_note.clone()
         }
     }
 
-    pub(crate) fn note_without_hold_padding(&self, booked_text: Option<&str>) -> Option<String> {
-        let padded = self
-            .own_note
-            .as_deref()
-            .is_some_and(|note| note.contains(HOLD_PADDING));
-        if padded {
+    /// A booked row that finds an entry no import has seen replaces a card hold's text the entry
+    /// kept from before Saldo knew holds. An entry with bank facts keeps its note.
+    pub(crate) fn note_once_seen_booked(&self, booked_text: Option<&str>) -> Option<String> {
+        if self.bank.is_none() && self.note_is_a_card_hold_text() {
             booked_text.map(str::to_owned)
         } else {
             self.own_note.clone()
@@ -1411,9 +1427,9 @@ mod tests {
             booked_text.map(str::to_owned)
         );
         assert_eq!(
-            with_note(Some("TCHIBO    "), None).note_once_booked(booked_text),
+            with_note(Some(SLOVNAFT_HOLD), None).note_once_booked(booked_text),
             booked_text.map(str::to_owned),
-            "a hold's padding"
+            "a card hold's text"
         );
         assert_eq!(
             with_note(Some("coffee for the office"), Some(hold_text)).note_once_booked(booked_text),
@@ -1426,5 +1442,54 @@ mod tests {
             None,
             "an entry no import has seen keeps no note"
         );
+    }
+
+    const SLOVNAFT_HOLD: &str = "SLOVNAFT-SK40106         Kosice       SK";
+
+    #[test]
+    fn only_the_card_hold_layout_counts_as_a_holds_text() {
+        let is_a_hold = |note: &str| {
+            let mut item = typed(1, "2026-10-25", -1_999);
+            item.recorded.own_note = Some(note.to_owned());
+            item.recorded.note_once_seen_booked(Some("BOOKED")) == Some("BOOKED".to_owned())
+        };
+
+        assert!(is_a_hold(SLOVNAFT_HOLD));
+        assert!(is_a_hold("LIDL DAKUJEME ZA NAKUP    BRATISLAVA  SK"));
+        for (case, note) in [
+            ("a booked eKolky text", "HTTP   M EKOLKY GOV SK"),
+            (
+                "the user's words after it",
+                "HTTP   M EKOLKY GOV SK passport stamp",
+            ),
+            ("39 characters", "SLOVNAFT-SK40106        Kosice       SK"),
+            (
+                "no run of 3 spaces",
+                "SLOVNAFT-SK40106-Kosice-SLOVENSKO-ABC SK",
+            ),
+            (
+                "no country code",
+                "SLOVNAFT-SK40106         Kosice       sk",
+            ),
+            ("leading spaces", "   SLOVNAFT-SK40106      Kosice       SK"),
+        ] {
+            assert!(!is_a_hold(note), "{case}");
+        }
+    }
+
+    #[test]
+    fn a_booked_row_never_rewrites_the_note_of_an_entry_with_bank_facts() {
+        let booked_with_note = |note: &str| {
+            let mut item = booked_entry(1, "2026-10-25", -1_999, CARD);
+            item.recorded.own_note = Some(note.to_owned());
+            item.recorded
+        };
+
+        for note in [SLOVNAFT_HOLD, "HTTP   M EKOLKY GOV SK passport stamp"] {
+            assert_eq!(
+                booked_with_note(note).note_once_seen_booked(Some("BOOKED")),
+                Some(note.to_owned())
+            );
+        }
     }
 }
