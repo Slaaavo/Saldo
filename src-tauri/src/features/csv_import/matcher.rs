@@ -313,7 +313,10 @@ fn claim_holds_booked_on_another_day<'a>(
             continue;
         }
         let claimed = claim_closest(row, items, used, |recorded| {
-            recorded.is_pending_hold() && recorded.key().1 == row.amount_minor
+            let (hold_day, hold_amount_minor) = recorded.key();
+            recorded.is_pending_hold()
+                && hold_amount_minor == row.amount_minor
+                && booked_soon_after(hold_day, row.day)
         });
         if let Some(hold) = claimed {
             matches[position] = Match::HoldPosted(hold);
@@ -335,6 +338,7 @@ fn claim_posted_holds_listed_again<'a>(
         }
         let claimed = claim_closest(row, items, used, |recorded| {
             recorded.amount_before_posting() == Some(row.amount_minor)
+                && days_apart(row.day, recorded.key().0) <= NEAR_DAYS
         });
         if let Some(posted) = claimed {
             matches[position] = Match::InSaldo(posted);
@@ -356,7 +360,6 @@ fn claim_closest<'a>(
             !used[item]
                 && row.counterpart.may_claim(ledger_item)
                 && cards_fit(row, recorded)
-                && days_apart(row.day, recorded.key().0) <= NEAR_DAYS
                 && fits(recorded)
         })
         .map(|(item, ledger_item)| (item, &ledger_item.recorded))
@@ -548,6 +551,10 @@ fn days_apart(a: NaiveDate, b: NaiveDate) -> i64 {
     (a - b).num_days().abs()
 }
 
+fn booked_soon_after(held_day: NaiveDate, booked_day: NaiveDate) -> bool {
+    (0..=NEAR_DAYS).contains(&(booked_day - held_day).num_days())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -734,6 +741,18 @@ mod tests {
             ["new"],
             "six days after the hold"
         );
+    }
+
+    #[test]
+    fn a_booked_row_never_posts_a_hold_dated_after_it() {
+        let items = [
+            hold(1, "2026-09-16", -7_896, CARD, "2026-09-16"),
+            hold(2, "2026-09-13", -7_896, CARD, "2026-09-16"),
+        ];
+        let tchibo = || booked(CARD, row(0, "2026-09-15", -7_896));
+
+        assert_eq!(verdicts(&[tchibo()], &items), ["posts 2"]);
+        assert_eq!(verdicts(&[tchibo()], &items[..1]), ["new"]);
     }
 
     #[test]
