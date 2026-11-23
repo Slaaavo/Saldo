@@ -12,9 +12,7 @@ export interface IncomingRowInput {
   originalAmountMinor: number | null
   fxRateMantissa: number | null
   fxRateExponent: number | null
-  /** The masked card number on the row (`433703******2103`), null when it names none. */
   card: string | null
-  /** The profile's pending rule marks the row as a card hold the bank has not booked. */
   pending: boolean
 }
 
@@ -73,7 +71,6 @@ export interface RowChoice {
   split: SplitLegChoice[] | null
 }
 
-/** Whether the import removes one previewed cancelled hold. */
 export interface CancelledHoldChoice {
   eventId: number
   remove: boolean
@@ -88,7 +85,7 @@ export interface ApplyCsvImportInput {
   reviewToken: string
 }
 
-/** `imported` counts the entries created: one per plain row, one per split leg. `removedHolds` counts the cancelled holds removed. */
+/** `imported` counts the entries created: one per plain row, one per split leg. */
 export interface CsvImportResult {
   imported: number
   removedHolds: number

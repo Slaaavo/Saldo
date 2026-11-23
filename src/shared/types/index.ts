@@ -429,7 +429,6 @@ export interface OverrideDateFromDescriptionParams {
   dateRegex: string
 }
 
-/** The rule holds for a row when its trimmed `column` cell matches `pattern`, a case-insensitive regex. */
 export interface ColumnPatternParams {
   column: string
   pattern: string

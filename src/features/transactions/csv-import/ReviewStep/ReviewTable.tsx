@@ -125,8 +125,7 @@ export const ReviewTable = ({
           <tbody>
             {rows.map((row) => {
               const isSplit = row.splitLegs !== null
-              // Posting a hold at another amount keeps the hold's own bucket and takes no split.
-              const postsHold = row.verdict.kind === 'holdPostedAtOtherAmount'
+              const bucketAndSplitLocked = row.verdict.kind === 'holdPostedAtOtherAmount'
               const hint = hintOf(t, row, money)
               const cell = cn('px-2 py-2', hint === null && 'border-b border-border group-last:border-b-0')
               return (
@@ -165,7 +164,7 @@ export const ReviewTable = ({
                       </span>
                     </td>
                     <td className={cell}>
-                      {isSplit || postsHold ? (
+                      {isSplit || bucketAndSplitLocked ? (
                         <span className="text-muted-foreground">—</span>
                       ) : (
                         <Select
@@ -191,7 +190,7 @@ export const ReviewTable = ({
                         <Button type="button" variant="ghost" size="sm" className="h-7 text-xs px-2" onClick={() => onSplitCancel(row.index)}>
                           {t('import.reviewStep.split.cancelButton')}
                         </Button>
-                      ) : postsHold ? (
+                      ) : bucketAndSplitLocked ? (
                         <span className="text-muted-foreground">—</span>
                       ) : (
                         <Button type="button" variant="ghost" size="sm" className="h-7 text-xs px-2" onClick={() => onSplitOpen(row.index)}>

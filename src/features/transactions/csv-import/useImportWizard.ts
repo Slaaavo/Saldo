@@ -21,7 +21,7 @@ import { takesEntries } from '../../../shared/utils/snapshot'
 import type { WizardState, CashflowFieldKey, ImportRow, ParsedRow, ColumnMapping, IbanMatchResult, SplitLeg, CancelledHoldRow } from './types'
 import type { IbanLookupEntry } from './ibanMatcher'
 import { buildIbanLookup, matchIban, normalizeIban } from './ibanMatcher'
-import { parseCsvFile, autoDetectMapping, extractCard, parseAmount, parseDateString } from './csvParser'
+import { parseCsvFile, autoDetectMapping, extractMaskedCard, parseAmount, parseDateString } from './csvParser'
 import { applyRules } from './transformRules'
 import { isNewRow } from './verdicts'
 
@@ -60,7 +60,6 @@ const INITIAL_WIZARD_STATE: WizardState = {
 
 const matchHeader = (csvHeaders: string[], saved: string): string | undefined => csvHeaders.find((h) => h.trim().toLowerCase() === saved.trim().toLowerCase())
 
-// A profile saved before a field existed has no key for it, which reads as not mapped.
 const matchProfileMapping = (savedMapping: Partial<ColumnMapping>, csvHeaders: string[]): ColumnMapping => {
   const result: ColumnMapping = { ...INITIAL_COLUMN_MAPPING }
   for (const field of Object.keys(INITIAL_COLUMN_MAPPING) as CashflowFieldKey[]) {
@@ -144,7 +143,6 @@ const withVerdicts = (rows: ImportRow[], preview: CsvImportPreview): ImportRow[]
   })
 }
 
-// A hold still listed keeps the user's choice; a hold new to this preview starts ticked for removal.
 const withCancelledHolds = (shown: CancelledHoldRow[], preview: CsvImportPreview): CancelledHoldRow[] => {
   const removeById = new Map(shown.map((hold) => [hold.eventId, hold.remove]))
   return preview.cancelledHolds.map((hold) => ({ ...hold, remove: removeById.get(hold.eventId) ?? true }))
@@ -354,16 +352,11 @@ export const useImportWizard = (params: { snapshot: SnapshotRow[]; preselectedAc
 
     const parsedRows: ParsedRow[] = []
     let unparseableRowCount = 0
-    let declinedRowCount = 0
     const transformedRows = applyRules(csvRows, rules, columnMapping)
+    const rowsReachingSaldo = transformedRows.flatMap((csvRow, index) => (csvRow.__declined ? [] : [{ csvRow, index }]))
+    const declinedRowCount = transformedRows.length - rowsReachingSaldo.length
 
-    for (let i = 0; i < transformedRows.length; i++) {
-      const csvRow = transformedRows[i]
-      // A declined payment never reaches Saldo, so its day does not widen the file's day range either.
-      if (csvRow.__declined) {
-        declinedRowCount++
-        continue
-      }
+    for (const { csvRow, index } of rowsReachingSaldo) {
       const rawDate = columnMapping.date ? (csvRow[columnMapping.date] ?? '') : ''
       const rawAmount = columnMapping.amount ? (csvRow[columnMapping.amount] ?? '') : ''
       const rawPartner = columnMapping.partner ? (csvRow[columnMapping.partner] ?? '') : ''
@@ -422,7 +415,7 @@ export const useImportWizard = (params: { snapshot: SnapshotRow[]; preselectedAc
       }
 
       parsedRows.push({
-        index: i,
+        index,
         date: parsedDate,
         amountMinor,
         note: rawNote.trim() !== '' ? rawNote.trim() : null,
@@ -432,7 +425,7 @@ export const useImportWizard = (params: { snapshot: SnapshotRow[]; preselectedAc
         fxRateExponent,
         rawIban,
         ibanMatch,
-        card: extractCard(rawCard),
+        card: extractMaskedCard(rawCard),
         pending: csvRow.__pending,
       })
     }

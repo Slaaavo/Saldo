@@ -36,7 +36,6 @@ export const applyRules = (
   })
 }
 
-// An empty or invalid pattern leaves the rule inert: an empty one would match every row.
 const cellMatches = (row: TransformedCsvRow, rule: ColumnPatternParams): boolean => {
   const cell = row[rule.column]
   if (cell === undefined || rule.pattern === '') return false

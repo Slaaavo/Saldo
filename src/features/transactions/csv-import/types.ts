@@ -69,7 +69,6 @@ export interface WizardState {
   removedHoldCount: number | null
 }
 
-/** A cancelled card hold in the review; ticked (`remove`) by default. */
 export interface CancelledHoldRow extends CancelledHold {
   remove: boolean
 }

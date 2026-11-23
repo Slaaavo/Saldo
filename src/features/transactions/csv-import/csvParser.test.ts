@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseCsvFile, autoDetectMapping, extractCard, parseAmount, parseDateString } from './csvParser'
+import { parseCsvFile, autoDetectMapping, extractMaskedCard, parseAmount, parseDateString } from './csvParser'
 
 describe('parseCsvFile', () => {
   it('parses a valid CSV and returns headers and rows', async () => {
@@ -300,18 +300,18 @@ describe('parseDateString', () => {
   })
 })
 
-describe('extractCard', () => {
+describe('extractMaskedCard', () => {
   it("reads a card export's card cell", () => {
-    expect(extractCard('433703******2103')).toBe('433703******2103')
+    expect(extractMaskedCard('433703******2103')).toBe('433703******2103')
   })
 
   it('reads the mask at the start of a current account payment note', () => {
-    expect(extractCard('423473******0501 Kosice 20261031 12:33:53 SLOVNAFT-SK40106')).toBe('423473******0501')
+    expect(extractMaskedCard('423473******0501 Kosice 20261031 12:33:53 SLOVNAFT-SK40106')).toBe('423473******0501')
   })
 
   it('takes the first masked number and gives null when the cell names none', () => {
-    expect(extractCard('pay 1234****5678 then 9999****0000')).toBe('1234****5678')
-    expect(extractCard('SEPA transfer 20261031')).toBeNull()
-    expect(extractCard('')).toBeNull()
+    expect(extractMaskedCard('pay 1234****5678 then 9999****0000')).toBe('1234****5678')
+    expect(extractMaskedCard('SEPA transfer 20261031')).toBeNull()
+    expect(extractMaskedCard('')).toBeNull()
   })
 })
