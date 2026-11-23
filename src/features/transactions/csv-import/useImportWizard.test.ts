@@ -86,7 +86,7 @@ const previewedRows = (call: number) => (previewCsvImport as Mock).mock.calls[ca
 
 const setupMocks = () => {
   answerPreviews()
-  ;(applyCsvImport as Mock).mockResolvedValue({ imported: 1, removedHolds: 0 })
+  ;(applyCsvImport as Mock).mockResolvedValue({ imported: 1, removedHolds: 0, repricedHolds: 0 })
   ;(listPartnerAccounts as Mock).mockResolvedValue([])
   ;(listCurrencies as Mock).mockResolvedValue([EUR, JPY])
   ;(listImportProfiles as Mock).mockResolvedValue([])
@@ -293,17 +293,18 @@ describe('useImportWizard', () => {
       })
     })
 
+    const CARD_PROFILE: ImportProfileRow = {
+      id: 8,
+      name: 'Card',
+      columnMappingJson: JSON.stringify({ date: 'Dátum transakcie', amount: 'Suma EUR', partner: null, note: null, currency: null, fxRate: null, card: null }),
+      rules: [],
+      createdAt: '',
+      updatedAt: '',
+    }
+
     it('says what an import that only removed cancelled holds did instead of nothing new', async () => {
-      const profile: ImportProfileRow = {
-        id: 8,
-        name: 'Card',
-        columnMappingJson: JSON.stringify({ date: 'Dátum transakcie', amount: 'Suma EUR', partner: null, note: null, currency: null, fxRate: null, card: null }),
-        rules: [],
-        createdAt: '',
-        updatedAt: '',
-      }
-      ;(getPreferredProfile as Mock).mockResolvedValue(profile)
-      ;(applyCsvImport as Mock).mockResolvedValue({ imported: 0, removedHolds: 2 })
+      ;(getPreferredProfile as Mock).mockResolvedValue(CARD_PROFILE)
+      ;(applyCsvImport as Mock).mockResolvedValue({ imported: 0, removedHolds: 2, repricedHolds: 0 })
       answerPreviews({ verdicts: [IN_SALDO, IN_SALDO, IN_SALDO], cancelledHolds: [cancelledHold(70), cancelledHold(71)] })
       const { result, onClose } = await renderAtReview(CARD_EXPORT)
 
@@ -314,13 +315,38 @@ describe('useImportWizard', () => {
       expect(onClose).toHaveBeenCalled()
     })
 
-    it('shows the removed holds on the save-profile step', async () => {
-      ;(applyCsvImport as Mock).mockResolvedValue({ imported: 1, removedHolds: 2 })
+    it('says what an import that only posted a hold at another amount did instead of nothing new', async () => {
+      ;(getPreferredProfile as Mock).mockResolvedValue(CARD_PROFILE)
+      ;(applyCsvImport as Mock).mockResolvedValue({ imported: 0, removedHolds: 0, repricedHolds: 1 })
+      answerPreviews({ verdicts: [IN_SALDO, HOLD_AT_OTHER_AMOUNT, IN_SALDO] })
+      const { result, onClose } = await renderAtReview(CARD_EXPORT)
+      expect(result.current.selectedCount).toBe(1)
+
+      await act(() => result.current.handleImport())
+
+      expect(toast.info).not.toHaveBeenCalled()
+      expect(toast.success).toHaveBeenCalledWith('import.repricedHolds')
+      expect(onClose).toHaveBeenCalled()
+    })
+
+    it('names every kind of change one import made', async () => {
+      ;(getPreferredProfile as Mock).mockResolvedValue(CARD_PROFILE)
+      ;(applyCsvImport as Mock).mockResolvedValue({ imported: 2, removedHolds: 1, repricedHolds: 1 })
+      answerPreviews({ verdicts: [{ kind: 'new' }, HOLD_AT_OTHER_AMOUNT, { kind: 'new' }], cancelledHolds: [cancelledHold(70)] })
+      const { result } = await renderAtReview(CARD_EXPORT)
+
+      await act(() => result.current.handleImport())
+
+      expect(toast.success).toHaveBeenCalledWith('import.success. import.repricedHolds. import.removedHolds')
+    })
+
+    it('shows the repriced and removed holds on the save-profile step', async () => {
+      ;(applyCsvImport as Mock).mockResolvedValue({ imported: 1, removedHolds: 2, repricedHolds: 1 })
       const { result } = await renderAtReview('Date,Amount\n2026-03-01,-10.00')
 
       await act(() => result.current.handleImport())
 
-      expect(result.current.wizardState).toMatchObject({ step: 'save-profile', importedCount: 1, removedHoldCount: 2 })
+      expect(result.current.wizardState).toMatchObject({ step: 'save-profile', importedCount: 1, removedHoldCount: 2, repricedHoldCount: 1 })
     })
   })
 
@@ -400,7 +426,7 @@ describe('useImportWizard', () => {
         updatedAt: '',
       }
       ;(getPreferredProfile as Mock).mockResolvedValue(PROFILE)
-      ;(applyCsvImport as Mock).mockResolvedValue({ imported: 0, removedHolds: 0 })
+      ;(applyCsvImport as Mock).mockResolvedValue({ imported: 0, removedHolds: 0, repricedHolds: 0 })
       answerPreviews({ verdicts: [IN_SALDO, TRANSFER_LEG] })
       const { result, onClose, onSuccess } = await renderAtReview('Date,Amount\n2026-03-02,-10.00\n2026-03-01,20.00')
       expect(result.current.selectedCount).toBe(0)

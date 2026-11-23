@@ -150,6 +150,10 @@ describe.each(['en', 'sk'] as const)('%s locale', (lng) => {
     expect([1, 2, 5].map((count) => i18n.t('import.reviewStep.alreadyInSaldo', { count }))).not.toContain('import.reviewStep.alreadyInSaldo')
   })
 
+  it.each(['import.repricedHolds', 'import.removedHolds', 'import.saveStep.repricedHolds', 'import.saveStep.removedHolds'])('counts %s in every plural form', (key) => {
+    expect([1, 2, 5].map((count) => i18n.t(key, { count }))).not.toContain(key)
+  })
+
   it('has the time machine, rate warning and breakdown copy', () => {
     const keys = [
       'timeMachine.live',

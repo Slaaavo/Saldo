@@ -815,7 +815,8 @@ import:
   success: "Imported {{count}} transactions"
   removedHolds_one: "Removed {{count}} cancelled card hold"
   removedHolds_other: "Removed {{count}} cancelled card holds"
-  successAndRemovedHolds: "Imported {{count}} transactions. Cancelled card holds removed: {{removed}}"
+  repricedHolds_one: "Updated {{count}} card hold to its booked amount"
+  repricedHolds_other: "Updated {{count}} card holds to their booked amounts"
   nothingNew: "Nothing new to import"
   error: "Failed to import transactions"
   next: "Next"
@@ -829,6 +830,8 @@ import:
   saveStep:
     title: "Import Successful"
     success: "Imported {{count}} transactions"
+    repricedHolds_one: "Updated {{count}} card hold to its booked amount"
+    repricedHolds_other: "Updated {{count}} card holds to their booked amounts"
     removedHolds_one: "Removed {{count}} cancelled card hold"
     removedHolds_other: "Removed {{count}} cancelled card holds"
     savePrompt: "Save this configuration as a profile?"

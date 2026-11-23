@@ -56,6 +56,7 @@ const INITIAL_WIZARD_STATE: WizardState = {
   originalProfileRules: null,
   importedCount: null,
   removedHoldCount: null,
+  repricedHoldCount: null,
 }
 
 const matchHeader = (csvHeaders: string[], saved: string): string | undefined => csvHeaders.find((h) => h.trim().toLowerCase() === saved.trim().toLowerCase())
@@ -668,7 +669,7 @@ export const useImportWizard = (params: { snapshot: SnapshotRow[]; preselectedAc
 
     setWizardState((prev) => ({ ...prev, importing: true }))
     try {
-      const { imported, removedHolds } = await applyCsvImport({
+      const { imported, removedHolds, repricedHolds } = await applyCsvImport({
         accountId: selectedAccountId,
         rows: importRows.map(toIncomingRow),
         choices: importRows.map(toChoice),
@@ -685,12 +686,15 @@ export const useImportWizard = (params: { snapshot: SnapshotRow[]; preselectedAc
 
       await onSuccess()
       if (loadedProfile === null || profileChanged) {
-        setWizardState((prev) => ({ ...prev, step: 'save-profile', importedCount: imported, removedHoldCount: removedHolds }))
+        setWizardState((prev) => ({ ...prev, step: 'save-profile', importedCount: imported, removedHoldCount: removedHolds, repricedHoldCount: repricedHolds }))
       } else {
-        if (imported === 0 && removedHolds === 0) toast.info(t('import.nothingNew'))
-        else if (removedHolds === 0) toast.success(t('import.success', { count: imported }))
-        else if (imported === 0) toast.success(t('import.removedHolds', { count: removedHolds }))
-        else toast.success(t('import.successAndRemovedHolds', { count: imported, removed: removedHolds }))
+        const done = [
+          imported > 0 && t('import.success', { count: imported }),
+          repricedHolds > 0 && t('import.repricedHolds', { count: repricedHolds }),
+          removedHolds > 0 && t('import.removedHolds', { count: removedHolds }),
+        ].filter((part) => part !== false)
+        if (done.length === 0) toast.info(t('import.nothingNew'))
+        else toast.success(done.join('. '))
         onClose()
       }
     } catch (err) {

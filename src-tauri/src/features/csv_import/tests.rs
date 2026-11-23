@@ -1761,7 +1761,8 @@ fn a_hold_booked_a_day_later_is_posted_in_place_and_keeps_its_day_bucket_and_par
         result,
         CsvImportResult {
             imported: 0,
-            removed_holds: 0
+            removed_holds: 0,
+            repriced_holds: 0
         }
     );
     assert_eq!(event_ids(&conn), [hold]);
@@ -1980,7 +1981,15 @@ fn a_hold_booked_at_another_amount_is_repriced_in_place_when_ticked() {
         }
     );
     assert!(reviewed.cancelled_holds.is_empty());
-    assert_eq!(result.imported, 1, "only the Bolt row is new");
+    assert_eq!(
+        result,
+        CsvImportResult {
+            imported: 1,
+            removed_holds: 0,
+            repriced_holds: 1
+        },
+        "the Bolt row is new and GitHub's hold takes its booked amount"
+    );
     assert_eq!(
         entry(&conn, hold),
         Entry {
@@ -2008,7 +2017,7 @@ fn an_unticked_hold_at_another_amount_stays_pending_and_the_row_is_skipped() {
     let before = entry(&conn, hold);
     let reviewed = preview(&conn, checking, &booked);
 
-    apply_reviewed(
+    let result = apply_reviewed(
         &conn,
         checking,
         &booked,
@@ -2018,6 +2027,7 @@ fn an_unticked_hold_at_another_amount_stays_pending_and_the_row_is_skipped() {
     )
     .unwrap();
 
+    assert_eq!(result.repriced_holds, 0);
     assert_eq!(entry(&conn, hold), before);
     assert_eq!(
         hold_state(&conn, hold),
@@ -2174,7 +2184,8 @@ fn a_hold_a_newer_covering_export_no_longer_lists_is_removed_when_ticked() {
         result,
         CsvImportResult {
             imported: 1,
-            removed_holds: 1
+            removed_holds: 1,
+            repriced_holds: 0
         }
     );
     assert!(entry(&conn, hold).deleted);
@@ -2514,7 +2525,8 @@ fn a_ticket_booked_a_day_later_posts_its_own_hold_while_the_next_days_ticket_is_
         result,
         CsvImportResult {
             imported: 2,
-            removed_holds: 0
+            removed_holds: 0,
+            repriced_holds: 0
         }
     );
     assert_eq!(account_total(&conn, card_account), -50 - 50 - 900 - 300);
@@ -2905,9 +2917,10 @@ fn the_wire_shapes_are_the_ones_the_wizard_sends_and_reads() {
     assert_eq!(
         serde_json::to_value(CsvImportResult {
             imported: 3,
-            removed_holds: 1
+            removed_holds: 1,
+            repriced_holds: 2
         })
         .unwrap(),
-        json!({ "imported": 3, "removedHolds": 1 })
+        json!({ "imported": 3, "removedHolds": 1, "repricedHolds": 2 })
     );
 }

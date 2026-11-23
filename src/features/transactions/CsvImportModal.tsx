@@ -150,6 +150,7 @@ const CsvImportModal = ({ snapshot, preselectedAccountId, onClose, onSuccess }: 
             <SaveProfileStep
               importedCount={wizardState.importedCount ?? 0}
               removedHoldCount={wizardState.removedHoldCount ?? 0}
+              repricedHoldCount={wizardState.repricedHoldCount ?? 0}
               loadedProfileName={wizardState.loadedProfile?.name ?? null}
               onSaveNew={handleSaveNewProfile}
               onUpdate={handleUpdateProfile}

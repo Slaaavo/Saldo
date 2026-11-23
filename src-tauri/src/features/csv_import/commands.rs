@@ -106,8 +106,11 @@ pub(crate) fn apply_csv_import_inner(
     }
     let matched = read.matched();
     let removals = parse_removals(&matched.cancelled_holds, input.cancelled_holds)?;
-    let mut imported = 0;
-    let removed_holds = removals.len() as u32;
+    let mut result = CsvImportResult {
+        imported: 0,
+        removed_holds: removals.len() as u32,
+        repriced_holds: 0,
+    };
     if let Some(newest_day) = read.rows.iter().map(|row| row.day).max() {
         let writer = Writer {
             conn,
@@ -115,17 +118,22 @@ pub(crate) fn apply_csv_import_inner(
             newest_day,
         };
         for ((row, &matched), choice) in read.rows.iter().zip(&matched.rows).zip(choices) {
-            imported += writer.write_row(row, matched, choice)?;
+            match writer.write_row(row, matched, choice)? {
+                Written::Entries(count) => result.imported += count,
+                Written::RepricedHold => result.repriced_holds += 1,
+            }
         }
         for hold in removals {
             writer.remove_cancelled_hold(hold)?;
         }
     }
     txn.finish(Finish::Commit)?;
-    Ok(CsvImportResult {
-        imported,
-        removed_holds,
-    })
+    Ok(result)
+}
+
+enum Written {
+    Entries(u32),
+    RepricedHold,
 }
 
 enum Choice {
@@ -384,7 +392,7 @@ impl Writer<'_> {
         row: &IncomingRow,
         matched: Match<'_>,
         choice: Choice,
-    ) -> Result<u32, AppError> {
+    ) -> Result<Written, AppError> {
         let conn = self.conn;
         if let (Choice::Ticked { .. } | Choice::Split(_), Match::HoldPosted(hold)) =
             (&choice, matched)
@@ -401,18 +409,18 @@ impl Writer<'_> {
             (
                 Choice::Unticked,
                 Match::New | Match::CompletesTransfer(_) | Match::HoldPostedAtOtherAmount(_),
-            ) => Ok(0),
+            ) => Ok(Written::Entries(0)),
             (Choice::Unticked, Match::InSaldo(recorded)) => {
                 self.catch_up_with_bank_line(row, recorded)?;
-                Ok(0)
+                Ok(Written::Entries(0))
             }
             (Choice::Unticked, Match::HoldPosted(hold)) => {
                 self.post_hold(row, hold, hold.total_minor)?;
-                Ok(0)
+                Ok(Written::Entries(0))
             }
             (Choice::Ticked { .. }, Match::HoldPostedAtOtherAmount(hold)) => {
                 self.post_hold(row, hold, row.amount_minor)?;
-                Ok(0)
+                Ok(Written::RepricedHold)
             }
             (Choice::Split(_), Match::HoldPostedAtOtherAmount(_)) => Err(validation(format!(
                 "Row {} posts a card hold at another amount and cannot be split",
@@ -429,7 +437,7 @@ impl Writer<'_> {
                     },
                 )?;
                 self.record_bank_entry(leg.bank_entry_event_id, row)?;
-                Ok(0)
+                Ok(Written::Entries(0))
             }
             (Choice::Ticked { bucket_id }, Match::CompletesTransfer(cashflow)) => {
                 let leg_id = complete_transfer(
@@ -438,7 +446,7 @@ impl Writer<'_> {
                     cashflow.recorded.bank_entry_event_id,
                 )?;
                 self.record_bank_entry(leg_id, row)?;
-                Ok(1)
+                Ok(Written::Entries(1))
             }
             (
                 Choice::Ticked { bucket_id },
@@ -449,7 +457,7 @@ impl Writer<'_> {
                     &cashflow_entry(self.account_id, row, bucket_id),
                 )?;
                 self.record_bank_entry(event_id, row)?;
-                Ok(1)
+                Ok(Written::Entries(1))
             }
             (
                 Choice::Split(legs),
@@ -469,7 +477,7 @@ impl Writer<'_> {
                     },
                 )?;
                 self.record_bank_entry(repository::lowest_leg_id(conn, split_group_id)?, row)?;
-                Ok(leg_count)
+                Ok(Written::Entries(leg_count))
             }
         }
     }

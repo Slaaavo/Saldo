@@ -67,6 +67,7 @@ export interface WizardState {
   originalProfileRules: ImportRule[] | null
   importedCount: number | null
   removedHoldCount: number | null
+  repricedHoldCount: number | null
 }
 
 export interface CancelledHoldRow extends CancelledHold {

@@ -161,4 +161,6 @@ pub struct CsvImportResult {
     pub imported: u32,
     /// Cancelled holds removed: one per plain entry or split group.
     pub removed_holds: u32,
+    /// Holds posted at the booked row's other amount.
+    pub repriced_holds: u32,
 }
