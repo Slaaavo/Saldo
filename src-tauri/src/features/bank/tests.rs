@@ -2126,3 +2126,45 @@ fn a_check_made_after_the_posting_counts_the_booked_amount() {
     assert_eq!(seen(&checked_at), 6_701);
     assert_eq!(seen(CHECKED_BEFORE_THE_IMPORTS), 6_700);
 }
+
+#[test]
+fn a_check_stays_verified_when_a_hold_imported_after_it_is_booked_on_the_checks_day() {
+    let conn = initialize_in_memory().unwrap();
+    let account = mk(&conn, "account");
+    balance_update(
+        &conn,
+        account,
+        10_000,
+        "2026-04-01",
+        BEFORE_ANY_IMPORT_CLOCK,
+    );
+    let check_id = check_at(
+        &conn,
+        account,
+        6_700,
+        CHECKED_BEFORE_THE_IMPORTS,
+        HOLD_CHECK_DAY,
+    )
+    .unwrap();
+    import_with_default_ticks_removing_cancelled_holds(
+        &conn,
+        account,
+        &[card_row(0, "2026-04-28", -3_300, true)],
+    );
+    let with_the_hold = verification(&conn, account);
+
+    import_with_default_ticks_removing_cancelled_holds(
+        &conn,
+        account,
+        &[
+            card_row(0, "2026-04-29", -3_300, false),
+            card_row(1, "2026-04-30", -500, false),
+        ],
+    );
+
+    assert_eq!(with_the_hold, verified_on_hold_check_day(check_id));
+    assert_eq!(
+        verification(&conn, account),
+        verified_on_hold_check_day(check_id)
+    );
+}

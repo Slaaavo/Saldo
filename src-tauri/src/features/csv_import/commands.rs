@@ -381,11 +381,11 @@ impl Writer<'_> {
                 Ok(0)
             }
             (Choice::Unticked, Match::HoldPosted(hold)) => {
-                self.post_hold(row, hold)?;
+                self.post_hold(row, hold, hold.total_minor)?;
                 Ok(0)
             }
             (Choice::Ticked { .. }, Match::HoldPostedAtOtherAmount(hold)) => {
-                self.post_single_hold_at_row_amount(row, hold)?;
+                self.post_hold(row, hold, row.amount_minor)?;
                 Ok(0)
             }
             (Choice::Split(_), Match::HoldPostedAtOtherAmount(_)) => Err(validation(format!(
@@ -476,73 +476,27 @@ impl Writer<'_> {
         Ok(())
     }
 
-    fn post_single_hold_at_row_amount(
-        &self,
-        row: &IncomingRow,
-        hold: &Recorded,
-    ) -> Result<(), AppError> {
-        self.move_single_hold_to_booked_line(row, hold, row.amount_minor)?;
-        self.record_posting(row, hold, row.amount_minor)
-    }
-
-    fn post_hold(&self, row: &IncomingRow, hold: &Recorded) -> Result<(), AppError> {
-        match hold.split_group_id {
-            None => self.move_single_hold_to_booked_line(row, hold, hold.total_minor)?,
-            Some(split_group_id) => {
-                self.move_split_hold_to_booked_line(row, hold, split_group_id)?
-            }
-        }
-        self.record_posting(row, hold, hold.total_minor)
-    }
-
-    fn move_single_hold_to_booked_line(
+    fn post_hold(
         &self,
         row: &IncomingRow,
         hold: &Recorded,
         amount_minor: i64,
     ) -> Result<(), AppError> {
         let note = hold.note_once_booked(row.note.as_deref());
-        if (amount_minor, &row.event_date, &note)
-            != (hold.total_minor, &hold.event_date, &hold.own_note)
-        {
+        if amount_minor != hold.total_minor {
             update_event(
                 self.conn,
                 UpdateEventParams {
                     event_id: hold.bank_entry_event_id,
                     amount_minor,
-                    event_date: row.event_date.clone(),
+                    event_date: hold.event_date.clone(),
                     note,
                 },
             )?;
-        }
-        Ok(())
-    }
-
-    fn move_split_hold_to_booked_line(
-        &self,
-        row: &IncomingRow,
-        hold: &Recorded,
-        split_group_id: i64,
-    ) -> Result<(), AppError> {
-        let conn = self.conn;
-        let note = hold.note_once_booked(row.note.as_deref());
-        for leg in repository::live_legs(conn, split_group_id)? {
-            if leg.event_date != row.event_date {
-                update_event(
-                    conn,
-                    UpdateEventParams {
-                        event_id: leg.event_id,
-                        amount_minor: leg.amount_minor,
-                        event_date: row.event_date.clone(),
-                        note: leg.note,
-                    },
-                )?;
-            }
-        }
-        if note != hold.own_note {
+        } else if note != hold.own_note {
             self.set_note(hold, note)?;
         }
-        Ok(())
+        self.record_posting(row, hold, amount_minor)
     }
 
     fn record_posting(

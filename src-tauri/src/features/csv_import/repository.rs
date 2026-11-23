@@ -40,13 +40,6 @@ pub struct SetSplitGroupNoteParams {
     pub note: Option<String>,
 }
 
-pub struct LiveLeg {
-    pub event_id: i64,
-    pub amount_minor: i64,
-    pub event_date: String,
-    pub note: Option<String>,
-}
-
 const BANK_COLUMNS: &str = "be.day AS bank_day, be.amount_minor AS bank_amount_minor,
                             be.text AS bank_text, be.card AS bank_card,
                             be.hold_seen_to AS hold_seen_to,
@@ -240,25 +233,6 @@ pub fn cancel_hold(conn: &Connection, event_id: i64) -> rusqlite::Result<()> {
         params![event_id],
     )?;
     Ok(())
-}
-
-pub fn live_legs(conn: &Connection, split_group_id: i64) -> rusqlite::Result<Vec<LiveLeg>> {
-    let mut stmt = conn.prepare(
-        "SELECT e.id, ed.amount_minor, ed.event_date, ed.note
-         FROM event e
-         JOIN event_data ed ON ed.id = e.latest_data_id
-         WHERE e.split_group_id = ?1 AND e.deleted_at IS NULL
-         ORDER BY e.id",
-    )?;
-    let legs = stmt.query_map(params![split_group_id], |row| {
-        Ok(LiveLeg {
-            event_id: row.get(0)?,
-            amount_minor: row.get(1)?,
-            event_date: row.get(2)?,
-            note: row.get(3)?,
-        })
-    })?;
-    legs.collect()
 }
 
 pub fn set_split_group_note(

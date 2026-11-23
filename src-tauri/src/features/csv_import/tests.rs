@@ -1706,7 +1706,7 @@ fn a_pending_export_imported_again_changes_nothing_and_a_newer_one_sees_the_hold
 }
 
 #[test]
-fn a_hold_booked_a_day_later_is_posted_in_place_and_keeps_its_bucket_and_partner() {
+fn a_hold_booked_a_day_later_is_posted_in_place_and_keeps_its_day_bucket_and_partner() {
     let conn = initialize_in_memory().unwrap();
     let card_account = own_without_iban(&conn, "Card");
     let landlord = partner(&conn);
@@ -1766,7 +1766,7 @@ fn a_hold_booked_a_day_later_is_posted_in_place_and_keeps_its_bucket_and_partner
     assert_eq!(
         entry(&conn, hold),
         Entry {
-            event_date: "2026-09-15T12:00:00".to_owned(),
+            event_date: "2026-09-14T12:00:00".to_owned(),
             amount_minor: -7_896,
             note: Some("TCHIBO PRAHA".to_owned()),
             counterpart_account_id: Some(landlord),
@@ -2146,6 +2146,50 @@ fn a_cancelled_split_hold_is_removed_as_a_whole() {
 }
 
 #[test]
+fn a_split_hold_booked_a_day_later_keeps_every_legs_day_and_takes_the_booked_text() {
+    let conn = initialize_in_memory().unwrap();
+    let card_account = own_without_iban(&conn, "Card");
+    let held = [card_row(0, "2026-10-25", -1_999, CARD, CardRow::Pending)];
+    let reviewed = preview(&conn, card_account, &held);
+    apply(
+        &conn,
+        card_account,
+        &held,
+        vec![split_choice(0, &[(-1_500, None), (-499, None)])],
+        reviewed.review_token,
+    )
+    .unwrap();
+    let legs = event_ids(&conn);
+
+    import(
+        &conn,
+        card_account,
+        &[card_row(
+            0,
+            "2026-10-26",
+            -1_999,
+            CARD,
+            CardRow::Booked("DM DROGERIE"),
+        )],
+    );
+
+    assert_eq!(
+        legs.iter()
+            .map(|&leg| (entry(&conn, leg).event_date, entry(&conn, leg).amount_minor))
+            .collect::<Vec<_>>(),
+        [
+            ("2026-10-25T12:00:00".to_owned(), -1_500),
+            ("2026-10-25T12:00:00".to_owned(), -499)
+        ]
+    );
+    let group_note: Option<String> = conn
+        .query_row("SELECT note FROM split_group", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(group_note.as_deref(), Some("DM DROGERIE"));
+    assert_eq!(hold_state(&conn, legs[0]), posted_with(CARD, 0));
+}
+
+#[test]
 fn the_cancelled_hold_choices_must_be_the_reviews() {
     let conn = initialize_in_memory().unwrap();
     let (card_account, hold) = held_on_25_oct(&conn);
@@ -2266,8 +2310,8 @@ fn the_25_oct_then_31_oct_card_exports_post_every_hold_in_place() {
     assert_eq!(event_ids(&conn).len(), 8);
     assert_eq!(
         entry(&conn, holds[2]).event_date,
-        "2026-10-25T12:00:00",
-        "Tchibo moves to its booked day"
+        "2026-10-24T12:00:00",
+        "Tchibo keeps its hold's day"
     );
     assert!(holds.iter().all(|&hold| hold_state(&conn, hold).posted));
 
