@@ -213,6 +213,7 @@ pub(crate) fn match_rows<'a>(
     claim_holds_booked_at_another_amount(rows, items, &mut used, &mut matches);
     claim_mutually_unique_cashflows(rows, cashflows, &mut matches);
     claim_posted_holds_listed_again(rows, &file_order, items, &mut used, &mut matches);
+    claim_entries_a_newer_export_booked_later(rows, &file_order, items, &mut used, &mut matches);
     Matched {
         cancelled_holds: cancelled_holds(rows, items, &used),
         rows: matches,
@@ -339,16 +340,41 @@ fn claim_posted_holds_listed_again<'a>(
     used: &mut [bool],
     matches: &mut [Match<'a>],
 ) {
+    claim_for_pending_rows(rows, file_order, items, used, matches, |row, recorded| {
+        recorded.key_while_held() == Some(row.key())
+    });
+}
+
+fn claim_entries_a_newer_export_booked_later<'a>(
+    rows: &[IncomingRow],
+    file_order: &[usize],
+    items: &'a [LedgerItem],
+    used: &mut [bool],
+    matches: &mut [Match<'a>],
+) {
+    claim_for_pending_rows(rows, file_order, items, used, matches, |row, recorded| {
+        let (booked_day, booked_amount_minor) = recorded.key();
+        recorded.state() == Some(BankState::Booked)
+            && booked_amount_minor == row.amount_minor
+            && booked_soon_after(row.day, booked_day)
+    });
+}
+
+fn claim_for_pending_rows<'a>(
+    rows: &[IncomingRow],
+    file_order: &[usize],
+    items: &'a [LedgerItem],
+    used: &mut [bool],
+    matches: &mut [Match<'a>],
+    fits: impl Fn(&IncomingRow, &Recorded) -> bool,
+) {
     for &position in file_order {
         let row = &rows[position];
         if !row.pending || !matches!(matches[position], Match::New) {
             continue;
         }
-        let claimed = claim_closest(row, items, used, |recorded| {
-            recorded.key_while_held() == Some(row.key())
-        });
-        if let Some(posted) = claimed {
-            matches[position] = Match::InSaldo(posted);
+        if let Some(recorded) = claim_closest(row, items, used, |recorded| fits(row, recorded)) {
+            matches[position] = Match::InSaldo(recorded);
         }
     }
 }
@@ -971,6 +997,65 @@ mod tests {
             held_again(SECOND_CARD, "2026-09-14", -7_896, &tchibo),
             ["new"],
             "a hold on another card is another purchase"
+        );
+    }
+
+    #[test]
+    fn a_pending_row_of_an_older_export_finds_the_entry_booked_up_to_five_days_later() {
+        let booked_on = |day| booked_entry(1, day, -7_896, CARD);
+        let held_on_24_oct = || pending(CARD, row(0, "2026-10-24", -7_896));
+
+        for (case, day) in [
+            ("a day later", "2026-10-25"),
+            ("5 days later", "2026-10-29"),
+        ] {
+            assert_eq!(
+                verdicts(&[held_on_24_oct()], &[booked_on(day)]),
+                ["in Saldo 1"],
+                "{case}"
+            );
+        }
+        for (case, day) in [
+            ("6 days later", "2026-10-30"),
+            ("a day before", "2026-10-23"),
+        ] {
+            assert_eq!(
+                verdicts(&[held_on_24_oct()], &[booked_on(day)]),
+                ["new"],
+                "{case}"
+            );
+        }
+        assert_eq!(
+            verdicts(
+                &[held_on_24_oct()],
+                &[
+                    booked_entry(1, "2026-10-27", -7_896, CARD),
+                    booked_entry(2, "2026-10-25", -7_896, CARD),
+                ]
+            ),
+            ["in Saldo 2"],
+            "the closest day first"
+        );
+        assert_eq!(
+            verdicts(
+                &[pending(SECOND_CARD, row(0, "2026-10-24", -7_896))],
+                &[booked_on("2026-10-25")]
+            ),
+            ["new"],
+            "another card"
+        );
+        assert_eq!(
+            verdicts(&[held_on_24_oct()], &[typed(1, "2026-10-25", -7_896)]),
+            ["new"],
+            "an entry no import has seen"
+        );
+        assert_eq!(
+            verdicts(
+                &[held_on_24_oct(), booked(CARD, row(1, "2026-10-25", -7_896))],
+                &[booked_on("2026-10-25")]
+            ),
+            ["new", "in Saldo 1"],
+            "the file's own booked row claims first"
         );
     }
 

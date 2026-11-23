@@ -2532,6 +2532,31 @@ fn an_older_export_imported_again_after_an_edited_hold_posted_at_another_amount_
 }
 
 #[test]
+fn an_older_export_imported_after_the_newer_finds_the_hold_the_newer_booked_a_day_later() {
+    let conn = initialize_in_memory().unwrap();
+    let card_account = own_without_iban(&conn, "Card");
+    import(
+        &conn,
+        card_account,
+        &[
+            card_row(0, "2026-10-26", -900, CARD, CardRow::Booked("LIDL")),
+            card_row(1, "2026-10-25", -7_896, CARD, CardRow::Booked("TCHIBO")),
+        ],
+    );
+    let before = everything(&conn);
+
+    assert_eq!(
+        import(
+            &conn,
+            card_account,
+            &[card_row(0, "2026-10-24", -7_896, CARD, CardRow::Pending)]
+        ),
+        0
+    );
+    assert_eq!(everything(&conn), before);
+}
+
+#[test]
 fn the_storage_keeps_a_bank_entry_in_one_hold_state() {
     let conn = initialize_in_memory().unwrap();
     let checking = own(&conn, "Checking");
