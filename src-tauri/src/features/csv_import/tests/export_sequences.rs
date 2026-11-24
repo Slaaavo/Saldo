@@ -2,44 +2,10 @@
 //! amount) or cancelled, exported by the bank at random days, newest row first or last. Each
 //! harness imports the exports with the review's defaults and compares Saldo with the bank.
 
-use std::thread::sleep;
-use std::time::Duration;
-
-use chrono::{Days, Local, NaiveDate};
-
+use super::harness::{harness_seeds, iso_day, Xorshift};
 use super::*;
-use crate::features::bank::Verification;
-use crate::features::transactions::commands::get_accounts_snapshot_inner;
-use crate::features::transactions::repository::{GetSnapshotParams, Moment};
 
-const SEEDS: std::ops::Range<u64> = 1..400;
 const SCENARIO_DAYS: u64 = 8;
-/// Long enough for `created_at` and a check's `checked_at`, both in milliseconds, to order the
-/// writes.
-const CLOCK_TICK: Duration = Duration::from_millis(1);
-
-struct Xorshift(u64);
-
-impl Xorshift {
-    fn seeded(seed: u64, salt: u64) -> Self {
-        Xorshift(seed.wrapping_mul(salt) | 1)
-    }
-
-    fn next(&mut self) -> u64 {
-        self.0 ^= self.0 << 13;
-        self.0 ^= self.0 >> 7;
-        self.0 ^= self.0 << 17;
-        self.0
-    }
-
-    fn below(&mut self, n: u64) -> u64 {
-        self.next() % n
-    }
-
-    fn chance(&mut self, percent: u64) -> bool {
-        self.below(100) < percent
-    }
-}
 
 #[derive(Debug, Clone)]
 struct Purchase {
@@ -223,15 +189,14 @@ impl Scenario {
     }
 }
 
-fn iso_day(day: u64) -> String {
-    let first = NaiveDate::from_ymd_opt(2026, 10, 1).unwrap();
-    (first + Days::new(day)).format("%Y-%m-%d").to_string()
-}
-
-/// Runs `failure_of` on every scenario of `SEEDS` whose repriced holds are their card and day's
-/// only ones, and asserts that none failed.
-fn assert_every_scenario(failure_of: impl Fn(&Scenario) -> Option<String>) {
-    let failures: Vec<String> = SEEDS
+/// Runs `failure_of` on every scenario of the harness seeds whose repriced holds are their card
+/// and day's only ones, `ambiguous` seeds left out, and asserts that none failed.
+fn assert_every_scenario(
+    ambiguous: &[(u64, &str)],
+    failure_of: impl Fn(&Scenario) -> Option<String>,
+) {
+    let failures: Vec<String> = harness_seeds()
+        .filter(|seed| ambiguous.iter().all(|&(left_out, _)| left_out != *seed))
         .map(Scenario::of)
         .filter(Scenario::reprices_only_lone_holds)
         .filter_map(|scenario| failure_of(&scenario))
@@ -244,32 +209,9 @@ fn assert_every_scenario(failure_of: impl Fn(&Scenario) -> Option<String>) {
     );
 }
 
-fn verification_now(conn: &Connection, account_id: i64) -> Option<Verification> {
-    get_accounts_snapshot_inner(
-        conn,
-        GetSnapshotParams {
-            moment: Moment::live(Local::now().date_naive()),
-            person_id: None,
-        },
-    )
-    .unwrap()
-    .rows
-    .into_iter()
-    .find(|row| row.account_id == account_id)
-    .and_then(|row| row.verification)
-}
-
-fn check_now(conn: &Connection, account_id: i64, day: &str, bank_balance_minor: i64) {
-    conn.execute(
-        "INSERT INTO balance_check (account_id, day, bank_balance_minor) VALUES (?1, ?2, ?3)",
-        params![account_id, day, bank_balance_minor],
-    )
-    .unwrap();
-}
-
 #[test]
 fn random_export_sequences_match_the_bank_and_older_exports_add_nothing() {
-    assert_every_scenario(|scenario| {
+    assert_every_scenario(&[], |scenario| {
         let conn = initialize_in_memory().unwrap();
         let card_account = own_without_iban(&conn, "Card");
         let mut imported_days = Vec::new();
@@ -304,7 +246,7 @@ fn random_export_sequences_match_the_bank_and_older_exports_add_nothing() {
 
 #[test]
 fn random_export_sequences_keep_a_check_made_between_imports_verified() {
-    assert_every_scenario(|scenario| {
+    assert_every_scenario(&[], |scenario| {
         let conn = initialize_in_memory().unwrap();
         let card_account = own_without_iban(&conn, "Card");
         let mut checked = false;
@@ -313,7 +255,6 @@ fn random_export_sequences_keep_a_check_made_between_imports_verified() {
             if rows.is_empty() {
                 continue;
             }
-            sleep(CLOCK_TICK);
             import(&conn, card_account, &rows);
             let after_the_import = verification_now(&conn, card_account);
             if checked && !matches!(after_the_import, Some(Verification::Verified { .. })) {
@@ -322,10 +263,8 @@ fn random_export_sequences_keep_a_check_made_between_imports_verified() {
                     &scenario.export_days,
                 );
             }
-            sleep(CLOCK_TICK);
             check_now(&conn, card_account, &iso_day(day + 1), bank_balance_minor);
             checked = true;
-            sleep(CLOCK_TICK);
             let fresh = verification_now(&conn, card_account);
             if !matches!(fresh, Some(Verification::Verified { .. })) {
                 return scenario.failure(
@@ -340,7 +279,7 @@ fn random_export_sequences_keep_a_check_made_between_imports_verified() {
 
 #[test]
 fn random_export_orders_end_at_the_newest_exports_balance() {
-    assert_every_scenario(|scenario| {
+    assert_every_scenario(&[], |scenario| {
         let order = scenario.shuffled_export_days();
         let newest = *order.iter().max().unwrap();
         let conn = initialize_in_memory().unwrap();

@@ -1,3 +1,4 @@
+mod assignment;
 pub mod commands;
 mod matcher;
 pub mod models;

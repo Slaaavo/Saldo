@@ -446,11 +446,17 @@ impl Writer<'_> {
             }
             Match::RemovedHoldListedAgain(removed) => {
                 let created = self.create(row, entries)?;
+                let bank_entry = self.bank_entry_of(created.bank_entry_event_id, row);
                 repository::insert_bank_entry(
                     self.conn,
                     InsertBankEntryParams {
+                        state: if row.pending {
+                            bank_entry.state
+                        } else {
+                            posted_from(removed, row.amount_minor)?
+                        },
                         replaces_event_id: Some(removed.bank_entry_event_id),
-                        ..self.bank_entry_of(created.bank_entry_event_id, row)
+                        ..bank_entry
                     },
                 )?;
                 Ok(Written::Entries(created.count))
@@ -522,8 +528,7 @@ impl Writer<'_> {
         }
     }
 
-    /// Saldo does not rework a split: the row's entries take the hold's place, posted from the
-    /// hold's bank day and amount, so an older export's pending row finds them, and a check made
+    /// Saldo does not rework a split: the row's entries take the hold's place, so a check made
     /// before counts the hold as it was.
     fn post_split_hold_onto_new_entries(
         &self,
@@ -535,18 +540,10 @@ impl Writer<'_> {
         if let Some(split_group_id) = hold.split_group_id {
             delete_split_group_inner(self.conn, split_group_id)?;
         }
-        let held = hold
-            .bank
-            .as_ref()
-            .ok_or_else(|| validation("A replaced split hold has no bank facts"))?;
         repository::insert_bank_entry(
             self.conn,
             InsertBankEntryParams {
-                state: InsertedState::Posted {
-                    held_day: held.day,
-                    held_amount_minor: held.amount_minor,
-                    posting_change_minor: posting_change_minor(hold.total_minor, row.amount_minor),
-                },
+                state: posted_from(hold, row.amount_minor)?,
                 replaces_event_id: Some(hold.bank_entry_event_id),
                 ..self.bank_entry_of(created.bank_entry_event_id, row)
             },
@@ -684,6 +681,20 @@ impl Writer<'_> {
     fn hold_seen_to(&self, row: &IncomingRow) -> Option<NaiveDate> {
         row.pending.then_some(self.newest_day)
     }
+}
+
+/// The bank state of a new entry a booked row creates in a hold's place: posted from the hold's
+/// bank day and amount, so an older export's pending row finds the entry by them.
+fn posted_from(hold: &Recorded, total_after_minor: i64) -> Result<InsertedState, AppError> {
+    let held = hold
+        .bank
+        .as_ref()
+        .ok_or_else(|| validation("A replaced card hold has no bank facts"))?;
+    Ok(InsertedState::Posted {
+        held_day: held.day,
+        held_amount_minor: held.amount_minor,
+        posting_change_minor: posting_change_minor(hold.total_minor, total_after_minor),
+    })
 }
 
 fn cashflow_entry(account_id: i64, row: &IncomingRow, bucket_id: Option<i64>) -> CashflowEntry {
