@@ -3827,5 +3827,6 @@ fn the_wire_shapes_are_the_ones_the_wizard_sends_and_reads() {
     );
 }
 
+mod adv_sequences;
 mod export_sequences;
 mod harness;
