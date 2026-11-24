@@ -2362,11 +2362,11 @@ fn a_split_hold_booked_at_another_amount_is_posted_onto_the_rows_new_entry() {
     assert_eq!(
         result,
         CsvImportResult {
-            imported: 1,
+            imported: 2,
             removed_holds: 0,
             repriced_holds: 1
         },
-        "Bolt is new and GitHub's hold took its booked amount"
+        "GitHub's entry in the split hold's place and Bolt are new, and the hold took the booked amount"
     );
     assert!(legs.iter().all(|&leg| entry(&conn, leg).deleted));
     assert!(
@@ -3581,6 +3581,37 @@ fn a_removed_hold_the_bank_books_later_keeps_a_check_made_while_it_was_pending_v
             "booked on {booked_on}: the check of 22 Oct"
         );
     }
+}
+
+#[test]
+fn a_row_replacing_a_split_hold_counts_the_entries_it_creates() {
+    let conn = initialize_in_memory().unwrap();
+    let (checking, _) = split_github_hold(&conn);
+    let booked = [card_row(
+        0,
+        "2026-04-30",
+        -3_299,
+        DEBIT_CARD,
+        CardRow::Booked("GITHUB"),
+    )];
+    let reviewed = preview(&conn, checking, &booked);
+    let live_before = live(&conn).len();
+
+    let result = apply(
+        &conn,
+        checking,
+        &booked,
+        vec![split_choice(0, &[(-3_000, None), (-299, None)])],
+        reviewed.review_token,
+    )
+    .unwrap();
+
+    assert_eq!(
+        (result.imported, result.repriced_holds),
+        (2, 1),
+        "{result:?}"
+    );
+    assert_eq!(live(&conn).len(), live_before);
 }
 
 #[test]

@@ -165,8 +165,8 @@ pub struct SplitLegChoice {
 #[derive(Debug, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct CsvImportResult {
-    /// Entries created: one per plain row, one per split leg. A row replacing a split hold
-    /// counts among `repriced_holds` instead.
+    /// Entries created: one per plain row, one per split leg, an entry that takes a hold's place
+    /// included.
     pub imported: u32,
     /// Cancelled holds removed: one per plain entry or split group.
     pub removed_holds: u32,

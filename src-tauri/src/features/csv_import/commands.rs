@@ -118,10 +118,9 @@ pub(crate) fn apply_csv_import_inner(
             newest_day,
         };
         for ((row, &matched), choice) in read.rows.iter().zip(&matched.rows).zip(choices) {
-            match writer.write_row(row, matched, choice)? {
-                Written::Entries(count) => result.imported += count,
-                Written::RepricedHold => result.repriced_holds += 1,
-            }
+            let written = writer.write_row(row, matched, choice)?;
+            result.imported += written.entries;
+            result.repriced_holds += u32::from(written.repriced_hold);
         }
         for hold in removals {
             writer.remove_cancelled_hold(hold)?;
@@ -131,9 +130,26 @@ pub(crate) fn apply_csv_import_inner(
     Ok(result)
 }
 
-enum Written {
-    Entries(u32),
-    RepricedHold,
+/// What writing one row adds to the import's counts.
+struct Written {
+    entries: u32,
+    repriced_hold: bool,
+}
+
+impl Written {
+    fn entries(entries: u32) -> Self {
+        Written {
+            entries,
+            repriced_hold: false,
+        }
+    }
+
+    fn repriced_hold(entries: u32) -> Self {
+        Written {
+            entries,
+            repriced_hold: true,
+        }
+    }
 }
 
 enum Choice {
@@ -411,7 +427,7 @@ impl Writer<'_> {
             Match::HoldPostedAtOtherAmount(hold) => match entries {
                 Entries::One { .. } => {
                     self.post_hold(row, hold, row.amount_minor)?;
-                    Ok(Written::RepricedHold)
+                    Ok(Written::repriced_hold(0))
                 }
                 Entries::Split(_) => Err(validation(format!(
                     "Row {} posts a card hold at another amount and cannot be split",
@@ -426,7 +442,7 @@ impl Writer<'_> {
                         cashflow.recorded.bank_entry_event_id,
                     )?;
                     self.record_bank_entry(leg_id, row)?;
-                    Ok(Written::Entries(1))
+                    Ok(Written::entries(1))
                 }
                 Entries::Split(_) => self.import_new(row, entries),
             },
@@ -441,8 +457,8 @@ impl Writer<'_> {
                 self.import_new(row, entries)
             }
             Match::NewReplacingSplitHold(hold) => {
-                self.post_split_hold_onto_new_entries(row, hold, entries)?;
-                Ok(Written::RepricedHold)
+                let created = self.post_split_hold_onto_new_entries(row, hold, entries)?;
+                Ok(Written::repriced_hold(created))
             }
             Match::RemovedHoldListedAgain(removed) => {
                 let created = self.create(row, entries)?;
@@ -459,7 +475,7 @@ impl Writer<'_> {
                         ..bank_entry
                     },
                 )?;
-                Ok(Written::Entries(created.count))
+                Ok(Written::entries(created.count))
             }
             Match::New | Match::InSaldo(_) | Match::TransferLeg { .. } => {
                 self.import_new(row, entries)
@@ -489,13 +505,13 @@ impl Writer<'_> {
                 self.record_bank_entry(leg.bank_entry_event_id, row)?;
             }
         }
-        Ok(Written::Entries(0))
+        Ok(Written::entries(0))
     }
 
     fn import_new(&self, row: &IncomingRow, entries: Entries) -> Result<Written, AppError> {
         let created = self.create(row, entries)?;
         self.record_bank_entry(created.bank_entry_event_id, row)?;
-        Ok(Written::Entries(created.count))
+        Ok(Written::entries(created.count))
     }
 
     fn create(&self, row: &IncomingRow, entries: Entries) -> Result<Created, AppError> {
@@ -529,13 +545,13 @@ impl Writer<'_> {
     }
 
     /// Saldo does not rework a split: the row's entries take the hold's place, so a check made
-    /// before counts the hold as it was.
+    /// before counts the hold as it was. Returns how many entries the row created.
     fn post_split_hold_onto_new_entries(
         &self,
         row: &IncomingRow,
         hold: &Recorded,
         entries: Entries,
-    ) -> Result<(), AppError> {
+    ) -> Result<u32, AppError> {
         let created = self.create(row, entries)?;
         if let Some(split_group_id) = hold.split_group_id {
             delete_split_group_inner(self.conn, split_group_id)?;
@@ -548,7 +564,7 @@ impl Writer<'_> {
                 ..self.bank_entry_of(created.bank_entry_event_id, row)
             },
         )?;
-        Ok(())
+        Ok(created.count)
     }
 
     fn catch_up_with_bank_line(

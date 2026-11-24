@@ -88,8 +88,9 @@ export interface ApplyCsvImportInput {
 }
 
 /**
- * `imported` counts the entries created: one per plain row, one per split leg. `repricedHolds`
- * counts the holds posted at the booked row's other amount, a replaced split hold included.
+ * `imported` counts the entries created: one per plain row, one per split leg, an entry that takes a
+ * hold's place included. `repricedHolds` counts the holds posted at the booked row's other amount,
+ * a replaced split hold included.
  */
 export interface CsvImportResult {
   imported: number

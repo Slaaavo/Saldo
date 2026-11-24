@@ -44,7 +44,7 @@ const SaveProfileStep = ({ importedCount, removedHoldCount, repricedHoldCount, l
         <DialogTitle>{t('import.saveStep.title')}</DialogTitle>
       </DialogHeader>
       <div className="flex flex-col gap-4">
-        <p className="text-sm">{t('import.saveStep.success', { count: importedCount })}</p>
+        {(importedCount > 0 || repricedHoldCount + removedHoldCount === 0) && <p className="text-sm">{t('import.saveStep.success', { count: importedCount })}</p>}
         {repricedHoldCount > 0 && <p className="text-sm">{t('import.saveStep.repricedHolds', { count: repricedHoldCount })}</p>}
         {removedHoldCount > 0 && <p className="text-sm">{t('import.saveStep.removedHolds', { count: removedHoldCount })}</p>}
 
