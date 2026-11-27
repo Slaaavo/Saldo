@@ -22,6 +22,7 @@ export default defineConfig(async () => ({
     environment: 'jsdom',
     setupFiles: './src/test-setup.ts',
     passWithNoTests: true,
+    execArgv: ['--no-experimental-webstorage'],
     // .claude/** holds agent git worktrees, each with its own src/ and node_modules/
     exclude: ['tests/**', '.claude/**', '**/node_modules/**'],
   },
