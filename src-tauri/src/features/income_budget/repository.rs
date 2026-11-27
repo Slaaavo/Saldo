@@ -146,7 +146,11 @@ fn gross_inflows(conn: &Connection, params: InflowsParams) -> rusqlite::Result<G
             },
             |row| {
                 let month: String = row.get(0)?;
-                Ok((YearMonth::parse(&month).map_err(damaged_row)?, row.get(1)?))
+                let first_day = NaiveDate::parse_from_str(&format!("{month}-01"), "%Y-%m-%d")
+                    .map_err(|err| {
+                        rusqlite::Error::FromSqlConversionFailure(0, Type::Text, err.into())
+                    })?;
+                Ok((YearMonth::of(first_day), row.get(1)?))
             },
         )?
         .collect::<rusqlite::Result<_>>()?;
@@ -436,6 +440,33 @@ mod tests {
             },
         )
         .unwrap()
+    }
+
+    #[test]
+    fn a_moment_in_a_year_no_budget_can_hold_still_evaluates_its_inflow() {
+        for (paid, day) in [
+            ("1989-12-15", (1989, 12, 31)),
+            ("2201-01-15", (2201, 1, 31)),
+        ] {
+            let conn = initialize_in_memory().unwrap();
+            let checking = mk(&conn, "Checking", "account", DEFAULT_PERSON, EUR);
+            cashflow(&conn, checking, 100_000, paid);
+            let (year, month, date) = day;
+
+            let evaluation = evaluate_draft(
+                &conn,
+                EvaluateDraftParams {
+                    person_id: DEFAULT_PERSON,
+                    currency_id: EUR,
+                    cells: vec![],
+                    lines_for: None,
+                    events_until: Moment::live(nov_8()).events_until().to_owned(),
+                    day: NaiveDate::from_ymd_opt(year, month, date).unwrap(),
+                },
+            );
+
+            assert_eq!(evaluation.map(|e| e.value_minor), Ok(0), "{paid}");
+        }
     }
 
     #[test]
