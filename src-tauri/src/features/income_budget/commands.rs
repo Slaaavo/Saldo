@@ -565,10 +565,10 @@ mod tests {
         let changed = preview(&conn, budget, (2026, 2026), draft).unwrap();
 
         let row = row_on_nov_8(&conn, budget);
-        assert_eq!(saved.value_minor, -631_500);
+        assert_eq!(saved.value_minor, -612_000);
         assert_eq!(saved.value_minor, row.balance_minor);
         assert_eq!(saved.valuation, row.valuation);
-        assert_eq!(changed.value_minor, -631_500 + 612_000);
+        assert_eq!(changed.value_minor, 0);
         assert_eq!(stored(&conn, budget).len(), 6);
         assert_eq!(saved.lines.len(), 12);
         assert_eq!(
@@ -583,7 +583,7 @@ mod tests {
         );
         assert_eq!(
             serde_json::to_value(&saved).unwrap()["valuation"],
-            json!({ "kind": "sameCurrency", "valueMinor": -631_500 })
+            json!({ "kind": "sameCurrency", "valueMinor": -612_000 })
         );
     }
 

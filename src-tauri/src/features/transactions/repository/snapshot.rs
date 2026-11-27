@@ -1147,25 +1147,24 @@ mod tests {
         let october_31st = at(&conn, "2026-10-31");
         let live = live(&conn, "2026-11-08");
 
-        let october = 585_700 - 564_000;
         let row_at_8th = row(&november_8th.rows, budget);
-        assert_eq!(row_at_8th.balance_minor, october - 612_000);
+        assert_eq!(row_at_8th.balance_minor, -612_000);
         assert_eq!(
             row_at_8th.valuation,
             Valuation::SameCurrency {
-                value_minor: october - 612_000
+                value_minor: -612_000
             }
         );
-        assert_eq!(row_at_8th.counted_minor, october - 612_000);
+        assert_eq!(row_at_8th.counted_minor, -612_000);
         assert_eq!(
             metric(&november_8th, MetricKind::LeftToSpend).total_minor(),
-            720_411 - (october - 612_000)
+            720_411 + 612_000
         );
-        assert_eq!(row(&october_31st.rows, budget).balance_minor, october);
         assert_eq!(
-            row(&live.rows, budget).balance_minor,
-            october + 406_504 - 612_000
+            row(&october_31st.rows, budget).balance_minor,
+            585_700 - 564_000
         );
+        assert_eq!(row(&live.rows, budget).balance_minor, 406_504 - 612_000);
     }
 
     #[test]
@@ -1187,8 +1186,8 @@ mod tests {
         cashflow(&conn, mine, 80_000, "2026-10-12", None);
         cashflow(&conn, theirs, 900_000, "2026-10-12", None);
 
-        let everyone = snapshot_of(&conn, "2026-11-08", None);
-        let only_mine = snapshot_of(&conn, "2026-11-08", Some(1));
+        let everyone = snapshot_of(&conn, "2026-10-31", None);
+        let only_mine = snapshot_of(&conn, "2026-10-31", Some(1));
 
         assert_eq!(row(&everyone.rows, budget).balance_minor, -20_000);
         assert_eq!(row(&only_mine.rows, budget).balance_minor, -20_000);
@@ -1202,7 +1201,7 @@ mod tests {
         budget_month(&conn, budget, "2026-10", 50_000, 0);
         cashflow(&conn, dollars, 100_000, "2026-10-12", None);
 
-        let snapshot = at(&conn, "2026-11-08");
+        let snapshot = at(&conn, "2026-10-31");
 
         let budget_row = row(&snapshot.rows, budget);
         assert_eq!(budget_row.balance_minor, 50_000);

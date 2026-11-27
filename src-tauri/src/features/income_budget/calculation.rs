@@ -177,25 +177,11 @@ pub fn evaluate(
                 .map(|(budget, received)| received - budget),
         }
     };
-    let value_minor = by_month
-        .keys()
-        .filter_map(|&month| line(month).difference_minor)
-        .sum();
+    let value_minor = line(current).difference_minor.unwrap_or(0);
     let lines = lines_for
         .map(|(from, to)| YearMonth::range(from, to).map(line).collect())
         .unwrap_or_default();
     Evaluation { value_minor, lines }
-}
-
-pub fn first_month_needed(
-    cells: &[BudgetCell],
-    lines_for: Option<(YearMonth, YearMonth)>,
-) -> Option<YearMonth> {
-    cells
-        .iter()
-        .map(|cell| cell.month)
-        .chain(lines_for.map(|(from, _)| from))
-        .min()
 }
 
 /// Rounds half away from zero: gross * 10000 / (10000 + vat_bps), through i128.
@@ -237,7 +223,7 @@ mod tests {
     }
 
     #[test]
-    fn the_spec_example_sums_to_minus_6315_on_2026_11_08() {
+    fn the_spec_example_is_novembers_minus_6120_on_2026_11_08() {
         let vat = Some(2_300);
         let cells = [
             cell("2026-07", Some(285_000), vat),
@@ -278,7 +264,7 @@ mod tests {
                 None
             ]
         );
-        assert_eq!(evaluation.value_minor, -631_500);
+        assert_eq!(evaluation.value_minor, -612_000);
     }
 
     #[test]
@@ -427,7 +413,7 @@ mod tests {
         );
 
         assert_eq!(without.lines, []);
-        assert_eq!(without.value_minor, -50_000 - 6_000);
+        assert_eq!(without.value_minor, -6_000);
         assert_eq!(one_year.value_minor, without.value_minor);
         let drawn: Vec<(String, Option<i64>, Option<i64>)> = one_year
             .lines
@@ -450,21 +436,6 @@ mod tests {
             ]
         );
         assert_eq!(one_year.lines.len(), 12);
-    }
-
-    #[test]
-    fn first_month_needed_is_the_earliest_cell_or_drawn_month() {
-        let cells = [
-            cell("2026-03", Some(1), None),
-            cell("2025-11", None, Some(0)),
-        ];
-
-        assert_eq!(first_month_needed(&cells, None), Some(month("2025-11")));
-        assert_eq!(
-            first_month_needed(&cells, Some((month("2025-01"), month("2025-12")))),
-            Some(month("2025-01"))
-        );
-        assert_eq!(first_month_needed(&[], None), None);
     }
 
     #[test]

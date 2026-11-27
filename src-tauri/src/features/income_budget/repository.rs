@@ -2,9 +2,7 @@ use chrono::NaiveDate;
 use rusqlite::types::Type;
 use rusqlite::{named_params, params, Connection, OptionalExtension};
 
-use super::calculation::{
-    evaluate, first_month_needed, BudgetCell, Evaluation, GrossInflows, YearMonth,
-};
+use super::calculation::{evaluate, BudgetCell, Evaluation, GrossInflows, YearMonth};
 use super::models::CountedAccount;
 use crate::error::AppError;
 
@@ -160,19 +158,19 @@ pub fn evaluate_draft(
     params: EvaluateDraftParams,
 ) -> rusqlite::Result<Evaluation> {
     let current = YearMonth::of(params.day);
-    let gross = match first_month_needed(&params.cells, params.lines_for) {
-        Some(from) if from <= current => gross_inflows(
-            conn,
-            InflowsParams {
-                person_id: params.person_id,
-                currency_id: params.currency_id,
-                events_until: params.events_until,
-                from,
-                to: current,
-            },
-        )?,
-        _ => GrossInflows::new(),
-    };
+    let from = params
+        .lines_for
+        .map_or(current, |(from, _)| from.min(current));
+    let gross = gross_inflows(
+        conn,
+        InflowsParams {
+            person_id: params.person_id,
+            currency_id: params.currency_id,
+            events_until: params.events_until,
+            from,
+            to: current,
+        },
+    )?;
     Ok(evaluate(&params.cells, &gross, current, params.lines_for))
 }
 
