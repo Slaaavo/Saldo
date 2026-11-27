@@ -3583,6 +3583,282 @@ fn a_removed_hold_the_bank_books_later_keeps_a_check_made_while_it_was_pending_v
     }
 }
 
+/// A card hold of 1 Oct on the current account, a transfer of its amount to Savings the user typed
+/// on 2 Oct, and the hold's booking on 2 Oct. The bank lists the transfer on 3 Oct.
+#[test]
+fn a_card_booking_posts_its_hold_and_leaves_a_typed_transfer_leg_to_the_transfer_row() {
+    let conn = initialize_in_memory().unwrap();
+    let checking = own(&conn, "Checking");
+    let savings = own(&conn, "Savings");
+    import(
+        &conn,
+        checking,
+        &[card_row(
+            0,
+            "2026-10-01",
+            -5_000,
+            DEBIT_CARD,
+            CardRow::Pending,
+        )],
+    );
+    let hold = event_ids(&conn)[0];
+    create_transfer(
+        &conn,
+        &CashflowEntry {
+            counterpart_account_id: Some(savings),
+            ..cashflow_entry(checking, "2026-10-02T09:00:00", -5_000)
+        },
+    )
+    .unwrap();
+    let booked = card_row(
+        0,
+        "2026-10-02",
+        -5_000,
+        DEBIT_CARD,
+        CardRow::Booked("SHELL"),
+    );
+    import(&conn, checking, &[booked.clone()]);
+    import(
+        &conn,
+        checking,
+        &[booked, to(savings, row(1, "2026-10-03", -5_000))],
+    );
+
+    assert_eq!(
+        (
+            account_total(&conn, checking),
+            account_total(&conn, savings)
+        ),
+        (-10_000, 5_000)
+    );
+    assert_eq!(entry(&conn, hold).note.as_deref(), Some("SHELL"));
+}
+
+/// A card hold of 1 Oct on the current account. The export of 3 Oct lists its booking on 3 Oct and
+/// a transfer or a partner payment of its amount, with no card, on 2 Oct or on the hold's own day.
+#[test]
+fn a_row_with_no_card_never_posts_a_hold_with_one() {
+    for (case, transfer_day) in [
+        ("a transfer the next day", "2026-10-02"),
+        ("a partner payment on its day", "2026-10-01"),
+    ] {
+        let conn = initialize_in_memory().unwrap();
+        let checking = own(&conn, "Checking");
+        let savings = own(&conn, "Savings");
+        let counterpart = if transfer_day == "2026-10-01" {
+            partner(&conn)
+        } else {
+            savings
+        };
+        import(
+            &conn,
+            checking,
+            &[card_row(
+                0,
+                "2026-10-01",
+                -5_000,
+                DEBIT_CARD,
+                CardRow::Pending,
+            )],
+        );
+        let hold = event_ids(&conn)[0];
+        check_now(&conn, checking, "2026-10-01", -5_000);
+        let rows = [
+            to(counterpart, row(0, transfer_day, -5_000)),
+            card_row(
+                1,
+                "2026-10-03",
+                -5_000,
+                DEBIT_CARD,
+                CardRow::Booked("SHELL 1234 BRATISLAVA"),
+            ),
+        ];
+
+        assert_eq!(
+            verdicts(&conn, checking, &rows)[1],
+            Verdict::HoldPosted {
+                event_id: hold,
+                event_date: "2026-10-01T12:00:00".to_owned(),
+                note: Some(HOLD_TEXT.to_owned()),
+            },
+            "{case}"
+        );
+        import(&conn, checking, &rows);
+        let posted = entry(&conn, hold);
+        assert_eq!(
+            (posted.note.as_deref(), posted.counterpart_account_id),
+            (Some("SHELL 1234 BRATISLAVA"), None),
+            "{case}"
+        );
+        assert_eq!(account_total(&conn, checking), -10_000, "{case}");
+        assert!(is_verified(&conn, checking), "{case}");
+    }
+}
+
+/// Five 0.50 tickets on one card, exported on 3, 5, 7 and 8 Oct: one held on 1 Oct and cancelled,
+/// one held on 1 Oct and booked on 2 Oct, two held on 2 Oct and booked on 2 and 4 Oct, and one held
+/// on 4 Oct and booked on 8 Oct. Then the export of 5 Oct again.
+#[test]
+fn an_older_export_imported_again_never_brings_back_a_hold_a_newer_one_removed() {
+    let conn = initialize_in_memory().unwrap();
+    let card_account = own_without_iban(&conn, "Card");
+    let lidl = |day: u64| {
+        card_row(
+            day as u32,
+            &format!("2026-10-{:02}", day + 1),
+            -900 - day as i64,
+            CARD,
+            CardRow::Booked("LIDL"),
+        )
+    };
+    let ticket = |index: u32, day: &str, state| card_row(index, day, -50, CARD, state);
+    let export = |newest: u64, tickets: &[(&str, CardRow)]| -> Vec<IncomingRowInput> {
+        let mut rows: Vec<IncomingRowInput> = (0..=newest).map(lidl).collect();
+        for (offset, &(day, state)) in tickets.iter().enumerate() {
+            rows.push(ticket(20 + offset as u32, day, state));
+        }
+        rows
+    };
+    let booked = CardRow::Booked("ZSSK");
+    let of_5_oct = export(
+        4,
+        &[
+            ("2026-10-01", CardRow::Pending),
+            ("2026-10-02", booked),
+            ("2026-10-02", CardRow::Pending),
+            ("2026-10-04", CardRow::Pending),
+        ],
+    );
+    for rows in [
+        export(
+            2,
+            &[
+                ("2026-10-01", CardRow::Pending),
+                ("2026-10-01", CardRow::Pending),
+                ("2026-10-02", CardRow::Pending),
+                ("2026-10-02", CardRow::Pending),
+            ],
+        ),
+        of_5_oct.clone(),
+        export(
+            6,
+            &[
+                ("2026-10-02", booked),
+                ("2026-10-02", booked),
+                ("2026-10-02", CardRow::Pending),
+                ("2026-10-04", CardRow::Pending),
+            ],
+        ),
+        export(
+            7,
+            &[
+                ("2026-10-02", booked),
+                ("2026-10-02", booked),
+                ("2026-10-04", booked),
+                ("2026-10-08", booked),
+            ],
+        ),
+    ] {
+        import(&conn, card_account, &rows);
+    }
+    let bank_on_8_oct = (0..=7).map(|day| -900 - day).sum::<i64>() - 4 * 50;
+    assert_eq!(account_total(&conn, card_account), bank_on_8_oct);
+    check_now(&conn, card_account, "2026-10-08", bank_on_8_oct);
+    let before = everything(&conn);
+
+    assert_eq!(import(&conn, card_account, &of_5_oct), 0);
+    assert_eq!(everything(&conn), before);
+    assert!(is_verified(&conn, card_account));
+}
+
+/// Two 0.50 tickets on one card, held on 7 and 8 Oct and booked 4 and 5 days later. The export of
+/// 14 Oct arrives first, the one of 9 Oct after it.
+#[test]
+fn an_older_export_finds_the_holds_a_newer_one_booked_four_and_five_days_later() {
+    let conn = initialize_in_memory().unwrap();
+    let card_account = own_without_iban(&conn, "Card");
+    let lidl = |index, day| card_row(index, day, -900, CARD, CardRow::Booked("LIDL"));
+    let of_14_oct = [
+        lidl(0, "2026-10-01"),
+        card_row(1, "2026-10-11", -50, CARD, CardRow::Booked("ZSSK")),
+        card_row(2, "2026-10-13", -50, CARD, CardRow::Booked("ZSSK")),
+        lidl(3, "2026-10-09"),
+        lidl(4, "2026-10-14"),
+    ];
+    let of_9_oct = [
+        lidl(0, "2026-10-01"),
+        card_row(1, "2026-10-07", -50, CARD, CardRow::Pending),
+        card_row(2, "2026-10-08", -50, CARD, CardRow::Pending),
+        lidl(3, "2026-10-09"),
+    ];
+    import(&conn, card_account, &of_14_oct);
+    let before = everything(&conn);
+
+    assert_eq!(import(&conn, card_account, &of_9_oct), 0);
+    assert_eq!(everything(&conn), before);
+}
+
+/// A 19.99 hold of 1 Oct the export of 2 Oct removes, a 33.00 hold of 3 Oct, and the export of
+/// 4 Oct, which lists the 19.99 booked on 3 Oct and no longer the 33.00. A check on 7 Oct, then
+/// the export of 9 Oct lists the 33.00 booked on 5 Oct.
+#[test]
+fn a_booking_takes_the_removed_hold_of_its_amount_over_a_live_hold_at_another() {
+    let conn = initialize_in_memory().unwrap();
+    let card_account = own_without_iban(&conn, "Card");
+    let lidl = |index, day| card_row(index, day, -900, CARD, CardRow::Booked("LIDL"));
+    import(
+        &conn,
+        card_account,
+        &[
+            lidl(0, "2026-10-01"),
+            card_row(1, "2026-10-01", -1_999, CARD, CardRow::Pending),
+        ],
+    );
+    let tchibo = event_ids(&conn)[1];
+    import(
+        &conn,
+        card_account,
+        &[lidl(0, "2026-10-01"), lidl(1, "2026-10-02")],
+    );
+    import(
+        &conn,
+        card_account,
+        &[
+            lidl(0, "2026-10-01"),
+            lidl(1, "2026-10-02"),
+            card_row(2, "2026-10-03", -3_300, CARD, CardRow::Pending),
+        ],
+    );
+    let shop = event_ids(&conn)[2];
+    let of_4_oct = [
+        lidl(0, "2026-10-01"),
+        lidl(1, "2026-10-02"),
+        card_row(2, "2026-10-03", -1_999, CARD, CardRow::Booked("TCHIBO")),
+        lidl(3, "2026-10-04"),
+    ];
+    let reviewed = preview(&conn, card_account, &of_4_oct);
+    assert_eq!(cancelled_hold_ids(&reviewed), [shop]);
+    import(&conn, card_account, &of_4_oct);
+    let (back, _) = live(&conn)
+        .into_iter()
+        .find(|(_, live)| live.amount_minor == -1_999)
+        .unwrap();
+    assert_eq!(replaced_hold(&conn, back), Some(tchibo));
+    check_now(&conn, card_account, "2026-10-07", -900 * 3 - 1_999);
+    let of_9_oct = [
+        lidl(0, "2026-10-01"),
+        lidl(1, "2026-10-02"),
+        card_row(2, "2026-10-03", -1_999, CARD, CardRow::Booked("TCHIBO")),
+        lidl(3, "2026-10-04"),
+        card_row(4, "2026-10-05", -3_300, CARD, CardRow::Booked("SHOP")),
+        lidl(5, "2026-10-09"),
+    ];
+
+    assert_eq!(import(&conn, card_account, &of_9_oct), 2);
+    assert_eq!(account_total(&conn, card_account), -900 * 4 - 1_999 - 3_300);
+    assert!(is_verified(&conn, card_account), "the check of 7 Oct");
+}
+
 #[test]
 fn a_row_replacing_a_split_hold_counts_the_entries_it_creates() {
     let conn = initialize_in_memory().unwrap();

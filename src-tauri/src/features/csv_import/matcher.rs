@@ -299,8 +299,14 @@ pub(crate) struct Matched<'a> {
 /// The same-day tier and the hold stages take an assignment instead, because what one row takes
 /// decides what is left for another: no order of greedy tiers can choose between a hold booked at
 /// its amount days later and one booked on its day at another amount. The same-day tier takes as
-/// many pairs as it can. A hold stage pairs a hold with a booking through `booking_cost`, and only
-/// while a pair costs less than leaving its hold and its booking unexplained (`PAIR_WORTH`).
+/// many pairs as it can. The live holds' stage keeps only the bookings it pairs at the held amount,
+/// and the next stage pairs the rest with the live holds and the holds an import removed, so a
+/// removed hold never takes a booking a live hold of its amount explains. A hold stage pairs a
+/// hold with a booking through `pair_cost`, only while
+/// a pair costs less than leaving its hold and its booking unexplained (`PAIR_WORTH`), and then
+/// pairs every further live hold with a booking at its amount that it can, moving only pairs like
+/// it, because a run of one card's holds of one amount, each booked days later, is
+/// one booking each however far the run spans.
 pub(crate) fn match_rows<'a>(
     rows: &'a [IncomingRow],
     items: &'a [LedgerItem],
@@ -318,10 +324,14 @@ pub(crate) fn match_rows<'a>(
     };
     claims.take_cheapest(legs_to_named_accounts(&claims));
     claims.take_assignment(same_day_and_amount(&claims), None);
+    claims.take_assignment_keeping(
+        live_holds_booked_rows_post(&claims),
+        Some(PAIR_WORTH),
+        |matched| matches!(matched, Match::HoldPosted(_)),
+    );
+    claims.take_assignment(holds_booked_rows_take(&claims), Some(2 * PAIR_WORTH));
     claims.take_cheapest(near_legs_for_rows_naming_no_known_account(&claims));
-    claims.take_assignment(holds_booked_rows_post(&claims), Some(PAIR_WORTH));
     claims.take_cheapest(entries_no_import_has_seen(&claims));
-    claims.take_assignment(removed_holds_booked_rows_take(&claims), Some(PAIR_WORTH));
     claim_mutually_unique_cashflows(rows, cashflows, &mut claims.matches);
     claims.take_assignment(entries_a_newer_export_booked(&claims), Some(PAIR_WORTH));
     Matched {
@@ -370,15 +380,18 @@ impl<'a> Claims<'a> {
         }
     }
 
-    /// Whether a free pending hold the booked `row` may claim was held on its day and amount.
-    fn has_a_hold_of_its_day_and_amount(&self, row: &IncomingRow) -> bool {
+    /// Whether the booked `row` can be the booking at its held amount of a free pending hold it may
+    /// claim. A hold at another amount does not count: an entry no import has seen on the row's
+    /// day and amount is likelier the booking itself, recorded before Saldo kept bank facts.
+    fn can_post_a_hold(&self, row: &IncomingRow) -> bool {
         self.items.iter().enumerate().any(|(item, ledger_item)| {
             let hold = &ledger_item.recorded;
             self.is_free(Target::Item(item))
                 && row.counterpart.may_claim(ledger_item)
-                && cards_fit(row, hold)
                 && hold.is_pending_hold()
-                && hold.held_key() == Some(row.key())
+                && hold.held_line().is_some_and(|held| {
+                    held.amount_minor == row.amount_minor && pair_cost(held, row.line()).is_some()
+                })
         })
     }
 
@@ -459,6 +472,18 @@ impl<'a> Claims<'a> {
         self.matches[pair.position] = pair.matched;
     }
 
+    /// Whether the pair is sure (`cheapest_pairs`): the row is at the amount the bank showed for
+    /// one of the account's entries, a hold's held amount or a booking's booked amount. A hold an
+    /// import removed is never sure, because an export no longer listed it.
+    fn is_sure<C>(&self, pair: &Pair<'a, C>) -> bool {
+        matches!(pair.target, Target::Item(_))
+            && self
+                .recorded(pair.target)
+                .bank
+                .as_ref()
+                .is_some_and(|bank| bank.amount_minor == self.rows[pair.position].amount_minor)
+    }
+
     /// The row's place in the file, then the entry's id.
     fn rank<C>(&self, pair: &Pair<'a, C>) -> (u32, i64) {
         (
@@ -481,9 +506,20 @@ impl<'a> Claims<'a> {
     }
 
     /// Takes the cheapest set of pairs (`cheapest_pairs`): with no `worth` as many as the rows and
-    /// entries allow, else only while a pair costs less than `worth`. Between equally cheap sets
-    /// the rows' places in the file decide, then the entries' ids.
-    fn take_assignment(&mut self, mut pairs: Vec<Pair<'a, i64>>, worth: Option<i64>) {
+    /// entries allow, else only while a pair costs less than `worth`, and then as many more pairs
+    /// of a live hold and a booking at its amount as those allow. Between equally cheap sets the rows'
+    /// places in the file decide, then the entries' ids.
+    fn take_assignment(&mut self, pairs: Vec<Pair<'a, i64>>, worth: Option<i64>) {
+        self.take_assignment_keeping(pairs, worth, |_| true);
+    }
+
+    /// The pairs of the cheapest set, as `take_assignment` finds it, that `keep` keeps.
+    fn take_assignment_keeping(
+        &mut self,
+        mut pairs: Vec<Pair<'a, i64>>,
+        worth: Option<i64>,
+        keep: impl Fn(&Match<'a>) -> bool,
+    ) {
         pairs.sort_by_key(|pair| self.rank(pair));
         let target_key =
             |pair: &Pair<'a, i64>| (self.recorded(pair.target).bank_entry_event_id, pair.target);
@@ -495,10 +531,13 @@ impl<'a> Claims<'a> {
                 row: rows[&pair.position],
                 target: targets[&target_key(pair)],
                 cost: pair.cost,
+                sure: self.is_sure(pair),
             })
             .collect();
         for taken in cheapest_pairs(&edges, rows.len(), targets.len(), worth) {
-            self.take(&pairs[taken]);
+            if keep(&pairs[taken].matched) {
+                self.take(&pairs[taken]);
+            }
         }
     }
 }
@@ -512,23 +551,25 @@ fn numbered<K: Ord>(keys: impl Iterator<Item = K>) -> BTreeMap<K, usize> {
         .collect()
 }
 
-/// The cost of a same-day pair: an entry in the row's own state costs least.
+/// The cost of a same-day pair: an entry in the row's own state costs least, and a removed hold
+/// the row lists again, the one pair that writes, most.
 #[derive(Clone, Copy)]
 enum SameDayPreference {
     SameState = 0,
     OtherState = 1,
     Unseen = 2,
     RemovedHold = 3,
+    RemovedHoldListedAgain = 4,
 }
 
 /// A row takes the entry it sees on its own day and amount: first one in its own state (a booked
 /// row a booked or posted entry, a pending row a pending hold), then a posted hold a pending row
 /// sees by the day and amount the bank held it at, then one no import has seen, then, for a
-/// pending row, a hold an import removed (`lists_again` says whether the row writes anything).
-/// The tier is an assignment, because a booked row that takes a posted entry by its booked day and
-/// amount can leave the pending row that sees the entry's hold with nothing. A booked row posts a
-/// hold of its own day and amount in the first hold stage instead, because another hold can be
-/// its own, and waits for that stage before it takes an entry no import has seen.
+/// pending row, a hold an import removed that the file is older than, and last one the file lists
+/// again, because that pair writes. The tier is an assignment, because a booked row that takes a
+/// posted entry by its booked day and amount can leave the pending row that sees the entry's hold
+/// with nothing. A booked row that can be a pending hold's booking waits for the hold stage before
+/// it takes an entry no import has seen, because the hold can be its own.
 fn same_day_and_amount<'a>(claims: &Claims<'a>) -> Vec<Pair<'a, i64>> {
     let mut pairs = claims.pairs(|row, ledger_item| {
         let recorded = &ledger_item.recorded;
@@ -536,7 +577,7 @@ fn same_day_and_amount<'a>(claims: &Claims<'a>) -> Vec<Pair<'a, i64>> {
             return None;
         }
         let preference = match (recorded.state(), row.pending) {
-            (None, false) if claims.has_a_hold_of_its_day_and_amount(row) => return None,
+            (None, false) if claims.can_post_a_hold(row) => return None,
             (None, _) => SameDayPreference::Unseen,
             (Some(BankState::Pending { .. }), true)
             | (Some(BankState::Booked | BankState::Posted { .. }), false) => {
@@ -547,19 +588,20 @@ fn same_day_and_amount<'a>(claims: &Claims<'a>) -> Vec<Pair<'a, i64>> {
         Some((preference as i64, Match::InSaldo(recorded)))
     });
     pairs.extend(claims.removed_hold_pairs(|row, hold| {
-        let matched = if claims.lists_again(hold) {
-            Match::RemovedHoldListedAgain(hold)
+        let (preference, matched) = if claims.lists_again(hold) {
+            (
+                SameDayPreference::RemovedHoldListedAgain,
+                Match::RemovedHoldListedAgain(hold),
+            )
         } else {
-            Match::InSaldo(hold)
+            (SameDayPreference::RemovedHold, Match::InSaldo(hold))
         };
-        (row.pending && hold.held_key() == Some(row.key()))
-            .then_some((SameDayPreference::RemovedHold as i64, matched))
+        (row.pending && hold.held_key() == Some(row.key())).then_some((preference as i64, matched))
     }));
     pairs
 }
 
-/// A booked row the first hold stage left new takes an entry no import has seen on its day and
-/// amount.
+/// A booked row the hold stage left new takes an entry no import has seen on its day and amount.
 fn entries_no_import_has_seen<'a>(claims: &Claims<'a>) -> Vec<Pair<'a, ()>> {
     claims.pairs(|row, ledger_item| {
         let recorded = &ledger_item.recorded;
@@ -572,23 +614,26 @@ fn entries_no_import_has_seen<'a>(claims: &Claims<'a>) -> Vec<Pair<'a, ()>> {
 /// 10 % away from the held amount.
 const DAY_IN_BASIS_POINTS: i64 = 1_000;
 
-/// A hold stage pairs one more hold and booking only while that costs less than a booking 6 days
-/// after its hold: every booking at the held amount within 5 days, one on the hold's day less than
-/// 60 % away from the held amount, and a move of other bookings to farther holds only when the
-/// whole move costs less. A purchase the bank never listed pending, next to a hold it cancelled,
+/// A hold and a booking pair only when the pair costs less than a booking 6 days after its hold:
+/// every booking at the held amount within 5 days, and one on the hold's day less than 60 % away
+/// from the held amount. A purchase the bank never listed pending, next to a hold it cancelled,
 /// stays another purchase unless it is that close.
 const PAIR_WORTH: i64 = (NEAR_DAYS + 1) * DAY_IN_BASIS_POINTS;
 
 /// How far `booked` is from `held`, in basis points of the held amount, when the booking can be
 /// the hold's: at the held amount on the held day or up to 5 days after it, costing its days
 /// apart, or on the held day at another amount of the same sign when both name one card, costing
-/// its gap. Every tier already refused cards that are both known and differ.
+/// its gap, and in either case less than `PAIR_WORTH`. A hold that names a card is a purchase on
+/// that card, so only a booking that names it can be the hold's.
 ///
 /// A booking on the hold's own day less than 10 % away from the held amount costs less than one
 /// at the held amount a day later: the bank books a hold at another amount (a currency
 /// conversion) a little away from it. A booking further away costs more, because another purchase
 /// of the card's day is then the likelier story.
-fn booking_cost(held: BankLine<'_>, booked: BankLine<'_>) -> Option<i64> {
+fn pair_cost(held: BankLine<'_>, booked: BankLine<'_>) -> Option<i64> {
+    if held.card.is_some() && held.card != booked.card {
+        return None;
+    }
     let distance = if held.amount_minor == booked.amount_minor {
         booked_soon_after(held.day, booked.day)
             .then(|| i128::from(days_apart(held.day, booked.day) * DAY_IN_BASIS_POINTS))?
@@ -601,18 +646,20 @@ fn booking_cost(held: BankLine<'_>, booked: BankLine<'_>) -> Option<i64> {
         fits.then(|| (gap.abs() * 10_000).checked_div(i128::from(held.amount_minor).abs()))?
             .unwrap_or(i128::MAX)
     };
-    Some(i64::try_from(distance).unwrap_or(i64::MAX))
+    i64::try_from(distance)
+        .ok()
+        .filter(|&cost| cost < PAIR_WORTH)
 }
 
 /// A booked row posts a pending hold it can be the booking of.
-fn holds_booked_rows_post<'a>(claims: &Claims<'a>) -> Vec<Pair<'a, i64>> {
+fn live_holds_booked_rows_post<'a>(claims: &Claims<'a>) -> Vec<Pair<'a, i64>> {
     claims.pairs(|row, ledger_item| {
         let hold = &ledger_item.recorded;
         if row.pending || !hold.is_pending_hold() {
             return None;
         }
         let held = hold.held_line()?;
-        let cost = booking_cost(held, row.line())?;
+        let cost = pair_cost(held, row.line())?;
         let matched = match (held.amount_minor == row.amount_minor, hold.split_group_id) {
             (true, _) => Match::HoldPosted(hold),
             (false, None) => Match::HoldPostedAtOtherAmount(hold),
@@ -622,16 +669,24 @@ fn holds_booked_rows_post<'a>(claims: &Claims<'a>) -> Vec<Pair<'a, i64>> {
     })
 }
 
-/// A booked row every live hold left new takes the place of a hold an import removed that it can
-/// be the booking of, when this export is as new as the one that removed the hold or newer.
-fn removed_holds_booked_rows_take<'a>(claims: &Claims<'a>) -> Vec<Pair<'a, i64>> {
-    claims.removed_hold_pairs(|row, hold| {
+/// The live holds' pairs and the place of a hold an import removed that a booked row can be the
+/// booking of, when this export is as new as the one that removed the hold or newer, in one
+/// assignment, so a booking takes a removed hold of its amount over a live hold far from it.
+/// Every cost is doubled and a removed hold's raised by one, so the two never tie and at an equal
+/// cost the live hold wins.
+fn holds_booked_rows_take<'a>(claims: &Claims<'a>) -> Vec<Pair<'a, i64>> {
+    let mut pairs = live_holds_booked_rows_post(claims);
+    for pair in &mut pairs {
+        pair.cost *= 2;
+    }
+    pairs.extend(claims.removed_hold_pairs(|row, hold| {
         if row.pending || !claims.lists_again(hold) {
             return None;
         }
-        let cost = booking_cost(hold.held_line()?, row.line())?;
-        Some((cost, Match::RemovedHoldListedAgain(hold)))
-    })
+        let cost = pair_cost(hold.held_line()?, row.line())?;
+        Some((2 * cost + 1, Match::RemovedHoldListedAgain(hold)))
+    }));
+    pairs
 }
 
 /// A pending row of an older export finds the entry a newer export booked it as. At its amount
@@ -646,7 +701,7 @@ fn entries_a_newer_export_booked<'a>(claims: &Claims<'a>) -> Vec<Pair<'a, i64>> 
             return None;
         }
         let booked = recorded.bank_booked_line()?;
-        let cost = booking_cost(row.line(), booked)?;
+        let cost = pair_cost(row.line(), booked)?;
         let at_its_amount = booked.amount_minor == row.amount_minor;
         (at_its_amount || recorded.state() == Some(BankState::Booked))
             .then_some((cost, Match::InSaldo(recorded)))
@@ -965,6 +1020,23 @@ mod tests {
     }
 
     #[test]
+    fn a_booking_saldo_holds_from_before_bank_facts_wins_over_a_hold_at_another_amount() {
+        let github_hold = hold(1, "2026-04-30", -3_300, DEBIT_CARD, "2026-05-01");
+        let github_imported_before = typed(2, "2026-04-30", -3_299);
+
+        assert_eq!(
+            outcome(
+                &[
+                    booked(DEBIT_CARD, row(0, "2026-04-30", -3_299)),
+                    booked(DEBIT_CARD, row(1, "2026-05-02", -700)),
+                ],
+                &[github_hold, github_imported_before]
+            ),
+            (vec!["in Saldo 2".to_owned(), "new".to_owned()], vec![1])
+        );
+    }
+
+    #[test]
     fn a_booked_row_posts_the_hold_with_its_card_day_and_amount() {
         let items = [hold(1, "2026-10-25", -1_999, CARD, "2026-10-25")];
 
@@ -1000,10 +1072,61 @@ mod tests {
     }
 
     #[test]
-    fn a_row_with_no_card_posts_a_hold_with_one() {
+    fn only_a_row_with_the_holds_card_posts_a_hold_with_one() {
         let items = [hold(1, "2026-10-20", -50, CARD, "2026-10-25")];
+        let mut without_card = hold(1, "2026-10-20", -50, CARD, "2026-10-25");
+        without_card.recorded.bank.as_mut().unwrap().card = None;
 
-        assert_eq!(verdicts(&[row(0, "2026-10-20", -50)], &items), ["posts 1"]);
+        assert_eq!(verdicts(&[row(0, "2026-10-20", -50)], &items), ["new"]);
+        assert_eq!(
+            verdicts(&[row(0, "2026-10-21", -50)], &[without_card.clone()]),
+            ["posts 1"]
+        );
+        assert_eq!(
+            verdicts(&[booked(CARD, row(0, "2026-10-21", -50))], &[without_card]),
+            ["posts 1"]
+        );
+    }
+
+    #[test]
+    fn holds_booked_four_and_five_days_later_all_post() {
+        let items = [
+            hold(1, "2026-10-07", -50, CARD, "2026-10-09"),
+            hold(2, "2026-10-08", -50, CARD, "2026-10-09"),
+            hold(3, "2026-10-09", -50, CARD, "2026-10-09"),
+        ];
+        let rows = [
+            booked(CARD, row(0, "2026-10-12", -50)),
+            booked(CARD, row(1, "2026-10-13", -50)),
+            booked(CARD, row(2, "2026-10-14", -50)),
+        ];
+
+        assert_eq!(verdicts(&rows, &items), ["posts 1", "posts 2", "posts 3"]);
+    }
+
+    #[test]
+    fn a_booking_takes_a_removed_hold_of_its_amount_over_a_live_hold_far_from_it() {
+        let removed = with_bank(
+            1,
+            "2026-10-01",
+            -1_999,
+            Some(CARD),
+            BankState::Cancelled {
+                by_day: date("2026-10-02"),
+            },
+        )
+        .recorded;
+        let shop = hold(2, "2026-10-03", -3_300, CARD, "2026-10-03");
+        let tchibo_booked = booked(CARD, row(0, "2026-10-03", -1_999));
+        let lidl = booked(CARD, row(1, "2026-10-04", -900));
+
+        assert_eq!(
+            outcome_with_removed_holds(&[tchibo_booked, lidl], &[shop], &[removed]),
+            (
+                vec!["new, listing removed 1 again".to_owned(), "new".to_owned()],
+                vec![2]
+            )
+        );
     }
 
     #[test]
