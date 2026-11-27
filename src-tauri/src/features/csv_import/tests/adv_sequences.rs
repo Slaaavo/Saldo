@@ -1,7 +1,8 @@
 //! The export sequences of `export_sequences.rs`, extended: purchases made after the day's export,
 //! repriced holds that share their card and day, every amount repriced, splits chosen in the
-//! review, the user's note and date edits between imports, and a check that every posted entry
-//! pairs a hold and a booking of one purchase.
+//! review, the user's note and date edits between imports, holds booked up to 5 days after their
+//! day, holds the bank drops from its exports for a few days and then books, and a check that
+//! every posted entry pairs a hold and a booking of one purchase.
 
 use super::harness::{harness_seeds, iso_day, Xorshift};
 use super::*;
@@ -23,6 +24,11 @@ struct Knobs {
     edit_pct: u64,
     /// The chance the user moves an entry a day later after an import.
     date_edit_pct: u64,
+    /// The most days after its hold the bank books a purchase.
+    max_delay: u64,
+    /// The chance the bank lists a booked purchase's hold on its day, then nowhere until it lists
+    /// the booking, 2 to 5 days after the hold.
+    drop_out_pct: u64,
 }
 
 impl Knobs {
@@ -33,13 +39,27 @@ impl Knobs {
         split_pct: 30,
         edit_pct: 20,
         date_edit_pct: 20,
+        max_delay: 2,
+        drop_out_pct: 0,
     };
 
     const WITHOUT_REPRICES: Knobs = Knobs {
         reprice_pct: 0,
         ..Knobs::DEFAULT
     };
+
+    const BOOKED_LATE: Knobs = Knobs {
+        max_delay: NEAR_DAYS,
+        ..Knobs::DEFAULT
+    };
+
+    const DROPPED_OUT: Knobs = Knobs {
+        drop_out_pct: 40,
+        ..Knobs::DEFAULT
+    };
 }
+
+const NEAR_DAYS: u64 = 5;
 
 #[derive(Debug, Clone)]
 struct Purchase {
@@ -51,6 +71,8 @@ struct Purchase {
     /// The first export day that lists it: the next day when it was made after that day's export.
     listed_from: u64,
     text: &'static str,
+    /// The export days from the first to before the second that list it nowhere.
+    absent: Option<(u64, u64)>,
 }
 
 impl Purchase {
@@ -64,6 +86,7 @@ impl Purchase {
             settles_on: day,
             listed_from: day,
             text: "LIDL",
+            absent: None,
         }
     }
 
@@ -77,7 +100,12 @@ impl Purchase {
     }
 
     fn listed_on(&self, day: u64) -> Option<(u64, i64, CardRow)> {
-        if self.held_on > day || day < self.listed_from {
+        if self.held_on > day
+            || day < self.listed_from
+            || self
+                .absent
+                .is_some_and(|(from, to)| (from..to).contains(&day))
+        {
             None
         } else if day < self.settles_on {
             Some((self.held_on, self.held_minor, CardRow::Pending))
@@ -100,7 +128,8 @@ impl Scenario {
     fn of(seed: u64, knobs: Knobs) -> Self {
         let mut random = Xorshift::seeded(seed, 0x9E37_79B9_7F4A_7C15);
         let mut purchases = Vec::new();
-        for day in 0..SCENARIO_DAYS + 3 {
+        let days = SCENARIO_DAYS + knobs.max_delay + 1;
+        for day in 0..days {
             purchases.push(Purchase::daily_filler(day));
             if day >= SCENARIO_DAYS {
                 continue;
@@ -109,8 +138,8 @@ impl Scenario {
                 let card = if random.chance(50) { CARD } else { SECOND_CARD };
                 let held_minor = [-50, -50, -50, -1_999, -3_300, -500][random.below(6) as usize];
                 let cancelled = random.chance(15);
-                let booked_on = day + random.below(3);
-                let settles_on = booked_on.max(day + random.below(4));
+                let booked_on = day + random.below(knobs.max_delay + 1);
+                let settles_on = booked_on.max(day + random.below(knobs.max_delay + 2));
                 let booked_minor = if booked_on == day && random.chance(knobs.reprice_pct) {
                     held_minor + 1 + random.below(3) as i64
                 } else {
@@ -129,14 +158,26 @@ impl Scenario {
                     settles_on,
                     listed_from: day + u64::from(random.chance(knobs.after_export_pct)),
                     text: if held_minor == -50 { "ZSSK" } else { "SHOP" },
+                    absent: None,
                 });
             }
         }
-        let mut export_days: Vec<u64> = (0..SCENARIO_DAYS + 3)
-            .filter(|_| random.chance(60))
-            .collect();
+        let mut export_days: Vec<u64> = (0..days).filter(|_| random.chance(60)).collect();
         if export_days.is_empty() {
-            export_days.push(SCENARIO_DAYS + 2);
+            export_days.push(days - 1);
+        }
+        let mut dropping = Xorshift::seeded(seed, 0x5851_F42D_4C95_7F2D);
+        for purchase in &mut purchases {
+            if purchase.is_filler()
+                || purchase.booked.is_none()
+                || !dropping.chance(knobs.drop_out_pct)
+            {
+                continue;
+            }
+            let listed_booked_from = purchase.held_on + 2 + dropping.below(4);
+            purchase.listed_from = purchase.held_on;
+            purchase.settles_on = listed_booked_from;
+            purchase.absent = Some((purchase.held_on + 1, listed_booked_from));
         }
         Scenario {
             seed,
@@ -358,8 +399,13 @@ fn replay_in_order(scenario: &Scenario) -> Option<String> {
         edit_pct,
         date_edit_pct,
         after_export_pct,
+        drop_out_pct,
         ..
     } = scenario.knobs;
+    // A hold the bank drops is removed by the next export, and a dropped hold's booking can post
+    // another hold of its card and amount, so a check made in between can break: the data of that
+    // day fits both stories with the same balance. A dropped-out run asserts only fresh checks.
+    let holds_drop_out = drop_out_pct > 0;
     let conn = initialize_in_memory().unwrap();
     let card_account = own_without_iban(&conn, "Card");
     let mut random = Xorshift::seeded(scenario.seed, 0xA24B_AED4_963E_E407);
@@ -377,7 +423,7 @@ fn replay_in_order(scenario: &Scenario) -> Option<String> {
                 "export of day {day}: Saldo {saldo_minor}, bank {bank_balance_minor}"
             ));
         }
-        if checked && !is_verified(&conn, card_account) {
+        if checked && !holds_drop_out && !is_verified(&conn, card_account) {
             return Some(format!(
                 "export of day {day}: {:?}",
                 verification_now(&conn, card_account)
@@ -388,7 +434,7 @@ fn replay_in_order(scenario: &Scenario) -> Option<String> {
             return Some(format!("export of day {day} misposted {wrong:?}"));
         }
         let removed = wrongly_removed(&conn, scenario);
-        if !removed.is_empty() {
+        if !holds_drop_out && !removed.is_empty() {
             return Some(format!("export of day {day}: {removed:?}"));
         }
         imported_days.push(day);
@@ -402,7 +448,7 @@ fn replay_in_order(scenario: &Scenario) -> Option<String> {
                 ));
             }
         }
-        if checked && !is_verified(&conn, card_account) {
+        if checked && !holds_drop_out && !is_verified(&conn, card_account) {
             return Some(format!(
                 "day {day}, after the replays: {:?}",
                 verification_now(&conn, card_account)
@@ -473,25 +519,62 @@ fn next_day(event_date: &str) -> String {
     format!("{}{}", day.succ_opt().unwrap(), &event_date[10..])
 }
 
+/// The live entries created after `since`, a split group counted once.
+fn entries_created_after(conn: &Connection, since: i64) -> usize {
+    conn.query_row(
+        "SELECT COUNT(DISTINCT IFNULL('s' || split_group_id, 'e' || id)) FROM event
+         WHERE deleted_at IS NULL AND id > ?1",
+        params![since],
+        |row| row.get(0),
+    )
+    .unwrap()
+}
+
+fn newest_event_id(conn: &Connection) -> i64 {
+    conn.query_row("SELECT IFNULL(MAX(id), 0) FROM event", [], |row| row.get(0))
+        .unwrap()
+}
+
 /// Imports the exports in a shuffled order, then the newest again, compares the balance, and
-/// imports every export again in the same order, which adds and changes nothing.
+/// imports every export again in the same order, which adds and changes nothing. An export older
+/// than one imported before it adds at most the purchases it lists that the newer one does not.
 fn replay_shuffled(scenario: &Scenario) -> Option<String> {
     let order = scenario.shuffled_export_days();
     let newest = *order.iter().max().unwrap();
     let conn = initialize_in_memory().unwrap();
     let card_account = own_without_iban(&conn, "Card");
     let mut random = Xorshift::seeded(scenario.seed, 0xA24B_AED4_963E_E407);
+    let mut newest_so_far: Option<u64> = None;
     for &day in order.iter().chain([&newest]) {
         let (rows, _) = scenario.export(day);
-        if !rows.is_empty() {
-            import_choosing(
-                &conn,
-                card_account,
-                &rows,
-                &mut random,
-                scenario.knobs.split_pct,
-            );
+        if rows.is_empty() {
+            continue;
         }
+        let since = newest_event_id(&conn);
+        import_choosing(
+            &conn,
+            card_account,
+            &rows,
+            &mut random,
+            scenario.knobs.split_pct,
+        );
+        if let Some(newer) = newest_so_far.filter(|&newer| newer > day) {
+            let gone_since = scenario
+                .purchases
+                .iter()
+                .filter(|purchase| {
+                    purchase.listed_on(day).is_some() && purchase.listed_on(newer).is_none()
+                })
+                .count();
+            let added = entries_created_after(&conn, since);
+            if added > gone_since {
+                return Some(format!(
+                    "order {order:?}: the export of day {day} after the one of day {newer} added \
+                     {added}, only {gone_since} gone since"
+                ));
+            }
+        }
+        newest_so_far = Some(newest_so_far.map_or(day, |newer| newer.max(day)));
     }
     let (_, bank_balance_minor) = scenario.export(newest);
     let saldo_minor = account_total(&conn, card_account);
@@ -566,6 +649,38 @@ fn random_exports_with_late_purchases_and_no_reprices_follow_the_bank() {
         )],
         replay_in_order,
     );
+}
+
+#[test]
+fn random_exports_with_holds_booked_up_to_five_days_later_follow_the_bank() {
+    assert_every_scenario(Knobs::BOOKED_LATE, &[], replay_in_order);
+}
+
+#[test]
+fn random_exports_with_holds_booked_up_to_five_days_later_in_any_order_end_at_the_newest_balance() {
+    assert_every_scenario(
+        Knobs::BOOKED_LATE,
+        &[(
+            178,
+            "Three -0.50 holds of 6 Oct, one of them cancelled, and a -0.50 purchase of 7 Oct no \
+             imported export listed pending yet, all on one card. The 12 Oct export fits the \
+             cancelled hold booked as the 7 Oct purchase as well, with the same balance. The \
+             older 9 Oct export, imported after it, then lists the 7 Oct hold, which stays until \
+             a newer export removes it.",
+        )],
+        replay_shuffled,
+    );
+}
+
+#[test]
+fn random_exports_with_holds_the_bank_drops_until_it_books_them_follow_the_bank() {
+    assert_every_scenario(Knobs::DROPPED_OUT, &[], replay_in_order);
+}
+
+#[test]
+fn random_exports_with_holds_the_bank_drops_until_it_books_them_in_any_order_end_at_the_newest_balance(
+) {
+    assert_every_scenario(Knobs::DROPPED_OUT, &[], replay_shuffled);
 }
 
 #[test]
