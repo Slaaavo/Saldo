@@ -282,6 +282,29 @@ mod tests {
     }
 
     #[test]
+    fn only_the_moments_own_month_counts() {
+        let vat = Some(2_300);
+        let cells = [
+            cell("2026-08", Some(571_500), vat),
+            cell("2026-09", Some(571_500), vat),
+            cell("2026-10", Some(571_500), vat),
+            cell("2026-11", Some(612_000), vat),
+        ];
+        let gross = inflows(&[
+            ("2026-07", 350_550),
+            ("2026-08", 662_601),
+            ("2026-09", 674_163),
+            ("2026-10", 720_411),
+            ("2026-11", 807_495),
+        ]);
+
+        assert_eq!(value(&cells, &gross, "2026-08"), -32_800);
+        assert_eq!(value(&cells, &gross, "2026-10"), 14_200);
+        assert_eq!(value(&cells, &gross, "2026-11"), 44_500);
+        assert_eq!(value(&cells, &gross, "2026-12"), 0);
+    }
+
+    #[test]
     fn net_of_vat_rounds_half_away_from_zero() {
         assert_eq!(net_of_vat(12_300, 2_300), 10_000);
         assert_eq!(net_of_vat(10_000, 0), 10_000);
