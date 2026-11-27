@@ -1,5 +1,5 @@
 INSERT INTO person (name, person_type, created_at)
-SELECT 'Verify Consulting', 'legal', strftime('%Y-%m-%dT%H:%M:%S', 'now')
+SELECT 'Verify Consulting', 'legal', date('now', 'localtime')
 WHERE NOT EXISTS (SELECT 1 FROM person WHERE name = 'Verify Consulting');
 
 INSERT INTO account (name, currency_id, account_type, sort_order, person_id)
