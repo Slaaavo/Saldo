@@ -122,7 +122,7 @@ describe('Matches bank', () => {
 
     await user.click(screen.getByRole('button', { name: 'bankCheck.matchesBank' }))
 
-    expect(confirmBankMatch).toHaveBeenCalledWith(7, 123456)
+    expect(confirmBankMatch).toHaveBeenCalledWith(7, 123456, [])
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith('bankCheck.matched', expect.anything()))
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['snapshot'] })
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['events'] })

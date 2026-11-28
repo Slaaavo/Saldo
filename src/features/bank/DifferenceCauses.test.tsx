@@ -22,7 +22,7 @@ const renderCause = (cause: DifferenceCause, lng: 'en' | 'sk') => {
     <I18nextProvider i18n={i18n}>
       <QueryClientProvider client={new QueryClient()}>
         <BreakingChecksProvider>
-          <DifferenceCauses row={makeRow({ accountId: 7, balanceMinor: 100000 })} causes={[cause]} />
+          <DifferenceCauses row={makeRow({ accountId: 7, balanceMinor: 100000 })} causes={[cause]} onChecked={vi.fn()} />
         </BreakingChecksProvider>
       </QueryClientProvider>
     </I18nextProvider>,
@@ -55,6 +55,19 @@ describe('DifferenceCauses confirm', () => {
     await userEvent.setup().click(screen.getByRole('button', { name: 'Delete the booked difference' }))
 
     expect(screen.getByRole('dialog')).toHaveTextContent('Delete the unexplained difference of -12.50 EUR dated 14 Nov?')
+  })
+
+  it('says a transfer not arrived yet is on its way from the sending account, in Slovak', () => {
+    renderCause(
+      {
+        kind: 'notArrived',
+        row: { target: { kind: 'transfer', eventId: 50 }, eventDate: '2026-11-13T12:00:00', amountMinor: 1250, note: null, counterpartName: 'Sporenie' },
+      },
+      'sk',
+    )
+
+    expect(screen.getByText('Na ceste z účtu Sporenie. Aplikácia banky ho ešte nemusí ukazovať.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Ešte neprišiel' })).toBeInTheDocument()
   })
 
   it('names the row as the list does when flipping, in Slovak', async () => {

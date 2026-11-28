@@ -297,9 +297,9 @@ export const saveIncomeBudget = (bucketId: number, months: BudgetCell[]): Promis
   return invoke<void>('save_income_budget', { input: { bucketId, months } })
 }
 
-/** Records that the bank app shows Saldo's live balance. `seenBalanceMinor` is the balance the user looked at; a moved balance fails with `CHECK_CHANGED`. Resolves to the new check's id. */
-export const confirmBankMatch = (accountId: number, seenBalanceMinor: number): Promise<number> => {
-  return invoke<number>('confirm_bank_match', { input: { accountId, seenBalanceMinor } })
+/** Records that the bank app shows Saldo's live balance, less the received transfers in `notArrivedEventIds`, which the check leaves out for good. `seenBalanceMinor` is the balance the user looked at; a moved balance, or a transfer the bank may have listed since, fails with `CHECK_CHANGED`. Resolves to the new check's id. */
+export const confirmBankMatch = (accountId: number, seenBalanceMinor: number, notArrivedEventIds: number[]): Promise<number> => {
+  return invoke<number>('confirm_bank_match', { input: { accountId, seenBalanceMinor, notArrivedEventIds } })
 }
 
 /** Books the bank's balance minus Saldo's as one unexplained difference and records a matching check. Fails with `CHECK_CHANGED` or `NOTHING_TO_BOOK`. */

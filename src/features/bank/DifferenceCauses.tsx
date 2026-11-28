@@ -6,13 +6,16 @@ import { Button } from '@/shared/ui/button'
 import ConfirmDialog from '@/shared/ui/ConfirmDialog'
 import NumberValue from '@/shared/ui/NumberValue'
 import { formatShortDay } from '@/shared/utils/format'
-import { useFixDifferenceCause, type RowCause } from './useBankCheckMutations'
+import { useConfirmBankMatch, useFixDifferenceCause, type RowCause } from './useBankCheckMutations'
 
 type StaleImportCause = Extract<DifferenceCause, { kind: 'staleImport' }>
+
+type NotArrivedCause = Extract<DifferenceCause, { kind: 'notArrived' }>
 
 interface Props {
   row: SnapshotRow
   causes: DifferenceCause[]
+  onChecked: () => void
 }
 
 const FIX_BUTTONS: Record<RowCause['kind'], string> = {
@@ -29,9 +32,11 @@ const DELETE_MESSAGES: Record<RowTarget['kind'], string> = {
   splitGroup: 'bankCheck.causes.confirm.deleteSplitGroup',
 }
 
-const isRowCause = (cause: DifferenceCause): cause is RowCause => cause.kind !== 'staleImport'
+const isRowCause = (cause: DifferenceCause): cause is RowCause => cause.kind !== 'staleImport' && cause.kind !== 'notArrived'
 
 const isStaleImport = (cause: DifferenceCause): cause is StaleImportCause => cause.kind === 'staleImport'
+
+const isNotArrived = (cause: DifferenceCause): cause is NotArrivedCause => cause.kind === 'notArrived'
 
 const dayOf = (date: string, language: string) => formatShortDay(date.slice(0, 10), language)
 
@@ -65,22 +70,46 @@ const StaleImportLine = ({ cause, row }: { cause: StaleImportCause; row: Snapsho
   )
 }
 
+const LineText = ({ title, line, row }: { title: string; line: BankLine; row: SnapshotRow }) => {
+  const { i18n } = useTranslation()
+  return (
+    <div className="flex min-w-0 flex-col">
+      <span>{title}</span>
+      <span className="flex min-w-0 text-muted-foreground">
+        <span className="truncate">{rowLabel(line, i18n.language)}</span>
+        <span className="shrink-0 whitespace-pre">
+          {' · '}
+          <Money row={row} value={line.amountMinor} />
+        </span>
+      </span>
+    </div>
+  )
+}
+
+const NotArrivedLine = ({ cause, row, onChecked }: { cause: NotArrivedCause; row: SnapshotRow; onChecked: () => void }) => {
+  const { t } = useTranslation()
+  const confirmMatch = useConfirmBankMatch()
+  const account = cause.row.counterpartName
+  const title = account ? t('bankCheck.causes.notArrivedFrom', { account }) : t('bankCheck.causes.notArrived')
+  const record = () =>
+    confirmMatch.mutate({ accountId: row.accountId, seenBalanceMinor: row.balanceMinor, notArrivedEventIds: [cause.row.target.eventId] }, { onSuccess: onChecked })
+  return (
+    <li className="flex items-center justify-between gap-3 rounded-md border px-3 py-2">
+      <LineText title={title} line={cause.row} row={row} />
+      <Button type="button" variant="outline" size="sm" disabled={confirmMatch.isPending} onClick={record}>
+        {t('bankCheck.causes.markNotArrived')}
+      </Button>
+    </li>
+  )
+}
+
 const CauseLine = ({ cause, row, onFix }: { cause: RowCause; row: SnapshotRow; onFix: () => void }) => {
   const { t, i18n } = useTranslation()
   const day = titleDay(cause)
   const title = day ? t(`bankCheck.causes.${cause.kind}`, { day: dayOf(day, i18n.language) }) : t(`bankCheck.causes.${cause.kind}`)
   return (
     <li className="flex items-center justify-between gap-3 rounded-md border px-3 py-2">
-      <div className="flex min-w-0 flex-col">
-        <span>{title}</span>
-        <span className="flex min-w-0 text-muted-foreground">
-          <span className="truncate">{rowLabel(cause.row, i18n.language)}</span>
-          <span className="shrink-0 whitespace-pre">
-            {' · '}
-            <Money row={row} value={cause.row.amountMinor} />
-          </span>
-        </span>
-      </div>
+      <LineText title={title} line={cause.row} row={row} />
       <Button type="button" variant="outline" size="sm" onClick={onFix}>
         {t(FIX_BUTTONS[cause.kind])}
       </Button>
@@ -102,11 +131,12 @@ const FixMessage = ({ cause, row }: { cause: RowCause; row: SnapshotRow }) => {
   return <Trans i18nKey={DELETE_MESSAGES[target.kind]} values={values} components={{ row: label, amount }} />
 }
 
-const DifferenceCauses = ({ row, causes }: Props) => {
+const DifferenceCauses = ({ row, causes, onChecked }: Props) => {
   const { t } = useTranslation()
   const fix = useFixDifferenceCause()
   const [confirming, setConfirming] = useState<RowCause | null>(null)
   const staleImport = causes.find(isStaleImport)
+  const notArrived = causes.filter(isNotArrived)
   const rowCauses = causes.filter(isRowCause)
 
   return (
@@ -115,12 +145,15 @@ const DifferenceCauses = ({ row, causes }: Props) => {
       {causes.length > 0 && (
         <ul className="flex flex-col gap-2">
           {staleImport && <StaleImportLine cause={staleImport} row={row} />}
+          {notArrived.map((cause) => (
+            <NotArrivedLine key={`notArrived-event${cause.row.target.eventId}`} cause={cause} row={row} onChecked={onChecked} />
+          ))}
           {rowCauses.map((cause) => (
             <CauseLine key={causeKey(cause)} cause={cause} row={row} onFix={() => setConfirming(cause)} />
           ))}
         </ul>
       )}
-      {rowCauses.length === 0 && <p className="text-muted-foreground">{t('bankCheck.causes.none')}</p>}
+      {notArrived.length === 0 && rowCauses.length === 0 && <p className="text-muted-foreground">{t('bankCheck.causes.none')}</p>}
       {confirming && (
         <ConfirmDialog
           action={confirming.kind === 'flippedSign' ? 'confirm' : 'delete'}

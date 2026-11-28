@@ -117,7 +117,7 @@ describe('FindBankDifferenceModal', () => {
     expect(screen.queryByRole('button', { name: 'bankCheck.dialog.book' })).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'bankCheck.dialog.markAsMatching' }))
 
-    expect(confirmBankMatch).toHaveBeenCalledWith(7, 100000)
+    expect(confirmBankMatch).toHaveBeenCalledWith(7, 100000, [])
     expect(bookUnexplainedDifference).not.toHaveBeenCalled()
     await waitFor(() => expect(onClose).toHaveBeenCalled())
     expect(toast.success).toHaveBeenCalledWith('bankCheck.matched', expect.anything())
@@ -184,6 +184,38 @@ describe('FindBankDifferenceModal causes', () => {
     expect(nearCopy).toHaveTextContent('bankCheck.causes.nearCopy (day=10 Nov)12 Nov · Lidl · -1250bankCheck.causes.deleteCopy')
     expect(flippedSign).toHaveTextContent('bankCheck.causes.flippedSign13 Nov · Refund · -625bankCheck.causes.flipSign')
     expect(screen.queryByText('bankCheck.causes.none')).not.toBeInTheDocument()
+  })
+
+  it('records a check without a transfer not arrived yet in one click and closes', async () => {
+    const received = bankLine({ kind: 'transfer', eventId: 50 }, 1250, '2026-11-13T12:00:00', { note: 'Prevod', counterpartName: 'Savings' })
+    listCauses([
+      { kind: 'notArrived', row: received },
+      { kind: 'equalsGap', row: copy },
+    ])
+    ;(confirmBankMatch as Mock).mockResolvedValue(9)
+    const onClose = renderModal()
+
+    const user = await typeBankBalance('987.50')
+    const [notArrived] = await screen.findAllByRole('listitem')
+    expect(notArrived).toHaveTextContent('bankCheck.causes.notArrivedFrom (account=Savings)13 Nov · Prevod · 1250bankCheck.causes.markNotArrived')
+    await user.click(screen.getByRole('button', { name: 'bankCheck.causes.markNotArrived' }))
+
+    expect(confirmBankMatch).toHaveBeenCalledWith(7, 100000, [50])
+    expect(bookUnexplainedDifference).not.toHaveBeenCalled()
+    await waitFor(() => expect(onClose).toHaveBeenCalled())
+    expect(toast.success).toHaveBeenCalledWith('bankCheck.matchedNotArrived', expect.anything())
+  })
+
+  it('stays open and says to look again when the transfer is no longer waiting for the bank', async () => {
+    listCauses([{ kind: 'notArrived', row: bankLine({ kind: 'transfer', eventId: 50 }, 1250, '2026-11-13T12:00:00') }])
+    ;(confirmBankMatch as Mock).mockRejectedValue({ code: 'CHECK_CHANGED', message: 'listed' })
+    const onClose = renderModal()
+
+    const user = await typeBankBalance('987.50')
+    await user.click(await screen.findByRole('button', { name: 'bankCheck.causes.markNotArrived' }))
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('bankCheck.changed'))
+    expect(onClose).not.toHaveBeenCalled()
   })
 
   it('deletes a copy after a confirm and stays open with the typed balance', async () => {

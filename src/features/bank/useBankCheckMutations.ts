@@ -6,16 +6,20 @@ import { bookUnexplainedDifference, ChangeDeclined, confirmBankMatch, deleteBala
 import type { DifferenceCause, RowTarget } from '@/shared/types'
 import { extractErrorMessage, hasErrorCode } from '@/shared/utils/errors'
 
-interface MatchVariables {
+interface SeenVariables {
   accountId: number
   seenBalanceMinor: number
 }
 
-interface BookVariables extends MatchVariables {
+interface MatchVariables extends SeenVariables {
+  notArrivedEventIds?: number[]
+}
+
+interface BookVariables extends SeenVariables {
   bankBalanceMinor: number
 }
 
-export type RowCause = Exclude<DifferenceCause, { kind: 'staleImport' }>
+export type RowCause = Exclude<DifferenceCause, { kind: 'staleImport' | 'notArrived' }>
 
 const useRefreshAfterCheck = () => {
   const queryClient = useQueryClient()
@@ -69,9 +73,11 @@ export const useConfirmBankMatch = () => {
   }
 
   return useMutation({
-    mutationFn: ({ accountId, seenBalanceMinor }: MatchVariables) => confirmBankMatch(accountId, seenBalanceMinor),
-    onSuccess: async (checkId) => {
-      toast.success(t('bankCheck.matched'), { action: { label: t('bankCheck.undo'), onClick: () => void undo(checkId) } })
+    mutationFn: ({ accountId, seenBalanceMinor, notArrivedEventIds = [] }: MatchVariables) => confirmBankMatch(accountId, seenBalanceMinor, notArrivedEventIds),
+    onSuccess: async (checkId, { notArrivedEventIds }) => {
+      toast.success(t(notArrivedEventIds?.length ? 'bankCheck.matchedNotArrived' : 'bankCheck.matched'), {
+        action: { label: t('bankCheck.undo'), onClick: () => void undo(checkId) },
+      })
       await refresh()
     },
     onError: async (err) => {
