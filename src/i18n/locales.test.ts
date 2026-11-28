@@ -186,6 +186,8 @@ describe.each(['en', 'sk'] as const)('%s locale', (lng) => {
       'metrics.breakdown.part.incomeBudget',
       'metrics.breakdown.part.inTransitFrom',
       'metrics.breakdown.part.inTransitTo',
+      'metrics.breakdown.part.linkedInTransitFrom',
+      'metrics.breakdown.part.linkedInTransitTo',
       'rateWarnings.noRate',
       'accounts.noRateTooltip',
       'buckets.notCounted',

@@ -81,32 +81,50 @@ fn parts(row: &SnapshotRow) -> Vec<Part<'_>> {
         .collect()
 }
 
-fn of_row<'a>(
-    row: &SnapshotRow,
-    in_transit: &'a [InTransit],
-) -> impl Iterator<Item = &'a InTransit> {
-    let account_id = row.account_id;
+fn of_account(account_id: i64, in_transit: &[InTransit]) -> impl Iterator<Item = &InTransit> {
     in_transit
         .iter()
         .filter(move |transit| transit.account_id == account_id)
 }
 
-fn in_transit_parts<'a>(
-    row: &SnapshotRow,
-    in_transit: &'a [InTransit],
-) -> impl Iterator<Item = Part<'a>> {
-    of_row(row, in_transit).map(|transit| Part {
-        line: LinePart::InTransit {
-            counterpart_account_id: transit.counterpart_account_id,
-            counterpart_account_name: transit.counterpart_account_name.clone(),
-        },
+fn in_transit_part(transit: &InTransit, line: LinePart) -> Part<'_> {
+    Part {
+        line,
         native: Money {
             amount_minor: transit.amount_minor,
             currency_code: transit.currency_code.clone(),
             minor_units: transit.currency_minor_units,
         },
         valuation: &transit.valuation,
-    })
+    }
+}
+
+/// An account's own money in transit, or for a bucket the money in transit of each account it
+/// links, which it earmarks as it earmarks that account's balance.
+fn in_transit_parts<'a>(row: &'a SnapshotRow, in_transit: &'a [InTransit]) -> Vec<Part<'a>> {
+    let own = of_account(row.account_id, in_transit).map(|transit| {
+        in_transit_part(
+            transit,
+            LinePart::InTransit {
+                counterpart_account_id: transit.counterpart_account_id,
+                counterpart_account_name: transit.counterpart_account_name.clone(),
+            },
+        )
+    });
+    let linked = row.bucket_links.iter().flat_map(|valued| {
+        of_account(valued.link.source_account_id, in_transit).map(|transit| {
+            in_transit_part(
+                transit,
+                LinePart::LinkedInTransit {
+                    source_account_id: valued.link.source_account_id,
+                    source_account_name: valued.link.source_account_name.clone(),
+                    counterpart_account_id: transit.counterpart_account_id,
+                    counterpart_account_name: transit.counterpart_account_name.clone(),
+                },
+            )
+        })
+    });
+    own.chain(linked).collect()
 }
 
 fn subject(row: &SnapshotRow, part: LinePart) -> LineSubject {
@@ -175,10 +193,12 @@ fn metric(
             Role::Subtract => -1,
             Role::Skip(reason) => {
                 skipped.push(skipped_row(row, reason, consolidation));
-                skipped.extend(in_transit_parts(row, in_transit).map(|part| SkippedLine {
-                    subject: subject(row, part.line),
-                    amount: part.native,
-                    reason,
+                skipped.extend(in_transit_parts(row, in_transit).into_iter().map(|part| {
+                    SkippedLine {
+                        subject: subject(row, part.line),
+                        amount: part.native,
+                        reason,
+                    }
                 }));
                 continue;
             }
@@ -278,7 +298,7 @@ pub fn rate_warnings(rows: &[SnapshotRow], in_transit: &[InTransit]) -> Vec<Rate
             is_custom: tagged.is_custom,
         });
     let in_transit = counted_rows().flat_map(|row| {
-        of_row(row, in_transit).map(|transit| RatedAmount {
+        of_account(row.account_id, in_transit).map(|transit| RatedAmount {
             account_id: row.account_id,
             account_name: &row.account_name,
             native: Money {

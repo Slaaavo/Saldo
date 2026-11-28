@@ -213,6 +213,12 @@ pub enum LinePart {
         counterpart_account_id: i64,
         counterpart_account_name: String,
     },
+    LinkedInTransit {
+        source_account_id: i64,
+        source_account_name: String,
+        counterpart_account_id: i64,
+        counterpart_account_name: String,
+    },
 }
 
 #[derive(Debug, Serialize, Clone, PartialEq, Eq)]

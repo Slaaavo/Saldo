@@ -329,6 +329,7 @@ export type LinePart =
   | { kind: 'bucketTotal' }
   | { kind: 'incomeBudget' }
   | { kind: 'inTransit'; counterpartAccountId: number; counterpartAccountName: string }
+  | { kind: 'linkedInTransit'; sourceAccountId: number; sourceAccountName: string; counterpartAccountId: number; counterpartAccountName: string }
 
 export interface LineSubject {
   accountId: number

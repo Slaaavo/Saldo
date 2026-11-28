@@ -28,6 +28,11 @@ const partLabel = (part: LinePart, accountType: AccountKind, amountMinor: number
       return t('metrics.breakdown.part.incomeBudget')
     case 'inTransit':
       return t(amountMinor < 0 ? 'metrics.breakdown.part.inTransitTo' : 'metrics.breakdown.part.inTransitFrom', { account: part.counterpartAccountName })
+    case 'linkedInTransit':
+      return t(amountMinor < 0 ? 'metrics.breakdown.part.linkedInTransitTo' : 'metrics.breakdown.part.linkedInTransitFrom', {
+        account: part.sourceAccountName,
+        counterpart: part.counterpartAccountName,
+      })
     default: {
       const _exhaustive: never = part
       return _exhaustive
@@ -38,6 +43,7 @@ const partLabel = (part: LinePart, accountType: AccountKind, amountMinor: number
 const otherAccountId = (part: LinePart) => {
   if (part.kind === 'linkedAccount' || part.kind === 'taggedCashflows') return part.sourceAccountId
   if (part.kind === 'inTransit') return part.counterpartAccountId
+  if (part.kind === 'linkedInTransit') return `${part.sourceAccountId}:${part.counterpartAccountId}`
   return ''
 }
 

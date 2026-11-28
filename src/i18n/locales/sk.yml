@@ -70,6 +70,8 @@ metrics:
       incomeBudget: Prijaté mínus rozpočet
       inTransitFrom: "Na ceste z {{account}}"
       inTransitTo: "Na ceste do {{account}}"
+      linkedInTransitFrom: "cez {{account}}, na ceste z {{counterpart}}"
+      linkedInTransitTo: "cez {{account}}, na ceste do {{counterpart}}"
     reason:
       noRate: "Chýba kurz pre {{currency}}, preto sa nedá prepočítať."
       linkedToAsset: "Je prepojený s aktívom, preto sa počíta iba do čistého imania."

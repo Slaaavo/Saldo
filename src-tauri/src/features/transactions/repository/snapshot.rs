@@ -1562,4 +1562,52 @@ mod tests {
             }]
         );
     }
+
+    fn left_to_spend_by_day(conn: &Connection) -> Vec<i64> {
+        ["2026-02-28", "2026-03-01", "2026-03-02", "2026-03-03"]
+            .into_iter()
+            .map(|day| metric(&at(conn, day), MetricKind::LeftToSpend).total_minor())
+            .collect()
+    }
+
+    #[test]
+    fn a_bucket_earmarks_the_money_in_transit_to_an_account_it_links() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let (checking, savings) = checking_and_savings(&conn);
+        let both = mk_account(&conn, "bucket");
+        let only_savings = mk_account(&conn, "bucket");
+        for (bucket, linked) in [
+            (both, vec![checking, savings]),
+            (only_savings, vec![savings]),
+        ] {
+            let link_event = balance_update_on(&conn, bucket, 0, "2026-02-01");
+            set_bucket_event_links(
+                &conn,
+                SetBucketEventLinksParams {
+                    event_id: link_event,
+                    account_ids: linked,
+                },
+            )
+            .unwrap();
+        }
+        let (_, received) = transfer(&conn, checking, savings, 30_000, "2026-03-01");
+        move_leg(&conn, received, 30_000, "2026-03-03");
+
+        assert_eq!(
+            left_to_spend_by_day(&conn),
+            [-20_000, -50_000, -50_000, -50_000]
+        );
+        let bucket_lines: Vec<LinePart> = metric(&at(&conn, "2026-03-02"), MetricKind::LeftToSpend)
+            .counted()
+            .iter()
+            .filter(|line| line.subject.account_id == only_savings)
+            .map(|line| line.subject.part.clone())
+            .collect();
+        assert!(bucket_lines.contains(&LinePart::LinkedInTransit {
+            source_account_id: savings,
+            source_account_name: "Savings".to_owned(),
+            counterpart_account_id: checking,
+            counterpart_account_name: "Checking".to_owned(),
+        }));
+    }
 }

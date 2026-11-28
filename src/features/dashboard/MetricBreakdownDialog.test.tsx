@@ -150,6 +150,25 @@ describe('MetricBreakdownDialog', () => {
     expect(outgoing).toHaveTextContent('-500.00 EUR')
   })
 
+  it('names the linked account and where its money in transit comes from on a bucket', () => {
+    renderDialog(
+      makeMetric('leftToSpend', {
+        counted: [
+          makeCountedLine({
+            accountId: 20,
+            accountName: 'Reserve',
+            accountType: 'bucket',
+            part: { kind: 'linkedInTransit', sourceAccountId: 12, sourceAccountName: 'Savings', counterpartAccountId: 1, counterpartAccountName: 'Checking' },
+            native: makeMoney(30000),
+            signedMinor: -30000,
+          }),
+        ],
+      }),
+    )
+
+    expect(within(rowOf('Reserve')).getByText('metrics.breakdown.part.linkedInTransitFrom (account=Savings, counterpart=Checking)')).toBeInTheDocument()
+  })
+
   it('shows the total Rust returned in the total row, even when it differs from the lines', () => {
     renderDialog(makeMetric('totalBalance', { counted: [checking, dollars], totalMinor: 99900 }))
 

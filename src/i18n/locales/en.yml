@@ -70,6 +70,8 @@ metrics:
       incomeBudget: Received minus budget
       inTransitFrom: "In transit from {{account}}"
       inTransitTo: "In transit to {{account}}"
+      linkedInTransitFrom: "via {{account}}, in transit from {{counterpart}}"
+      linkedInTransitTo: "via {{account}}, in transit to {{counterpart}}"
     reason:
       noRate: "No {{currency}} rate, so it cannot be converted."
       linkedToAsset: "Linked to an asset, so it counts in Net Worth only."
