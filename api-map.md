@@ -352,13 +352,14 @@ Replaces the income budget's typed months with `months`. Takes `{ bucketId, mont
 
 ### `confirmBankMatch`
 
-Records that the bank app shows Saldo's live balance for an own account. Takes `{ accountId, seenBalanceMinor }`, the balance the user looked at, and returns the new check's id. Refuses with `CHECK_CHANGED` when the live balance moved since, `VALIDATION` for an account that is not `account_type = 'account'`, and `NOT_FOUND` for an unknown account.
+Records that the bank app shows Saldo's live balance for an own account, less the received transfer legs in `notArrivedEventIds`, which the check then leaves out for good. Takes `{ accountId, seenBalanceMinor, notArrivedEventIds }` (the balance the user looked at; an empty list for a plain match) and returns the new check's id. Refuses with `CHECK_CHANGED` when the live balance moved since or a listed leg is no longer one that may not have arrived, `VALIDATION` for an account that is not `account_type = 'account'`, and `NOT_FOUND` for an unknown account.
 
 - **BE command:** `confirm_bank_match` → `src-tauri/src/features/bank/commands.rs`
 - **Used in:**
   - `src/features/bank/useBankCheckMutations.ts` (useConfirmBankMatch hook)
     - → `src/features/dashboard/AccountCard/BankCheckButtons.tsx` (Matches bank)
     - → `src/features/bank/FindBankDifferenceModal.tsx` (Mark as matching)
+    - → `src/features/bank/DifferenceCauses.tsx` (Not arrived yet)
 
 ### `bookUnexplainedDifference`
 
@@ -379,7 +380,7 @@ Deletes a check by id. Undo in the Matches bank toast calls it. Refuses an unkno
 
 ### `findDifferenceCauses`
 
-Lists the likely causes of the gap between the typed bank balance and Saldo's live balance. Takes `{ accountId, bankBalanceMinor, seenBalanceMinor }` and returns `DifferenceCause[]`: the import hint (`staleImport`) first, then booked differences explained now (`bookedDifferenceExplained`, an unexplained difference equal to the gap's opposite, of any age), then near-copies, flipped signs and rows equal to the gap, newest first and at most 5 of each. Every row cause closes the whole gap when its fix runs, and names its `target` (a cash flow, a transfer, an unexplained difference or a whole split group). With no gap it returns only the import hint. Refuses with `CHECK_CHANGED` when the live balance moved since the user looked, `VALIDATION` for a bank balance larger than Saldo can store or an account that is not own, and `NOT_FOUND` for an unknown account.
+Lists the likely causes of the gap between the typed bank balance and Saldo's live balance. Takes `{ accountId, bankBalanceMinor, seenBalanceMinor }` and returns `DifferenceCause[]`: the import hint (`staleImport`) first, then received transfers that may not have arrived (`notArrived`, a transfer leg on this account with no bank entry of its own, dated in the last 5 days and equal to the gap, even when it was last changed before the newest check; its button records a check through `confirmBankMatch`), then booked differences explained now (`bookedDifferenceExplained`, an unexplained difference equal to the gap's opposite, of any age), then near-copies, flipped signs and rows equal to the gap, newest first and at most 5 of each. Every row cause closes the whole gap when its fix runs, and names its `target` (a cash flow, a transfer, an unexplained difference or a whole split group). With no gap it returns only the import hint. Refuses with `CHECK_CHANGED` when the live balance moved since the user looked, `VALIDATION` for a bank balance larger than Saldo can store or an account that is not own, and `NOT_FOUND` for an unknown account.
 
 - **BE command:** `find_difference_causes` → `src-tauri/src/features/bank/commands.rs`
 - **Used in:**

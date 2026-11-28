@@ -41,7 +41,7 @@ Keep implementation details out of the map. Name only user paths, stable handles
 ## Features
 
 - [Balance update](./balance-update.md): set an account's balance from its card, from Bulk Balance Update, or by editing a ledger row.
-- [Dashboard snapshot, time machine and number breakdowns](./dashboard-snapshot.md): live balances and metrics, the time machine, each metric's breakdown, rate warnings, and Bulk Balance Update at its own date.
+- [Dashboard snapshot, time machine and number breakdowns](./dashboard-snapshot.md): live balances and metrics, the time machine, each metric's breakdown with money in transit between two banks' days, rate warnings, and Bulk Balance Update at its own date.
 - [Ledger filters and View in ledger](./ledger-filters.md): narrow the Ledger by date, account and type, clear the filters, open one account's entries from its dashboard card, and open a split entry's legs.
 - [Buckets](./buckets.md): create a bucket, allocate to it, link an account, switch it off, and read Left to Spend.
 - [Income budget](./income-budget.md): a bucket computed from a month table of budgeted income against what arrived, with drag-to-fill, add-year, Save, and its effect on Left to Spend.
@@ -54,4 +54,4 @@ Keep implementation details out of the map. Name only user paths, stable handles
 - [Tax forecast](./tax-forecast.md): a tax model's sheet of the year so far and the rest of the year, Update figures, minimum tax, the revenue bracket bound, and why an entry doesn't count.
 - [Asset business use and private-use expenses](./asset-business-use.md): a mixed-use asset's purchase split, dated share changes, the lost VAT entry, and the Also used privately switch on expenses, eKasa rules and `saldo mcp` lines.
 - [Recording documents through `saldo mcp`](./mcp-recording.md): record, preview, refuse duplicates and undo invoice and eKasa receipt batches over MCP, read receipts with `read_receipt`, and the open app's refresh after an outside write.
-- [Checks against the bank app](./bank-checks.md): Matches bank with Undo, Find the difference with its likely causes and their fixes, booking an unexplained difference, the verified and differs lines, the ledger entry, the warning before a change breaks a verified check, and a check that stays verified across a card hold change.
+- [Checks against the bank app](./bank-checks.md): Matches bank with Undo, Find the difference with its likely causes and their fixes, booking an unexplained difference, the verified and differs lines, the ledger entry, the warning before a change breaks a verified check, a check that stays verified across a card hold change, and Not arrived yet for a transfer still on its way.
