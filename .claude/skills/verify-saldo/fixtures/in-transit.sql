@@ -1,8 +1,9 @@
 -- Setup for features/bank-checks.md "Transfer on its way" and dashboard-snapshot.md "In transit".
 -- Running it again adds nothing.
 -- Verify Sender (SK2199990000001000000004) and Verify Receiver (SK9899990000001000000005): own EUR
--- accounts, each with a balance update of 1000.00 on 1 Nov, sorted first. The CSV files are written
--- at run time with yesterday's and today's dates; the recipe gives their contents.
+-- accounts, each with a balance update of 1000.00 on 1 Nov, sorted first, and the bucket Verify
+-- Reserve, 0.00 on 1 Nov, linked to Verify Receiver. The CSV files are written at run time with
+-- yesterday's and today's dates; the recipe gives their contents.
 
 INSERT INTO account (name, currency_id, account_type, iban, sort_order)
 SELECT name, (SELECT id FROM currency WHERE code = 'EUR'), 'account', iban, sort_order
@@ -22,3 +23,25 @@ FROM event e JOIN account a ON a.id = e.account_id
 WHERE a.name IN ('Verify Sender', 'Verify Receiver')
   AND e.event_type = 'balance_update'
   AND NOT EXISTS (SELECT 1 FROM event_data d WHERE d.event_id = e.id);
+
+INSERT INTO account (name, currency_id, account_type, sort_order)
+SELECT 'Verify Reserve', (SELECT id FROM currency WHERE code = 'EUR'), 'bucket', -6
+WHERE NOT EXISTS (SELECT 1 FROM account WHERE name = 'Verify Reserve');
+
+INSERT INTO event (account_id, event_type)
+SELECT a.id, 'balance_update'
+FROM account a
+WHERE a.name = 'Verify Reserve'
+  AND NOT EXISTS (SELECT 1 FROM event e WHERE e.account_id = a.id AND e.event_type = 'balance_update');
+
+INSERT INTO event_data (event_id, amount_minor, event_date, note)
+SELECT e.id, 0, '2026-11-01T23:59:00', 'verify-in-transit reserve'
+FROM event e JOIN account a ON a.id = e.account_id
+WHERE a.name = 'Verify Reserve'
+  AND e.event_type = 'balance_update'
+  AND NOT EXISTS (SELECT 1 FROM event_data d WHERE d.event_id = e.id);
+
+INSERT OR IGNORE INTO bucket_event_link (event_id, source_account_id)
+SELECT e.id, (SELECT id FROM account WHERE name = 'Verify Receiver')
+FROM event e JOIN account a ON a.id = e.account_id
+WHERE a.name = 'Verify Reserve' AND e.event_type = 'balance_update';
