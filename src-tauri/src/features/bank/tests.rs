@@ -2635,3 +2635,66 @@ fn the_storage_leaves_out_only_a_transfer_on_the_checked_account() {
         );
     }
 }
+
+#[test]
+fn of_two_equal_transfers_on_their_way_neither_is_offered_as_a_copy_to_delete() {
+    let conn = initialize_in_memory().unwrap();
+    let sender = account_at_10_000(&conn);
+    let receiver = account_at_10_000(&conn);
+    import_with_default_ticks_removing_cancelled_holds(
+        &conn,
+        sender,
+        &[
+            IncomingRowInput {
+                index: 0,
+                ..transfer_row(&days_ago(2), -1_500, receiver)
+            },
+            IncomingRowInput {
+                index: 1,
+                ..transfer_row(&days_ago(1), -1_500, receiver)
+            },
+        ],
+    );
+
+    let found = causes(&conn, receiver, 13_000, 11_500).unwrap();
+
+    assert_eq!(found.len(), 2, "{found:?}");
+    assert!(
+        found
+            .iter()
+            .all(|cause| matches!(cause, DifferenceCause::NotArrived { .. })),
+        "{found:?}"
+    );
+}
+
+#[test]
+fn a_transfer_the_newest_check_counted_is_not_offered_as_not_arrived() {
+    let way = sent_yesterday_and_imported_from_the_sender();
+    confirm(&way.conn, way.receiver, 11_500).unwrap();
+    std::thread::sleep(CLOCK_TICK);
+
+    let found = causes(&way.conn, way.receiver, 11_500, 10_000).unwrap();
+    let refused = confirm_not_arrived(&way.conn, way.receiver, 11_500, vec![way.leg]);
+
+    assert!(
+        !found
+            .iter()
+            .any(|cause| matches!(cause, DifferenceCause::NotArrived { .. })),
+        "{found:?}"
+    );
+    assert_eq!(refused.expect_err("refused").code, "CHECK_CHANGED");
+}
+
+#[test]
+fn a_transfer_the_newest_check_left_out_is_still_offered_as_not_arrived() {
+    let way = sent_yesterday_and_imported_from_the_sender();
+    confirm_not_arrived(&way.conn, way.receiver, 11_500, vec![way.leg]).unwrap();
+    std::thread::sleep(CLOCK_TICK);
+
+    let found = causes(&way.conn, way.receiver, 11_500, 10_000).unwrap();
+
+    assert!(
+        matches!(found.as_slice(), [DifferenceCause::NotArrived { row }] if row.target == TransferTarget::Transfer { event_id: way.leg }),
+        "{found:?}"
+    );
+}

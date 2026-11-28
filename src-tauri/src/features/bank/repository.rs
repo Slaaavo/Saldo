@@ -242,7 +242,15 @@ pub fn insert_unexplained_difference(
     Ok(event_id)
 }
 
-pub fn counted_flow_rows(conn: &Connection, account_id: i64) -> rusqlite::Result<Vec<CountedRow>> {
+pub struct CountedFlowRowsParams {
+    pub account_id: i64,
+    pub newest_check_id: Option<i64>,
+}
+
+pub fn counted_flow_rows(
+    conn: &Connection,
+    params: CountedFlowRowsParams,
+) -> rusqlite::Result<Vec<CountedRow>> {
     let counted = counted_flow_sql("?1", &|_, _| "1".to_owned(), &AS_STORED, "e", "ed");
     let mut stmt = conn.prepare(&format!(
         "SELECT e.id, e.event_type, e.split_group_id,
@@ -252,7 +260,11 @@ pub fn counted_flow_rows(conn: &Connection, account_id: i64) -> rusqlite::Result
                 CASE WHEN e.split_group_id IS NULL THEN ed.note ELSE COALESCE(sg.note, ed.note) END,
                 counter_a.name,
                 MAX(e.created_at, ed.created_at),
-                EXISTS (SELECT 1 FROM bank_entry be WHERE be.event_id = e.id)
+                EXISTS (SELECT 1 FROM bank_entry be WHERE be.event_id = e.id),
+                EXISTS (
+                  SELECT 1 FROM balance_check_not_arrived na
+                  WHERE na.check_id = ?2 AND na.event_id = e.id
+                )
          FROM event e
          JOIN event_data ed ON ed.id = e.latest_data_id
          LEFT JOIN split_group sg ON sg.id = e.split_group_id
@@ -260,7 +272,7 @@ pub fn counted_flow_rows(conn: &Connection, account_id: i64) -> rusqlite::Result
          WHERE {counted}
          ORDER BY e.id"
     ))?;
-    let rows = stmt.query_map(params![account_id], |row| {
+    let rows = stmt.query_map(params![params.account_id, params.newest_check_id], |row| {
         let event_type: String = row.get(1)?;
         Ok(CountedRow {
             event_id: row.get(0)?,
@@ -274,6 +286,7 @@ pub fn counted_flow_rows(conn: &Connection, account_id: i64) -> rusqlite::Result
             counterpart_name: row.get(8)?,
             changed_at: row.get(9)?,
             has_bank_entry: row.get(10)?,
+            left_out_by_newest_check: row.get(11)?,
         })
     })?;
     rows.collect()

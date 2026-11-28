@@ -34,13 +34,21 @@ pub(crate) struct CountedRow {
     pub counterpart_name: Option<String>,
     pub changed_at: String,
     pub has_bank_entry: bool,
+    pub left_out_by_newest_check: bool,
 }
 
-pub(crate) fn may_not_have_arrived(row: &CountedRow, today: NaiveDate) -> bool {
+pub(crate) fn may_not_have_arrived(
+    row: &CountedRow,
+    newest_check_at: Option<&str>,
+    today: NaiveDate,
+) -> bool {
+    let the_newest_check_saw_it = !row.left_out_by_newest_check
+        && newest_check_at.is_some_and(|checked_at| row.changed_at.as_str() <= checked_at);
     row.flow == FlowType::Transfer
         && row.split_group_id.is_none()
         && row.amount_minor > 0
         && !row.has_bank_entry
+        && !the_newest_check_saw_it
         && day_of(&row.event_date).is_some_and(|day| (today - day).num_days() <= NOT_ARRIVED_DAYS)
 }
 
@@ -77,7 +85,7 @@ pub(crate) fn find_causes(
 
     let travelling: HashSet<LineKey> = rows
         .iter()
-        .filter(|row| may_not_have_arrived(row, today))
+        .filter(|row| may_not_have_arrived(row, since, today))
         .map(|row| LineKey::Event(row.event_id))
         .collect();
     let (booked, lines): (Vec<CountedLine>, Vec<CountedLine>) = counted_lines(rows)
@@ -113,7 +121,7 @@ pub(crate) fn find_causes(
                 } else {
                     (counted, twin)
                 };
-                if listed.insert(row.key) {
+                if !travelling.contains(&row.key) && listed.insert(row.key) {
                     near_copies.push((row, copy_of));
                 }
             }
@@ -344,6 +352,7 @@ mod tests {
             counterpart_name: None,
             changed_at: changed_at.to_owned(),
             has_bank_entry: false,
+            left_out_by_newest_check: false,
         }
     }
 
@@ -424,7 +433,7 @@ mod tests {
 
     #[test]
     fn a_received_transfer_its_bank_has_not_listed_is_named_as_not_arrived_instead_of_deleted() {
-        let causes = causes_of(-GAP, vec![received(1, "2026-11-09", BEFORE)]);
+        let causes = causes_of(-GAP, vec![received(1, "2026-11-09", AFTER)]);
 
         assert_eq!(
             causes,
@@ -437,6 +446,40 @@ mod tests {
                 )
             }]
         );
+    }
+
+    #[test]
+    fn a_transfer_the_newest_check_counted_has_arrived_unless_that_check_left_it_out() {
+        let counted = received(1, "2026-11-12", BEFORE);
+        let left_out = CountedRow {
+            left_out_by_newest_check: true,
+            ..received(1, "2026-11-12", BEFORE)
+        };
+
+        assert_eq!(causes_of(-GAP, vec![counted]), vec![]);
+        assert!(matches!(
+            causes_of(-GAP, vec![left_out]).as_slice(),
+            [DifferenceCause::NotArrived { .. }]
+        ));
+    }
+
+    #[test]
+    fn two_equal_transfers_on_their_way_are_never_a_copy_to_delete() {
+        let causes = causes_of(
+            -GAP,
+            vec![
+                received(1, "2026-11-12", AFTER),
+                received(2, "2026-11-13", LATER),
+            ],
+        );
+
+        assert!(
+            causes
+                .iter()
+                .all(|cause| matches!(cause, DifferenceCause::NotArrived { .. })),
+            "{causes:?}"
+        );
+        assert_eq!(causes.len(), 2);
     }
 
     #[test]

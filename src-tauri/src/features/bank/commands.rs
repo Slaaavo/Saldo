@@ -8,8 +8,8 @@ use super::causes;
 use super::checks::verification_of;
 use super::models::{BookedDifference, DifferenceCause, Verification};
 use super::repository::{
-    self, BalanceSeenByCheckParams, InsertCheckParams, InsertNotArrivedParams,
-    InsertUnexplainedDifferenceParams, NewestFlowDayParams,
+    self, BalanceSeenByCheckParams, CountedFlowRowsParams, InsertCheckParams,
+    InsertNotArrivedParams, InsertUnexplainedDifferenceParams, NewestFlowDayParams,
 };
 use crate::error::AppError;
 use crate::features::accounts::repository::get_account_type;
@@ -110,11 +110,19 @@ fn not_arrived_minor(
         return Ok(0);
     }
     let today = chrono::Local::now().date_naive();
-    let may_not_have_arrived: HashMap<i64, i64> = repository::counted_flow_rows(conn, account_id)?
-        .into_iter()
-        .filter(|row| causes::may_not_have_arrived(row, today))
-        .map(|row| (row.event_id, row.amount_minor))
-        .collect();
+    let newest = repository::newest_check(conn, account_id)?;
+    let newest_check_at = newest.as_ref().map(|check| check.checked_at.as_str());
+    let may_not_have_arrived: HashMap<i64, i64> = repository::counted_flow_rows(
+        conn,
+        CountedFlowRowsParams {
+            account_id,
+            newest_check_id: newest.as_ref().map(|check| check.id),
+        },
+    )?
+    .into_iter()
+    .filter(|row| causes::may_not_have_arrived(row, newest_check_at, today))
+    .map(|row| (row.event_id, row.amount_minor))
+    .collect();
     event_ids
         .iter()
         .map(|event_id| {
@@ -205,11 +213,18 @@ pub(crate) fn find_difference_causes_inner(
     } else {
         None
     };
-    let since = repository::newest_check(conn, input.account_id)?.map(|check| check.checked_at);
+    let newest = repository::newest_check(conn, input.account_id)?;
+    let rows = repository::counted_flow_rows(
+        conn,
+        CountedFlowRowsParams {
+            account_id: input.account_id,
+            newest_check_id: newest.as_ref().map(|check| check.id),
+        },
+    )?;
     Ok(causes::find_causes(
         input.bank_balance_minor - live.balance_minor,
-        repository::counted_flow_rows(conn, input.account_id)?,
-        since.as_deref(),
+        rows,
+        newest.as_ref().map(|check| check.checked_at.as_str()),
         stale_import,
         today,
     ))
