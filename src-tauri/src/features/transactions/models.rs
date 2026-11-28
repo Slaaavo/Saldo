@@ -122,6 +122,19 @@ pub struct TaggedCashflows {
     pub valuation: Valuation,
 }
 
+/// The transfer legs on one account dated after the moment whose twins, on the counterpart
+/// account, are dated at or before it. The money has left one account and not reached the other.
+#[derive(Debug, Clone)]
+pub struct InTransit {
+    pub counterpart_account_id: i64,
+    pub counterpart_account_name: String,
+    pub currency_code: String,
+    pub currency_minor_units: i64,
+    pub is_custom: bool,
+    pub amount_minor: i64,
+    pub valuation: Valuation,
+}
+
 #[derive(Debug, Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct SnapshotRow {
@@ -144,6 +157,9 @@ pub struct SnapshotRow {
     pub is_bucket_linked: bool,
     pub bucket_links: Vec<ValuedBucketLink>,
     pub tagged_cashflows: Vec<TaggedCashflows>,
+    /// Empty in a live snapshot. The metrics count it; the balance and `counted_minor` never do.
+    #[serde(skip)]
+    pub in_transit: Vec<InTransit>,
     /// The sum of this row's valued parts. A bucket's parts are its own balance, its links and its
     /// tagged cashflows.
     pub counted_minor: i64,
@@ -197,6 +213,10 @@ pub enum LinePart {
     },
     BucketTotal,
     IncomeBudget,
+    InTransit {
+        counterpart_account_id: i64,
+        counterpart_account_name: String,
+    },
 }
 
 #[derive(Debug, Serialize, Clone, PartialEq, Eq)]
@@ -301,7 +321,8 @@ pub enum RateProblem {
 }
 
 /// One per account whose currency has no rate or an old one. `native` is the account's own
-/// balance, or what it tagged to a bucket when its own balance is zero or not in the snapshot.
+/// balance, or what it tagged to a bucket or has in transit when its own balance is zero or not in
+/// the snapshot.
 #[derive(Debug, Serialize, Clone, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct RateWarning {

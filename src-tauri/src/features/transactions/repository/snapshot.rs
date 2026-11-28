@@ -15,7 +15,8 @@ use crate::features::currency::repository::{
 use crate::features::income_budget;
 use crate::features::transactions::metrics;
 use crate::features::transactions::models::{
-    AccountKind, RateUsed, Snapshot, SnapshotRow, TaggedCashflows, Valuation, ValuedBucketLink,
+    AccountKind, InTransit, RateUsed, Snapshot, SnapshotRow, TaggedCashflows, Valuation,
+    ValuedBucketLink,
 };
 use crate::shared::{convert_balance, is_iso_date, validate_event_date};
 
@@ -282,6 +283,7 @@ pub fn get_accounts_snapshot(
                 is_bucket_linked: false,
                 bucket_links: vec![],
                 tagged_cashflows: vec![],
+                in_transit: vec![],
                 counted_minor: 0,
                 equity_minor: None,
                 person_id,
@@ -399,6 +401,61 @@ pub fn get_accounts_snapshot(
         }
     }
 
+    // Pass 4: Transfer legs dated after the moment whose twin is dated at or before it, one entry
+    // per pair of accounts.
+    let mut stmt = conn.prepare(
+        "SELECT
+           e.account_id,
+           twin.account_id AS counterpart_account_id,
+           counterpart.name AS counterpart_account_name,
+           c.id AS currency_id,
+           c.code AS currency_code,
+           c.minor_units,
+           c.is_custom,
+           SUM(ed.amount_minor) AS in_transit_total
+         FROM event e
+         JOIN event_data ed ON ed.id = e.latest_data_id
+         JOIN event twin ON twin.id = e.linked_event_id
+         JOIN event_data twin_ed ON twin_ed.id = twin.latest_data_id
+         JOIN account a ON a.id = e.account_id
+         JOIN currency c ON c.id = a.currency_id
+         JOIN account counterpart ON counterpart.id = twin.account_id
+         WHERE e.deleted_at IS NULL
+           AND e.event_type = 'transfer'
+           AND ed.event_date > ?1
+           AND twin.deleted_at IS NULL
+           AND twin.event_type = 'transfer'
+           AND twin_ed.event_date <= ?1
+         GROUP BY e.account_id, twin.account_id
+         HAVING SUM(ed.amount_minor) <> 0
+         ORDER BY e.account_id, twin.account_id",
+    )?;
+    let in_transit: Vec<(i64, InTransit)> = stmt
+        .query_map(params![events_until], |row| {
+            let held = Held {
+                currency_id: row.get(3)?,
+                minor_units: row.get(5)?,
+                is_custom: row.get::<_, i64>(6)? != 0,
+            };
+            let amount_minor: i64 = row.get(7)?;
+            let transit = InTransit {
+                counterpart_account_id: row.get(1)?,
+                counterpart_account_name: row.get(2)?,
+                currency_code: row.get(4)?,
+                currency_minor_units: held.minor_units,
+                is_custom: held.is_custom,
+                amount_minor,
+                valuation: converter.value(amount_minor, held)?,
+            };
+            Ok((row.get(0)?, transit))
+        })?
+        .collect::<rusqlite::Result<_>>()?;
+    for (account_id, transit) in in_transit {
+        if let Some(&idx) = index_by_id.get(&account_id) {
+            rows[idx].in_transit.push(transit);
+        }
+    }
+
     let equities: Vec<Option<i64>> = rows
         .iter()
         .map(|row| metrics::equity_minor(row, &rows))
@@ -442,7 +499,8 @@ mod tests {
         LinePart, Metric, MetricKind, Money, NotCountedReason, RateProblem, RateWarning,
     };
     use crate::features::transactions::repository::{
-        create_balance_update, create_cashflow, CashflowEntry, CreateBalanceUpdateParams,
+        create_balance_update, create_cashflow, create_transfer, delete_event, update_event,
+        CashflowEntry, CreateBalanceUpdateParams, UpdateEventParams,
     };
 
     fn mk_account(conn: &Connection, account_type: &str) -> i64 {
@@ -1255,5 +1313,252 @@ mod tests {
             Some(400_000 - 150_000 - 10_000)
         );
         assert_eq!(row(&rows, mortgage).equity_minor, None);
+    }
+
+    fn own_account(conn: &Connection, name: &str, currency: &str) -> i64 {
+        create_account(
+            conn,
+            CreateAccountParams {
+                name: name.to_owned(),
+                currency_id: currency_id(conn, currency),
+                account_type: "account".to_owned(),
+                ..Default::default()
+            },
+        )
+        .unwrap()
+    }
+
+    fn transfer_entry(from: i64, to: i64, amount_minor: i64, day: &str) -> CashflowEntry {
+        CashflowEntry {
+            account_id: from,
+            amount_minor: -amount_minor,
+            event_date: day.to_owned(),
+            note: None,
+            counterpart_account_id: Some(to),
+            bucket_id: None,
+            original_currency_id: None,
+            original_amount_minor: None,
+            fx_rate_mantissa: None,
+            fx_rate_exponent: None,
+        }
+    }
+
+    fn transfer(conn: &Connection, from: i64, to: i64, amount_minor: i64, day: &str) -> (i64, i64) {
+        create_transfer(conn, &transfer_entry(from, to, amount_minor, day)).unwrap()
+    }
+
+    fn move_leg(conn: &Connection, leg_id: i64, amount_minor: i64, day: &str) {
+        update_event(
+            conn,
+            UpdateEventParams {
+                event_id: leg_id,
+                amount_minor,
+                event_date: day.to_owned(),
+                note: None,
+            },
+        )
+        .unwrap();
+    }
+
+    fn in_transit(counterpart_account_id: i64, counterpart_account_name: &str) -> LinePart {
+        LinePart::InTransit {
+            counterpart_account_id,
+            counterpart_account_name: counterpart_account_name.to_owned(),
+        }
+    }
+
+    fn counted_in_transit(snapshot: &Snapshot, kind: MetricKind) -> Vec<(i64, LinePart, i64)> {
+        metric(snapshot, kind)
+            .counted()
+            .iter()
+            .filter(|line| matches!(line.subject.part, LinePart::InTransit { .. }))
+            .map(|line| {
+                (
+                    line.subject.account_id,
+                    line.subject.part.clone(),
+                    line.signed_minor,
+                )
+            })
+            .collect()
+    }
+
+    fn checking_and_savings(conn: &Connection) -> (i64, i64) {
+        let checking = own_account(conn, "Checking", "EUR");
+        let savings = own_account(conn, "Savings", "EUR");
+        balance_update_on(conn, checking, 100_000, "2026-02-01");
+        balance_update_on(conn, savings, 20_000, "2026-02-01");
+        (checking, savings)
+    }
+
+    #[test]
+    fn a_transfer_received_two_days_after_it_was_sent_is_in_transit_in_between() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let (checking, savings) = checking_and_savings(&conn);
+        let (_, received) = transfer(&conn, checking, savings, 30_000, "2026-03-01");
+        move_leg(&conn, received, 30_000, "2026-03-03");
+
+        let march_2nd = at(&conn, "2026-03-02");
+
+        assert_eq!(row(&march_2nd.rows, checking).balance_minor, 70_000);
+        assert_eq!(row(&march_2nd.rows, savings).balance_minor, 20_000);
+        assert_eq!(row(&march_2nd.rows, savings).counted_minor, 20_000);
+        assert_eq!(
+            counted_in_transit(&march_2nd, MetricKind::TotalBalance),
+            [(savings, in_transit(checking, "Checking"), 30_000)]
+        );
+        for day in ["2026-02-28", "2026-03-01", "2026-03-02", "2026-03-03"] {
+            let snapshot = at(&conn, day);
+            assert_eq!(
+                metric(&snapshot, MetricKind::TotalBalance).total_minor(),
+                120_000,
+                "{day}"
+            );
+        }
+        assert_eq!(
+            counted_in_transit(&at(&conn, "2026-03-03"), MetricKind::TotalBalance),
+            []
+        );
+        let live = live(&conn, "2026-03-02");
+        assert_eq!(counted_in_transit(&live, MetricKind::TotalBalance), []);
+        assert!(live.rows.iter().all(|row| row.in_transit.is_empty()));
+    }
+
+    #[test]
+    fn a_sending_leg_booked_after_its_twin_is_in_transit_with_its_negative_amount() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let (checking, savings) = checking_and_savings(&conn);
+        let (sent, _) = transfer(&conn, checking, savings, 30_000, "2026-03-01");
+        move_leg(&conn, sent, -30_000, "2026-03-03");
+
+        let march_2nd = at(&conn, "2026-03-02");
+
+        assert_eq!(row(&march_2nd.rows, checking).balance_minor, 100_000);
+        assert_eq!(
+            counted_in_transit(&march_2nd, MetricKind::TotalBalance),
+            [(checking, in_transit(savings, "Savings"), -30_000)]
+        );
+        assert_eq!(
+            metric(&march_2nd, MetricKind::TotalBalance).total_minor(),
+            120_000
+        );
+    }
+
+    #[test]
+    fn a_deleted_transfer_is_not_in_transit() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let (checking, savings) = checking_and_savings(&conn);
+        let (sent, received) = transfer(&conn, checking, savings, 30_000, "2026-03-01");
+        move_leg(&conn, received, 30_000, "2026-03-03");
+        delete_event(&conn, sent).unwrap();
+
+        let march_2nd = at(&conn, "2026-03-02");
+
+        assert_eq!(counted_in_transit(&march_2nd, MetricKind::TotalBalance), []);
+        assert_eq!(
+            metric(&march_2nd, MetricKind::TotalBalance).total_minor(),
+            120_000
+        );
+    }
+
+    #[test]
+    fn transfers_between_the_same_two_accounts_are_one_in_transit_line() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let (checking, savings) = checking_and_savings(&conn);
+        let (_, first) = transfer(&conn, checking, savings, 30_000, "2026-03-01");
+        move_leg(&conn, first, 30_000, "2026-03-03");
+        let (_, second) = transfer(&conn, checking, savings, 5_000, "2026-02-27");
+        move_leg(&conn, second, 5_000, "2026-03-04");
+
+        let march_2nd = at(&conn, "2026-03-02");
+
+        assert_eq!(
+            counted_in_transit(&march_2nd, MetricKind::TotalBalance),
+            [(savings, in_transit(checking, "Checking"), 35_000)]
+        );
+        assert_eq!(
+            metric(&march_2nd, MetricKind::TotalBalance).total_minor(),
+            120_000
+        );
+    }
+
+    #[test]
+    fn a_transfer_to_an_account_outside_the_person_filter_adds_no_line() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let other = crate::features::persons::repository::create_person(
+            &conn,
+            crate::features::persons::repository::CreatePersonParams {
+                name: "Other".to_owned(),
+                person_type: "physical".to_owned(),
+                vat_payer: false,
+            },
+        )
+        .unwrap();
+        let mine = account_of(&conn, "EUR", 1);
+        let theirs = account_of(&conn, "EUR", other);
+        balance_update_on(&conn, mine, 100_000, "2026-02-01");
+        let (_, received) = transfer(&conn, mine, theirs, 30_000, "2026-03-01");
+        move_leg(&conn, received, 30_000, "2026-03-03");
+
+        let everyone = snapshot_of(&conn, "2026-03-02", None);
+        let only_mine = snapshot_of(&conn, "2026-03-02", Some(1));
+
+        assert_eq!(
+            counted_in_transit(&everyone, MetricKind::TotalBalance),
+            [(theirs, in_transit(mine, "EUR account of 1"), 30_000)]
+        );
+        assert_eq!(counted_in_transit(&only_mine, MetricKind::TotalBalance), []);
+        assert_eq!(
+            metric(&only_mine, MetricKind::TotalBalance).total_minor(),
+            70_000
+        );
+    }
+
+    #[test]
+    fn money_in_transit_in_a_currency_without_a_rate_is_not_counted_and_warns() {
+        let conn = initialize_in_memory().expect("DB init failed");
+        let checking = own_account(&conn, "Checking", "EUR");
+        let pounds = own_account(&conn, "Pounds", "GBP");
+        balance_update_on(&conn, checking, 100_000, "2026-02-01");
+        let (_, received) = create_transfer(
+            &conn,
+            &CashflowEntry {
+                original_currency_id: Some(currency_id(&conn, "GBP")),
+                original_amount_minor: Some(8_500),
+                ..transfer_entry(checking, pounds, 10_000, "2026-03-01")
+            },
+        )
+        .unwrap();
+        move_leg(&conn, received, 8_500, "2026-03-03");
+
+        let march_2nd = at(&conn, "2026-03-02");
+
+        let total = metric(&march_2nd, MetricKind::TotalBalance);
+        let skipped: Vec<(LinePart, Money, NotCountedReason)> = total
+            .skipped()
+            .iter()
+            .filter(|line| line.subject.account_id == pounds)
+            .map(|line| (line.subject.part.clone(), line.amount.clone(), line.reason))
+            .collect();
+        assert_eq!(
+            skipped,
+            [
+                (LinePart::Balance, gbp(0), NotCountedReason::NoRate),
+                (
+                    in_transit(checking, "Checking"),
+                    gbp(8_500),
+                    NotCountedReason::NoRate
+                ),
+            ]
+        );
+        assert_eq!(total.total_minor(), 90_000);
+        assert_eq!(
+            march_2nd.rate_warnings,
+            [RateWarning {
+                account_id: pounds,
+                account_name: "Pounds".to_owned(),
+                native: gbp(8_500),
+                problem: RateProblem::NoRate,
+            }]
+        );
     }
 }

@@ -81,6 +81,21 @@ fn parts(row: &SnapshotRow) -> Vec<Part<'_>> {
         .collect()
 }
 
+fn in_transit_parts(row: &SnapshotRow) -> impl Iterator<Item = Part<'_>> {
+    row.in_transit.iter().map(|transit| Part {
+        line: LinePart::InTransit {
+            counterpart_account_id: transit.counterpart_account_id,
+            counterpart_account_name: transit.counterpart_account_name.clone(),
+        },
+        native: Money {
+            amount_minor: transit.amount_minor,
+            currency_code: transit.currency_code.clone(),
+            minor_units: transit.currency_minor_units,
+        },
+        valuation: &transit.valuation,
+    })
+}
+
 fn subject(row: &SnapshotRow, part: LinePart) -> LineSubject {
     LineSubject {
         account_id: row.account_id,
@@ -138,10 +153,15 @@ fn metric(kind: MetricKind, rows: &[SnapshotRow], consolidation: &Currency) -> M
             Role::Subtract => -1,
             Role::Skip(reason) => {
                 skipped.push(skipped_row(row, reason, consolidation));
+                skipped.extend(in_transit_parts(row).map(|part| SkippedLine {
+                    subject: subject(row, part.line),
+                    amount: part.native,
+                    reason,
+                }));
                 continue;
             }
         };
-        for part in parts(row) {
+        for part in parts(row).into_iter().chain(in_transit_parts(row)) {
             let subject = subject(row, part.line);
             let (value_minor, rate) = match part.valuation {
                 Valuation::SameCurrency { value_minor } => (*value_minor, None),
@@ -232,9 +252,23 @@ pub fn rate_warnings(rows: &[SnapshotRow]) -> Vec<RateWarning> {
             valuation: &tagged.valuation,
             is_custom: tagged.is_custom,
         });
+    let in_transit = counted_rows().flat_map(|row| {
+        row.in_transit.iter().map(|transit| RatedAmount {
+            account_id: row.account_id,
+            account_name: &row.account_name,
+            native: Money {
+                amount_minor: transit.amount_minor,
+                currency_code: transit.currency_code.clone(),
+                minor_units: transit.currency_minor_units,
+            },
+            valuation: &transit.valuation,
+            is_custom: transit.is_custom,
+        })
+    });
     let mut warned = HashSet::new();
     let mut warnings: Vec<RateWarning> = balances
         .chain(tagged)
+        .chain(in_transit)
         .filter(|amount| amount.native.amount_minor != 0)
         .filter_map(|amount| {
             let problem = rate_problem(amount.valuation, amount.is_custom)?;
@@ -268,7 +302,9 @@ fn rate_problem(valuation: &Valuation, is_custom: bool) -> Option<RateProblem> {
 mod tests {
     use super::*;
     use crate::features::buckets::{BucketKind, BucketLink, BucketState};
-    use crate::features::transactions::models::{RateUsed, TaggedCashflows, ValuedBucketLink};
+    use crate::features::transactions::models::{
+        InTransit, RateUsed, TaggedCashflows, ValuedBucketLink,
+    };
     use AccountKind::{Account, Asset, Bucket};
     use MetricKind::{LeftToSpend, Liquid, NetWorth, TotalBalance};
 
@@ -331,6 +367,7 @@ mod tests {
             is_bucket_linked: false,
             bucket_links: vec![],
             tagged_cashflows: vec![],
+            in_transit: vec![],
             counted_minor: 0,
             equity_minor: None,
             person_id: None,
@@ -729,6 +766,64 @@ mod tests {
 
         assert_eq!(counted_minor(&bucket), 100 + 400 + 32);
         assert_eq!(counted_minor(&gbp), 0);
+    }
+
+    fn in_transit_from(counterpart_account_id: i64, amount_minor: i64) -> InTransit {
+        InTransit {
+            counterpart_account_id,
+            counterpart_account_name: format!("Account {counterpart_account_id}"),
+            currency_code: "EUR".to_owned(),
+            currency_minor_units: 2,
+            is_custom: false,
+            amount_minor,
+            valuation: Valuation::SameCurrency {
+                value_minor: amount_minor,
+            },
+        }
+    }
+
+    #[test]
+    fn money_in_transit_to_an_asset_linked_account_counts_in_net_worth_only() {
+        let mut mortgage = eur(3, Account, -5_000);
+        mortgage.is_linked_to_asset = true;
+        mortgage.linked_asset_ids = vec![5];
+        mortgage.in_transit = vec![in_transit_from(1, 1_000)];
+        let mut house = eur(5, Asset, 50_000);
+        house.linked_asset_ids = vec![3];
+        let rows = vec![eur(1, Account, 9_000), mortgage, house];
+
+        let metrics = headline_metrics(&rows, &eur_currency());
+
+        let in_transit = LinePart::InTransit {
+            counterpart_account_id: 1,
+            counterpart_account_name: "Account 1".to_owned(),
+        };
+        assert_eq!(
+            counted_signed(find(&metrics, NetWorth), 3),
+            [(LinePart::Balance, -5_000), (in_transit.clone(), 1_000)]
+        );
+        assert_eq!(
+            find(&metrics, NetWorth).total_minor(),
+            9_000 - 4_000 + 50_000
+        );
+        assert_eq!(counted_signed(find(&metrics, Liquid), 3), []);
+        assert_eq!(
+            skipped_of(find(&metrics, Liquid), 3),
+            [
+                (
+                    LinePart::Balance,
+                    money(-5_000, "EUR"),
+                    NotCountedReason::LinkedToAsset
+                ),
+                (
+                    in_transit,
+                    money(1_000, "EUR"),
+                    NotCountedReason::LinkedToAsset
+                ),
+            ]
+        );
+        assert_eq!(find(&metrics, Liquid).total_minor(), 9_000);
+        assert_eq!(counted_minor(&rows[1]), -5_000);
     }
 
     #[test]
