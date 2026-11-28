@@ -14,7 +14,7 @@ interface Props {
   onClose: () => void
 }
 
-const partLabel = (part: LinePart, accountType: AccountKind, t: TFunction): string | null => {
+const partLabel = (part: LinePart, accountType: AccountKind, amountMinor: number, t: TFunction): string | null => {
   switch (part.kind) {
     case 'balance':
       return accountType === 'bucket' ? t('buckets.additionalBalance') : null
@@ -26,6 +26,8 @@ const partLabel = (part: LinePart, accountType: AccountKind, t: TFunction): stri
       return t('metrics.breakdown.part.bucketTotal')
     case 'incomeBudget':
       return t('metrics.breakdown.part.incomeBudget')
+    case 'inTransit':
+      return t(amountMinor < 0 ? 'metrics.breakdown.part.inTransitTo' : 'metrics.breakdown.part.inTransitFrom', { account: part.counterpartAccountName })
     default: {
       const _exhaustive: never = part
       return _exhaustive
@@ -33,14 +35,17 @@ const partLabel = (part: LinePart, accountType: AccountKind, t: TFunction): stri
   }
 }
 
-const lineKey = ({ accountId, part }: LineSubject) => {
-  const source = part.kind === 'linkedAccount' || part.kind === 'taggedCashflows' ? part.sourceAccountId : ''
-  return `${accountId}:${part.kind}:${source}`
+const otherAccountId = (part: LinePart) => {
+  if (part.kind === 'linkedAccount' || part.kind === 'taggedCashflows') return part.sourceAccountId
+  if (part.kind === 'inTransit') return part.counterpartAccountId
+  return ''
 }
 
-const AccountLabel = ({ subject }: { subject: LineSubject }) => {
+const lineKey = ({ accountId, part }: LineSubject) => `${accountId}:${part.kind}:${otherAccountId(part)}`
+
+const AccountLabel = ({ subject, amountMinor }: { subject: LineSubject; amountMinor: number }) => {
   const { t } = useTranslation()
-  const sublabel = partLabel(subject.part, subject.accountType, t)
+  const sublabel = partLabel(subject.part, subject.accountType, amountMinor, t)
   return (
     <div className="flex flex-col">
       <span className="font-medium">{subject.accountName}</span>
@@ -128,7 +133,7 @@ const MetricBreakdownDialog = ({ metric, currency, onClose }: Props) => {
                 {metric.counted.map((line) => (
                   <tr key={lineKey(line)} className="align-top">
                     <td className="py-1.5 pr-4">
-                      <AccountLabel subject={line} />
+                      <AccountLabel subject={line} amountMinor={line.native.amountMinor} />
                     </td>
                     <td className="py-1.5 pr-4 text-right">
                       <NumberValue value={line.native.amountMinor} currencyCode={line.native.currencyCode} minorUnits={line.native.minorUnits} className="tabular-nums" />
@@ -169,7 +174,7 @@ const MetricBreakdownDialog = ({ metric, currency, onClose }: Props) => {
                 {metric.skipped.map((line) => (
                   <li key={lineKey(line)} className="flex items-start justify-between gap-4">
                     <div className="flex flex-col">
-                      <AccountLabel subject={line} />
+                      <AccountLabel subject={line} amountMinor={line.amount.amountMinor} />
                       <span className="text-xs text-muted-foreground">{t(`metrics.breakdown.reason.${line.reason}`, { currency: line.amount.currencyCode })}</span>
                     </div>
                     <NumberValue value={line.amount.amountMinor} currencyCode={line.amount.currencyCode} minorUnits={line.amount.minorUnits} className="shrink-0 tabular-nums" />

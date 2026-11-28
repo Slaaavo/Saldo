@@ -115,6 +115,41 @@ describe('MetricBreakdownDialog', () => {
     expect(within(row).getAllByRole('cell')[3]).toHaveTextContent(/^\+6 315\.00 EUR$/)
   })
 
+  it('says where money in transit comes from or goes to by the sign of its amount', () => {
+    renderDialog(
+      makeMetric('totalBalance', {
+        counted: [
+          checking,
+          makeCountedLine({
+            accountId: 12,
+            accountName: 'Savings',
+            part: { kind: 'inTransit', counterpartAccountId: 1, counterpartAccountName: 'Checking' },
+            native: makeMoney(30000),
+            signedMinor: 30000,
+          }),
+        ],
+        skipped: [
+          makeSkippedLine({
+            accountId: 13,
+            accountName: 'Mortgage',
+            part: { kind: 'inTransit', counterpartAccountId: 1, counterpartAccountName: 'Checking' },
+            amount: makeMoney(-50000),
+            reason: 'linkedToAsset',
+          }),
+        ],
+      }),
+    )
+
+    const incoming = rowOf('Savings')
+    expect(within(incoming).getByText('metrics.breakdown.part.inTransitFrom (account=Checking)')).toBeInTheDocument()
+    expect(within(incoming).getAllByRole('cell')[3]).toHaveTextContent(/^\+300\.00 EUR$/)
+    const outgoing = within(screen.getByRole('list', { name: 'metrics.breakdown.notCounted' }))
+      .getByText('Mortgage')
+      .closest('li')!
+    expect(outgoing).toHaveTextContent('metrics.breakdown.part.inTransitTo (account=Checking)')
+    expect(outgoing).toHaveTextContent('-500.00 EUR')
+  })
+
   it('shows the total Rust returned in the total row, even when it differs from the lines', () => {
     renderDialog(makeMetric('totalBalance', { counted: [checking, dollars], totalMinor: 99900 }))
 
