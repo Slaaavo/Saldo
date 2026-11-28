@@ -36,8 +36,6 @@ pub(crate) struct CountedRow {
     pub has_bank_entry: bool,
 }
 
-/// A transfer received on this account that its own bank has not listed yet, dated recently
-/// enough that the bank may still be on the way to showing it.
 pub(crate) fn may_not_have_arrived(row: &CountedRow, today: NaiveDate) -> bool {
     row.flow == FlowType::Transfer
         && row.split_group_id.is_none()

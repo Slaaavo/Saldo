@@ -283,7 +283,6 @@ pub fn get_accounts_snapshot(
                 is_bucket_linked: false,
                 bucket_links: vec![],
                 tagged_cashflows: vec![],
-                in_transit: vec![],
                 counted_minor: 0,
                 equity_minor: None,
                 person_id,
@@ -401,8 +400,30 @@ pub fn get_accounts_snapshot(
         }
     }
 
-    // Pass 4: Transfer legs dated after the moment whose twin is dated at or before it, one entry
-    // per pair of accounts.
+    let mut in_transit = transfers_in_transit(&mut converter, events_until)?;
+    in_transit.retain(|transit| index_by_id.contains_key(&transit.account_id));
+
+    let equities: Vec<Option<i64>> = rows
+        .iter()
+        .map(|row| metrics::equity_minor(row, &rows))
+        .collect();
+    for (row, equity_minor) in rows.iter_mut().zip(equities) {
+        row.counted_minor = metrics::counted_minor(row);
+        row.equity_minor = equity_minor;
+    }
+
+    Ok(Snapshot {
+        metrics: metrics::headline_metrics(&rows, &in_transit, &consolidation),
+        rate_warnings: metrics::rate_warnings(&rows, &in_transit),
+        rows,
+    })
+}
+
+fn transfers_in_transit(
+    converter: &mut ConsolidationConverter,
+    events_until: &str,
+) -> rusqlite::Result<Vec<InTransit>> {
+    let conn = converter.conn;
     let mut stmt = conn.prepare(
         "SELECT
            e.account_id,
@@ -430,7 +451,7 @@ pub fn get_accounts_snapshot(
          HAVING SUM(ed.amount_minor) <> 0
          ORDER BY e.account_id, twin.account_id",
     )?;
-    let in_transit: Vec<(i64, InTransit)> = stmt
+    let in_transit = stmt
         .query_map(params![events_until], |row| {
             let held = Held {
                 currency_id: row.get(3)?,
@@ -438,7 +459,8 @@ pub fn get_accounts_snapshot(
                 is_custom: row.get::<_, i64>(6)? != 0,
             };
             let amount_minor: i64 = row.get(7)?;
-            let transit = InTransit {
+            Ok(InTransit {
+                account_id: row.get(0)?,
                 counterpart_account_id: row.get(1)?,
                 counterpart_account_name: row.get(2)?,
                 currency_code: row.get(4)?,
@@ -446,30 +468,10 @@ pub fn get_accounts_snapshot(
                 is_custom: held.is_custom,
                 amount_minor,
                 valuation: converter.value(amount_minor, held)?,
-            };
-            Ok((row.get(0)?, transit))
+            })
         })?
-        .collect::<rusqlite::Result<_>>()?;
-    for (account_id, transit) in in_transit {
-        if let Some(&idx) = index_by_id.get(&account_id) {
-            rows[idx].in_transit.push(transit);
-        }
-    }
-
-    let equities: Vec<Option<i64>> = rows
-        .iter()
-        .map(|row| metrics::equity_minor(row, &rows))
         .collect();
-    for (row, equity_minor) in rows.iter_mut().zip(equities) {
-        row.counted_minor = metrics::counted_minor(row);
-        row.equity_minor = equity_minor;
-    }
-
-    Ok(Snapshot {
-        metrics: metrics::headline_metrics(&rows, &consolidation),
-        rate_warnings: metrics::rate_warnings(&rows),
-        rows,
-    })
+    in_transit
 }
 
 #[cfg(test)]
@@ -1420,7 +1422,6 @@ mod tests {
         );
         let live = live(&conn, "2026-03-02");
         assert_eq!(counted_in_transit(&live, MetricKind::TotalBalance), []);
-        assert!(live.rows.iter().all(|row| row.in_transit.is_empty()));
     }
 
     #[test]

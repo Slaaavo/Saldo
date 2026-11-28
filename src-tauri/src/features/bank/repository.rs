@@ -65,7 +65,6 @@ fn amount_at_check(e: &str, ed: &str) -> String {
 
 pub struct BalanceSeenByCheckParams {
     pub account_id: i64,
-    /// None for a check being made now, which leaves no transfer out yet.
     pub check_id: Option<i64>,
     pub checked_at: String,
     pub day: String,

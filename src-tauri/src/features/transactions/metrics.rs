@@ -5,8 +5,8 @@ use crate::features::currency::models::Currency;
 use crate::features::currency::rate_age::stale_after_days;
 
 use super::models::{
-    AccountKind, CountedLine, LinePart, LineSubject, Metric, MetricKind, Money, NotCountedReason,
-    RateProblem, RateWarning, SkippedLine, SnapshotRow, Valuation,
+    AccountKind, CountedLine, InTransit, LinePart, LineSubject, Metric, MetricKind, Money,
+    NotCountedReason, RateProblem, RateWarning, SkippedLine, SnapshotRow, Valuation,
 };
 
 enum Role {
@@ -81,8 +81,21 @@ fn parts(row: &SnapshotRow) -> Vec<Part<'_>> {
         .collect()
 }
 
-fn in_transit_parts(row: &SnapshotRow) -> impl Iterator<Item = Part<'_>> {
-    row.in_transit.iter().map(|transit| Part {
+fn of_row<'a>(
+    row: &SnapshotRow,
+    in_transit: &'a [InTransit],
+) -> impl Iterator<Item = &'a InTransit> {
+    let account_id = row.account_id;
+    in_transit
+        .iter()
+        .filter(move |transit| transit.account_id == account_id)
+}
+
+fn in_transit_parts<'a>(
+    row: &SnapshotRow,
+    in_transit: &'a [InTransit],
+) -> impl Iterator<Item = Part<'a>> {
+    of_row(row, in_transit).map(|transit| Part {
         line: LinePart::InTransit {
             counterpart_account_id: transit.counterpart_account_id,
             counterpart_account_name: transit.counterpart_account_name.clone(),
@@ -124,10 +137,14 @@ pub fn equity_minor(asset: &SnapshotRow, rows: &[SnapshotRow]) -> Option<i64> {
     Some(asset.valuation.value_minor()? + linked?)
 }
 
-pub fn headline_metrics(rows: &[SnapshotRow], consolidation: &Currency) -> Vec<Metric> {
+pub fn headline_metrics(
+    rows: &[SnapshotRow],
+    in_transit: &[InTransit],
+    consolidation: &Currency,
+) -> Vec<Metric> {
     shown(rows)
         .into_iter()
-        .map(|kind| metric(kind, rows, consolidation))
+        .map(|kind| metric(kind, rows, in_transit, consolidation))
         .collect()
 }
 
@@ -144,7 +161,12 @@ fn shown(rows: &[SnapshotRow]) -> Vec<MetricKind> {
     kinds
 }
 
-fn metric(kind: MetricKind, rows: &[SnapshotRow], consolidation: &Currency) -> Metric {
+fn metric(
+    kind: MetricKind,
+    rows: &[SnapshotRow],
+    in_transit: &[InTransit],
+    consolidation: &Currency,
+) -> Metric {
     let mut counted = Vec::new();
     let mut skipped = Vec::new();
     for row in rows {
@@ -153,7 +175,7 @@ fn metric(kind: MetricKind, rows: &[SnapshotRow], consolidation: &Currency) -> M
             Role::Subtract => -1,
             Role::Skip(reason) => {
                 skipped.push(skipped_row(row, reason, consolidation));
-                skipped.extend(in_transit_parts(row).map(|part| SkippedLine {
+                skipped.extend(in_transit_parts(row, in_transit).map(|part| SkippedLine {
                     subject: subject(row, part.line),
                     amount: part.native,
                     reason,
@@ -161,7 +183,10 @@ fn metric(kind: MetricKind, rows: &[SnapshotRow], consolidation: &Currency) -> M
                 continue;
             }
         };
-        for part in parts(row).into_iter().chain(in_transit_parts(row)) {
+        for part in parts(row)
+            .into_iter()
+            .chain(in_transit_parts(row, in_transit))
+        {
             let subject = subject(row, part.line);
             let (value_minor, rate) = match part.valuation {
                 Valuation::SameCurrency { value_minor } => (*value_minor, None),
@@ -226,7 +251,7 @@ struct RatedAmount<'a> {
 
 /// Bucket links never warn. A link values its source account's balance at the same rate, and
 /// that account is always a row of its own, so the row warns for it.
-pub fn rate_warnings(rows: &[SnapshotRow]) -> Vec<RateWarning> {
+pub fn rate_warnings(rows: &[SnapshotRow], in_transit: &[InTransit]) -> Vec<RateWarning> {
     let counted_rows = || rows.iter().filter(|row| !row.is_switched_off());
     let balances = counted_rows().map(|row| RatedAmount {
         account_id: row.account_id,
@@ -253,7 +278,7 @@ pub fn rate_warnings(rows: &[SnapshotRow]) -> Vec<RateWarning> {
             is_custom: tagged.is_custom,
         });
     let in_transit = counted_rows().flat_map(|row| {
-        row.in_transit.iter().map(|transit| RatedAmount {
+        of_row(row, in_transit).map(|transit| RatedAmount {
             account_id: row.account_id,
             account_name: &row.account_name,
             native: Money {
@@ -367,7 +392,6 @@ mod tests {
             is_bucket_linked: false,
             bucket_links: vec![],
             tagged_cashflows: vec![],
-            in_transit: vec![],
             counted_minor: 0,
             equity_minor: None,
             person_id: None,
@@ -474,7 +498,7 @@ mod tests {
     #[test]
     fn shown_metrics_follow_the_kinds_of_rows_present() {
         let kinds = |rows: Vec<SnapshotRow>| -> Vec<MetricKind> {
-            headline_metrics(&rows, &eur_currency())
+            headline_metrics(&rows, &[], &eur_currency())
                 .iter()
                 .map(Metric::kind)
                 .collect()
@@ -501,7 +525,7 @@ mod tests {
     #[test]
     fn every_metric_adds_up_from_its_counted_lines_and_lists_every_row() {
         let rows = household();
-        let metrics = headline_metrics(&rows, &eur_currency());
+        let metrics = headline_metrics(&rows, &[], &eur_currency());
 
         let totals: Vec<(MetricKind, i64)> = metrics
             .iter()
@@ -528,7 +552,7 @@ mod tests {
 
     #[test]
     fn a_counted_line_carries_its_native_amount_and_the_rate_used() {
-        let metrics = headline_metrics(&household(), &eur_currency());
+        let metrics = headline_metrics(&household(), &[], &eur_currency());
         let liquid = find(&metrics, Liquid);
 
         let usd_line = liquid
@@ -549,7 +573,7 @@ mod tests {
 
     #[test]
     fn an_account_without_a_rate_is_skipped_from_every_metric_with_its_native_amount() {
-        let metrics = headline_metrics(&household(), &eur_currency());
+        let metrics = headline_metrics(&household(), &[], &eur_currency());
 
         for metric in &metrics {
             assert_eq!(counted_signed(metric, 4), []);
@@ -566,7 +590,7 @@ mod tests {
 
     #[test]
     fn an_asset_linked_account_counts_in_net_worth_and_is_skipped_from_liquid_and_left_to_spend() {
-        let metrics = headline_metrics(&household(), &eur_currency());
+        let metrics = headline_metrics(&household(), &[], &eur_currency());
 
         assert_eq!(
             counted_signed(find(&metrics, NetWorth), 3),
@@ -586,7 +610,7 @@ mod tests {
 
     #[test]
     fn an_asset_counts_in_net_worth_and_is_skipped_from_liquid_as_not_liquid() {
-        let metrics = headline_metrics(&household(), &eur_currency());
+        let metrics = headline_metrics(&household(), &[], &eur_currency());
 
         assert_eq!(
             counted_signed(find(&metrics, NetWorth), 5),
@@ -604,7 +628,7 @@ mod tests {
 
     #[test]
     fn buckets_are_skipped_as_earmarks_with_their_total_in_the_consolidation_currency() {
-        let metrics = headline_metrics(&household(), &eur_currency());
+        let metrics = headline_metrics(&household(), &[], &eur_currency());
         let earmark = [(
             LinePart::BucketTotal,
             money(500, "EUR"),
@@ -617,7 +641,7 @@ mod tests {
             .into_iter()
             .filter(|row| row.account_type != Asset)
             .collect();
-        let metrics = headline_metrics(&without_assets, &eur_currency());
+        let metrics = headline_metrics(&without_assets, &[], &eur_currency());
         assert_eq!(skipped_of(find(&metrics, TotalBalance), 6), earmark);
     }
 
@@ -629,7 +653,7 @@ mod tests {
         bucket.tagged_cashflows = vec![tagged_from(7, "GBP", 50, Valuation::NoRate)];
         let rows = vec![eur(1, Account, 1_000), usd, bucket];
 
-        let metrics = headline_metrics(&rows, &eur_currency());
+        let metrics = headline_metrics(&rows, &[], &eur_currency());
         let left = find(&metrics, LeftToSpend);
 
         let linked = LinePart::LinkedAccount {
@@ -661,7 +685,7 @@ mod tests {
         bucket.bucket_links = vec![link_from(&usd)];
         let rows = vec![eur(1, Account, 1_000), usd, switched_off(bucket)];
 
-        let metrics = headline_metrics(&rows, &eur_currency());
+        let metrics = headline_metrics(&rows, &[], &eur_currency());
         let left = find(&metrics, LeftToSpend);
 
         assert_eq!(counted_signed(left, 6), []);
@@ -681,7 +705,7 @@ mod tests {
         let mut rows = household();
         rows[5] = switched_off(rows[5].clone());
 
-        let metrics = headline_metrics(&rows, &eur_currency());
+        let metrics = headline_metrics(&rows, &[], &eur_currency());
 
         let earmark = [(
             LinePart::BucketTotal,
@@ -698,7 +722,10 @@ mod tests {
         bucket.tagged_cashflows = vec![tagged_from(9, "CHF", 50, Valuation::NoRate)];
 
         let warned = |rows: &[SnapshotRow]| -> Vec<i64> {
-            rate_warnings(rows).iter().map(|w| w.account_id).collect()
+            rate_warnings(rows, &[])
+                .iter()
+                .map(|w| w.account_id)
+                .collect()
         };
 
         assert_eq!(warned(std::slice::from_ref(&bucket)), [6, 9]);
@@ -718,7 +745,7 @@ mod tests {
     fn a_negative_income_budget_raises_left_to_spend() {
         let rows = vec![eur(1, Account, 100_000), income_budget(6, -631_500)];
 
-        let metrics = headline_metrics(&rows, &eur_currency());
+        let metrics = headline_metrics(&rows, &[], &eur_currency());
         let left = find(&metrics, LeftToSpend);
 
         assert_eq!(counted_signed(left, 6), [(LinePart::IncomeBudget, 631_500)]);
@@ -733,7 +760,7 @@ mod tests {
             eur(7, Bucket, 5_000),
         ];
 
-        let metrics = headline_metrics(&rows, &eur_currency());
+        let metrics = headline_metrics(&rows, &[], &eur_currency());
         let left = find(&metrics, LeftToSpend);
 
         assert_eq!(counted_signed(left, 6), [(LinePart::IncomeBudget, -20_000)]);
@@ -748,7 +775,7 @@ mod tests {
     fn left_to_spend_shows_when_every_bucket_is_off() {
         let rows = vec![eur(1, Account, 1_000), switched_off(eur(6, Bucket, 100))];
 
-        let metrics = headline_metrics(&rows, &eur_currency());
+        let metrics = headline_metrics(&rows, &[], &eur_currency());
 
         assert_eq!(find(&metrics, LeftToSpend).total_minor(), 1_000);
     }
@@ -768,8 +795,13 @@ mod tests {
         assert_eq!(counted_minor(&gbp), 0);
     }
 
-    fn in_transit_from(counterpart_account_id: i64, amount_minor: i64) -> InTransit {
+    fn in_transit_from(
+        account_id: i64,
+        counterpart_account_id: i64,
+        amount_minor: i64,
+    ) -> InTransit {
         InTransit {
+            account_id,
             counterpart_account_id,
             counterpart_account_name: format!("Account {counterpart_account_id}"),
             currency_code: "EUR".to_owned(),
@@ -787,12 +819,11 @@ mod tests {
         let mut mortgage = eur(3, Account, -5_000);
         mortgage.is_linked_to_asset = true;
         mortgage.linked_asset_ids = vec![5];
-        mortgage.in_transit = vec![in_transit_from(1, 1_000)];
         let mut house = eur(5, Asset, 50_000);
         house.linked_asset_ids = vec![3];
         let rows = vec![eur(1, Account, 9_000), mortgage, house];
 
-        let metrics = headline_metrics(&rows, &eur_currency());
+        let metrics = headline_metrics(&rows, &[in_transit_from(3, 1, 1_000)], &eur_currency());
 
         let in_transit = LinePart::InTransit {
             counterpart_account_id: 1,
@@ -860,7 +891,7 @@ mod tests {
 
     #[test]
     fn a_missing_rate_warns_with_the_account_and_its_native_amount() {
-        let warnings = rate_warnings(&household());
+        let warnings = rate_warnings(&household(), &[]);
 
         assert_eq!(
             warnings,
@@ -879,7 +910,7 @@ mod tests {
         let mut bucket = eur(6, Bucket, 0);
         bucket.bucket_links = vec![link_from(&gbp)];
 
-        let warnings = rate_warnings(&[gbp, bucket]);
+        let warnings = rate_warnings(&[gbp, bucket], &[]);
 
         let accounts: Vec<i64> = warnings.iter().map(|w| w.account_id).collect();
         assert_eq!(accounts, [4]);
@@ -890,7 +921,7 @@ mod tests {
         let mut bucket = eur(6, Bucket, 0);
         bucket.tagged_cashflows = vec![tagged_from(9, "GBP", 50, Valuation::NoRate)];
 
-        let warnings = rate_warnings(&[bucket]);
+        let warnings = rate_warnings(&[bucket], &[]);
 
         assert_eq!(
             warnings,
@@ -909,7 +940,7 @@ mod tests {
         let mut bucket = eur(6, Bucket, 0);
         bucket.tagged_cashflows = vec![tagged_from(4, "GBP", 50, Valuation::NoRate)];
 
-        let warnings = rate_warnings(&[gbp, bucket]);
+        let warnings = rate_warnings(&[gbp, bucket], &[]);
 
         let warned: Vec<(i64, i64)> = warnings
             .iter()
@@ -933,11 +964,14 @@ mod tests {
         );
         let mut bucket = eur(6, Bucket, 0);
         bucket.tagged_cashflows = vec![tagged_from(7, "CHF", 0, Valuation::NoRate)];
-        assert_eq!(rate_warnings(&[empty_gbp.clone(), old_usd, bucket]), []);
+        assert_eq!(
+            rate_warnings(&[empty_gbp.clone(), old_usd, bucket], &[]),
+            []
+        );
 
         let mut bucket = eur(6, Bucket, 0);
         bucket.tagged_cashflows = vec![tagged_from(4, "GBP", 50, Valuation::NoRate)];
-        let warned: Vec<(i64, i64)> = rate_warnings(&[empty_gbp, bucket])
+        let warned: Vec<(i64, i64)> = rate_warnings(&[empty_gbp, bucket], &[])
             .iter()
             .map(|w| (w.account_id, w.native.amount_minor))
             .collect();
@@ -951,7 +985,7 @@ mod tests {
             row(2, Account, "USD", 500, fresh(400)),
         ];
 
-        assert_eq!(rate_warnings(&rows), []);
+        assert_eq!(rate_warnings(&rows, &[]), []);
     }
 
     #[test]
@@ -967,7 +1001,10 @@ mod tests {
             row(4, Account, "JPY", 100, Valuation::NoRate),
         ];
 
-        let order: Vec<i64> = rate_warnings(&rows).iter().map(|w| w.account_id).collect();
+        let order: Vec<i64> = rate_warnings(&rows, &[])
+            .iter()
+            .map(|w| w.account_id)
+            .collect();
 
         assert_eq!(order, [2, 4, 3, 1]);
     }
@@ -996,7 +1033,7 @@ mod tests {
         );
         etn.is_custom = true;
 
-        let limits: Vec<(i64, RateProblem)> = rate_warnings(&[usd, etn])
+        let limits: Vec<(i64, RateProblem)> = rate_warnings(&[usd, etn], &[])
             .into_iter()
             .map(|w| (w.account_id, w.problem))
             .collect();
@@ -1024,7 +1061,7 @@ mod tests {
 
     #[test]
     fn the_wire_shape_tags_variants_and_flattens_line_subjects() {
-        let metrics = headline_metrics(&household(), &eur_currency());
+        let metrics = headline_metrics(&household(), &[], &eur_currency());
         let line = find(&metrics, Liquid)
             .counted()
             .iter()

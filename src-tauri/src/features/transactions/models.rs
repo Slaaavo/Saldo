@@ -122,10 +122,9 @@ pub struct TaggedCashflows {
     pub valuation: Valuation,
 }
 
-/// The transfer legs on one account dated after the moment whose twins, on the counterpart
-/// account, are dated at or before it. The money has left one account and not reached the other.
 #[derive(Debug, Clone)]
 pub struct InTransit {
+    pub account_id: i64,
     pub counterpart_account_id: i64,
     pub counterpart_account_name: String,
     pub currency_code: String,
@@ -157,9 +156,6 @@ pub struct SnapshotRow {
     pub is_bucket_linked: bool,
     pub bucket_links: Vec<ValuedBucketLink>,
     pub tagged_cashflows: Vec<TaggedCashflows>,
-    /// Empty in a live snapshot. The metrics count it; the balance and `counted_minor` never do.
-    #[serde(skip)]
-    pub in_transit: Vec<InTransit>,
     /// The sum of this row's valued parts. A bucket's parts are its own balance, its links and its
     /// tagged cashflows.
     pub counted_minor: i64,
