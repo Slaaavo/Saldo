@@ -10,11 +10,13 @@ use super::commands::{
 };
 use super::guard::{guard_verified_checks, BreakingChecks, BrokenCheck, WriteError};
 use super::models::{
-    BankLine, CashflowTarget, DifferenceCause, RowTarget, UnexplainedDifferenceTarget, Verification,
+    BankLine, CashflowTarget, DifferenceCause, RowTarget, TransferTarget,
+    UnexplainedDifferenceTarget, Verification,
 };
 use super::repository::{
-    balance_seen_by_check, clock_now, insert_check, insert_unexplained_difference,
-    BalanceSeenByCheckParams, InsertCheckParams, InsertUnexplainedDifferenceParams,
+    balance_seen_by_check, clock_now, insert_check, insert_not_arrived,
+    insert_unexplained_difference, BalanceSeenByCheckParams, InsertCheckParams,
+    InsertNotArrivedParams, InsertUnexplainedDifferenceParams,
 };
 use crate::db::initialize_in_memory;
 use crate::error::AppError;
@@ -444,6 +446,7 @@ fn a_check_made_now_sees_the_live_snapshot_balance() {
             &conn,
             BalanceSeenByCheckParams {
                 account_id: id,
+                check_id: None,
                 checked_at: checked_at.clone(),
                 day: crate::shared::local_now(),
             },
@@ -513,6 +516,23 @@ fn confirm(conn: &Connection, account_id: i64, seen_balance_minor: i64) -> Resul
         ConfirmBankMatchInput {
             account_id,
             seen_balance_minor,
+            not_arrived_event_ids: vec![],
+        },
+    )
+}
+
+fn confirm_not_arrived(
+    conn: &Connection,
+    account_id: i64,
+    seen_balance_minor: i64,
+    not_arrived_event_ids: Vec<i64>,
+) -> Result<i64, AppError> {
+    confirm_bank_match_inner(
+        conn,
+        ConfirmBankMatchInput {
+            account_id,
+            seen_balance_minor,
+            not_arrived_event_ids,
         },
     )
 }
@@ -2120,6 +2140,7 @@ fn a_check_made_after_the_posting_counts_the_booked_amount() {
             &held.conn,
             BalanceSeenByCheckParams {
                 account_id: held.account,
+                check_id: None,
                 checked_at: checked_at.to_owned(),
                 day: HOLD_CHECK_DAY.to_owned(),
             },
@@ -2445,5 +2466,172 @@ fn a_check_stays_verified_when_a_removed_hold_is_listed_again() {
                 "{case}"
             );
         }
+    }
+}
+
+fn transfer_row(day: &str, amount_minor: i64, counterpart_account_id: i64) -> IncomingRowInput {
+    IncomingRowInput {
+        note: Some("Prevod".to_owned()),
+        counterpart_account_id: Some(counterpart_account_id),
+        card: None,
+        ..card_row(0, day, amount_minor, false)
+    }
+}
+
+fn transfer_legs(conn: &Connection, account_id: i64) -> Vec<i64> {
+    conn.prepare(
+        "SELECT id FROM event
+         WHERE account_id = ?1 AND event_type = 'transfer' AND deleted_at IS NULL
+         ORDER BY id",
+    )
+    .unwrap()
+    .query_map(params![account_id], |row| row.get(0))
+    .unwrap()
+    .collect::<rusqlite::Result<_>>()
+    .unwrap()
+}
+
+struct OnItsWay {
+    conn: Connection,
+    sender: i64,
+    receiver: i64,
+    leg: i64,
+}
+
+fn sent_yesterday_and_imported_from_the_sender() -> OnItsWay {
+    let conn = initialize_in_memory().unwrap();
+    let sender = account_at_10_000(&conn);
+    let receiver = account_at_10_000(&conn);
+    import_with_default_ticks_removing_cancelled_holds(
+        &conn,
+        sender,
+        &[transfer_row(&days_ago(1), -1_500, receiver)],
+    );
+    let [leg] = transfer_legs(&conn, receiver)[..] else {
+        panic!("the sender's import adds one leg on the receiver");
+    };
+    OnItsWay {
+        conn,
+        sender,
+        receiver,
+        leg,
+    }
+}
+
+#[test]
+fn a_transfer_the_receiving_bank_has_not_listed_is_named_as_not_arrived() {
+    let way = sent_yesterday_and_imported_from_the_sender();
+
+    let found = causes(&way.conn, way.receiver, 11_500, 10_000).unwrap();
+
+    assert!(
+        matches!(
+            found.as_slice(),
+            [DifferenceCause::NotArrived { row }]
+                if row.target == TransferTarget::Transfer { event_id: way.leg }
+                    && row.amount_minor == 1_500
+        ),
+        "{found:?}"
+    );
+}
+
+#[test]
+fn a_check_leaving_out_a_transfer_not_arrived_stays_verified_after_the_receiving_import() {
+    let way = sent_yesterday_and_imported_from_the_sender();
+
+    let check_id = confirm_not_arrived(&way.conn, way.receiver, 11_500, vec![way.leg]).unwrap();
+    assert_eq!(
+        way.conn
+            .query_row(
+                "SELECT bank_balance_minor FROM balance_check WHERE id = ?1",
+                params![check_id],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap(),
+        10_000
+    );
+    assert_eq!(
+        verification(&way.conn, way.receiver),
+        verified_today(check_id)
+    );
+
+    std::thread::sleep(CLOCK_TICK);
+    import_with_default_ticks_removing_cancelled_holds(
+        &way.conn,
+        way.receiver,
+        &[transfer_row(&days_ago(0), 1_500, way.sender)],
+    );
+
+    assert_eq!(transfer_legs(&way.conn, way.receiver), vec![way.leg]);
+    assert_eq!(live_balance(&way.conn, way.receiver), 11_500);
+    assert_eq!(
+        verification(&way.conn, way.receiver),
+        verified_today(check_id)
+    );
+
+    std::thread::sleep(CLOCK_TICK);
+    let landed = confirm(&way.conn, way.receiver, 11_500).unwrap();
+    assert_eq!(
+        verification(&way.conn, way.receiver),
+        verified_today(landed)
+    );
+}
+
+#[test]
+fn only_a_transfer_that_may_not_have_arrived_can_be_left_out() {
+    let way = sent_yesterday_and_imported_from_the_sender();
+    let [sent] = transfer_legs(&way.conn, way.sender)[..] else {
+        panic!("the sender has one leg");
+    };
+    let listed = {
+        let way = sent_yesterday_and_imported_from_the_sender();
+        import_with_default_ticks_removing_cancelled_holds(
+            &way.conn,
+            way.receiver,
+            &[transfer_row(&days_ago(0), 1_500, way.sender)],
+        );
+        confirm_not_arrived(&way.conn, way.receiver, 11_500, vec![way.leg])
+    };
+
+    for (case, result) in [
+        (
+            "the sender's own leg",
+            confirm_not_arrived(&way.conn, way.receiver, 11_500, vec![sent]),
+        ),
+        ("a leg the receiving import listed", listed),
+    ] {
+        let error = result.expect_err(case);
+        assert_eq!(error.code, "CHECK_CHANGED", "{case}");
+    }
+    assert_eq!(checks_of(&way.conn, way.receiver), 0);
+}
+
+#[test]
+fn the_storage_leaves_out_only_a_transfer_on_the_checked_account() {
+    let way = sent_yesterday_and_imported_from_the_sender();
+    let [sent] = transfer_legs(&way.conn, way.sender)[..] else {
+        panic!("the sender has one leg");
+    };
+    let cash = cashflow(
+        &way.conn,
+        way.receiver,
+        -100,
+        "2026-11-01",
+        BEFORE_THE_CHECK,
+    );
+    let check_id = check_at(&way.conn, way.receiver, 11_400, CHECKED_AT, CHECK_DAY).unwrap();
+
+    for event_id in [sent, cash] {
+        let refused = refusal(insert_not_arrived(
+            &way.conn,
+            InsertNotArrivedParams {
+                check_id,
+                event_ids: &[event_id],
+            },
+        ));
+        assert_eq!(
+            refused.message,
+            "Only a transfer on the checked account can be left out of a check."
+        );
     }
 }

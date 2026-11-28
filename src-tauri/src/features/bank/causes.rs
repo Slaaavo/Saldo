@@ -5,10 +5,12 @@ use std::collections::{BTreeMap, HashSet};
 use chrono::NaiveDate;
 
 use super::models::{
-    BankLine, CashflowTarget, DifferenceCause, RowTarget, UnexplainedDifferenceTarget,
+    BankLine, CashflowTarget, DifferenceCause, RowTarget, TransferTarget,
+    UnexplainedDifferenceTarget,
 };
 
 const NEAR_COPY_DAYS: i64 = 5;
+const NOT_ARRIVED_DAYS: i64 = 5;
 const STALE_IMPORT_DAYS: i64 = 3;
 const MAX_PER_KIND: usize = 5;
 
@@ -31,6 +33,17 @@ pub(crate) struct CountedRow {
     pub note: Option<String>,
     pub counterpart_name: Option<String>,
     pub changed_at: String,
+    pub has_bank_entry: bool,
+}
+
+/// A transfer received on this account that its own bank has not listed yet, dated recently
+/// enough that the bank may still be on the way to showing it.
+pub(crate) fn may_not_have_arrived(row: &CountedRow, today: NaiveDate) -> bool {
+    row.flow == FlowType::Transfer
+        && row.split_group_id.is_none()
+        && row.amount_minor > 0
+        && !row.has_bank_entry
+        && day_of(&row.event_date).is_some_and(|day| (today - day).num_days() <= NOT_ARRIVED_DAYS)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -51,6 +64,7 @@ pub(crate) fn find_causes(
     rows: Vec<CountedRow>,
     since: Option<&str>,
     stale_import: Option<StaleImport>,
+    today: NaiveDate,
 ) -> Vec<DifferenceCause> {
     let mut causes: Vec<DifferenceCause> = stale_import
         .map(|hint| DifferenceCause::StaleImport {
@@ -63,6 +77,11 @@ pub(crate) fn find_causes(
         Some(amount) => amount,
     };
 
+    let travelling: HashSet<LineKey> = rows
+        .iter()
+        .filter(|row| may_not_have_arrived(row, today))
+        .map(|row| LineKey::Event(row.event_id))
+        .collect();
     let (booked, lines): (Vec<CountedLine>, Vec<CountedLine>) = counted_lines(rows)
         .into_iter()
         .partition(|counted| counted.booked_difference().is_some());
@@ -73,6 +92,14 @@ pub(crate) fn find_causes(
         .collect();
     let is_suspect =
         |counted: &CountedLine| since.is_none_or(|since| counted.changed_at.as_str() > since);
+
+    let mut not_arrived: Vec<(&CountedLine, BankLine<TransferTarget>)> = lines
+        .iter()
+        .filter(|counted| {
+            travelling.contains(&counted.key) && counted.line.amount_minor == closing_amount
+        })
+        .filter_map(|counted| Some((counted, counted.transfer()?)))
+        .collect();
 
     let mut near_copies: Vec<(&CountedLine, &CountedLine)> = Vec::new();
     let mut equals_gap: Vec<&CountedLine> = Vec::new();
@@ -92,6 +119,7 @@ pub(crate) fn find_causes(
                     near_copies.push((row, copy_of));
                 }
             }
+            None if travelling.contains(&counted.key) => {}
             None => equals_gap.push(counted),
         }
     }
@@ -103,11 +131,18 @@ pub(crate) fn find_causes(
         .filter_map(|counted| Some((counted, counted.flippable()?)))
         .collect();
 
+    not_arrived.sort_by(|a, b| newest_first(a.0, b.0));
     explained.sort_by(|a, b| newest_first(a.0, b.0));
     near_copies.sort_by(|a, b| newest_first(a.0, b.0));
     flipped.sort_by(|a, b| newest_first(a.0, b.0));
     equals_gap.sort_by(|a, b| newest_first(a, b));
 
+    causes.extend(
+        not_arrived
+            .into_iter()
+            .take(MAX_PER_KIND)
+            .map(|(_, row)| DifferenceCause::NotArrived { row }),
+    );
     causes.extend(
         explained
             .into_iter()
@@ -159,6 +194,15 @@ impl CountedLine {
                 if !self.has_linked_event && !self.has_original_amount =>
             {
                 Some(self.line_with(CashflowTarget::Cashflow { event_id }))
+            }
+            _ => None,
+        }
+    }
+
+    fn transfer(&self) -> Option<BankLine<TransferTarget>> {
+        match self.line.target {
+            RowTarget::Transfer { event_id } => {
+                Some(self.line_with(TransferTarget::Transfer { event_id }))
             }
             _ => None,
         }
@@ -301,7 +345,25 @@ mod tests {
             note: Some(format!("row {event_id}")),
             counterpart_name: None,
             changed_at: changed_at.to_owned(),
+            has_bank_entry: false,
         }
+    }
+
+    fn received(event_id: i64, day: &str, changed_at: &str) -> CountedRow {
+        CountedRow {
+            flow: FlowType::Transfer,
+            has_linked_event: true,
+            ..cashflow(event_id, GAP, day, changed_at)
+        }
+    }
+
+    fn transfer_line(event_id: i64, amount_minor: i64, day: &str) -> BankLine {
+        bank_line(
+            RowTarget::Transfer { event_id },
+            amount_minor,
+            day,
+            &format!("row {event_id}"),
+        )
     }
 
     fn booked(event_id: i64, amount_minor: i64, day: &str, changed_at: &str) -> CountedRow {
@@ -354,8 +416,69 @@ mod tests {
         )
     }
 
+    fn today() -> NaiveDate {
+        NaiveDate::from_ymd_opt(2026, 11, 14).unwrap()
+    }
+
     fn causes_of(bank_minus_saldo_minor: i64, rows: Vec<CountedRow>) -> Vec<DifferenceCause> {
-        find_causes(bank_minus_saldo_minor, rows, Some(SINCE), None)
+        find_causes(bank_minus_saldo_minor, rows, Some(SINCE), None, today())
+    }
+
+    #[test]
+    fn a_received_transfer_its_bank_has_not_listed_is_named_as_not_arrived_instead_of_deleted() {
+        let causes = causes_of(-GAP, vec![received(1, "2026-11-09", BEFORE)]);
+
+        assert_eq!(
+            causes,
+            vec![DifferenceCause::NotArrived {
+                row: bank_line(
+                    TransferTarget::Transfer { event_id: 1 },
+                    GAP,
+                    "2026-11-09",
+                    "row 1"
+                )
+            }]
+        );
+    }
+
+    #[test]
+    fn a_transfer_its_bank_listed_sent_or_older_than_5_days_is_only_a_row_equal_to_the_gap() {
+        let listed = CountedRow {
+            has_bank_entry: true,
+            ..received(1, "2026-11-13", AFTER)
+        };
+        let sent = CountedRow {
+            amount_minor: -GAP,
+            ..received(2, "2026-11-13", AFTER)
+        };
+        let old = received(3, "2026-11-08", AFTER);
+        let split = CountedRow {
+            split_group_id: Some(7),
+            ..received(4, "2026-11-13", AFTER)
+        };
+
+        assert_eq!(
+            causes_of(-GAP, vec![listed]),
+            vec![DifferenceCause::EqualsGap {
+                row: transfer_line(1, GAP, "2026-11-13")
+            }]
+        );
+        assert_eq!(
+            causes_of(GAP, vec![sent]),
+            vec![DifferenceCause::EqualsGap {
+                row: transfer_line(2, -GAP, "2026-11-13")
+            }]
+        );
+        assert_eq!(
+            causes_of(-GAP, vec![old]),
+            vec![DifferenceCause::EqualsGap {
+                row: transfer_line(3, GAP, "2026-11-08")
+            }]
+        );
+        assert!(matches!(
+            causes_of(-GAP, vec![split]).as_slice(),
+            [DifferenceCause::EqualsGap { .. }]
+        ));
     }
 
     #[test]
@@ -497,7 +620,7 @@ mod tests {
         let rows = vec![cashflow(1, -GAP, "2020-01-01", BEFORE)];
 
         assert_eq!(
-            find_causes(GAP, rows, None, None),
+            find_causes(GAP, rows, None, None, today()),
             vec![DifferenceCause::EqualsGap {
                 row: row(1, -GAP, "2020-01-01")
             }]
@@ -608,6 +731,33 @@ mod tests {
     }
 
     #[test]
+    fn a_transfer_not_arrived_comes_before_booked_differences_and_rows_equal_to_the_gap() {
+        let rows = vec![
+            cashflow(1, GAP, "2026-11-01", AFTER),
+            booked(2, GAP, "2026-10-01", BEFORE),
+            received(3, "2026-11-12", AFTER),
+        ];
+
+        assert_eq!(
+            causes_of(-GAP, rows),
+            vec![
+                DifferenceCause::NotArrived {
+                    row: bank_line(
+                        TransferTarget::Transfer { event_id: 3 },
+                        GAP,
+                        "2026-11-12",
+                        "row 3"
+                    )
+                },
+                explained(2, GAP, "2026-10-01"),
+                DifferenceCause::EqualsGap {
+                    row: row(1, GAP, "2026-11-01")
+                },
+            ]
+        );
+    }
+
+    #[test]
     fn the_hint_comes_first_then_booked_differences_copies_flipped_signs_and_rows_equal_to_the_gap()
     {
         let rows = vec![
@@ -622,7 +772,7 @@ mod tests {
         };
 
         assert_eq!(
-            find_causes(2 * GAP, rows, Some(SINCE), Some(hint)),
+            find_causes(2 * GAP, rows, Some(SINCE), Some(hint), today()),
             vec![
                 DifferenceCause::StaleImport {
                     newest_day: Some("2026-11-12".to_owned())
@@ -648,7 +798,7 @@ mod tests {
         let hint = StaleImport { newest_day: None };
 
         assert_eq!(
-            find_causes(0, rows, Some(SINCE), Some(hint)),
+            find_causes(0, rows, Some(SINCE), Some(hint), today()),
             vec![DifferenceCause::StaleImport { newest_day: None }]
         );
     }

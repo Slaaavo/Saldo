@@ -29,6 +29,7 @@ pub(crate) fn verification_of(
         conn,
         BalanceSeenByCheckParams {
             account_id,
+            check_id: Some(newest.id),
             checked_at: newest.checked_at,
             day: newest.day.clone(),
         },

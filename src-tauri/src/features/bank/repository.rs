@@ -65,6 +65,8 @@ fn amount_at_check(e: &str, ed: &str) -> String {
 
 pub struct BalanceSeenByCheckParams {
     pub account_id: i64,
+    /// None for a check being made now, which leaves no transfer out yet.
+    pub check_id: Option<i64>,
     pub checked_at: String,
     pub day: String,
 }
@@ -106,18 +108,46 @@ pub fn balance_seen_by_check(
 ) -> rusqlite::Result<i64> {
     let balance = balance_sql(
         ":account_id",
-        |e, ed| format!("{e}.created_at <= :checked_at OR substr({ed}.event_date, 1, 10) < :day"),
+        |e, ed| {
+            format!(
+                "({e}.created_at <= :checked_at OR substr({ed}.event_date, 1, 10) < :day)
+                 AND NOT EXISTS (
+                   SELECT 1
+                   FROM balance_check_not_arrived not_arrived
+                   WHERE not_arrived.check_id = :check_id
+                     AND not_arrived.event_id = {e}.id
+                 )"
+            )
+        },
         &HOLDS_AS_AT_CHECK,
     );
     conn.query_row(
         &format!("SELECT {balance}"),
         named_params! {
             ":account_id": params.account_id,
+            ":check_id": params.check_id,
             ":checked_at": params.checked_at,
             ":day": params.day,
         },
         |row| row.get(0),
     )
+}
+
+pub struct InsertNotArrivedParams<'a> {
+    pub check_id: i64,
+    pub event_ids: &'a [i64],
+}
+
+pub fn insert_not_arrived(
+    conn: &Connection,
+    params: InsertNotArrivedParams<'_>,
+) -> rusqlite::Result<()> {
+    let mut stmt =
+        conn.prepare("INSERT INTO balance_check_not_arrived (check_id, event_id) VALUES (?1, ?2)")?;
+    for event_id in params.event_ids {
+        stmt.execute(params![params.check_id, event_id])?;
+    }
+    Ok(())
 }
 
 pub fn clock_now(conn: &Connection) -> rusqlite::Result<String> {
@@ -222,7 +252,8 @@ pub fn counted_flow_rows(conn: &Connection, account_id: i64) -> rusqlite::Result
                 ed.amount_minor, ed.event_date,
                 CASE WHEN e.split_group_id IS NULL THEN ed.note ELSE COALESCE(sg.note, ed.note) END,
                 counter_a.name,
-                MAX(e.created_at, ed.created_at)
+                MAX(e.created_at, ed.created_at),
+                EXISTS (SELECT 1 FROM bank_entry be WHERE be.event_id = e.id)
          FROM event e
          JOIN event_data ed ON ed.id = e.latest_data_id
          LEFT JOIN split_group sg ON sg.id = e.split_group_id
@@ -243,6 +274,7 @@ pub fn counted_flow_rows(conn: &Connection, account_id: i64) -> rusqlite::Result
             note: row.get(7)?,
             counterpart_name: row.get(8)?,
             changed_at: row.get(9)?,
+            has_bank_entry: row.get(10)?,
         })
     })?;
     rows.collect()

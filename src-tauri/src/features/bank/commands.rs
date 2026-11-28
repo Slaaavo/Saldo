@@ -1,3 +1,5 @@
+use std::collections::{BTreeSet, HashMap};
+
 use rusqlite::Connection;
 use serde::Deserialize;
 use tauri::State;
@@ -6,8 +8,8 @@ use super::causes;
 use super::checks::verification_of;
 use super::models::{BookedDifference, DifferenceCause, Verification};
 use super::repository::{
-    self, BalanceSeenByCheckParams, InsertCheckParams, InsertUnexplainedDifferenceParams,
-    NewestFlowDayParams,
+    self, BalanceSeenByCheckParams, InsertCheckParams, InsertNotArrivedParams,
+    InsertUnexplainedDifferenceParams, NewestFlowDayParams,
 };
 use crate::error::AppError;
 use crate::features::accounts::repository::get_account_type;
@@ -19,6 +21,8 @@ use crate::AppState;
 pub struct ConfirmBankMatchInput {
     pub account_id: i64,
     pub seen_balance_minor: i64,
+    #[serde(default)]
+    pub not_arrived_event_ids: Vec<i64>,
 }
 
 #[derive(Deserialize)]
@@ -76,15 +80,54 @@ pub(crate) fn confirm_bank_match_inner(
 ) -> Result<i64, AppError> {
     with_savepoint_app(conn, || {
         let live = live_balance_as_seen(conn, input.account_id, input.seen_balance_minor)?;
-        Ok(repository::insert_check(
+        let not_arrived: BTreeSet<i64> = input.not_arrived_event_ids.iter().copied().collect();
+        let not_arrived_minor = not_arrived_minor(conn, input.account_id, &not_arrived)?;
+        let check_id = repository::insert_check(
             conn,
             InsertCheckParams {
                 account_id: input.account_id,
                 day: live.day,
-                bank_balance_minor: live.balance_minor,
+                bank_balance_minor: live.balance_minor - not_arrived_minor,
             },
-        )?)
+        )?;
+        repository::insert_not_arrived(
+            conn,
+            InsertNotArrivedParams {
+                check_id,
+                event_ids: &not_arrived.into_iter().collect::<Vec<_>>(),
+            },
+        )?;
+        Ok(check_id)
     })
+}
+
+fn not_arrived_minor(
+    conn: &Connection,
+    account_id: i64,
+    event_ids: &BTreeSet<i64>,
+) -> Result<i64, AppError> {
+    if event_ids.is_empty() {
+        return Ok(0);
+    }
+    let today = chrono::Local::now().date_naive();
+    let may_not_have_arrived: HashMap<i64, i64> = repository::counted_flow_rows(conn, account_id)?
+        .into_iter()
+        .filter(|row| causes::may_not_have_arrived(row, today))
+        .map(|row| (row.event_id, row.amount_minor))
+        .collect();
+    event_ids
+        .iter()
+        .map(|event_id| {
+            may_not_have_arrived
+                .get(event_id)
+                .copied()
+                .ok_or_else(|| AppError {
+                    code: "CHECK_CHANGED".into(),
+                    message: "This transfer is no longer waiting for the bank. Look at it again."
+                        .into(),
+                })
+        })
+        .sum()
 }
 
 pub(crate) fn book_unexplained_difference_inner(
@@ -168,6 +211,7 @@ pub(crate) fn find_difference_causes_inner(
         repository::counted_flow_rows(conn, input.account_id)?,
         since.as_deref(),
         stale_import,
+        today,
     ))
 }
 
@@ -209,6 +253,7 @@ fn live_balance_as_seen(
         conn,
         BalanceSeenByCheckParams {
             account_id,
+            check_id: None,
             checked_at: repository::clock_now(conn)?,
             day: day.clone(),
         },

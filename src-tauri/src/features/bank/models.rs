@@ -37,6 +37,9 @@ pub enum DifferenceCause {
     StaleImport {
         newest_day: Option<String>,
     },
+    NotArrived {
+        row: BankLine<TransferTarget>,
+    },
     BookedDifferenceExplained {
         row: BankLine<UnexplainedDifferenceTarget>,
     },
@@ -93,4 +96,14 @@ pub enum CashflowTarget {
 )]
 pub enum UnexplainedDifferenceTarget {
     UnexplainedDifference { event_id: i64 },
+}
+
+#[derive(Debug, Serialize, Clone, Copy, PartialEq, Eq)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum TransferTarget {
+    Transfer { event_id: i64 },
 }
