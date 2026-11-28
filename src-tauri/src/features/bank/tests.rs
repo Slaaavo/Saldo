@@ -2698,3 +2698,38 @@ fn a_transfer_the_newest_check_left_out_is_still_offered_as_not_arrived() {
         "{found:?}"
     );
 }
+
+#[test]
+fn a_transfer_on_its_way_beside_an_earlier_one_of_its_amount_is_not_a_copy_to_delete() {
+    let conn = initialize_in_memory().unwrap();
+    let sender = account_at_10_000(&conn);
+    let receiver = account_at_10_000(&conn);
+    import_with_default_ticks_removing_cancelled_holds(
+        &conn,
+        sender,
+        &[transfer_row(&days_ago(3), -1_500, receiver)],
+    );
+    import_with_default_ticks_removing_cancelled_holds(
+        &conn,
+        receiver,
+        &[transfer_row(&days_ago(3), 1_500, sender)],
+    );
+    std::thread::sleep(CLOCK_TICK);
+    confirm(&conn, receiver, 11_500).unwrap();
+    std::thread::sleep(CLOCK_TICK);
+    import_with_default_ticks_removing_cancelled_holds(
+        &conn,
+        sender,
+        &[transfer_row(&days_ago(1), -1_500, receiver)],
+    );
+    let [_, on_its_way] = transfer_legs(&conn, receiver)[..] else {
+        panic!("the receiver has two legs");
+    };
+
+    let found = causes(&conn, receiver, 13_000, 11_500).unwrap();
+
+    assert!(
+        matches!(found.as_slice(), [DifferenceCause::NotArrived { row }] if row.target == TransferTarget::Transfer { event_id: on_its_way }),
+        "{found:?}"
+    );
+}
