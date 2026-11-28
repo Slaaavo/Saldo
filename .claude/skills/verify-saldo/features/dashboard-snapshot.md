@@ -10,7 +10,7 @@ The dashboard opens live. It shows every account, bucket and asset with everythi
 - `snap-fx` converts with the latest stored rate on or before the moment. An account with no rate is left out of the totals and named in the warning panel. A rate older than 7 days (31 for custom units such as VGLD) is named with its date and age and still counts.
 - `snap-bulk-date` shows each balance in Bulk Balance Update as of that dialog's own date.
 - `snap-person` filters the dashboard to one person with the person selector.
-- `snap-in-transit` on a picked day between a transfer's two days (each leg on its own bank's day), the account whose leg comes later shows its bank's balance, and the breakdown adds the transfer back as `In transit from <account>` (`In transit to <account>` for a negative leg), so the total equals the days around it. Live never shows the line.
+- `snap-in-transit` on a picked day between a transfer's two days (each leg on its own bank's day), the account whose leg comes later shows its bank's balance, and the breakdown adds the transfer back as `In transit from <account>` (`In transit to <account>` for a negative leg), so the total equals the days around it. A bucket that links that account earmarks the money too (`via <account>, in transit from <account>` under Left to Spend). Live never shows the line.
 
 ## How to get to it (user POV)
 
